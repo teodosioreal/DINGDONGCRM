@@ -49,7 +49,8 @@ router.get('/auth/eu', (req, res) => {
   res.json({
     usuario: auth.usuarioPublico(req.usuario),
     empresa: empresa ? { id: empresa.id, nome: empresa.nome } : null,
-    provedores: Object.entries(ia.PROVEDORES).map(([id, p]) => ({ id, nome: p.nome, configurado: Boolean(ia.chave(id)) })),
+    // "configurado" aqui = existe chave PADRÃO (opcional); cada empresa tem a sua
+    provedores: Object.entries(ia.PROVEDORES).map(([id, p]) => ({ id, nome: p.nome, configurado: Boolean(ia.chavePadrao(id)) })),
     urlPublica: config.urlPublica || `${req.protocol}://${req.get('host')}${config.basePath}`
   });
 });
@@ -81,7 +82,9 @@ function acharBot(req, res) {
 // ---------------------------------------------------------------- resumo
 
 router.get('/resumo', (req, res) => {
-  const empresasVisiveis = estado.empresas.filter((e) => podeVerEmpresa(req, e.id));
+  const empresasVisiveis = estado.empresas
+    .filter((e) => podeVerEmpresa(req, e.id))
+    .filter((e) => !req.query.empresaId || e.id === req.query.empresaId);
   const ids = new Set(empresasVisiveis.map((e) => e.id));
   const bots = estado.bots.filter((b) => ids.has(b.empresaId));
   const conversas = estado.conversas.filter((c) => ids.has(c.empresaId));
@@ -109,29 +112,128 @@ function dadosEmpresa(body) {
   };
 }
 
+function mascarar(k) {
+  return k ? `••••${k.slice(-4)}` : '';
+}
+
+// Situação das chaves de IA de uma empresa — NUNCA devolve a chave em si
+function situacaoChavesEmpresa(e) {
+  const saida = {};
+  for (const provedor of Object.keys(ia.PROVEDORES)) {
+    const propria = ia.chaveDaEmpresa(provedor, e);
+    const padrao = ia.chavePadrao(provedor);
+    saida[provedor] = {
+      propria: Boolean(propria),
+      final: mascarar(propria),
+      usaPadrao: !propria && Boolean(padrao),
+      funciona: Boolean(propria || padrao)
+    };
+  }
+  return saida;
+}
+
+// Configuração de conversões (Meta/Google Ads). Ligado por padrão.
+function conversoesDe(e) {
+  const c = e.conversoes || {};
+  return {
+    metaLead: c.metaLead !== false,
+    metaPixelId: c.metaPixelId || '',
+    googleLead: c.googleLead !== false,
+    googleSendTo: c.googleSendTo || '',
+    valor: Number(c.valor) || 0
+  };
+}
+
+// Empresa como o painel vê: sem as chaves de IA
 function empresaComExtras(e) {
   const bots = estado.bots.filter((b) => b.empresaId === e.id);
   const principal = bots.find((b) => b.principal) || bots[0];
-  return { ...e, assistentes: bots.length, principalBotId: principal?.id || null };
+  const { chavesIa, ...resto } = e;
+  return {
+    ...resto,
+    conversoes: conversoesDe(e),
+    chaves: situacaoChavesEmpresa(e),
+    assistentes: bots.length,
+    principalBotId: principal?.id || null
+  };
+}
+
+function acharEmpresa(req, res) {
+  const empresa = estado.empresas.find((e) => e.id === req.params.id);
+  if (!empresa || !podeVerEmpresa(req, empresa.id)) {
+    res.status(404).json({ erro: 'Empresa não encontrada.' });
+    return null;
+  }
+  return empresa;
 }
 
 router.get('/empresas', (req, res) => {
   res.json(estado.empresas.filter((e) => podeVerEmpresa(req, e.id)).map(empresaComExtras));
 });
 
+router.get('/empresas/:id', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(empresaComExtras(empresa));
+});
+
+// Chaves de IA da empresa (a própria empresa ou o admin podem cadastrar)
+router.put('/empresas/:id/chaves', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  empresa.chavesIa = empresa.chavesIa || {};
+  for (const [provedor, campo] of Object.entries(ia.CAMPO_CHAVE)) {
+    const valor = texto(req.body?.[campo], 300);
+    if (valor) empresa.chavesIa[campo] = valor;
+    if ((req.body?.remover || []).includes(provedor)) delete empresa.chavesIa[campo];
+  }
+  salvar();
+  res.json(empresaComExtras(empresa));
+});
+
+router.post('/empresas/:id/chaves/testar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json({ ok: true, mensagem: await ia.testarChave(ia.normalizarProvedor(req.body?.provedor), empresa) });
+  } catch (err) {
+    res.status(400).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
+// Conversões disparadas quando o visitante vai do chat para o WhatsApp
+router.put('/empresas/:id/conversoes', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  const pixel = texto(b.metaPixelId, 30).replace(/\D/g, '');
+  const sendTo = texto(b.googleSendTo, 80).replace(/\s/g, '');
+  if (sendTo && !/^AW-\d+\/[\w-]+$/.test(sendTo)) {
+    return res.status(400).json({ erro: 'Rótulo do Google Ads inválido. Formato: AW-123456789/AbCdEfGh (ID da conta / rótulo da conversão).' });
+  }
+  empresa.conversoes = {
+    metaLead: b.metaLead !== false,
+    metaPixelId: pixel,
+    googleLead: b.googleLead !== false,
+    googleSendTo: sendTo,
+    valor: Math.max(0, Math.min(1e6, Number(String(b.valor || '0').replace(',', '.')) || 0))
+  };
+  salvar();
+  res.json(empresaComExtras(empresa));
+});
+
 // Provedor usado por padrão em assistentes novos: o primeiro que tem chave
-function provedorPadrao() {
-  return ia.provedoresConfigurados()[0] || 'anthropic';
+function provedorPadrao(empresa) {
+  return ia.provedoresConfigurados(empresa)[0] || 'anthropic';
 }
 
 router.post('/empresas', auth.exigirAdmin, (req, res) => {
   const dados = dadosEmpresa(req.body || {});
   if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
-  const empresa = { id: novoId('emp'), ...dados, criadoEm: agora() };
+  const empresa = { id: novoId('emp'), ...dados, chavesIa: {}, criadoEm: agora() };
   estado.empresas.push(empresa);
 
   // Já cria o assistente principal, para o código da empresa funcionar de cara
-  const provedor = provedorPadrao();
+  const provedor = provedorPadrao(empresa);
   estado.bots.push({
     id: novoId('bot'),
     empresaId: empresa.id,
@@ -166,7 +268,7 @@ router.put('/empresas/:id', auth.exigirAdmin, (req, res) => {
   if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
   Object.assign(empresa, dados, { atualizadoEm: agora() });
   salvar();
-  res.json(empresa);
+  res.json(empresaComExtras(empresa));
 });
 
 router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
@@ -187,7 +289,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
 
 // ---------------------------------------------------------------- assistentes
 
-const CAMPOS_SO_ADMIN = ['provedor', 'modelo', 'limiteDiario', 'limiteConversa', 'empresaId'];
+const CAMPOS_SO_ADMIN = ['limiteDiario', 'limiteConversa', 'empresaId'];
 
 function dadosBot(body, req) {
   const dados = {
@@ -205,12 +307,13 @@ function dadosBot(body, req) {
     mensagemWhatsappPadrao: texto(body.mensagemWhatsappPadrao, 300),
     dominios: listaDominios(body.dominios),
     ativo: body.ativo !== false,
-    principal: body.principal === true
+    principal: body.principal === true,
+    // cada empresa paga a própria IA, então ela mesma escolhe provedor e modelo
+    provedor: ia.normalizarProvedor(body.provedor),
+    modelo: ia.normalizarModelo(ia.normalizarProvedor(body.provedor), body.modelo)
   };
   if (ehAdmin(req)) {
     dados.empresaId = String(body.empresaId || '');
-    dados.provedor = ia.normalizarProvedor(body.provedor);
-    dados.modelo = ia.normalizarModelo(dados.provedor, body.modelo);
     dados.limiteDiario = inteiro(body.limiteDiario, 500, 1, 100000);
     dados.limiteConversa = inteiro(body.limiteConversa, 40, 1, 500);
   }
@@ -253,7 +356,7 @@ router.post('/bots', (req, res) => {
   if (!ehAdmin(req)) dados.empresaId = req.usuario.empresaId;
   if (!estado.empresas.some((e) => e.id === dados.empresaId)) return res.status(400).json({ erro: 'Escolha a empresa.' });
   if (!dados.nome) return res.status(400).json({ erro: 'Dê um nome para o assistente.' });
-  const provedor = provedorPadrao();
+  const provedor = provedorPadrao(estado.empresas.find((e) => e.id === dados.empresaId));
   const bot = {
     id: novoId('bot'),
     provedor,
@@ -358,10 +461,6 @@ router.get('/conversas/:id', (req, res) => {
 
 // ---------------------------------------------------------------- chaves de IA (só admin)
 
-function mascarar(k) {
-  return k ? `••••${k.slice(-4)}` : '';
-}
-
 function situacaoChaves() {
   const salvas = estado.config || {};
   const item = (campoPainel, campoEnv) => {
@@ -393,14 +492,16 @@ router.put('/config', auth.exigirAdmin, (req, res) => {
 router.post('/config/testar', auth.exigirAdmin, async (req, res) => {
   const provedor = ia.normalizarProvedor(req.body?.provedor);
   try {
-    res.json({ ok: true, mensagem: await ia.testarChave(provedor) });
+    res.json({ ok: true, mensagem: await ia.testarChave(provedor, null) });
   } catch (err) {
     res.status(400).json({ erro: ia.descreverErroIa(err) });
   }
 });
 
 router.get('/ia/modelos', async (req, res) => {
-  res.json(await ia.listarModelos(ia.normalizarProvedor(req.query.provedor)));
+  const empresaId = String(req.query.empresaId || '');
+  const empresa = empresaId && podeVerEmpresa(req, empresaId) ? estado.empresas.find((e) => e.id === empresaId) : null;
+  res.json(await ia.listarModelos(ia.normalizarProvedor(req.query.provedor), empresa));
 });
 
 // ---------------------------------------------------------------- usuários (só admin)

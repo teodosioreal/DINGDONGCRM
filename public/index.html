@@ -5,25 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>DingDong CRM</title>
+  <script>
+    // Aplica o tema escuro antes de desenhar a página, pra não piscar claro→escuro.
+    try {
+      var tema = localStorage.getItem('dingdong_crm_tema');
+      var escuro = tema ? tema === 'escuro' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (escuro) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <header class="topo">
-    <span class="marca">DingDong CRM</span>
-    <nav id="menu">
-      <a href="#/">Início</a>
-      <a href="#/empresas" data-admin>Empresas</a>
-      <a href="#/assistentes">Assistentes</a>
-      <a href="#/conversas">Conversas</a>
-      <a href="#/usuarios" data-admin>Usuários</a>
-      <a href="#/configuracoes" data-admin>Configurações</a>
-    </nav>
-    <div class="usuario">
-      <a href="#/conta" id="nome-usuario" style="color:#fff"></a>
-      <button type="button" class="pequeno" id="sair">Sair</button>
+  <div class="app">
+    <button type="button" class="botao-redondo" id="abrir-menu" title="Abrir menu" aria-label="Abrir menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="cortina" id="cortina"></div>
+    <div class="botoes-canto">
+      <button type="button" class="botao-redondo" id="tema" title="Mudar tema" aria-label="Mudar tema"></button>
     </div>
-  </header>
-  <main id="conteudo"><p class="rotulo">Carregando…</p></main>
+
+    <aside class="lateral" id="lateral">
+      <div class="marca">DingDong <small>CRM · assistentes de IA</small></div>
+      <nav id="menu"></nav>
+      <div class="rodape-menu">
+        <div class="usuario-menu" id="nome-usuario"></div>
+        <a class="item-menu" href="#/conta">Minha conta</a>
+        <button type="button" class="item-menu" id="sair">Sair</button>
+      </div>
+    </aside>
+
+    <main>
+      <div class="conteudo" id="conteudo"><p class="rotulo">Carregando…</p></div>
+    </main>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

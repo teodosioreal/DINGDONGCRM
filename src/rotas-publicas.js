@@ -56,7 +56,16 @@ function enviarConfig(res, bot, empresa) {
     boasVindas: bot.boasVindas || `Olá! Sou o assistente virtual da ${empresa.nome}. Como posso ajudar?`,
     chamada: bot.chamada || '',
     whatsappUrl: linkWhatsapp(numeroWhatsapp(bot, empresa), bot.mensagemWhatsappPadrao || ''),
-    posicao: bot.posicao === 'esquerda' ? 'esquerda' : 'direita'
+    posicao: bot.posicao === 'esquerda' ? 'esquerda' : 'direita',
+    // Conversões ao ir para o WhatsApp (ligadas por padrão)
+    conversoes: {
+      metaLead: empresa.conversoes?.metaLead !== false,
+      metaPixelId: empresa.conversoes?.metaPixelId || '',
+      googleLead: empresa.conversoes?.googleLead !== false,
+      googleSendTo: empresa.conversoes?.googleSendTo || '',
+      valor: Number(empresa.conversoes?.valor) || 0,
+      moeda: 'BRL'
+    }
   });
 }
 
@@ -170,6 +179,12 @@ router.post('/lead', (req, res) => {
   if (conversa && !conversa.lead) {
     conversa.lead = true;
     conversa.leadEm = agora();
+    // o que o widget conseguiu disparar no navegador do visitante
+    conversa.conversoes = {
+      meta: req.body?.meta === true,
+      google: req.body?.google === true,
+      gtm: req.body?.gtm === true
+    };
     salvar();
   }
   res.json({ ok: true });

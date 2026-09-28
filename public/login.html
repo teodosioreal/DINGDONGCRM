@@ -5,23 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Entrar · DingDong CRM</title>
+  <script>
+    try {
+      var tema = localStorage.getItem('dingdong_crm_tema');
+      var escuro = tema ? tema === 'escuro' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (escuro) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <div class="pagina-login">
     <form class="card" id="form">
-      <h1>DingDong CRM</h1>
-      <p class="rotulo" style="margin-top:-6px">Assistentes de IA para os sites dos seus clientes</p>
-      <div class="campo" style="margin-top:16px">
+      <h1>DingDong</h1>
+      <p class="sub">CRM · assistentes de IA</p>
+      <div class="campo">
         <label for="email">E-mail</label>
         <input id="email" type="email" autocomplete="username" required>
       </div>
-      <div class="campo" style="margin-top:12px">
+      <div class="campo" style="margin-top:16px">
         <label for="senha">Senha</label>
         <input id="senha" type="password" autocomplete="current-password" required>
       </div>
-      <p id="erro" class="alerta" hidden style="margin:14px 0 0"></p>
-      <div class="acoes"><button class="primario" type="submit" style="width:100%;justify-content:center">Entrar</button></div>
+      <p id="erro" class="erro-caixa" hidden style="margin:16px 0 0"></p>
+      <button class="primario" type="submit">Entrar</button>
     </form>
   </div>
   <script>
@@ -31,6 +38,7 @@
       erro.hidden = true;
       const botao = e.target.querySelector('button');
       botao.disabled = true;
+      botao.textContent = 'Entrando…';
       try {
         const r = await fetch('api/auth/login', {
           method: 'POST',
@@ -48,6 +56,7 @@
         erro.hidden = false;
       } finally {
         botao.disabled = false;
+        botao.textContent = 'Entrar';
       }
     });
   </script>

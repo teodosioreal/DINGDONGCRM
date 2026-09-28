@@ -27,33 +27,43 @@ const MARCADOR_WHATSAPP = /\[\[WHATSAPP\]\]\s*([\s\S]*)$/;
 
 // ---------------------------------------------------------------- chaves
 
-// A chave salva no painel (Configurações) tem prioridade sobre a do .env
-function chave(provedor) {
-  const salvas = estado.config || {};
-  if (provedor === 'gemini') return salvas.geminiApiKey || config.geminiApiKey || '';
-  return salvas.anthropicApiKey || config.anthropicApiKey || '';
+const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', gemini: 'geminiApiKey' };
+
+// Chave usada para uma empresa: a que a própria empresa cadastrou; se ela não
+// tiver, usa a chave padrão opcional (Configurações do administrador ou .env).
+function chaveDaEmpresa(provedor, empresa) {
+  return (empresa?.chavesIa || {})[CAMPO_CHAVE[provedor]] || '';
 }
 
-function provedoresConfigurados() {
-  return Object.keys(PROVEDORES).filter((p) => Boolean(chave(p)));
+function chavePadrao(provedor) {
+  const salvas = estado.config || {};
+  return salvas[CAMPO_CHAVE[provedor]] || config[CAMPO_CHAVE[provedor]] || '';
+}
+
+function chave(provedor, empresa) {
+  return chaveDaEmpresa(provedor, empresa) || chavePadrao(provedor);
+}
+
+function provedoresConfigurados(empresa) {
+  return Object.keys(PROVEDORES).filter((p) => Boolean(chave(p, empresa)));
 }
 
 function erroSemChave(provedor) {
-  const erro = new Error(`A chave do ${PROVEDORES[provedor].nome} não está configurada (painel → Configurações).`);
+  const erro = new Error(`A empresa ainda não cadastrou a chave do ${PROVEDORES[provedor].nome} (painel → empresa → Chave de IA).`);
   erro.status = 503;
   return erro;
 }
 
-let clienteAnthropic = null;
-let chaveDoCliente = null;
-function obterClienteAnthropic() {
-  const k = chave('anthropic');
+// um cliente por chave (cada empresa pode ter a sua)
+const clientesAnthropic = new Map();
+function obterClienteAnthropic(empresa) {
+  const k = chave('anthropic', empresa);
   if (!k) throw erroSemChave('anthropic');
-  if (!clienteAnthropic || chaveDoCliente !== k) {
-    clienteAnthropic = new Anthropic({ apiKey: k, maxRetries: 2 });
-    chaveDoCliente = k;
+  if (!clientesAnthropic.has(k)) {
+    if (clientesAnthropic.size > 200) clientesAnthropic.clear();
+    clientesAnthropic.set(k, new Anthropic({ apiKey: k, maxRetries: 2 }));
   }
-  return clienteAnthropic;
+  return clientesAnthropic.get(k);
 }
 
 // ---------------------------------------------------------------- modelos
@@ -68,8 +78,8 @@ function normalizarModelo(provedor, modelo) {
   return /^[a-z0-9][a-z0-9.\-]{1,80}$/i.test(m) ? m : MODELO_PADRAO.gemini;
 }
 
-async function chamarGemini(caminho, opcoes = {}) {
-  const k = chave('gemini');
+async function chamarGemini(empresa, caminho, opcoes = {}) {
+  const k = chave('gemini', empresa);
   if (!k) throw erroSemChave('gemini');
   let res;
   try {
@@ -94,25 +104,27 @@ async function chamarGemini(caminho, opcoes = {}) {
   return dados;
 }
 
-let cacheGemini = { em: 0, chave: '', lista: null };
-// Modelos de texto que a chave do Google pode usar (cache de 10 minutos)
-async function listarModelosGemini() {
-  const k = chave('gemini');
-  if (cacheGemini.lista && cacheGemini.chave === k && Date.now() - cacheGemini.em < 10 * 60 * 1000) return cacheGemini.lista;
-  const dados = await chamarGemini('models?pageSize=1000');
+// Modelos de texto que a chave do Google pode usar (cache de 10 minutos por chave)
+const cacheGemini = new Map();
+async function listarModelosGemini(empresa, forcar) {
+  const k = chave('gemini', empresa);
+  const guardado = cacheGemini.get(k);
+  if (!forcar && guardado && Date.now() - guardado.em < 10 * 60 * 1000) return guardado.lista;
+  const dados = await chamarGemini(empresa, 'models?pageSize=1000');
   const lista = (dados.models || [])
     .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
     .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), nome: m.displayName || m.name }))
     .filter((m) => /gemini/i.test(m.id) && !/(embedding|tts|image|audio|live|vision)/i.test(m.id))
     .sort((a, b) => a.id.localeCompare(b.id));
-  cacheGemini = { em: Date.now(), chave: k, lista };
+  if (cacheGemini.size > 200) cacheGemini.clear();
+  cacheGemini.set(k, { em: Date.now(), lista });
   return lista;
 }
 
-async function listarModelos(provedor) {
+async function listarModelos(provedor, empresa) {
   if (provedor === 'gemini') {
     try {
-      const lista = await listarModelosGemini();
+      const lista = await listarModelosGemini(empresa);
       return { modelos: lista.length ? lista : MODELOS_GEMINI_SUGERIDOS, daChave: lista.length > 0 };
     } catch (err) {
       return { modelos: MODELOS_GEMINI_SUGERIDOS, daChave: false, aviso: descreverErroIa(err) };
@@ -121,15 +133,14 @@ async function listarModelos(provedor) {
   return { modelos: MODELOS_CLAUDE, daChave: false };
 }
 
-// Confere se a chave funciona sem gastar créditos (só lista modelos)
-async function testarChave(provedor) {
+// Confere se a chave funciona sem gastar créditos (só lista modelos).
+// `empresa` pode ser null para testar a chave padrão.
+async function testarChave(provedor, empresa) {
   if (provedor === 'gemini') {
-    cacheGemini = { em: 0, chave: '', lista: null };
-    const lista = await listarModelosGemini();
+    const lista = await listarModelosGemini(empresa, true);
     return `Chave do Gemini funcionando (${lista.length} modelos de texto disponíveis).`;
   }
-  const client = obterClienteAnthropic();
-  await client.models.list({ limit: 1 });
+  await obterClienteAnthropic(empresa).models.list({ limit: 1 });
   return 'Chave do Claude funcionando.';
 }
 
@@ -193,8 +204,8 @@ const RESPOSTA_RECUSA = 'Desculpe, não consigo ajudar com isso por aqui. Posso 
 
 // ---------------------------------------------------------------- provedores
 
-async function responderClaude(bot, sistema, turnos) {
-  const client = obterClienteAnthropic();
+async function responderClaude(empresa, bot, sistema, turnos) {
+  const client = obterClienteAnthropic(empresa);
   const modelo = normalizarModelo('anthropic', bot.modelo);
   const params = {
     model: modelo,
@@ -219,9 +230,9 @@ async function responderClaude(bot, sistema, turnos) {
   return { texto };
 }
 
-async function responderGemini(bot, sistema, turnos) {
+async function responderGemini(empresa, bot, sistema, turnos) {
   const modelo = normalizarModelo('gemini', bot.modelo);
-  const dados = await chamarGemini(`models/${encodeURIComponent(modelo)}:generateContent`, {
+  const dados = await chamarGemini(empresa, `models/${encodeURIComponent(modelo)}:generateContent`, {
     method: 'POST',
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: sistema }] },
@@ -252,7 +263,7 @@ async function responder(bot, empresa, historico) {
   const sistema = montarPromptSistema(bot, empresa);
   const provedor = normalizarProvedor(bot.provedor);
 
-  const bruto = provedor === 'gemini' ? await responderGemini(bot, sistema, turnos) : await responderClaude(bot, sistema, turnos);
+  const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null };
 
   let texto = bruto.texto.trim();
@@ -267,14 +278,14 @@ async function responder(bot, empresa, historico) {
 }
 
 function descreverErroIa(err) {
-  if (err instanceof Anthropic.AuthenticationError) return 'Chave do Claude inválida. Confira em Configurações.';
+  if (err instanceof Anthropic.AuthenticationError) return 'Chave do Claude inválida. Confira a chave de IA da empresa.';
   if (err instanceof Anthropic.RateLimitError) return 'O Claude está recebendo muitas mensagens agora. Tente de novo em instantes.';
   if (err instanceof Anthropic.NotFoundError) return 'Modelo do Claude não encontrado para esta chave.';
   if (err instanceof Anthropic.BadRequestError) return `O Claude recusou o pedido: ${err.message}`;
   if (err instanceof Anthropic.APIError) return `Erro no Claude (HTTP ${err.status}).`;
   if (err.provedor === 'gemini') {
     if (/API_KEY_INVALID|API key not valid/i.test(err.message) || err.status === 401 || err.status === 403) {
-      return 'Chave do Gemini inválida ou sem permissão. Confira em Configurações.';
+      return 'Chave do Gemini inválida ou sem permissão. Confira a chave de IA da empresa.';
     }
     if (err.status === 429) return 'Limite do Gemini atingido (cota da sua chave). Tente de novo mais tarde.';
     if (err.status === 404) return 'Modelo do Gemini não encontrado para esta chave. Escolha outro no assistente.';
@@ -290,6 +301,9 @@ module.exports = {
   listarModelos,
   testarChave,
   chave,
+  chaveDaEmpresa,
+  chavePadrao,
+  CAMPO_CHAVE,
   provedoresConfigurados,
   normalizarProvedor,
   normalizarModelo,
