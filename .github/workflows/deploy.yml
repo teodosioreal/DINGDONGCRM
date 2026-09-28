@@ -61,8 +61,24 @@ jobs:
         run: |
           PORTA="${VPS_PORT:-22}"
           mkdir -p ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
+          # Arruma a chave como ela costuma chegar quando é copiada e colada:
+          # espaços no começo das linhas, quebras de linha do Windows, "\n"
+          # literais ou tudo numa linha só.
+          python3 - <<'PY'
+          import os, re
+          k = os.environ["VPS_SSH_KEY"].replace("\r", "").replace("\\n", "\n").strip()
+          m = re.search(r"(-----BEGIN [A-Z ]+-----)(.*?)(-----END [A-Z ]+-----)", k, re.S)
+          if not m:
+              raise SystemExit("::error::VPS_SSH_KEY não parece uma chave privada: precisa ir da linha -----BEGIN ... até a -----END ... (inclusive).")
+          corpo = "".join(m.group(2).split())
+          linhas = [corpo[i:i + 70] for i in range(0, len(corpo), 70)]
+          path = os.path.expanduser("~/.ssh/id_deploy")
+          with open(path, "w") as f:
+              f.write("\n".join([m.group(1)] + linhas + [m.group(3)]) + "\n")
+          os.chmod(path, 0o600)
+          PY
+          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null \
+            || { echo "::error::A VPS_SSH_KEY cadastrada está incompleta ou corrompida. Cole de novo, da linha BEGIN até a END."; exit 1; }
           ssh-keyscan -p "$PORTA" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # O script vai por um arquivo temporário privado (chmod 600) que é apagado
           # no fim — assim o token não aparece na linha de comando da VPS.
