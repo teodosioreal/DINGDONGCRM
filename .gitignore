@@ -4,3 +4,4 @@ data.json.tmp
 data.json.corrompido-*
 .env
 *.log
+.ultima-atualizacao

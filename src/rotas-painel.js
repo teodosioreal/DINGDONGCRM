@@ -4,6 +4,7 @@
 
 const express = require('express');
 const config = require('./config');
+const { versao } = require('./versao');
 const { estado, salvar, novoId, agora } = require('./db');
 const auth = require('./auth');
 const ia = require('./ia');
@@ -51,7 +52,8 @@ router.get('/auth/eu', (req, res) => {
     empresa: empresa ? { id: empresa.id, nome: empresa.nome } : null,
     // "configurado" aqui = existe chave PADRÃO (opcional); cada empresa tem a sua
     provedores: Object.entries(ia.PROVEDORES).map(([id, p]) => ({ id, nome: p.nome, configurado: Boolean(ia.chavePadrao(id)) })),
-    urlPublica: config.urlPublica || `${req.protocol}://${req.get('host')}${config.basePath}`
+    urlPublica: config.urlPublica || `${req.protocol}://${req.get('host')}${config.basePath}`,
+    versao
   });
 });
 

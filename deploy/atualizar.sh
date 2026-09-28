@@ -74,6 +74,11 @@ responde() {
   return 1
 }
 
+# Data/hora do deploy, mostrada no painel ("Última atualização"). Gravada antes
+# de reiniciar (o painel lê ao subir); se precisar voltar, volta a antiga junto.
+VERSAO_ANTERIOR="$(cat .ultima-atualizacao 2>/dev/null || true)"
+printf '{"em":"%s","commit":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse --short HEAD)" > .ultima-atualizacao
+
 echo "==> Reiniciando só o \"$NOME_PM2\""
 pm2 restart "$NOME_PM2" --update-env >/dev/null
 if responde; then
@@ -84,6 +89,7 @@ fi
 
 echo "!! A versão nova não respondeu em $URL_TESTE. Voltando para a anterior…"
 git reset -q --hard "$ANTES"
+if [ -n "$VERSAO_ANTERIOR" ]; then printf '%s\n' "$VERSAO_ANTERIOR" > .ultima-atualizacao; else rm -f .ultima-atualizacao; fi
 if ! git diff --quiet "$NOVA" "$ANTES" -- package.json package-lock.json; then instalar_dependencias; fi
 pm2 restart "$NOME_PM2" --update-env >/dev/null
 if responde; then

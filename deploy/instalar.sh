@@ -120,6 +120,9 @@ else
   echo "==> .env já existe: mantido como está"
 fi
 
+# data/hora da instalação, mostrada no painel ("Última atualização")
+printf '{"em":"%s","commit":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse --short HEAD)" > .ultima-atualizacao
+
 echo "==> Subindo com pm2 (só o processo \"$NOME_PM2\")"
 if ! command -v pm2 >/dev/null; then
   echo "    pm2 não encontrado; instalando só o pm2"

@@ -945,6 +945,11 @@ async function iniciar() {
     return;
   }
   $('#nome-usuario').textContent = sessao.usuario.email;
+  if (sessao.versao?.em) {
+    const quando = new Date(sessao.versao.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    $('#versao').textContent = `Última atualização: ${quando}`;
+    $('#versao').title = `Versão ${sessao.versao.commit || ''}`.trim();
+  }
   $('#sair').onclick = async () => {
     await api('auth/sair', { method: 'POST' }).catch(() => {});
     location.href = 'login';
