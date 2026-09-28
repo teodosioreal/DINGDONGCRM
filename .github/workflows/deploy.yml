@@ -68,17 +68,27 @@ jobs:
           import os, re
           k = os.environ["VPS_SSH_KEY"].replace("\r", "").replace("\\n", "\n").strip()
           m = re.search(r"(-----BEGIN [A-Z ]+-----)(.*?)(-----END [A-Z ]+-----)", k, re.S)
+          # Diagnóstico SEM mostrar a chave: só tamanhos e se o formato confere
+          print(f"Diagnóstico da VPS_SSH_KEY: {len(k)} caracteres; BEGIN encontrado: {'-----BEGIN' in k}; END encontrado: {'-----END' in k}")
           if not m:
               raise SystemExit("::error::VPS_SSH_KEY não parece uma chave privada: precisa ir da linha -----BEGIN ... até a -----END ... (inclusive).")
           corpo = "".join(m.group(2).split())
+          import base64, binascii
+          try:
+              bruto = base64.b64decode(corpo, validate=True)
+              print(f"Conteúdo: {len(corpo)} caracteres base64 (uma chave ed25519 tem 336); formato OpenSSH: {bruto.startswith(b'openssh-key-v1')}")
+          except binascii.Error:
+              print(f"Conteúdo: {len(corpo)} caracteres, mas com caracteres inválidos (não é base64) — algo diferente foi colado junto.")
           linhas = [corpo[i:i + 70] for i in range(0, len(corpo), 70)]
           path = os.path.expanduser("~/.ssh/id_deploy")
           with open(path, "w") as f:
               f.write("\n".join([m.group(1)] + linhas + [m.group(3)]) + "\n")
           os.chmod(path, 0o600)
           PY
-          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null \
+          ssh-keygen -y -f ~/.ssh/id_deploy > ~/.ssh/id_deploy.pub \
             || { echo "::error::A VPS_SSH_KEY cadastrada está incompleta ou corrompida. Cole de novo, da linha BEGIN até a END."; exit 1; }
+          # impressão digital pública (não é segredo): tem que ser igual à mostrada na VPS pelo ssh-keygen
+          echo "Chave carregada. Impressão digital: $(ssh-keygen -lf ~/.ssh/id_deploy.pub)"
           ssh-keyscan -p "$PORTA" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # O script vai por um arquivo temporário privado (chmod 600) que é apagado
           # no fim — assim o token não aparece na linha de comando da VPS.
