@@ -3,6 +3,7 @@
 const Anthropic = require('@anthropic-ai/sdk').default;
 const config = require('./config');
 const { estado } = require('./db');
+const { numeroDoAtendimento } = require('./util');
 
 const PROVEDORES = {
   anthropic: { nome: 'Claude (Anthropic)' },
@@ -153,7 +154,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const nomeAssistente = bot.nomeAssistente || 'Assistente';
   const nicho = empresa?.nicho ? ` (${empresa.nicho})` : '';
   const tom = bot.tom || 'simpático, próximo e profissional';
-  const temWhatsapp = Boolean(bot.whatsapp || empresa?.whatsapp);
+  const temWhatsapp = Boolean(numeroDoAtendimento(bot, empresa));
   const noWhatsapp = canal === 'whatsapp';
 
   const partes = [
@@ -217,6 +218,16 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       ...etapas.map((e) => `- ${e}`),
       contexto.etapaAtual ? `- O lead está agora na etapa: ${contexto.etapaAtual}.` : '',
       '- Quando o atendimento avançar (ou o cliente desistir), mova o lead escrevendo numa linha separada: [[ETAPA: nome exato da etapa]]. Use só nomes desta lista e só quando a etapa realmente mudar.'
+    );
+  }
+
+  const etiquetas = contexto.etiquetas || [];
+  if (etiquetas.length) {
+    partes.push(
+      '',
+      'Etiquetas que você pode colocar no lead (para a equipe se organizar):',
+      ...etiquetas.map((e) => `- ${e.nome}`),
+      '- Para marcar, escreva numa linha separada: [[ETIQUETA: nome exato]]. Só use nomes desta lista e só quando tiver certeza (ex.: o cliente mostrou muito interesse).'
     );
   }
 
@@ -306,6 +317,11 @@ function extrairAcoes(bruto) {
   const midias = [];
   let etapa = null;
   let humano = false;
+  const etiquetas = [];
+  texto = texto.replace(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
+    etiquetas.push(nome.trim());
+    return '';
+  });
   texto = texto.replace(/\[\[\s*MIDIA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
     midias.push(nome.trim());
     return '';
@@ -325,7 +341,7 @@ function extrairAcoes(bruto) {
     texto = texto.slice(0, marcador.index);
   }
   texto = texto.replace(/\n{3,}/g, '\n\n').trim();
-  return { texto, mensagemWhatsapp, midias, etapa, humano };
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas };
 }
 
 /**
@@ -340,7 +356,7 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   const provedor = normalizarProvedor(bot.provedor);
 
   const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
-  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false };
+  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [] };
 
   const r = extrairAcoes(bruto.texto);
   if (canal === 'whatsapp') r.mensagemWhatsapp = null; // já está no WhatsApp

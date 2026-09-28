@@ -7,6 +7,7 @@ const rotasPublicas = require('./src/rotas-publicas');
 const rotasPainel = require('./src/rotas-painel');
 const { migrarLeads } = require('./src/leads');
 const midias = require('./src/midias');
+const disparos = require('./src/disparos');
 
 garantirAdmin();
 migrarLeads();
@@ -71,6 +72,7 @@ app.use((err, req, res, next) => {
 
 const servidor = app.listen(config.port, config.host, () => {
   console.log(`CRM rodando em http://${config.host}:${config.port}${config.basePath}/`);
+  disparos.retomarAoIniciar();
   if (!require('./src/ia').provedoresConfigurados().length) {
     console.log('Aviso: nenhuma chave de IA configurada — cadastre a do Claude ou do Gemini em Configurações.');
   }

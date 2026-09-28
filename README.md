@@ -23,35 +23,77 @@ caminho `/crm`. O resto do domínio `odingdong.tech` não é tocado.
 ## O que tem
 
 O visual segue o do painel DingDong (menu lateral, tons de cinza, modo escuro
-no botão do canto). Dentro de cada empresa o menu mostra:
+no botão do canto). Pensado para o **próprio empresário configurar**: cada tela
+explica em balões o que fazer, e os campos têm um "?" com a explicação.
 
-- **Painel** — leads dos últimos 7 dias, quantos chegaram no WhatsApp, quantos
-  estão esperando a equipe, o funil por etapa e um passo a passo do que falta
-  configurar.
-- **Leads** — quadro por etapa (Novo → Conversando no site → No WhatsApp →
-  Qualificado → Proposta / agendamento → Fechado / Perdido; dá para editar as
-  etapas). Abrindo um lead: a conversa inteira (site + WhatsApp, marcando quem
-  escreveu: cliente, IA ou equipe), a etapa, o histórico de etapas (quem mudou:
-  IA do site, IA do WhatsApp ou equipe), anotações, **pausar/devolver para a
-  IA** e **responder pelo WhatsApp** direto do painel.
-- **Assistente IA** — qual IA responde (Claude ou Gemini) e o modelo; nome,
-  foto, cor e boas-vindas do chat; **tudo o que a IA precisa saber** (comum às
-  duas IAs); **instruções da IA do site** e **instruções da IA do WhatsApp**;
-  sites autorizados. O **chat de teste** simula as duas IAs e mostra as ações
-  que ela tomaria (enviar mídia, mudar etapa, chamar a equipe).
-- **WhatsApp** — conexão com a Evolution API da empresa (endereço, instância,
-  API key), ver conexão, **QR code** para conectar o número, **ligar o webhook
-  automaticamente** e ligar/desligar a IA no WhatsApp.
-- **Mídias** — fotos, vídeos, PDFs e áudios (até 16 MB) que a IA do WhatsApp
-  pode enviar. O nome e a descrição dizem para a IA quando usar cada um.
-- **Chave de IA** — a chave do Gemini e/ou do Claude **da empresa** (o custo
-  cai na conta dela). Fica só no servidor; o painel mostra só os 4 últimos
-  caracteres.
-- **Instalar no site** — o código da empresa e onde colar em cada plataforma.
+Dentro de cada empresa:
 
-Para o administrador: **Empresas**, **Usuários** (admin ou usuário de empresa,
-que só vê a própria empresa) e **Chave padrão (opcional)** — usada só pelas
-empresas que ainda não têm chave própria.
+- **Início** — os dois atendentes (**IA do site** e **IA do WhatsApp**), cada
+  um com o seu botão liga/desliga: dá para usar os dois juntos ou só um. Mais
+  os **primeiros passos** (com barra de progresso), os números da semana e o
+  funil.
+- **Leads** — quadro por etapa (arraste o cartão para mudar de etapa) ou lista
+  com seleção em massa (mover etapa, colocar etiqueta, apagar, **disparar para
+  os selecionados**). Filtro por etiqueta e busca. **Adicionar** um contato ou
+  **importar vários** (colar "Nome, telefone" de uma planilha). Abrindo um
+  lead: a conversa inteira (site + WhatsApp), etapa, etiquetas, anotações,
+  pausar/devolver para a IA, responder pelo WhatsApp e "não enviar disparos".
+- **Disparos em massa** — em 3 passos: quem recebe (etapas, etiquetas,
+  origem, ou os leads selecionados na lista), a mensagem (com `{nome}`,
+  variações `{Oi|Olá}` e mídia opcional, com prévia no estilo WhatsApp) e
+  quando enviar (agora ou agendado). Acompanhamento ao vivo: enviados, erros,
+  quem respondeu; pausar, continuar e cancelar.
+- **Configurar**
+  - **Sobre a empresa** — o que as duas IAs sabem (serviços, preços,
+    dúvidas), o nome do atendente, o jeito de falar e (avançado) Claude ou
+    Gemini e o modelo. Chat de teste como IA do site ou do WhatsApp.
+  - **IA do site** — o código para colar no site (com o passo a passo de
+    cada plataforma), instruções da IA do site, boas-vindas, aparência,
+    número do WhatsApp e sites autorizados. Chat de teste.
+  - **IA do WhatsApp** — **conectar informando só a Session ID e a API Key**
+    da instância já criada na nossa Evolution API. O CRM confere as duas,
+    mostra foto, nome, número e se está online, e liga o webhook sozinho.
+    QR code se o celular estiver desconectado. Instruções da IA do WhatsApp e
+    chat de teste.
+  - **Mídias** — fotos, vídeos, PDFs e áudios (até 16 MB) que a IA do WhatsApp
+    envia e que podem ir nos disparos.
+  - **Etiquetas e etapas** — criar/renomear/colorir etiquetas; criar,
+    renomear e reordenar as etapas do funil.
+  - **Chave de IA** — a chave do Gemini e/ou do Claude da empresa, com o
+    passo a passo para conseguir.
+
+Para o administrador: **Visão geral**, **Empresas**, **Usuários** (admin ou
+usuário de empresa, que só vê a própria empresa) e **Configurações do
+sistema** (endereço da Evolution API e chave de IA padrão opcional).
+
+### Conectar o WhatsApp (Evolution API)
+
+- O endereço da Evolution fica nas **Configurações do sistema** (ou em
+  `EVOLUTION_API_URL`; padrão `https://api.evolutiondingdong.online`). A
+  empresa não precisa saber dele.
+- A empresa informa a **Session ID** (nome da instância; o ID interno também
+  funciona) e a **API Key** (token da instância). O CRM confere em
+  `/instance/fetchInstances`, que só responde se a API Key for daquela
+  instância.
+- O webhook (`MESSAGES_UPSERT` + `CONNECTION_UPDATE`) é configurado
+  automaticamente. **Se a instância já manda as mensagens para outro sistema**
+  (ex.: o rastreador), o CRM **não troca sem perguntar**: mostra para onde vai
+  hoje e só substitui se a pessoa confirmar. O recomendado é uma instância só
+  para o CRM.
+- "Desconectar do CRM" desliga o webhook (só se ele for do CRM) e invalida o
+  endereço antigo; o número continua conectado na Evolution.
+
+### Disparos em massa: cuidados contra bloqueio
+
+- Só para quem já é lead da empresa (ou foi importado por ela).
+- Uma mensagem por vez, com intervalo sorteado (15–35 s, 30–75 s ou
+  1–2,5 min), "digitando…" antes de cada uma e variações de texto.
+- Por padrão só em horário comercial (8h–20h, horário de Brasília).
+- Rodapé "responda SAIR" (opcional): quem responde SAIR/PARAR não recebe mais
+  disparos e ganha uma confirmação. Dá para marcar isso à mão no lead.
+- Se a conexão cair, o disparo **pausa sozinho** sem perder a fila; se o app
+  reiniciar, continua de onde parou.
+- Quem responde cai no atendimento normal: a IA do WhatsApp continua a conversa.
 
 ### Como as duas IAs se conversam
 
@@ -64,8 +106,9 @@ empresas que ainda não têm chave própria.
 - A IA do WhatsApp recebe o histórico inteiro e é instruída a **não recomeçar**
   a conversa: retoma de onde parou.
 - As IAs podem pedir ações escrevendo marcações que o cliente nunca vê:
-  `[[ETAPA: Qualificado]]` (move o lead), `[[MIDIA: Tabela de preços]]` (envia
-  a mídia com esse nome) e `[[HUMANO]]` (avisa a equipe e para de responder).
+  `[[ETAPA: Qualificado]]` (move o lead), `[[ETIQUETA: Quente]]` (coloca a
+  etiqueta), `[[MIDIA: Tabela de preços]]` (envia a mídia com esse nome) e
+  `[[HUMANO]]` (avisa a equipe e para de responder).
 - Mensagens seguidas do cliente viram **uma resposta só** (a IA espera uns
   segundos ele parar de digitar).
 - Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo, já
@@ -162,38 +205,19 @@ o arquivo não suporta dois processos escrevendo ao mesmo tempo.
 
 ## Usar
 
-1. **Empresas** → nova empresa (nome, nicho, WhatsApp com DDD e o site).
-   O painel da empresa abre com o passo a passo.
-2. **Chave de IA** → cole a chave do Gemini (aistudio.google.com/apikey) e/ou
-   do Claude (console.anthropic.com) da empresa.
-3. **Assistente IA** → escolha Gemini ou Claude, preencha *"Tudo o que a IA
-   precisa saber"*, as **instruções da IA do site** e as **instruções da IA do
-   WhatsApp**, e teste as duas no chat ao lado até ficar bom.
-4. **WhatsApp** → endereço da Evolution API, nome da instância e API key →
-   Salvar → **Conectar (QR code)** (escaneie com o celular da empresa) →
-   **Ligar o webhook automaticamente**.
-5. **Mídias** (opcional) → envie as fotos, vídeos, PDFs e áudios que a IA pode
-   mandar, com um nome e quando usar.
-6. **Instalar no site** → cole o código uma vez no cabeçalho (`<head>`) ou no rodapé:
+1. **Empresas** → nova empresa. Crie um **usuário de empresa** para o dono
+   (Usuários) — ele entra direto na empresa dele.
+2. No **Início** da empresa, siga os **primeiros passos**: chave de IA → sobre
+   a empresa → colar o código no site → conectar o WhatsApp (Session ID + API
+   Key) → mídias (opcional).
+3. Ligue ou desligue a **IA do site** e a **IA do WhatsApp** no Início (ou no
+   topo da página de cada uma).
 
-   ```html
-   <script src="https://odingdong.tech/crm/chat.js" data-empresa="emp_xxxxxxxx" async></script>
-   ```
+O código do site (colado uma vez no `<head>` ou no rodapé) não muda nunca:
 
-   - **WordPress:** plugin "WPCode" → *Header & Footer* → Header ou Footer.
-   - **Lovable:** peça no chat do Lovable "adicione este script em todas as
-     páginas" e cole o código.
-   - **Wix:** Configurações → Código personalizado → todas as páginas.
-   - **HTML:** no `<head>` ou antes de `</body>`.
-   - Opcional: `data-posicao="esquerda"` coloca o botão no canto esquerdo.
-
-   Você pode mudar as IAs, os textos e o modelo quando quiser pelo painel —
-   o código no site continua o mesmo.
-
-**Empresa com mais de um site:** crie outro assistente na mesma empresa e
-cadastre o domínio dele em *Sites autorizados*. O mesmo código da empresa
-mostra esse assistente naquele site e o principal nos demais. (Se precisar
-fixar um assistente específico, use o código avançado com `data-bot`.)
+```html
+<script src="https://odingdong.tech/crm/chat.js" data-empresa="emp_xxxxxxxx" async></script>
+```
 
 ## Custo da IA
 
@@ -218,7 +242,7 @@ direto para o WhatsApp.
 | `PUBLIC_URL` | Endereço público, usado no código de incorporação |
 | `ANTHROPIC_API_KEY` | Chave padrão do Claude (opcional — cada empresa cadastra a sua no painel) |
 | `GEMINI_API_KEY` | Chave padrão do Gemini (opcional — cada empresa cadastra a sua no painel) |
-| `EVOLUTION_API_URL` | Endereço da Evolution API sugerido nas empresas (opcional) |
+| `EVOLUTION_API_URL` | Endereço da Evolution API onde ficam as instâncias (padrão `https://api.evolutiondingdong.online`; também dá para trocar no painel) |
 | `WHATSAPP_ESPERA_MS` | Espera (ms) o cliente parar de digitar antes de a IA responder (padrão 6000) |
 | `MIDIAS_DIR` | Pasta das mídias (padrão `midias/` dentro do app) |
 | `ADMIN_EMAIL` / `ADMIN_SENHA` | Primeiro administrador (criado só uma vez) |
@@ -232,8 +256,9 @@ src/config.js          → lê o .env
 src/db.js              → banco em JSON (data.json), gravação atômica
 src/auth.js            → login, sessões, primeiro admin
 src/ia.js              → prompts da IA do site e do WhatsApp; chama o Claude ou o Gemini
-src/leads.js           → leads, etapas do funil e o código que liga site ↔ WhatsApp
-src/whatsapp.js        → Evolution API: webhook, IA respondendo, mídias, pausa quando a equipe responde
+src/leads.js           → leads, etapas, etiquetas e o código que liga site ↔ WhatsApp
+src/whatsapp.js        → Evolution API: conectar (Session ID + API Key), webhook, IA respondendo, mídias
+src/disparos.js        → disparos em massa (fila, intervalos, horário comercial, SAIR)
 src/midias.js          → biblioteca de mídias de cada empresa
 src/rotas-painel.js    → API do painel (empresas, assistentes, leads, WhatsApp, mídias, usuários)
 src/rotas-publicas.js  → API do widget (config, chat) e webhook do WhatsApp

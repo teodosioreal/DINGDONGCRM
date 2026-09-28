@@ -17,6 +17,8 @@ function estadoInicial() {
     empresas: [],
     bots: [],
     conversas: [],
+    // disparos em massa pelo WhatsApp (campanhas)
+    disparos: [],
     // chaves de IA cadastradas pelo painel: { anthropicApiKey, geminiApiKey }
     config: {},
     // uso diário por assistente: { [botId]: { data: 'AAAA-MM-DD', mensagens: n } }
@@ -59,7 +61,7 @@ function salvarAgora() {
   }
   const tmp = `${dbPath}.tmp`;
   // só o dono do processo lê: o arquivo guarda senhas (hash) e chaves de API
-    fs.writeFileSync(tmp, JSON.stringify(estado, null, 2), { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify(estado, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, dbPath);
 }
 

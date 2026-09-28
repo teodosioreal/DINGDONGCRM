@@ -19,8 +19,10 @@ module.exports = {
   // Chaves das IAs. Também dá para cadastrar pelo painel (Configurações), que tem prioridade.
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  // WhatsApp (Evolution API): endereço padrão sugerido nas empresas novas
-  evolutionUrlPadrao: (process.env.EVOLUTION_API_URL || '').replace(/\/+$/, ''),
+  // WhatsApp (Evolution API) onde ficam as instâncias das empresas. A empresa
+  // só informa a Session ID (nome da instância) e a API Key dela. O admin pode
+  // trocar este endereço pelo painel (Configurações do sistema).
+  evolutionUrlPadrao: (process.env.EVOLUTION_API_URL || 'https://api.evolutiondingdong.online').replace(/\/+$/, ''),
   // espera o cliente parar de digitar antes de a IA responder no WhatsApp
   whatsappEsperaMs: Number(process.env.WHATSAPP_ESPERA_MS) || 6000,
   // arquivos de mídia enviados pela IA (fotos, vídeos, PDFs, áudios)

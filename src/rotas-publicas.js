@@ -6,7 +6,7 @@ const { estado, salvar, novoId, agora } = require('./db');
 const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
-const { linkWhatsapp, dominioPermitido, hostDe, texto, hoje, criarLimitador } = require('./util');
+const { linkWhatsapp, numeroDoAtendimento, dominioPermitido, hostDe, texto, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
 
@@ -43,7 +43,7 @@ function carregarBot(req, res, botId) {
 }
 
 function numeroWhatsapp(bot, empresa) {
-  return bot.whatsapp || empresa.whatsapp || '';
+  return numeroDoAtendimento(bot, empresa);
 }
 
 // Configuração visual que o widget precisa para se desenhar
@@ -135,7 +135,8 @@ router.post('/chat', async (req, res) => {
     const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
       canal: 'site',
       etapas: leads.etapasDa(empresa),
-      etapaAtual: conversa.etapa
+      etapaAtual: conversa.etapa,
+      etiquetas: leads.etiquetasDa(empresa)
     });
     // O código no fim da mensagem liga este atendimento ao WhatsApp: lá a IA
     // do WhatsApp continua de onde a do site parou.
@@ -149,6 +150,7 @@ router.post('/chat', async (req, res) => {
       whatsapp: resposta.mensagemWhatsapp || undefined
     });
     if (resposta.etapa) leads.moverEtapa(conversa, empresa, resposta.etapa, 'ia-site');
+    for (const nome of resposta.etiquetas || []) leads.aplicarEtiqueta(conversa, empresa, nome);
     salvar();
     res.json({ conversaId: conversa.id, visitanteId: conversa.visitanteId, codigo: conversa.codigo, resposta: resposta.texto, whatsappUrl });
   } catch (err) {

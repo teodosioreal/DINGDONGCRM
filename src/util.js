@@ -21,6 +21,12 @@ function linkWhatsapp(numero, mensagem) {
   return `https://wa.me/${n}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
 }
 
+// Número para onde o chat do site manda o cliente: o do assistente, o da
+// empresa ou, se nenhum foi preenchido, o do WhatsApp conectado no CRM.
+function numeroDoAtendimento(bot, empresa) {
+  return bot?.whatsapp || empresa?.whatsapp || empresa?.whatsappConfig?.perfil?.numero || '';
+}
+
 // "https://www.Loja.com.br/x" -> "loja.com.br"
 function hostDe(valor) {
   const v = String(valor || '').trim().toLowerCase();
@@ -89,6 +95,7 @@ module.exports = {
   soDigitos,
   numeroWhatsapp,
   linkWhatsapp,
+  numeroDoAtendimento,
   hostDe,
   listaDominios,
   dominioPermitido,

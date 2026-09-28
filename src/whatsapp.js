@@ -1,33 +1,44 @@
 // whatsapp.js — IA que responde no WhatsApp da empresa (via Evolution API).
 //
-// Fluxo:
+// Conexão: a empresa só informa a Session ID (nome da instância que já existe
+// na nossa Evolution API) e a API Key dessa instância. O CRM confere as duas na
+// Evolution, mostra o número/nome/foto conectados e liga o webhook sozinho.
+//
+// Fluxo das mensagens:
 //  1. A Evolution API manda cada mensagem recebida para o webhook do CRM.
 //  2. O CRM acha o lead: pelo código "#ABC123" que o chat do site colocou na
 //     mensagem (continua o atendimento do site) ou pelo número; senão, cria.
 //  3. Espera o cliente parar de digitar (várias mensagens seguidas viram uma
 //     resposta só) e a IA responde com todo o histórico (site + WhatsApp),
 //     seguindo as instruções do WhatsApp. Ela pode mandar mídias, mudar a
-//     etapa do lead e chamar uma pessoa da equipe.
+//     etapa, colocar etiquetas e chamar uma pessoa da equipe.
 //  4. Se alguém da equipe responder pelo celular, a IA para naquele lead.
 
 const crypto = require('crypto');
 const config = require('./config');
-const { estado, salvar } = require('./db');
-const { hoje } = require('./util');
+const { estado, salvar, agora } = require('./db');
+const { hoje, soDigitos, numeroWhatsapp } = require('./util');
 const ia = require('./ia');
 const leads = require('./leads');
 const midias = require('./midias');
 
 // ---------------------------------------------------------------- configuração
 
+// Endereço da Evolution API: o que o admin salvou no painel, senão o do .env
+function evolutionUrlGlobal() {
+  return String(estado.config?.evolutionUrl || config.evolutionUrlPadrao || '').replace(/\/+$/, '');
+}
+
 function configDa(empresa) {
   const c = empresa.whatsappConfig || {};
   return {
-    evolutionUrl: (c.evolutionUrl || config.evolutionUrlPadrao || '').replace(/\/+$/, ''),
+    // só o admin troca por empresa (caso raro: empresa com Evolution própria)
+    evolutionUrl: (c.evolutionUrl || evolutionUrlGlobal()).replace(/\/+$/, ''),
     instancia: c.instancia || '',
     apiKey: c.apiKey || '',
     iaAtiva: c.iaAtiva !== false,
-    segredo: c.segredo || ''
+    segredo: c.segredo || '',
+    perfil: c.perfil || null
   };
 }
 
@@ -51,11 +62,14 @@ function configurado(empresa) {
 
 // ---------------------------------------------------------------- Evolution API
 
-async function evolution(empresa, metodo, caminho, corpo) {
-  const c = configDa(empresa);
-  if (!c.evolutionUrl || !c.instancia || !c.apiKey) {
-    throw Object.assign(new Error('WhatsApp não configurado (endereço da Evolution, instância e API key).'), { status: 400 });
-  }
+function erro(mensagem, status, extra = {}) {
+  return Object.assign(new Error(mensagem), { status, ...extra });
+}
+
+// `c` = { evolutionUrl, instancia, apiKey } (permite testar antes de salvar)
+async function chamar(c, metodo, caminho, corpo) {
+  if (!c.evolutionUrl) throw erro('O endereço da Evolution API não está configurado (Configurações do sistema).', 400);
+  if (!c.instancia || !c.apiKey) throw erro('WhatsApp não conectado: informe a Session ID e a API Key.', 400);
   let res;
   try {
     res = await fetch(`${c.evolutionUrl}${caminho.replace('{instancia}', encodeURIComponent(c.instancia))}`, {
@@ -65,58 +79,87 @@ async function evolution(empresa, metodo, caminho, corpo) {
       signal: AbortSignal.timeout(30000)
     });
   } catch (err) {
-    throw Object.assign(new Error(`Não consegui falar com a Evolution API: ${err.message}`), { status: 502 });
+    throw erro(`Não consegui falar com o servidor do WhatsApp (${err.message}).`, 502);
   }
   const dados = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detalhe = dados?.response?.message || dados?.message || dados?.error || `HTTP ${res.status}`;
-    throw Object.assign(new Error(`Evolution API: ${Array.isArray(detalhe) ? detalhe.join('; ') : detalhe}`), { status: res.status });
+    const bruto = dados?.response?.message || dados?.message || dados?.error || `HTTP ${res.status}`;
+    const lista = Array.isArray(bruto) ? bruto.flat() : [bruto];
+    const detalhe = lista.map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))).join('; ');
+    throw erro(`Evolution API: ${detalhe}`, res.status);
   }
   return dados;
 }
 
-// Para onde responder: número puro se for um contato comum; senão o JID inteiro
-function destinoDe(jid) {
-  return /@s\.whatsapp\.net$/.test(jid) ? jid.split('@')[0] : jid;
+function evolution(empresa, metodo, caminho, corpo) {
+  return chamar(configDa(empresa), metodo, caminho, corpo);
 }
 
-// ids das mensagens que o próprio CRM enviou, para não confundir com a equipe
-const enviadosPeloCrm = new Map();
-function lembrarEnvio(resposta) {
-  const id = resposta?.key?.id;
-  if (id) enviadosPeloCrm.set(id, Date.now());
-  if (enviadosPeloCrm.size > 5000) {
-    const corte = Date.now() - 60 * 60 * 1000;
-    for (const [k, t] of enviadosPeloCrm) if (t < corte) enviadosPeloCrm.delete(k);
+// Normaliza a instância como a Evolution devolve (v2 e o formato antigo da v1)
+function lerInstancia(item) {
+  const i = item?.instance || item || {};
+  const dono = i.ownerJid || i.owner || '';
+  return {
+    id: i.id || i.instanceId || '',
+    nome: i.name || i.instanceName || '',
+    estado: i.connectionStatus || i.status || i.state || '',
+    numero: soDigitos(String(dono).split('@')[0]) || soDigitos(i.number) || '',
+    perfilNome: i.profileName || '',
+    foto: i.profilePicUrl || i.profilePictureUrl || '',
+    integracao: i.integration || ''
+  };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Acha a instância pela Session ID (nome da instância; aceita também o ID
+// interno) usando a API Key dela. Erro claro quando algo não confere.
+async function buscarInstancia(c) {
+  const qs = UUID.test(c.instancia) ? `instanceId=${encodeURIComponent(c.instancia)}` : `instanceName=${encodeURIComponent(c.instancia)}`;
+  let lista;
+  try {
+    lista = await chamar(c, 'GET', `/instance/fetchInstances?${qs}`);
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) throw erro('A Session ID ou a API Key não conferem. Copie de novo as duas da instância.', 400);
+    if (err.status === 404) throw erro(`Não achei a sessão "${c.instancia}" no servidor do WhatsApp. Confira a Session ID.`, 400);
+    if (err.status !== 400) throw err;
+    lista = null;
   }
+  const itens = (Array.isArray(lista) ? lista : lista ? [lista] : []).map(lerInstancia);
+  let inst = itens.find((i) => i.nome === c.instancia || i.id === c.instancia) || itens[0];
+  if (!inst) {
+    // Evolution sem salvar instâncias no banco: confere pelo estado da conexão
+    const r = await chamar(c, 'GET', '/instance/connectionState/{instancia}').catch((err) => {
+      if (err.status === 401 || err.status === 403) throw erro('A Session ID ou a API Key não conferem. Copie de novo as duas da instância.', 400);
+      if (err.status === 404) throw erro(`Não achei a sessão "${c.instancia}" no servidor do WhatsApp. Confira a Session ID.`, 400);
+      throw err;
+    });
+    inst = { id: '', nome: c.instancia, estado: r?.instance?.state || r?.state || '', numero: '', perfilNome: '', foto: '' };
+  }
+  return inst;
 }
 
-async function enviarTexto(empresa, jid, texto) {
-  const r = await evolution(empresa, 'POST', '/message/sendText/{instancia}', { number: destinoDe(jid), text: texto });
-  lembrarEnvio(r);
-  return r;
-}
-
-async function enviarMidia(empresa, jid, midia) {
-  const url = midias.urlPublica(midia);
-  const r =
-    midia.tipo === 'audio'
-      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(jid), audio: url })
-      : await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', {
-          number: destinoDe(jid),
-          mediatype: midia.tipo,
-          mimetype: midia.mimetype,
-          media: url,
-          fileName: midia.arquivo,
-          caption: ''
-        });
-  lembrarEnvio(r);
-  return r;
-}
-
-async function estadoConexao(empresa) {
-  const r = await evolution(empresa, 'GET', '/instance/connectionState/{instancia}');
-  return r?.instance?.state || r?.state || 'desconhecido';
+// Situação atual da conexão (número, nome, foto, se está conectado)
+async function situacao(empresa) {
+  const c = configDa(empresa);
+  if (!configurado(empresa)) return { conectado: false, configurado: false };
+  const inst = await buscarInstancia(c);
+  const perfil = {
+    numero: inst.numero,
+    nome: inst.perfilNome,
+    foto: inst.foto,
+    estado: inst.estado,
+    conferidoEm: agora()
+  };
+  empresa.whatsappConfig.perfil = perfil;
+  salvar();
+  let webhookOk = null;
+  try {
+    webhookOk = ehNossoWebhook(empresa, await webhookAtual(empresa));
+  } catch {
+    webhookOk = null;
+  }
+  return { configurado: true, conectado: inst.estado === 'open', ...perfil, sessao: c.instancia, webhookOk };
 }
 
 async function qrCode(empresa) {
@@ -136,26 +179,29 @@ async function webhookAtual(empresa) {
   }
 }
 
-// Aponta o webhook da instância para o CRM (só o evento de mensagens).
-// Se a instância já manda mensagens para OUTRO sistema (ex.: o rastreador),
-// não substitui sem confirmação: trocar o webhook desliga o outro sistema.
+// "é nosso" só se for o endereço desta mesma empresa no CRM (o rastreador,
+// por exemplo, usa um caminho parecido: /api/public/whatsapp/…)
+function ehNossoWebhook(empresa, url) {
+  return Boolean(url) && url.startsWith(`${config.urlPublica}/api/public/whatsapp/${empresa.id}/`);
+}
+
+// Aponta o webhook da instância para o CRM.
+// Se a instância já manda mensagens para OUTRO sistema, não substitui sem
+// confirmação: trocar o webhook desliga o outro sistema.
 async function configurarWebhook(empresa, { forcar = false } = {}) {
   const url = urlWebhook(empresa);
   const atual = await webhookAtual(empresa);
-  // "é nosso" só se for o endereço desta mesma empresa no CRM (o rastreador,
-  // por exemplo, usa um caminho parecido: /api/public/whatsapp/…)
-  const desteCrm = atual.startsWith(`${config.urlPublica}/api/public/whatsapp/${empresa.id}/`);
-  if (atual && !desteCrm && !forcar) {
-    throw Object.assign(
-      new Error(
-        `Esta instância já envia as mensagens para outro sistema (${atual}). Ligar aqui SUBSTITUI esse webhook e o outro sistema para de receber as mensagens. Use uma instância só para o CRM ou confirme a troca.`
-      ),
-      { status: 409, webhookAtual: atual }
+  if (atual && !ehNossoWebhook(empresa, atual) && !forcar) {
+    throw erro(
+      'Este WhatsApp já está ligado a outro sistema. Se continuar, o outro sistema para de receber as mensagens deste número.',
+      409,
+      { webhookAtual: atual }
     );
   }
+  const eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
   try {
     await evolution(empresa, 'POST', '/webhook/set/{instancia}', {
-      webhook: { enabled: true, url, byEvents: false, base64: false, events: ['MESSAGES_UPSERT'] }
+      webhook: { enabled: true, url, byEvents: false, base64: false, events: eventos }
     });
   } catch (err) {
     if (err.status !== 400) throw err;
@@ -165,10 +211,115 @@ async function configurarWebhook(empresa, { forcar = false } = {}) {
       url,
       webhook_by_events: false,
       webhook_base64: false,
-      events: ['MESSAGES_UPSERT']
+      events: eventos
     });
   }
   return url;
+}
+
+// Conecta o WhatsApp da empresa: confere a Session ID + API Key, salva e liga
+// o webhook. Com `forcar`, substitui o webhook de outro sistema (confirmado).
+async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
+  const atual = configDa(empresa);
+  const c = {
+    evolutionUrl: atual.evolutionUrl,
+    instancia: String(sessionId || '').trim(),
+    // deixar a API Key vazia mantém a salva (só se for a mesma sessão)
+    apiKey: String(apiKey || '').trim() || (String(sessionId || '').trim() === atual.instancia ? atual.apiKey : '')
+  };
+  if (!c.instancia) throw erro('Informe a Session ID.', 400);
+  if (!c.apiKey) throw erro('Informe a API Key.', 400);
+  const inst = await buscarInstancia(c);
+  empresa.whatsappConfig = {
+    ...(empresa.whatsappConfig || {}),
+    instancia: inst.nome || c.instancia,
+    apiKey: c.apiKey,
+    iaAtiva: atual.iaAtiva,
+    perfil: { numero: inst.numero, nome: inst.perfilNome, foto: inst.foto, estado: inst.estado, conferidoEm: agora() },
+    conectadoEm: agora()
+  };
+  garantirSegredo(empresa);
+  salvar();
+  await configurarWebhook(empresa, { forcar });
+  empresa.whatsappConfig.webhookLigadoEm = agora();
+  salvar();
+  return situacao(empresa);
+}
+
+// Tira o WhatsApp do CRM (não desconecta o número da Evolution: a instância é
+// da empresa). Desliga o webhook só se ele apontar para o CRM.
+async function desconectar(empresa) {
+  if (configurado(empresa)) {
+    try {
+      if (ehNossoWebhook(empresa, await webhookAtual(empresa))) {
+        await evolution(empresa, 'POST', '/webhook/set/{instancia}', {
+          webhook: { enabled: false, url: urlWebhook(empresa), events: ['MESSAGES_UPSERT'] }
+        });
+      }
+    } catch (err) {
+      console.error(`[whatsapp ${empresa.id}] desligar webhook:`, err.message);
+    }
+  }
+  const { segredo, iaAtiva, evolutionUrl } = empresa.whatsappConfig || {};
+  // segredo novo: o endereço antigo do webhook deixa de valer
+  empresa.whatsappConfig = { iaAtiva, evolutionUrl, segredo: segredo ? crypto.randomBytes(16).toString('hex') : undefined };
+  salvar();
+}
+
+// Para onde enviar: número puro se for um contato comum; senão o JID inteiro
+function destinoDe(jid) {
+  return /@s\.whatsapp\.net$/.test(jid) ? jid.split('@')[0] : jid;
+}
+
+// Destino de um lead: o JID do WhatsApp; senão o telefone que ele deixou
+function destinoDoLead(lead) {
+  if (lead.whatsappJid) return destinoDe(lead.whatsappJid);
+  const n = numeroWhatsapp(lead.telefone);
+  return n.length >= 10 ? n : '';
+}
+
+// ids das mensagens que o próprio CRM enviou, para não confundir com a equipe
+const enviadosPeloCrm = new Map();
+function lembrarEnvio(resposta) {
+  const id = resposta?.key?.id;
+  if (id) enviadosPeloCrm.set(id, Date.now());
+  if (enviadosPeloCrm.size > 5000) {
+    const corte = Date.now() - 60 * 60 * 1000;
+    for (const [k, t] of enviadosPeloCrm) if (t < corte) enviadosPeloCrm.delete(k);
+  }
+}
+
+// "digitando…" proporcional ao tamanho, como uma pessoa (máx. 5 s)
+function tempoDigitando(texto) {
+  return Math.min(5000, 800 + String(texto || '').length * 25);
+}
+
+async function enviarTexto(empresa, destino, texto, { digitando = true } = {}) {
+  const r = await evolution(empresa, 'POST', '/message/sendText/{instancia}', {
+    number: destinoDe(destino),
+    text: texto,
+    ...(digitando ? { delay: tempoDigitando(texto) } : {})
+  });
+  lembrarEnvio(r);
+  return r;
+}
+
+async function enviarMidia(empresa, destino, midia, legenda = '') {
+  const url = midias.urlPublica(midia);
+  const r =
+    midia.tipo === 'audio'
+      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, delay: 1500 })
+      : await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', {
+          number: destinoDe(destino),
+          mediatype: midia.tipo,
+          mimetype: midia.mimetype,
+          media: url,
+          fileName: midia.arquivo,
+          caption: legenda || '',
+          delay: 1200
+        });
+  lembrarEnvio(r);
+  return r;
 }
 
 // ---------------------------------------------------------------- mensagens recebidas
@@ -181,6 +332,7 @@ function textoDa(msg) {
     m.imageMessage?.caption ||
     m.videoMessage?.caption ||
     m.documentMessage?.caption ||
+    m.documentWithCaptionMessage?.message?.documentMessage?.caption ||
     m.buttonsResponseMessage?.selectedDisplayText ||
     m.listResponseMessage?.title ||
     m.templateButtonReplyMessage?.selectedDisplayText ||
@@ -221,6 +373,22 @@ function jaProcessada(id) {
   return false;
 }
 
+// Lead que tem este número: pelo JID ou pelo telefone que deixou no site
+// Celular do Brasil pode vir com ou sem o 9 depois do DDD (5521988887777 = 552188887777)
+function mesmoNumero(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const sem9 = (n) => (/^55\d{2}9\d{8}$/.test(n) ? n.slice(0, 4) + n.slice(5) : n);
+  return sem9(a) === sem9(b);
+}
+
+function leadDoNumero(empresa, jid) {
+  const numero = jid.split('@')[0];
+  return estado.conversas
+    .filter((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || (!c.whatsappJid && mesmoNumero(c.telefone, numero))))
+    .sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))[0];
+}
+
 function acharOuCriarLead(empresa, jid, texto, msg) {
   const doEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
   // 1) código do chat do site na mensagem → continua aquele atendimento
@@ -235,8 +403,9 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
     }
   }
   // 2) mesmo número → mesmo lead (o mais recente)
-  const existente = doEmpresa.filter((c) => c.whatsappJid === jid).sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))[0];
+  const existente = leadDoNumero(empresa, jid);
   if (existente) {
+    existente.whatsappJid = jid;
     if (msg.pushName && !existente.nome) existente.nome = msg.pushName;
     return existente;
   }
@@ -246,13 +415,17 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
 }
 
 function botDoWhatsapp(empresa) {
-  const ativos = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
-  return ativos.find((b) => b.principal) || ativos[0] || null;
+  const daEmpresa = estado.bots.filter((b) => b.empresaId === empresa.id);
+  return daEmpresa.find((b) => b.principal) || daEmpresa[0] || null;
 }
 
 // Evolution manda { event, instance, data } — data pode ser uma mensagem ou lista
+function eventoDe(corpo) {
+  return String(corpo?.event || '').toLowerCase().replace(/_/g, '.');
+}
+
 function mensagensDoWebhook(corpo) {
-  const evento = String(corpo?.event || '').toLowerCase().replace(/_/g, '.');
+  const evento = eventoDe(corpo);
   if (evento && evento !== 'messages.upsert') return [];
   const d = corpo?.data;
   if (Array.isArray(d)) return d;
@@ -260,7 +433,23 @@ function mensagensDoWebhook(corpo) {
   return d ? [d] : [];
 }
 
+// Palavras que tiram o contato dos disparos em massa
+const PALAVRAS_SAIR = ['sair', 'parar', 'pare', 'stop', 'cancelar inscricao', 'nao quero mais receber', 'descadastrar'];
+function pediuParaSair(texto) {
+  const t = String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\w ]/g, '').trim();
+  return PALAVRAS_SAIR.includes(t);
+}
+
 async function receberWebhook(empresa, corpo) {
+  // mudança de conexão: guarda para o painel mostrar
+  if (eventoDe(corpo) === 'connection.update') {
+    const st = corpo?.data?.state || corpo?.data?.status;
+    if (st && empresa.whatsappConfig) {
+      empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora() };
+      salvar();
+    }
+    return;
+  }
   for (const msg of mensagensDoWebhook(corpo)) {
     const jid = msg?.key?.remoteJid || '';
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
@@ -284,6 +473,20 @@ async function receberWebhook(empresa, corpo) {
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto });
     leads.aoChegarNoWhatsapp(lead, empresa);
+
+    // resposta "SAIR" a um disparo em massa: não recebe mais disparos
+    if (lead.ultimoDisparoEm && pediuParaSair(texto)) {
+      lead.naoDisparar = true;
+      salvar();
+      const confirmacao = 'Pronto! Você não vai mais receber nossas mensagens automáticas. Se precisar, é só chamar aqui. 👍';
+      enviarTexto(empresa, jid, confirmacao)
+        .then(() => {
+          leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: confirmacao });
+          salvar();
+        })
+        .catch((err) => console.error(`[whatsapp ${lead.id}] sair:`, err.message));
+      continue;
+    }
     salvar();
     agendarResposta(empresa, lead);
   }
@@ -327,7 +530,8 @@ async function responderLead(empresaId, leadId) {
       canal: 'whatsapp',
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
-      midias: midias.midiasDa(empresa)
+      midias: midias.midiasDa(empresa),
+      etiquetas: leads.etiquetasDa(empresa)
     });
   } catch (err) {
     console.error(`[whatsapp ${lead.id}] IA:`, ia.descreverErroIa(err));
@@ -351,6 +555,7 @@ async function responderLead(empresaId, leadId) {
     }
   }
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
+  for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
   if (r.humano) {
     lead.iaPausada = true;
     lead.iaPausadaMotivo = 'A IA chamou uma pessoa da equipe';
@@ -361,8 +566,9 @@ async function responderLead(empresaId, leadId) {
 
 // Mensagem escrita pela equipe no painel: vai pelo WhatsApp e a IA para no lead
 async function enviarPelaEquipe(empresa, lead, texto) {
-  if (!lead.whatsappJid) throw Object.assign(new Error('Este lead ainda não chegou no WhatsApp.'), { status: 400 });
-  await enviarTexto(empresa, lead.whatsappJid, texto);
+  const destino = destinoDoLead(lead);
+  if (!destino) throw erro('Este lead não tem WhatsApp.', 400);
+  await enviarTexto(empresa, destino, texto, { digitando: false });
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
   lead.iaPausada = true;
   lead.iaPausadaMotivo = 'A equipe respondeu pelo painel';
@@ -371,14 +577,20 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 }
 
 module.exports = {
+  evolutionUrlGlobal,
   configDa,
   configurado,
   urlWebhook,
   garantirSegredo,
-  estadoConexao,
+  situacao,
+  conectar,
+  desconectar,
   qrCode,
   configurarWebhook,
   receberWebhook,
+  enviarTexto,
+  enviarMidia,
+  destinoDoLead,
   enviarPelaEquipe,
   agendarResposta,
   cancelarResposta,

@@ -11,7 +11,8 @@ const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const midias = require('./midias');
-const { linkWhatsapp, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
+const disparos = require('./disparos');
+const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
 const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
@@ -104,6 +105,8 @@ router.get('/resumo', (req, res) => {
     leads7d: recentes.length,
     noWhatsapp7d: recentes.filter((c) => c.whatsappJid).length,
     aguardandoEquipe: conversas.filter((c) => c.precisaHumano).length,
+    totalLeads: conversas.length,
+    disparosAtivos: estado.disparos.filter((d) => ids.has(d.empresaId) && ['enviando', 'agendado'].includes(d.status)).length,
     porEtapa,
     mensagensHoje: bots.reduce((s, b) => s + (estado.uso[b.id]?.data === hoje() ? estado.uso[b.id].mensagens : 0), 0)
   });
@@ -143,26 +146,38 @@ function situacaoChavesEmpresa(e) {
 }
 
 // Situação do WhatsApp — sem devolver a API key nem o segredo do webhook
-function situacaoWhatsapp(e) {
+function situacaoWhatsapp(e, req) {
   const c = whatsapp.configDa(e);
   return {
-    evolutionUrl: c.evolutionUrl,
-    instancia: c.instancia,
+    sessao: c.instancia,
     apiKeyFinal: mascarar(c.apiKey),
     iaAtiva: c.iaAtiva,
-    configurado: whatsapp.configurado(e)
+    configurado: whatsapp.configurado(e),
+    perfil: c.perfil,
+    // endereço da Evolution: só o admin vê/troca (a empresa só usa Session ID + API Key)
+    ...(req && ehAdmin(req) ? { evolutionUrl: c.evolutionUrl, evolutionUrlPropria: e.whatsappConfig?.evolutionUrl || '' } : {})
   };
 }
 
-// Empresa como o painel vê: sem as chaves de IA nem segredos
-function empresaComExtras(e) {
+function principalDa(e) {
   const bots = estado.bots.filter((b) => b.empresaId === e.id);
-  const principal = bots.find((b) => b.principal) || bots[0];
+  return bots.find((b) => b.principal) || bots[0] || null;
+}
+
+// Empresa como o painel vê: sem as chaves de IA nem segredos
+function empresaComExtras(e, req) {
+  const bots = estado.bots.filter((b) => b.empresaId === e.id);
+  const principal = principalDa(e);
   const { chavesIa, whatsappConfig, conversoes, midias: _m, ...resto } = e;
   return {
     ...resto,
     etapas: leads.etapasDa(e),
-    whatsapp: situacaoWhatsapp(e),
+    etiquetas: leads.etiquetasDa(e),
+    // número salvo no cadastro ("whatsapp" abaixo é a situação da conexão)
+    whatsappNumero: e.whatsapp || '',
+    // as duas IAs ligam/desligam separadas
+    canais: { site: Boolean(principal && principal.ativo !== false), whatsapp: whatsapp.configDa(e).iaAtiva },
+    whatsapp: situacaoWhatsapp(e, req),
     totalMidias: midias.midiasDa(e).length,
     chaves: situacaoChavesEmpresa(e),
     assistentes: bots.length,
@@ -180,12 +195,12 @@ function acharEmpresa(req, res) {
 }
 
 router.get('/empresas', (req, res) => {
-  res.json(estado.empresas.filter((e) => podeVerEmpresa(req, e.id)).map(empresaComExtras));
+  res.json(estado.empresas.filter((e) => podeVerEmpresa(req, e.id)).map((e) => empresaComExtras(e, req)));
 });
 
 router.get('/empresas/:id', (req, res) => {
   const empresa = acharEmpresa(req, res);
-  if (empresa) res.json(empresaComExtras(empresa));
+  if (empresa) res.json(empresaComExtras(empresa, req));
 });
 
 // Chaves de IA da empresa (a própria empresa ou o admin podem cadastrar)
@@ -199,7 +214,7 @@ router.put('/empresas/:id/chaves', (req, res) => {
     if ((req.body?.remover || []).includes(provedor)) delete empresa.chavesIa[campo];
   }
   salvar();
-  res.json(empresaComExtras(empresa));
+  res.json(empresaComExtras(empresa, req));
 });
 
 router.post('/empresas/:id/chaves/testar', async (req, res) => {
@@ -225,7 +240,7 @@ router.put('/empresas/:id/etapas', (req, res) => {
   // leads em etapas que deixaram de existir vão para a primeira
   for (const c of estado.conversas) if (c.empresaId === empresa.id && !unicas.includes(c.etapa)) c.etapa = unicas[0];
   salvar();
-  res.json(empresaComExtras(empresa));
+  res.json(empresaComExtras(empresa, req));
 });
 
 // ---------------------------------------------------------------- WhatsApp da empresa
@@ -233,41 +248,173 @@ router.put('/empresas/:id/etapas', (req, res) => {
 router.get('/empresas/:id/whatsapp', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json({ ...situacaoWhatsapp(empresa), webhook: whatsapp.urlWebhook(empresa) });
+  res.json(situacaoWhatsapp(empresa, req));
 });
 
+// Liga/desliga a IA do WhatsApp; o admin pode apontar uma Evolution própria
 router.put('/empresas/:id/whatsapp', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const b = req.body || {};
-  const atual = empresa.whatsappConfig || {};
-  const url = texto(b.evolutionUrl, 300).replace(/\/+$/, '');
-  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço da Evolution API precisa começar com https://' });
-  empresa.whatsappConfig = {
-    ...atual,
-    evolutionUrl: url,
-    instancia: texto(b.instancia, 100),
-    apiKey: texto(b.apiKey, 300) || atual.apiKey || '',
-    iaAtiva: b.iaAtiva !== false
-  };
-  whatsapp.garantirSegredo(empresa);
+  empresa.whatsappConfig = empresa.whatsappConfig || {};
+  if (b.iaAtiva !== undefined) empresa.whatsappConfig.iaAtiva = b.iaAtiva !== false;
+  if (ehAdmin(req) && b.evolutionUrl !== undefined) {
+    const url = texto(b.evolutionUrl, 300).replace(/\/+$/, '');
+    if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço da Evolution API precisa começar com https://' });
+    empresa.whatsappConfig.evolutionUrl = url;
+  }
   salvar();
-  res.json({ ...situacaoWhatsapp(empresa), webhook: whatsapp.urlWebhook(empresa) });
+  res.json(situacaoWhatsapp(empresa, req));
 });
+
+function erroWhatsapp(res, err) {
+  if (err.status === 409) return res.status(409).json({ erro: err.message, webhookAtual: err.webhookAtual, precisaConfirmar: true });
+  res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+}
 
 router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
+  const b = req.body || {};
   try {
-    if (req.params.acao === 'status') return res.json({ estado: await whatsapp.estadoConexao(empresa) });
-    if (req.params.acao === 'qrcode') return res.json(await whatsapp.qrCode(empresa));
-    if (req.params.acao === 'webhook') {
-      return res.json({ ok: true, webhook: await whatsapp.configurarWebhook(empresa, { forcar: req.body?.forcar === true }) });
+    switch (req.params.acao) {
+      case 'conectar':
+        return res.json(await whatsapp.conectar(empresa, { sessionId: texto(b.sessionId, 120), apiKey: texto(b.apiKey, 300), forcar: b.forcar === true }));
+      case 'situacao':
+        return res.json(await whatsapp.situacao(empresa));
+      case 'qrcode':
+        return res.json(await whatsapp.qrCode(empresa));
+      case 'webhook':
+        return res.json({ ok: true, webhook: await whatsapp.configurarWebhook(empresa, { forcar: b.forcar === true }) });
+      case 'desconectar':
+        await whatsapp.desconectar(empresa);
+        return res.json(situacaoWhatsapp(empresa, req));
+      default:
+        return res.status(404).json({ erro: 'Ação desconhecida.' });
     }
-    res.status(404).json({ erro: 'Ação desconhecida.' });
   } catch (err) {
-    if (err.status === 409) return res.status(409).json({ erro: err.message, webhookAtual: err.webhookAtual });
-    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+    erroWhatsapp(res, err);
+  }
+});
+
+// Canais: IA do site e IA do WhatsApp, cada uma liga/desliga sozinha
+router.put('/empresas/:id/canais', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  if (b.site !== undefined) {
+    const principal = principalDa(empresa);
+    if (principal) principal.ativo = b.site === true;
+  }
+  if (b.whatsapp !== undefined) {
+    empresa.whatsappConfig = empresa.whatsappConfig || {};
+    empresa.whatsappConfig.iaAtiva = b.whatsapp === true;
+  }
+  salvar();
+  res.json(empresaComExtras(empresa, req));
+});
+
+// Etiquetas da empresa: lista completa { id?, nome, cor }. As que saírem da
+// lista somem dos leads também.
+router.put('/empresas/:id/etiquetas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const atuais = leads.etiquetasDa(empresa);
+  const entrada = Array.isArray(req.body?.etiquetas) ? req.body.etiquetas : [];
+  const nova = [];
+  for (const t of entrada.slice(0, 40)) {
+    const nome = texto(t?.nome, 40);
+    if (!nome || nova.some((x) => x.nome.toLowerCase() === nome.toLowerCase())) continue;
+    const cor = /^#[0-9a-f]{6}$/i.test(t?.cor || '') ? t.cor : leads.CORES_ETIQUETA[nova.length % leads.CORES_ETIQUETA.length];
+    const existente = atuais.find((x) => x.id === t?.id);
+    nova.push({ id: existente ? existente.id : novoId('tag'), nome, cor });
+  }
+  empresa.etiquetas = nova;
+  const validas = new Set(nova.map((x) => x.id));
+  for (const c of estado.conversas) {
+    if (c.empresaId === empresa.id && c.etiquetas?.length) c.etiquetas = c.etiquetas.filter((id) => validas.has(id));
+  }
+  salvar();
+  res.json(empresaComExtras(empresa, req));
+});
+
+// ---------------------------------------------------------------- disparos em massa
+
+function acharDisparo(req, res) {
+  const d = estado.disparos.find((x) => x.id === req.params.disparoId && x.empresaId === req.params.id);
+  if (!d || !podeVerEmpresa(req, d.empresaId)) {
+    res.status(404).json({ erro: 'Disparo não encontrado.' });
+    return null;
+  }
+  return d;
+}
+
+router.get('/empresas/:id/disparos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(
+    estado.disparos
+      .filter((d) => d.empresaId === empresa.id)
+      .sort((a, b) => (a.criadoEm < b.criadoEm ? 1 : -1))
+      .map(disparos.resumo)
+  );
+});
+
+// Prévia: quantos vão receber e como fica a mensagem para o primeiro
+router.post('/empresas/:id/disparos/previa', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const r = disparos.destinatariosPara(empresa, req.body?.filtro);
+  const primeiro = r.destinatarios[0] && estado.conversas.find((c) => c.id === r.destinatarios[0].leadId);
+  res.json({
+    total: r.destinatarios.length,
+    semNumero: r.semNumero,
+    sairam: r.sairam,
+    nomes: r.destinatarios.slice(0, 8).map((x) => x.nome || `+${x.destino}`),
+    exemplo: req.body?.mensagem
+      ? disparos.montarMensagem(texto(req.body.mensagem, 3000), primeiro || { nome: 'Maria Silva' }, empresa) +
+        (req.body?.rodapeSair !== false ? `\n\n${disparos.RODAPE_SAIR}` : '')
+      : ''
+  });
+});
+
+router.post('/empresas/:id/disparos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.status(201).json(disparos.resumo(disparos.criar(empresa, req.body || {}, req.usuario)));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.get('/empresas/:id/disparos/:disparoId', (req, res) => {
+  const d = acharDisparo(req, res);
+  if (!d) return;
+  res.json({ ...disparos.resumo(d), destinatarios: d.destinatarios.map(({ destino, ...x }) => ({ ...x, numero: /^\d+$/.test(destino) ? `+${destino}` : '' })) });
+});
+
+router.post('/empresas/:id/disparos/:disparoId/:acao', (req, res) => {
+  const d = acharDisparo(req, res);
+  if (!d) return;
+  const acoes = { pausar: disparos.pausar, retomar: disparos.retomar, cancelar: disparos.cancelar };
+  if (!acoes[req.params.acao]) return res.status(404).json({ erro: 'Ação desconhecida.' });
+  try {
+    acoes[req.params.acao](d);
+    res.json(disparos.resumo(d));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
+  const d = acharDisparo(req, res);
+  if (!d) return;
+  try {
+    disparos.apagar(d);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
   }
 });
 
@@ -360,7 +507,7 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
     criadoEm: agora()
   });
   salvar();
-  res.status(201).json(empresaComExtras(empresa));
+  res.status(201).json(empresaComExtras(empresa, req));
 });
 
 router.put('/empresas/:id', auth.exigirAdmin, (req, res) => {
@@ -370,7 +517,7 @@ router.put('/empresas/:id', auth.exigirAdmin, (req, res) => {
   if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
   Object.assign(empresa, dados, { atualizadoEm: agora() });
   salvar();
-  res.json(empresaComExtras(empresa));
+  res.json(empresaComExtras(empresa, req));
 });
 
 router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
@@ -378,6 +525,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   if (i < 0) return res.status(404).json({ erro: 'Empresa não encontrada.' });
   const id = estado.empresas[i].id;
   midias.apagarTodasDa(estado.empresas[i]);
+  disparos.apagarTodosDa(id);
   estado.empresas.splice(i, 1);
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
@@ -394,7 +542,10 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
 
 const CAMPOS_SO_ADMIN = ['limiteDiario', 'limiteConversa', 'empresaId'];
 
-function dadosBot(body, req) {
+// `base` = assistente atual: campos que não vieram no formulário ficam como estão
+// (cada tela do painel manda só os campos dela)
+function dadosBot(body, req, base = null) {
+  const provedor = ia.normalizarProvedor(body.provedor ?? base?.provedor);
   const dados = {
     nome: texto(body.nome, 120),
     nomeAssistente: texto(body.nomeAssistente, 60),
@@ -413,13 +564,18 @@ function dadosBot(body, req) {
     ativo: body.ativo !== false,
     principal: body.principal === true,
     // cada empresa paga a própria IA, então ela mesma escolhe provedor e modelo
-    provedor: ia.normalizarProvedor(body.provedor),
-    modelo: ia.normalizarModelo(ia.normalizarProvedor(body.provedor), body.modelo)
+    provedor,
+    modelo: ia.normalizarModelo(provedor, body.modelo ?? base?.modelo)
   };
   if (ehAdmin(req)) {
-    dados.empresaId = String(body.empresaId || '');
-    dados.limiteDiario = inteiro(body.limiteDiario, 500, 1, 100000);
-    dados.limiteConversa = inteiro(body.limiteConversa, 40, 1, 500);
+    dados.empresaId = String(body.empresaId || base?.empresaId || '');
+    dados.limiteDiario = inteiro(body.limiteDiario, base?.limiteDiario || 500, 1, 100000);
+    dados.limiteConversa = inteiro(body.limiteConversa, base?.limiteConversa || 40, 1, 500);
+  }
+  if (base) {
+    for (const k of Object.keys(dados)) {
+      if (!(k in body) && !(k === 'modelo' && 'provedor' in body)) delete dados[k];
+    }
   }
   return dados;
 }
@@ -480,10 +636,10 @@ router.post('/bots', (req, res) => {
 router.put('/bots/:id', (req, res) => {
   const bot = acharBot(req, res);
   if (!bot) return;
-  const dados = dadosBot(req.body || {}, req);
-  if (!dados.nome) return res.status(400).json({ erro: 'Dê um nome para o assistente.' });
+  const dados = dadosBot(req.body || {}, req, bot);
+  if ('nome' in dados && !dados.nome) return res.status(400).json({ erro: 'Dê um nome para o assistente.' });
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) delete dados[c];
-  else if (!estado.empresas.some((e) => e.id === dados.empresaId)) return res.status(400).json({ erro: 'Escolha a empresa.' });
+  else if (dados.empresaId && !estado.empresas.some((e) => e.id === dados.empresaId)) return res.status(400).json({ erro: 'Escolha a empresa.' });
   const empresaAntes = bot.empresaId;
   Object.assign(bot, dados, { atualizadoEm: agora() });
   ajustarPrincipal(bot, empresaAntes);
@@ -510,7 +666,7 @@ router.delete('/bots/:id', (req, res) => {
 router.post('/bots/:id/testar', async (req, res) => {
   const salvo = acharBot(req, res);
   if (!salvo) return;
-  const rascunho = { ...salvo, ...dadosBot(req.body?.bot || {}, req) };
+  const rascunho = { ...salvo, ...dadosBot(req.body?.bot || {}, req, salvo) };
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) rascunho[c] = salvo[c];
   const empresa = estado.empresas.find((e) => e.id === rascunho.empresaId) || estado.empresas.find((e) => e.id === salvo.empresaId);
   const historico = (Array.isArray(req.body?.mensagens) ? req.body.mensagens : [])
@@ -522,13 +678,15 @@ router.post('/bots/:id/testar', async (req, res) => {
     const r = await ia.responder(rascunho, empresa, historico, {
       canal,
       etapas: leads.etapasDa(empresa),
-      midias: midias.midiasDa(empresa)
+      midias: midias.midiasDa(empresa),
+      etiquetas: leads.etiquetasDa(empresa)
     });
     res.json({
       resposta: r.texto,
-      whatsappUrl: r.mensagemWhatsapp ? linkWhatsapp(rascunho.whatsapp || empresa?.whatsapp, r.mensagemWhatsapp) : null,
+      whatsappUrl: r.mensagemWhatsapp ? linkWhatsapp(numeroDoAtendimento(rascunho, empresa), r.mensagemWhatsapp) : null,
       midias: r.midias,
       etapa: r.etapa,
+      etiquetas: r.etiquetas,
       humano: r.humano
     });
   } catch (err) {
@@ -550,6 +708,9 @@ function resumoLead(c) {
     origem: c.origem || 'site',
     canais,
     noWhatsapp: Boolean(c.whatsappJid),
+    podeReceber: Boolean(whatsapp.destinoDoLead(c)),
+    etiquetas: c.etiquetas || [],
+    naoDisparar: Boolean(c.naoDisparar),
     iaPausada: Boolean(c.iaPausada),
     precisaHumano: Boolean(c.precisaHumano),
     mensagens: c.mensagens.length,
@@ -574,11 +735,75 @@ router.get('/leads', (req, res) => {
     .filter((c) => podeVerEmpresa(req, c.empresaId))
     .filter((c) => !req.query.empresaId || c.empresaId === req.query.empresaId)
     .filter((c) => !req.query.etapa || c.etapa === req.query.etapa)
+    .filter((c) => !req.query.etiqueta || (c.etiquetas || []).includes(req.query.etiqueta))
+    .filter((c) => !req.query.origem || (c.origem || 'site') === req.query.origem)
     .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
     .sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))
     .slice(0, 1000)
     .map(resumoLead);
   res.json(lista);
+});
+
+// Lead cadastrado à mão ou importado (lista "Nome, telefone" — um por linha)
+router.post('/empresas/:id/leads', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  const etapa = leads.acharEtapa(empresa, b.etapa) || leads.etapasDa(empresa)[0];
+  const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
+  const etiquetas = (Array.isArray(b.etiquetas) ? b.etiquetas : []).map(String).filter((id) => validas.has(id));
+  const linhas = Array.isArray(b.contatos) ? b.contatos : [{ nome: b.nome, telefone: b.telefone }];
+  const existentes = new Set(
+    estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => (c.whatsappJid ? c.whatsappJid.split('@')[0] : c.telefone)).filter(Boolean)
+  );
+  let criados = 0;
+  let repetidos = 0;
+  let invalidos = 0;
+  for (const l of linhas.slice(0, 5000)) {
+    const telefone = numeroWhatsapp(l?.telefone);
+    if (telefone.length < 10) {
+      invalidos++;
+      continue;
+    }
+    if (existentes.has(telefone)) {
+      repetidos++;
+      continue;
+    }
+    existentes.add(telefone);
+    const lead = leads.criarLead({ empresa, bot: principalDa(empresa), canal: 'manual', nome: texto(l?.nome, 120), telefone });
+    lead.etapa = etapa;
+    lead.etiquetas = etiquetas.slice();
+    criados++;
+  }
+  salvar();
+  if (!criados && linhas.length === 1) {
+    return res.status(400).json({ erro: repetidos ? 'Já existe um lead com esse telefone.' : 'Telefone inválido. Use DDD + número.' });
+  }
+  res.status(201).json({ criados, repetidos, invalidos });
+});
+
+// Ações em vários leads de uma vez (mover etapa, etiquetar, apagar)
+router.post('/empresas/:id/leads/lote', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  const ids = new Set((Array.isArray(b.ids) ? b.ids : []).map(String));
+  const alvo = estado.conversas.filter((c) => c.empresaId === empresa.id && ids.has(c.id));
+  if (!alvo.length) return res.status(400).json({ erro: 'Selecione pelo menos um lead.' });
+  const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
+  if (b.apagar === true) {
+    for (const c of alvo) whatsapp.cancelarResposta(c.id);
+    estado.conversas = estado.conversas.filter((c) => !(c.empresaId === empresa.id && ids.has(c.id)));
+  } else {
+    for (const c of alvo) {
+      if (b.etapa) leads.moverEtapa(c, empresa, b.etapa, 'equipe');
+      if (b.adicionarEtiqueta && validas.has(b.adicionarEtiqueta)) c.etiquetas = [...new Set([...(c.etiquetas || []), b.adicionarEtiqueta])];
+      if (b.removerEtiqueta) c.etiquetas = (c.etiquetas || []).filter((t) => t !== b.removerEtiqueta);
+      c.atualizadoEm = agora();
+    }
+  }
+  salvar();
+  res.json({ ok: true, alterados: alvo.length });
 });
 
 router.get('/leads/:id', (req, res) => {
@@ -587,7 +812,15 @@ router.get('/leads/:id', (req, res) => {
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   const bot = estado.bots.find((b) => b.id === c.botId);
   const { whatsappJid, ...resto } = c;
-  res.json({ ...resto, noWhatsapp: Boolean(whatsappJid), botNome: bot?.nome || '—', etapas: leads.etapasDa(empresa) });
+  res.json({
+    ...resto,
+    etiquetas: c.etiquetas || [],
+    noWhatsapp: Boolean(whatsappJid),
+    podeReceber: Boolean(whatsapp.destinoDoLead(c)),
+    botNome: bot?.nome || '—',
+    etapas: leads.etapasDa(empresa),
+    etiquetasEmpresa: leads.etiquetasDa(empresa)
+  });
 });
 
 // Equipe muda etapa, nome ou liga/desliga a IA naquele lead
@@ -601,6 +834,12 @@ router.put('/leads/:id', (req, res) => {
   }
   if (b.nome !== undefined) c.nome = texto(b.nome, 120);
   if (b.anotacoes !== undefined) c.anotacoes = texto(b.anotacoes, 5000);
+  if (b.telefone !== undefined && !c.whatsappJid) c.telefone = numeroWhatsapp(b.telefone);
+  if (Array.isArray(b.etiquetas)) {
+    const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
+    c.etiquetas = [...new Set(b.etiquetas.map(String))].filter((id) => validas.has(id));
+  }
+  if (b.naoDisparar !== undefined) c.naoDisparar = b.naoDisparar === true;
   if (b.iaPausada !== undefined) {
     c.iaPausada = b.iaPausada === true;
     c.iaPausadaMotivo = c.iaPausada ? 'Pausada pela equipe no painel' : '';
@@ -649,7 +888,12 @@ function situacaoChaves() {
       final: mascarar(doPainel || doEnv)
     };
   };
-  return { anthropic: item('anthropicApiKey', 'anthropicApiKey'), gemini: item('geminiApiKey', 'geminiApiKey') };
+  return {
+    anthropic: item('anthropicApiKey', 'anthropicApiKey'),
+    gemini: item('geminiApiKey', 'geminiApiKey'),
+    evolutionUrl: whatsapp.evolutionUrlGlobal(),
+    evolutionUrlDoPainel: Boolean(salvas.evolutionUrl)
+  };
 }
 
 router.get('/config', auth.exigirAdmin, (req, res) => res.json(situacaoChaves()));
@@ -661,6 +905,12 @@ router.put('/config', auth.exigirAdmin, (req, res) => {
     const valor = texto(req.body?.[campo], 300);
     if (valor) estado.config[campo] = valor;
     if ((req.body?.remover || []).includes(provedor)) delete estado.config[campo];
+  }
+  if (req.body?.evolutionUrl !== undefined) {
+    const url = texto(req.body.evolutionUrl, 300).replace(/\/+$/, '');
+    if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço precisa começar com https://' });
+    if (url) estado.config.evolutionUrl = url;
+    else delete estado.config.evolutionUrl;
   }
   salvar();
   res.json(situacaoChaves());

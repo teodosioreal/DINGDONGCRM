@@ -49,7 +49,12 @@ function criarLead({ empresa, bot, canal, visitanteId, pagina, nome, telefone, w
     botId: bot?.id || null,
     codigo: novoCodigo(),
     origem: canal,
-    etapa: canal === 'whatsapp' ? acharEtapa(empresa, 'No WhatsApp') || etapas[0] : acharEtapa(empresa, 'Conversando no site') || etapas[0],
+    etapa:
+      canal === 'whatsapp'
+        ? acharEtapa(empresa, 'No WhatsApp') || etapas[0]
+        : canal === 'manual'
+          ? etapas[0]
+          : acharEtapa(empresa, 'Conversando no site') || etapas[0],
     etapaHistorico: [],
     nome: nome || '',
     telefone: telefone || '',
@@ -57,6 +62,7 @@ function criarLead({ empresa, bot, canal, visitanteId, pagina, nome, telefone, w
     visitanteId: visitanteId || '',
     pagina: pagina || '',
     mensagens: [],
+    etiquetas: [],
     iaPausada: false,
     criadoEm: agora(),
     atualizadoEm: agora()
@@ -95,6 +101,43 @@ function aoChegarNoWhatsapp(lead, empresa) {
   if (posAtual === -1 || posAtual < posZap) moverEtapa(lead, empresa, noZap, 'sistema');
 }
 
+// ---------------------------------------------------------------- etiquetas
+// Cada empresa tem as suas etiquetas (ex.: "Quente", "Orçamento enviado").
+// O lead guarda só os ids; a equipe e as IAs podem marcar.
+
+const CORES_ETIQUETA = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
+
+const ETIQUETAS_PADRAO = [
+  { nome: 'Quente', cor: '#ef4444' },
+  { nome: 'Morno', cor: '#f59e0b' },
+  { nome: 'Frio', cor: '#3b82f6' },
+  { nome: 'Cliente', cor: '#10b981' }
+];
+
+function etiquetasDa(empresa) {
+  if (!empresa) return [];
+  if (!Array.isArray(empresa.etiquetas)) {
+    empresa.etiquetas = ETIQUETAS_PADRAO.map((e) => ({ id: novoId('tag'), ...e }));
+    salvar();
+  }
+  return empresa.etiquetas;
+}
+
+function limparNome(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function aplicarEtiqueta(lead, empresa, nome) {
+  const alvo = limparNome(nome);
+  const etiqueta = etiquetasDa(empresa).find((e) => limparNome(e.nome) === alvo);
+  if (!etiqueta) return false;
+  lead.etiquetas = lead.etiquetas || [];
+  if (lead.etiquetas.includes(etiqueta.id)) return false;
+  lead.etiquetas.push(etiqueta.id);
+  lead.atualizadoEm = agora();
+  return true;
+}
+
 // Leads criados por versões antigas (antes do funil) ganham os campos novos
 function migrarLeads() {
   let mudou = false;
@@ -114,6 +157,9 @@ function migrarLeads() {
 
 module.exports = {
   ETAPAS_PADRAO,
+  CORES_ETIQUETA,
+  etiquetasDa,
+  aplicarEtiqueta,
   etapasDa,
   acharEtapa,
   criarLead,
