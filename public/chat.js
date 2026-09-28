@@ -57,6 +57,7 @@
     if (memoria.ultimaEm && Date.now() - memoria.ultimaEm > 24 * 3600 * 1000) {
       memoria.mensagens = [];
       memoria.conversaId = null;
+      memoria.codigo = null;
     }
   }
 
@@ -255,6 +256,7 @@
       linkZap.setAttribute('aria-label', 'Falar com a equipe no WhatsApp');
       linkZap.appendChild(iconeWhatsapp(22));
       linkZap.addEventListener('click', function () {
+        linkZap.href = linkComCodigo(cfg.whatsappUrl);
         registrarLead();
       });
       topo.appendChild(linkZap);
@@ -351,110 +353,28 @@
       rolar();
     }
 
-    // ---------------------------------------------------------- conversões
-
-    var conv = cfg.conversoes || {};
-
-    function carregarScript(src) {
-      var s = document.createElement('script');
-      s.async = true;
-      s.src = src;
-      document.head.appendChild(s);
-    }
-
-    // Meta Ads: usa o pixel que o site já tem; se não tiver e a empresa cadastrou
-    // o Pixel ID, carrega o pixel oficial da Meta só para este evento.
-    function dispararMeta(eventId) {
-      if (!conv.metaLead) return false;
-      if (typeof window.fbq !== 'function') {
-        if (!conv.metaPixelId) return false;
-        /* código oficial do pixel da Meta (fbevents.js) */
-        var n = (window.fbq = function () {
-          n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
-        });
-        if (!window._fbq) window._fbq = n;
-        n.push = n;
-        n.loaded = true;
-        n.version = '2.0';
-        n.queue = [];
-        carregarScript('https://connect.facebook.net/en_US/fbevents.js');
-      }
-      var dados = { content_name: cfg.nomeAssistente, content_category: 'chat_ia' };
-      if (conv.valor) {
-        dados.value = conv.valor;
-        dados.currency = conv.moeda || 'BRL';
-      }
-      if (conv.metaPixelId) {
-        window.fbq('init', conv.metaPixelId);
-        window.fbq('trackSingle', conv.metaPixelId, 'Lead', dados, { eventID: eventId });
-      } else {
-        window.fbq('track', 'Lead', dados, { eventID: eventId });
-      }
-      return true;
-    }
-
-    // Google Ads: conversão com o rótulo cadastrado (AW-.../...). Carrega o gtag
-    // se o site não tiver. Sem rótulo, manda o evento padrão generate_lead
-    // (dá para importar como conversão no Google Ads via GA4).
-    function dispararGoogle(eventId) {
-      if (!conv.googleLead) return false;
-      var sendTo = conv.googleSendTo || '';
-      var contaAds = sendTo.split('/')[0];
-      if (typeof window.gtag !== 'function') {
-        if (!sendTo) return false;
-        window.dataLayer = window.dataLayer || [];
-        window.gtag = function () {
-          window.dataLayer.push(arguments);
-        };
-        window.gtag('js', new Date());
-        carregarScript('https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(contaAds));
-      }
-      var dados = { transaction_id: eventId, transport_type: 'beacon' };
-      if (conv.valor) {
-        dados.value = conv.valor;
-        dados.currency = conv.moeda || 'BRL';
-      }
-      if (sendTo) {
-        window.gtag('config', contaAds);
-        dados.send_to = sendTo;
-        window.gtag('event', 'conversion', dados);
-      } else {
-        window.gtag('event', 'generate_lead', dados);
-      }
-      return true;
-    }
-
-    // Google Tag Manager: evento para quem prefere configurar as tags por lá
-    function avisarGtm(eventId) {
-      if (!window.dataLayer || typeof window.dataLayer.push !== 'function') return false;
-      window.dataLayer.push({ event: 'dingdong_lead', dingdong_event_id: eventId, dingdong_assistente: cfg.nomeAssistente });
-      return true;
-    }
-
-    // Chamado quando o visitante vai do chat para o WhatsApp. Dispara uma vez
-    // por conversa, para não contar o mesmo lead duas vezes.
+    // Avisa o CRM que o visitante saiu do site para o WhatsApp (uma vez por
+    // conversa). Lá, a IA do WhatsApp continua o atendimento.
     function registrarLead() {
-      var chaveConversa = memoria.conversaId || 'sem-conversa';
+      if (!memoria.conversaId) return;
       memoria.leads = memoria.leads || {};
-      if (memoria.leads[chaveConversa]) return;
-      memoria.leads[chaveConversa] = Date.now();
+      if (memoria.leads[memoria.conversaId]) return;
+      memoria.leads[memoria.conversaId] = Date.now();
       gravar(memoria);
+      pedir('/api/public/lead', { botId: botId, conversaId: memoria.conversaId }).catch(function () {});
+    }
 
-      var eventId = 'dd_' + chaveConversa + '_' + Date.now().toString(36);
-      var disparou = { meta: false, google: false, gtm: false };
-      // medição nunca pode travar o clique: cada uma isolada
-      try { disparou.meta = dispararMeta(eventId); } catch (e) {}
-      try { disparou.google = dispararGoogle(eventId); } catch (e) {}
-      try { disparou.gtm = avisarGtm(eventId); } catch (e) {}
-
-      if (memoria.conversaId) {
-        pedir('/api/public/lead', {
-          botId: botId,
-          conversaId: memoria.conversaId,
-          meta: disparou.meta,
-          google: disparou.google,
-          gtm: disparou.gtm
-        }).catch(function () {});
+    // O botão do WhatsApp do topo leva o código do atendimento, para a IA do
+    // WhatsApp saber de qual conversa do site o cliente veio.
+    function linkComCodigo(url) {
+      if (!memoria.codigo || !url) return url;
+      try {
+        var u = new URL(url);
+        var texto = u.searchParams.get('text') || 'Olá! Vim pelo site.';
+        if (texto.indexOf('#' + memoria.codigo) === -1) u.searchParams.set('text', texto + ' (atendimento #' + memoria.codigo + ')');
+        return u.toString();
+      } catch (e) {
+        return url;
       }
     }
 
@@ -538,6 +458,7 @@
         .then(function (r) {
           var d = r.dados || {};
           if (d.conversaId) memoria.conversaId = d.conversaId;
+          if (d.codigo) memoria.codigo = d.codigo;
           var resposta = r.ok ? d.resposta : d.erro || 'Não consegui responder agora.';
           var url = d.whatsappUrl || null;
           digitando.remove();

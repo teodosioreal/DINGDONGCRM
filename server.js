@@ -5,8 +5,11 @@ const { garantirAdmin } = require('./src/auth');
 const { salvarAgora } = require('./src/db');
 const rotasPublicas = require('./src/rotas-publicas');
 const rotasPainel = require('./src/rotas-painel');
+const { migrarLeads } = require('./src/leads');
+const midias = require('./src/midias');
 
 garantirAdmin();
+migrarLeads();
 
 const app = express();
 app.disable('x-powered-by');
@@ -23,6 +26,17 @@ base.get('/chat.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.sendFile(path.join(pastaPublica, 'chat.js'));
+});
+
+// Mídias da empresa num endereço público (o WhatsApp baixa daqui para enviar)
+base.get('/midia/:id/:arquivo', (req, res) => {
+  const midia = midias.acharPorId(req.params.id);
+  if (!midia) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type(midia.mimetype);
+  res.sendFile(midias.caminhoDoArquivo(midia), (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
 });
 
 base.use('/api/public', rotasPublicas);

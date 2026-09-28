@@ -5,3 +5,4 @@ data.json.corrompido-*
 .env
 *.log
 .ultima-atualizacao
+midias/

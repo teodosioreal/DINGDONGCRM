@@ -146,14 +146,20 @@ async function testarChave(provedor, empresa) {
 
 // ---------------------------------------------------------------- prompt
 
-function montarPromptSistema(bot, empresa) {
+// Monta o prompt de sistema de um canal ('site' ou 'whatsapp').
+// `contexto` traz o que a IA pode usar além do texto: etapas do funil, etapa
+// atual do lead e as mídias que ela pode mandar no WhatsApp.
+function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const nomeAssistente = bot.nomeAssistente || 'Assistente';
   const nicho = empresa?.nicho ? ` (${empresa.nicho})` : '';
   const tom = bot.tom || 'simpático, próximo e profissional';
   const temWhatsapp = Boolean(bot.whatsapp || empresa?.whatsapp);
+  const noWhatsapp = canal === 'whatsapp';
 
   const partes = [
-    `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}. Você conversa com visitantes do site da empresa por uma janela de chat parecida com o WhatsApp.`,
+    noWhatsapp
+      ? `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}, respondendo clientes no WhatsApp da empresa.`
+      : `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}. Você conversa com visitantes do site da empresa por uma janela de chat parecida com o WhatsApp.`,
     '',
     'Como responder:',
     `- Português do Brasil, tom ${tom}.`,
@@ -164,38 +170,74 @@ function montarPromptSistema(bot, empresa) {
     '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.'
   ];
 
-  if (temWhatsapp) {
+  if (noWhatsapp) {
     partes.push(
       '',
-      'Passagem para o WhatsApp da equipe:',
-      '- Quando o cliente quiser fechar, agendar, pedir orçamento personalizado, falar com uma pessoa, ou quando você não souber responder, convide-o a continuar no WhatsApp.',
-      '- Nesses casos, termine a sua resposta com uma linha separada exatamente neste formato:',
-      '[[WHATSAPP]] <mensagem que o cliente vai enviar para a equipe, em primeira pessoa, resumindo o que ele quer e os dados que ele já passou>',
-      '- Exemplo: [[WHATSAPP]] Olá! Tenho um Onix 2020 e quero o revestimento completo. Moro no Quitandinha.',
-      '- Use essa linha no máximo uma vez por resposta e só quando fizer sentido; o site transforma ela num botão "Continuar no WhatsApp".'
+      'Continuidade do atendimento:',
+      '- O histórico pode ter começado no chat do site da empresa (outra IA, a do site, atendeu antes). Você CONTINUA essa mesma conversa: não se apresente de novo do zero, não repita perguntas que o cliente já respondeu e retome de onde parou.',
+      '- Mensagens marcadas como "(equipe)" foram escritas por uma pessoa da empresa. Respeite o que a equipe combinou.',
+      '- Se o cliente mandar áudio ou arquivo que você não consegue ver, peça com educação para ele escrever.'
     );
+    if (bot.promptWhatsapp?.trim()) partes.push('', 'Instruções da empresa para o WhatsApp:', bot.promptWhatsapp.trim());
+
+    const midias = contexto.midias || [];
+    if (midias.length) {
+      partes.push(
+        '',
+        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios):',
+        ...midias.map((m) => `- ${m.nome}${m.descricao ? `: ${m.descricao}` : ''}`),
+        '- Para enviar uma delas, escreva numa linha separada: [[MIDIA: nome exato]]. Pode enviar mais de uma (uma por linha). Só use nomes desta lista e só quando ajudar o cliente.'
+      );
+    }
+    partes.push(
+      '',
+      'Passar para uma pessoa da equipe:',
+      '- Quando o cliente pedir para falar com uma pessoa, quando for fechar negócio/agendar e as instruções mandarem passar para a equipe, ou quando você não souber resolver, avise que vai chamar alguém da equipe e escreva numa linha separada: [[HUMANO]]. Depois disso você para de responder e a equipe assume.'
+    );
+  } else {
+    if (temWhatsapp) {
+      partes.push(
+        '',
+        'Passagem para o WhatsApp (lá outra IA continua o atendimento com todo o histórico):',
+        '- Quando o cliente quiser fechar, agendar, pedir orçamento personalizado, falar com uma pessoa, ou quando você não souber responder, convide-o a continuar no WhatsApp.',
+        '- Nesses casos, termine a sua resposta com uma linha separada exatamente neste formato:',
+        '[[WHATSAPP]] <mensagem que o cliente vai enviar pelo WhatsApp, em primeira pessoa, resumindo o que ele quer e os dados que ele já passou>',
+        '- Exemplo: [[WHATSAPP]] Olá! Tenho um Onix 2020 e quero o revestimento completo. Moro no Quitandinha.',
+        '- Use essa linha no máximo uma vez por resposta e só quando fizer sentido; o site transforma ela num botão "Continuar no WhatsApp".'
+      );
+    }
+    if (bot.regras?.trim()) partes.push('', 'Instruções da empresa para o chat do site:', bot.regras.trim());
   }
 
-  if (bot.regras?.trim()) {
-    partes.push('', 'Regras extras definidas pela empresa:', bot.regras.trim());
+  const etapas = contexto.etapas || [];
+  if (etapas.length) {
+    partes.push(
+      '',
+      'Etapas do funil de atendimento (onde o lead está):',
+      ...etapas.map((e) => `- ${e}`),
+      contexto.etapaAtual ? `- O lead está agora na etapa: ${contexto.etapaAtual}.` : '',
+      '- Quando o atendimento avançar (ou o cliente desistir), mova o lead escrevendo numa linha separada: [[ETAPA: nome exato da etapa]]. Use só nomes desta lista e só quando a etapa realmente mudar.'
+    );
   }
 
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
-  return partes.join('\n');
+  return partes.filter((l) => l !== null).join('\n');
 }
 
-// Converte o histórico salvo ({ papel: 'visitante'|'assistente', texto }) em
-// turnos alternados. A primeira mensagem precisa ser do usuário, então pulamos
+// Converte o histórico salvo ({ papel: 'visitante'|'assistente'|'equipe', texto })
+// em turnos alternados. A primeira mensagem precisa ser do usuário, então pulamos
 // eventuais mensagens do assistente no começo (ex.: a saudação automática).
 function paraTurnos(historico) {
   const turnos = [];
   for (const m of historico) {
     const role = m.papel === 'visitante' ? 'user' : 'assistant';
+    const conteudo = m.papel === 'equipe' ? `(equipe) ${m.texto}` : m.texto;
+    if (!conteudo) continue;
     if (turnos.length === 0 && role !== 'user') continue;
     const ultimo = turnos[turnos.length - 1];
-    if (ultimo && ultimo.role === role) ultimo.content += `\n\n${m.texto}`;
-    else turnos.push({ role, content: m.texto });
+    if (ultimo && ultimo.role === role) ultimo.content += `\n\n${conteudo}`;
+    else turnos.push({ role, content: conteudo });
   }
   return turnos;
 }
@@ -257,24 +299,53 @@ async function responderGemini(empresa, bot, sistema, turnos) {
  * Gera a resposta do assistente.
  * @returns {{ texto: string, mensagemWhatsapp: string|null }}
  */
-async function responder(bot, empresa, historico) {
-  const turnos = paraTurnos(historico.slice(-30));
-  if (turnos.length === 0) throw new Error('Nenhuma mensagem do visitante para responder.');
-  const sistema = montarPromptSistema(bot, empresa);
-  const provedor = normalizarProvedor(bot.provedor);
-
-  const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
-  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null };
-
-  let texto = bruto.texto.trim();
+// Tira da resposta as "ações" que a IA pediu ([[ETAPA: …]], [[MIDIA: …]],
+// [[HUMANO]], [[WHATSAPP]] …) e devolve o texto limpo + as ações.
+function extrairAcoes(bruto) {
+  let texto = String(bruto || '');
+  const midias = [];
+  let etapa = null;
+  let humano = false;
+  texto = texto.replace(/\[\[\s*MIDIA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
+    midias.push(nome.trim());
+    return '';
+  });
+  texto = texto.replace(/\[\[\s*ETAPA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
+    etapa = nome.trim();
+    return '';
+  });
+  texto = texto.replace(/\[\[\s*HUMANO\s*\]\]/gi, () => {
+    humano = true;
+    return '';
+  });
   let mensagemWhatsapp = null;
   const marcador = texto.match(MARCADOR_WHATSAPP);
   if (marcador) {
     mensagemWhatsapp = marcador[1].trim() || null;
-    texto = texto.slice(0, marcador.index).trim();
+    texto = texto.slice(0, marcador.index);
   }
-  if (!texto) texto = 'Posso te passar para a nossa equipe no WhatsApp para continuar o atendimento?';
-  return { texto, mensagemWhatsapp };
+  texto = texto.replace(/\n{3,}/g, '\n\n').trim();
+  return { texto, mensagemWhatsapp, midias, etapa, humano };
+}
+
+/**
+ * Gera a resposta do assistente num canal ('site' ou 'whatsapp').
+ * @returns {{ texto, mensagemWhatsapp, midias: string[], etapa: string|null, humano: boolean }}
+ */
+async function responder(bot, empresa, historico, opcoes = {}) {
+  const canal = opcoes.canal === 'whatsapp' ? 'whatsapp' : 'site';
+  const turnos = paraTurnos(historico.slice(-40));
+  if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
+  const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
+  const provedor = normalizarProvedor(bot.provedor);
+
+  const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
+  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false };
+
+  const r = extrairAcoes(bruto.texto);
+  if (canal === 'whatsapp') r.mensagemWhatsapp = null; // já está no WhatsApp
+  if (!r.texto && canal === 'site') r.texto = 'Posso te passar para o nosso WhatsApp para continuar o atendimento?';
+  return r;
 }
 
 function descreverErroIa(err) {
@@ -296,6 +367,7 @@ function descreverErroIa(err) {
 
 module.exports = {
   responder,
+  extrairAcoes,
   descreverErroIa,
   montarPromptSistema,
   listarModelos,

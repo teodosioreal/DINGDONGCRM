@@ -1,6 +1,6 @@
 // Painel do CRM: páginas por hash, no mesmo estilo do painel DingDong
-// (menu lateral; dentro de cada empresa: Painel, Assistente IA, Conversas,
-// Chave de IA, Conversões e Instalar no site).
+// (menu lateral; dentro de cada empresa: Painel, Leads, Assistente IA, WhatsApp,
+// Mídias, Chave de IA e Instalar no site).
 'use strict';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -126,10 +126,11 @@ function montarMenu(ativo) {
     const id = empresaAtual.id;
     html += `<p class="titulo-grupo">${esc(empresaAtual.nome)}</p>`;
     html += item(rotaEmpresa(id), 'Painel');
+    html += item(rotaEmpresa(id, 'leads'), 'Leads');
     html += item(rotaEmpresa(id, 'assistentes'), 'Assistente IA');
-    html += item(rotaEmpresa(id, 'conversas'), 'Conversas');
+    html += item(rotaEmpresa(id, 'whatsapp'), 'WhatsApp');
+    html += item(rotaEmpresa(id, 'midias'), 'Mídias');
     html += item(rotaEmpresa(id, 'chave'), 'Chave de IA');
-    html += item(rotaEmpresa(id, 'conversoes'), 'Conversões (Meta / Google)');
     html += item(rotaEmpresa(id, 'instalar'), 'Instalar no site');
   }
   if (ehAdmin()) {
@@ -162,9 +163,9 @@ async function paginaInicio() {
     <div class="cabecalho"><h1>Visão geral</h1></div>
     <div class="grade-resumo">
       <div class="card"><div class="rotulo">Empresas</div><div class="numero">${r.empresas}</div></div>
-      <div class="card"><div class="rotulo">Conversas (7 dias)</div><div class="numero">${r.conversas7d}</div></div>
-      <div class="card"><div class="rotulo">Leads pro WhatsApp (7 dias)</div><div class="numero">${r.leads7d}</div></div>
-      <div class="card"><div class="rotulo">Mensagens hoje</div><div class="numero">${r.mensagensHoje}</div></div>
+      <div class="card"><div class="rotulo">Leads novos (7 dias)</div><div class="numero">${r.leads7d}</div></div>
+      <div class="card"><div class="rotulo">Chegaram no WhatsApp (7 dias)</div><div class="numero">${r.noWhatsapp7d}</div></div>
+      <div class="card"><div class="rotulo">Esperando a equipe</div><div class="numero">${r.aguardandoEquipe}</div></div>
     </div>
     <h2>Empresas</h2>
     ${tabelaEmpresas(empresas)}
@@ -207,7 +208,7 @@ async function paginaEmpresas() {
   const lista = await api('empresas');
   conteudo.innerHTML = `
     <div class="cabecalho"><h1>Empresas</h1><button class="primario" id="nova">+ Nova empresa</button></div>
-    <p class="descricao">Cada empresa tem a própria IA (chave e assistente), as próprias conversões do Meta/Google Ads e um código para o site.</p>
+    <p class="descricao">Cada empresa tem as próprias IAs (site e WhatsApp), a própria chave de IA, o funil de leads e um código para o site.</p>
     ${tabelaEmpresas(lista)}`;
   $('#nova').onclick = () => modalEmpresa();
   ligarTabelaEmpresas();
@@ -271,17 +272,22 @@ async function paginaEmpresa(id) {
     },
     {
       feito: Boolean(principal && (principal.conhecimento || '').trim().length > 80),
-      texto: 'Ensinar a IA: serviços, preços, horários e dúvidas comuns',
+      texto: 'Ensinar a IA: conhecimento da empresa e instruções do site e do WhatsApp',
       href: principal ? `#/assistentes/${principal.id}` : rotaEmpresa(id, 'assistentes')
     },
     {
-      feito: Boolean(emp.conversoes.metaPixelId || emp.conversoes.googleSendTo),
-      texto: 'Conferir as conversões do Meta Ads e do Google Ads',
-      href: rotaEmpresa(id, 'conversoes')
+      feito: Boolean(emp.whatsapp?.configurado),
+      texto: 'Conectar o WhatsApp (a IA do WhatsApp continua o atendimento do site)',
+      href: rotaEmpresa(id, 'whatsapp')
     },
     {
-      feito: r.conversas7d > 0,
-      texto: 'Colar o código no site (aparece como feito quando chegar a primeira conversa)',
+      feito: emp.totalMidias > 0,
+      texto: 'Cadastrar mídias que a IA pode enviar (fotos, vídeos, PDFs, áudios) — opcional',
+      href: rotaEmpresa(id, 'midias')
+    },
+    {
+      feito: Object.keys(r.porEtapa).length > 0,
+      texto: 'Colar o código no site (aparece como feito quando chegar o primeiro lead)',
       href: rotaEmpresa(id, 'instalar')
     }
   ];
@@ -291,9 +297,15 @@ async function paginaEmpresa(id) {
       ${ehAdmin() ? '<button type="button" id="editar-emp">Editar empresa</button>' : ''}
     </div>
     <div class="grade-resumo">
-      <div class="card"><div class="rotulo">Conversas (7 dias)</div><div class="numero">${r.conversas7d}</div></div>
-      <div class="card"><div class="rotulo">Leads pro WhatsApp (7 dias)</div><div class="numero">${r.leads7d}</div></div>
-      <div class="card"><div class="rotulo">Mensagens hoje</div><div class="numero">${r.mensagensHoje}</div></div>
+      <div class="card"><div class="rotulo">Leads novos (7 dias)</div><div class="numero">${r.leads7d}</div></div>
+      <div class="card"><div class="rotulo">Chegaram no WhatsApp (7 dias)</div><div class="numero">${r.noWhatsapp7d}</div></div>
+      <div class="card"><div class="rotulo">Esperando a equipe</div><div class="numero">${r.aguardandoEquipe}</div></div>
+    </div>
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:12px"><h2 style="margin:0">Funil</h2><a class="botao pequeno" href="${rotaEmpresa(id, 'leads')}">Ver leads</a></div>
+      <div class="funil">
+        ${emp.etapas.map((e) => `<a class="funil-etapa" href="${rotaEmpresa(id, 'leads')}"><span class="rotulo">${esc(e)}</span><strong>${r.porEtapa[e] || 0}</strong></a>`).join('')}
+      </div>
     </div>
     <div class="card">
       <h2>Passo a passo</h2>
@@ -366,46 +378,150 @@ async function paginaChave(id) {
   });
 }
 
-// ---------------------------------------------------------------- empresa: conversões
+// ---------------------------------------------------------------- empresa: WhatsApp
 
-async function paginaConversoes(id) {
-  const emp = await definirEmpresaAtual(id);
-  const c = emp.conversoes;
+async function paginaWhatsapp(id) {
+  await definirEmpresaAtual(id);
+  const w = await api(`empresas/${id}/whatsapp`);
   conteudo.innerHTML = `
-    <div class="cabecalho"><h1>Conversões</h1></div>
-    <p class="descricao">Quando o visitante sai do chat para o WhatsApp (o lead qualificado pela IA), o chat dispara automaticamente as conversões abaixo no navegador dele. Uma vez por conversa, para não contar em dobro.</p>
-    <form id="f-conv">
-      <div class="card">
-        <h2>Meta Ads</h2>
-        <label class="linha-check"><input type="checkbox" name="metaLead" ${c.metaLead ? 'checked' : ''}> Disparar o evento <strong>Lead</strong> no Meta Ads</label>
-        <div class="campos" style="margin-top:14px">
-          <div class="campo"><label>Pixel ID (opcional)</label><input name="metaPixelId" inputmode="numeric" value="${esc(c.metaPixelId)}" placeholder="123456789012345">
-            <small>Se o site já tem o pixel da Meta instalado, pode deixar vazio — o evento vai para ele. Preencha para mandar para um pixel específico (ou se o site não tiver pixel).</small></div>
-        </div>
+    <div class="cabecalho"><h1>WhatsApp</h1></div>
+    <p class="descricao">A IA do WhatsApp responde os clientes no número da empresa. Quem veio do chat do site chega com o código do atendimento, e a IA continua de onde a IA do site parou, com todo o histórico. Se alguém da equipe responder pelo celular ou pelo painel, a IA para naquele lead.</p>
+    <form class="card" id="f-zap">
+      <h2>Conexão (Evolution API)</h2>
+      <div class="campos">
+        <div class="campo largo"><label>Endereço da Evolution API</label><input name="evolutionUrl" value="${esc(w.evolutionUrl)}" placeholder="https://api.seudominio.com"></div>
+        <div class="campo"><label>Nome da instância</label><input name="instancia" value="${esc(w.instancia)}" placeholder="madara-volantes"></div>
+        <div class="campo"><label>API key da instância</label><input name="apiKey" type="password" autocomplete="off" placeholder="${w.apiKeyFinal ? `salva (termina em ${esc(w.apiKeyFinal)}) — deixe vazio para manter` : 'cole a API key'}"></div>
+        <div class="campo largo"><label class="linha-check"><input type="checkbox" name="iaAtiva" ${w.iaAtiva ? 'checked' : ''}> IA responde no WhatsApp</label><small>Desmarque para só registrar as conversas no CRM, sem a IA responder.</small></div>
       </div>
-      <div class="card">
-        <h2>Google Ads</h2>
-        <label class="linha-check"><input type="checkbox" name="googleLead" ${c.googleLead ? 'checked' : ''}> Disparar a conversão de <strong>Lead</strong> no Google Ads</label>
-        <div class="campos" style="margin-top:14px">
-          <div class="campo"><label>Rótulo da conversão (send_to)</label><input name="googleSendTo" value="${esc(c.googleSendTo)}" placeholder="AW-123456789/AbCdEfGhIjk">
-            <small>No Google Ads: Metas → Conversões → Nova ação de conversão → Site → configurar manualmente (categoria "Lead"). Copie o valor de <code>send_to</code> do trecho do evento. Sem o rótulo, o chat manda o evento <code>generate_lead</code> para o Google (dá para importar como conversão via GA4).</small></div>
-          <div class="campo"><label>Valor do lead (opcional)</label><input name="valor" inputmode="decimal" value="${c.valor || ''}" placeholder="0,00"><small>Enviado junto nas duas plataformas, em R$.</small></div>
-        </div>
+      <div class="acoes">
+        <button class="primario" type="submit">Salvar</button>
+        ${w.configurado ? '<button type="button" id="zap-status">Ver conexão</button><button type="button" id="zap-qr">Conectar (QR code)</button><button type="button" id="zap-webhook">Ligar o webhook automaticamente</button>' : ''}
       </div>
-      <div class="card">
-        <h2>Google Tag Manager</h2>
-        <p class="rotulo" style="margin:0">Se o site usa o GTM, o chat também manda o evento <code>dingdong_lead</code> para o <code>dataLayer</code> — dá para criar gatilhos com ele.</p>
-      </div>
-      <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
-    </form>`;
-  $('#f-conv').onsubmit = async (e) => {
+      <div id="zap-resultado" style="margin-top:14px"></div>
+    </form>
+    <div class="card">
+      <h2>Webhook</h2>
+      <p class="rotulo" style="margin-top:-6px">O botão "Ligar o webhook automaticamente" configura isto na Evolution. Se preferir fazer à mão, use esta URL com o evento <code>MESSAGES_UPSERT</code>:</p>
+      <div class="codigo">${esc(w.webhook)}</div>
+      <p class="rotulo" style="margin:10px 0 0">Não compartilhe esta URL: ela tem um código secreto da empresa.</p>
+    </div>`;
+  const resultado = $('#zap-resultado');
+  $('#f-zap').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      const salva = await api(`empresas/${id}/conversoes`, { method: 'PUT', body: formParaObjeto(e.target) });
-      empresaAtual = { id: salva.id, nome: salva.nome, dados: salva };
-      aviso('Conversões salvas.');
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('WhatsApp salvo.');
+      paginaWhatsapp(id);
     } catch (err) { aviso(err.message, true); }
   };
+  const acao = async (nome, desenhar) => {
+    resultado.innerHTML = '<p class="rotulo">Aguarde…</p>';
+    try {
+      desenhar(await api(`empresas/${id}/whatsapp/${nome}`, { method: 'POST' }));
+    } catch (err) {
+      resultado.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+    }
+  };
+  $('#zap-status')?.addEventListener('click', () => acao('status', (r) => {
+    const ok = r.estado === 'open';
+    resultado.innerHTML = `<p>${ok ? '<span class="etiqueta ok">Conectado</span>' : `<span class="etiqueta off">${esc(r.estado)}</span> — use "Conectar (QR code)"`}</p>`;
+  }));
+  $('#zap-qr')?.addEventListener('click', () => acao('qrcode', (r) => {
+    resultado.innerHTML = r.base64
+      ? `<p class="rotulo">No celular da empresa: WhatsApp → Aparelhos conectados → Conectar aparelho → escaneie:</p><img alt="QR code do WhatsApp" src="${esc(r.base64.startsWith('data:') ? r.base64 : `data:image/png;base64,${r.base64}`)}" style="width:260px;max-width:100%;background:#fff;padding:8px;border-radius:8px">`
+      : '<p>Nenhum QR code: a instância provavelmente já está conectada. Clique em "Ver conexão".</p>';
+  }));
+  $('#zap-webhook')?.addEventListener('click', () => acao('webhook', () => {
+    resultado.innerHTML = '<p><span class="etiqueta ok">Webhook ligado</span> As mensagens do WhatsApp já chegam no CRM.</p>';
+  }));
+}
+
+// ---------------------------------------------------------------- empresa: mídias
+
+const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' };
+
+async function paginaMidias(id) {
+  await definirEmpresaAtual(id);
+  const lista = await api(`empresas/${id}/midias`);
+  conteudo.innerHTML = `
+    <div class="cabecalho"><h1>Mídias</h1></div>
+    <p class="descricao">Fotos, vídeos, PDFs e áudios que a IA do WhatsApp pode enviar. O <strong>nome</strong> e a <strong>descrição</strong> dizem para a IA quando usar cada um — ex.: "Fotos volantes couro" / "quando o cliente pedir fotos do revestimento em couro". Até 16 MB por arquivo.</p>
+    <form class="card" id="f-midia">
+      <h2>Adicionar mídia</h2>
+      <div class="campos">
+        <div class="campo largo"><label>Arquivo *</label><input type="file" name="arquivo" required accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></div>
+        <div class="campo"><label>Nome *</label><input name="nome" required placeholder="Ex.: Tabela de preços"></div>
+        <div class="campo"><label>Quando a IA deve enviar</label><input name="descricao" placeholder="Ex.: quando o cliente pedir os preços"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Enviar arquivo</button></div>
+    </form>
+    <div class="card tabela-wrap">
+      <table>
+        <thead><tr><th>Mídia</th><th class="esconde-mobile">Quando enviar</th><th>Tamanho</th><th></th></tr></thead>
+        <tbody>
+          ${lista.length ? lista.map((m) => `
+            <tr>
+              <td>${ICONE_TIPO[m.tipo] || '📎'} <a href="${esc(m.url)}" target="_blank" rel="noopener"><strong>${esc(m.nome)}</strong></a><br><span class="rotulo">${esc(m.arquivo)}</span></td>
+              <td class="esconde-mobile">${esc(m.descricao) || '—'}</td>
+              <td style="white-space:nowrap">${(m.tamanho / 1024 / 1024).toFixed(1)} MB</td>
+              <td style="white-space:nowrap"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button> <button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></td>
+            </tr>`).join('') : '<tr><td colspan="4" class="vazio">Nenhuma mídia ainda.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+  $('#f-midia').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const arquivo = f.elements.arquivo.files[0];
+    if (!arquivo) return;
+    if (arquivo.size > 16 * 1024 * 1024) return aviso('Arquivo maior que 16 MB (limite do WhatsApp).', true);
+    const botao = f.querySelector('button[type=submit]');
+    botao.disabled = true;
+    botao.textContent = 'Enviando…';
+    try {
+      const qs = new URLSearchParams({ arquivo: arquivo.name, nome: f.elements.nome.value, descricao: f.elements.descricao.value, tipo: arquivo.type || '' });
+      const r = await fetch(`api/empresas/${id}/midias?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arquivo });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || `Erro ${r.status}`);
+      aviso('Mídia adicionada.');
+      paginaMidias(id);
+    } catch (err) {
+      aviso(err.message, true);
+      botao.disabled = false;
+      botao.textContent = 'Enviar arquivo';
+    }
+  };
+  conteudo.querySelectorAll('[data-apagar]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Apagar esta mídia? A IA não vai mais conseguir enviá-la.')) return;
+      try {
+        await api(`empresas/${id}/midias/${b.dataset.apagar}`, { method: 'DELETE' });
+        paginaMidias(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  conteudo.querySelectorAll('[data-editar]').forEach((b) => {
+    b.onclick = () => {
+      const m = lista.find((x) => x.id === b.dataset.editar);
+      abrirModal(`
+        <h2>Editar mídia</h2>
+        <form id="f-ed-midia">
+          <div class="campo"><label>Nome</label><input name="nome" required value="${esc(m.nome)}"></div>
+          <div class="campo" style="margin-top:12px"><label>Quando a IA deve enviar</label><input name="descricao" value="${esc(m.descricao)}"></div>
+          <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+        </form>`, (modal, fechar) => {
+        $('#f-ed-midia', modal).onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
+            fechar();
+            paginaMidias(id);
+          } catch (err) { aviso(err.message, true); }
+        };
+      });
+    };
+  });
 }
 
 // ---------------------------------------------------------------- empresa: instalar no site
@@ -537,7 +653,8 @@ async function paginaAssistente(id, params) {
               <textarea class="grande" name="conhecimento">${esc(b.conhecimento)}</textarea>
               <small>Serviços, preços, região atendida, horários, prazos, garantia, formas de pagamento, dúvidas comuns. A IA não inventa nada fora disso.</small>
             </div>
-            <div class="campo largo"><label>Regras extras (opcional)</label><textarea name="regras" placeholder="Ex.: Sempre pergunte o modelo do carro antes de passar o preço.">${esc(b.regras)}</textarea></div>
+            <div class="campo largo"><label>Instruções da IA do site</label><textarea name="regras" placeholder="Ex.: Descubra o modelo do carro e o serviço que o cliente quer. Quando ele quiser agendar, mande para o WhatsApp.">${esc(b.regras)}</textarea><small>Como a IA do chat do site deve conduzir a conversa e quando passar para o WhatsApp.</small></div>
+            <div class="campo largo"><label>Instruções da IA do WhatsApp</label><textarea name="promptWhatsapp" placeholder="Ex.: Continue o atendimento do site. Envie as fotos do serviço escolhido, combine dia e bairro e, quando o cliente confirmar, chame a equipe.">${esc(b.promptWhatsapp)}</textarea><small>A IA do WhatsApp continua o que a IA do site começou. Aqui você diz como ela segue: que mídias mandar, quando mudar a etapa, quando chamar alguém da equipe.</small></div>
           </div>
         </div>
 
@@ -563,14 +680,14 @@ async function paginaAssistente(id, params) {
 
         <div class="acoes">
           <button class="primario" type="submit">${novo ? 'Criar assistente' : 'Salvar alterações'}</button>
-          ${novo ? '' : `<a class="botao" href="${rotaEmpresa(empresaId, 'conversas')}">Ver conversas</a>`}
+          ${novo ? '' : `<a class="botao" href="${rotaEmpresa(empresaId, 'leads')}">Ver leads</a>`}
           ${novo ? '' : '<button type="button" class="perigo" id="excluir" style="margin-left:auto">Excluir</button>'}
         </div>
         ${novo ? '' : `<details style="margin-top:16px"><summary class="rotulo">Código só deste assistente (avançado)</summary><div class="codigo" style="margin-top:8px">${esc(codigoIncorporacao(b))}</div></details>`}
       </form>
 
       <div class="card teste">
-        <div class="cab"><span>Testar conversa</span><button type="button" class="pequeno" id="limpar">Limpar</button></div>
+        <div class="cab"><span>Testar como <select id="canal-teste" style="width:auto;padding:2px 6px;margin-left:4px"><option value="site">IA do site</option><option value="whatsapp">IA do WhatsApp</option></select></span><button type="button" class="pequeno" id="limpar">Limpar</button></div>
         <div class="chat" id="chat"></div>
         <form id="f-teste"><input id="msg-teste" placeholder="${novo ? 'Crie o assistente para testar' : 'Pergunte algo como um cliente…'}" ${novo ? 'disabled' : ''} autocomplete="off"><button class="primario" ${novo ? 'disabled' : ''}>Enviar</button></form>
       </div>
@@ -648,10 +765,23 @@ async function paginaAssistente(id, params) {
     const botao = e.target.querySelector('button');
     botao.disabled = true;
     try {
-      const r = await api(`bots/${b.id}/testar`, { method: 'POST', body: { bot: formParaObjeto(form), mensagens: historico } });
+      const r = await api(`bots/${b.id}/testar`, { method: 'POST', body: { bot: formParaObjeto(form), mensagens: historico, canal: $('#canal-teste').value } });
       // mesmo *negrito* que o widget mostra no site
       esperando.innerHTML = esc(r.resposta).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
       historico.push({ papel: 'assistente', texto: r.resposta });
+      // ações que a IA pediu (no WhatsApp de verdade elas acontecem sozinhas)
+      const acoes = [
+        ...(r.midias || []).map((m) => `📎 enviaria a mídia "${m}"`),
+        r.etapa ? `➜ moveria o lead para "${r.etapa}"` : '',
+        r.humano ? '👤 chamaria uma pessoa da equipe (e pararia de responder)' : ''
+      ].filter(Boolean);
+      if (acoes.length) {
+        const n = document.createElement('div');
+        n.className = 'msg acao-ia';
+        n.textContent = acoes.join('\n');
+        chat.appendChild(n);
+        chat.scrollTop = chat.scrollHeight;
+      }
       if (r.whatsappUrl) {
         const a = document.createElement('a');
         a.className = 'cta';
@@ -673,60 +803,134 @@ async function paginaAssistente(id, params) {
   };
 }
 
-// ---------------------------------------------------------------- empresa: conversas
+// ---------------------------------------------------------------- empresa: leads (funil)
 
-function etiquetasConversao(c) {
-  if (!c.lead) return '—';
-  const x = c.conversoes || {};
-  const partes = [x.meta && 'Meta', x.google && 'Google'].filter(Boolean);
-  return `<span class="etiqueta ok">Lead</span>${partes.length ? ` <span class="rotulo">${partes.join(' + ')}</span>` : ''}`;
+const ROTULO_CANAL = { site: '🌐 Site', whatsapp: '🟢 WhatsApp' };
+
+function cartaoLead(l) {
+  const quem = l.nome || (l.telefone ? `+${l.telefone}` : 'Visitante do site');
+  const ultima = l.ultimaMensagem ? `${l.ultimaMensagem.papel === 'visitante' ? '' : l.ultimaMensagem.papel === 'equipe' ? 'Equipe: ' : 'IA: '}${l.ultimaMensagem.texto}` : '';
+  return `
+    <a class="cartao-lead" href="#/leads/${esc(l.id)}">
+      <strong>${esc(quem)}</strong>
+      <span class="rotulo cartao-texto">${esc(ultima)}</span>
+      <span class="cartao-rodape">
+        ${l.canais.map((c) => `<span class="etiqueta">${ROTULO_CANAL[c] || c}</span>`).join(' ')}
+        ${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : l.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}
+        <span class="rotulo" style="margin-left:auto">${data(l.atualizadoEm)}</span>
+      </span>
+    </a>`;
 }
 
-async function paginaConversas(id, params) {
-  await definirEmpresaAtual(id);
-  const soLeads = params.get('leads') === '1';
-  const qs = new URLSearchParams({ empresaId: id });
-  if (soLeads) qs.set('soLeads', '1');
-  const lista = await api(`conversas?${qs}`);
+async function paginaLeads(id, params) {
+  const emp = await definirEmpresaAtual(id);
+  const busca = params.get('busca') || '';
+  const lista = await api(`leads?${new URLSearchParams({ empresaId: id, busca })}`);
   conteudo.innerHTML = `
     <div class="cabecalho">
-      <h1>Conversas</h1>
-      <label class="linha-check"><input type="checkbox" id="f-leads" ${soLeads ? 'checked' : ''}> Só quem foi pro WhatsApp</label>
+      <h1>Leads</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <form id="f-busca" style="display:flex;gap:6px"><input name="busca" value="${esc(busca)}" placeholder="Buscar nome, telefone, mensagem…" style="width:240px"><button type="submit">Buscar</button></form>
+        <button type="button" id="editar-etapas">Editar etapas</button>
+      </div>
     </div>
-    <div class="card tabela-wrap">
-      <table>
-        <thead><tr><th>Quando</th><th>Primeira mensagem</th><th class="esconde-mobile">Msgs</th><th>WhatsApp</th></tr></thead>
-        <tbody>
-          ${lista.length ? lista.map((c) => `
-            <tr class="clicavel" data-id="${esc(c.id)}">
-              <td style="white-space:nowrap">${data(c.atualizadoEm)}</td>
-              <td>${esc(c.primeiraMensagem) || '—'}</td>
-              <td class="esconde-mobile">${c.mensagens}</td>
-              <td style="white-space:nowrap">${etiquetasConversao(c)}</td>
-            </tr>`).join('') : '<tr><td colspan="4" class="vazio">Nenhuma conversa ainda.</td></tr>'}
-        </tbody>
-      </table>
+    <p class="descricao">Cada atendimento é um lead. A IA do site e a do WhatsApp movem o lead de etapa conforme as instruções; você também pode mover abrindo o lead.</p>
+    <div class="quadro">
+      ${emp.etapas.map((etapa) => {
+        const daEtapa = lista.filter((l) => l.etapa === etapa);
+        return `<section class="coluna"><header><span>${esc(etapa)}</span><span class="etiqueta">${daEtapa.length}</span></header>${daEtapa.map(cartaoLead).join('') || '<p class="rotulo vazio-coluna">—</p>'}</section>`;
+      }).join('')}
     </div>`;
-  $('#f-leads').onchange = (e) => { location.hash = rotaEmpresa(id, 'conversas') + (e.target.checked ? '?leads=1' : ''); };
-  conteudo.querySelectorAll('tr[data-id]').forEach((tr) => { tr.onclick = () => { location.hash = `#/conversas/${tr.dataset.id}`; }; });
+  $('#f-busca').onsubmit = (e) => {
+    e.preventDefault();
+    const v = e.target.elements.busca.value.trim();
+    location.hash = rotaEmpresa(id, 'leads') + (v ? `?busca=${encodeURIComponent(v)}` : '');
+  };
+  $('#editar-etapas').onclick = () => abrirModal(`
+    <h2>Etapas do funil</h2>
+    <p class="rotulo">Uma por linha, na ordem do atendimento. As IAs só usam estas etapas. Leads em etapas apagadas vão para a primeira.</p>
+    <form id="f-etapas">
+      <textarea name="etapas" style="min-height:200px">${esc(emp.etapas.join('\n'))}</textarea>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+    </form>`, (m, fechar) => {
+    $('#f-etapas', m).onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`empresas/${id}/etapas`, { method: 'PUT', body: { etapas: e.target.elements.etapas.value } });
+        fechar();
+        paginaLeads(id, params);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
 }
 
-async function paginaConversa(id) {
-  const c = await api(`conversas/${id}`);
-  await definirEmpresaAtual(c.empresaId);
-  const x = c.conversoes || {};
+async function paginaLead(leadId) {
+  const l = await api(`leads/${leadId}`);
+  await definirEmpresaAtual(l.empresaId);
+  const quem = l.nome || (l.telefone ? `+${l.telefone}` : 'Visitante do site');
+  const papelRotulo = { visitante: 'Cliente', assistente: 'IA', equipe: 'Equipe' };
   conteudo.innerHTML = `
-    <div class="cabecalho"><h1>Conversa</h1><a class="botao" href="${rotaEmpresa(c.empresaId, 'conversas')}">← Voltar</a></div>
-    <div class="card">
-      <p style="margin:0 0 4px"><strong>Assistente:</strong> ${esc(c.botNome)}</p>
-      <p style="margin:0 0 4px"><strong>Início:</strong> ${data(c.criadoEm)} · <strong>Última mensagem:</strong> ${data(c.atualizadoEm)}</p>
-      <p style="margin:0 0 4px"><strong>Página:</strong> ${c.pagina ? esc(c.pagina) : '—'}</p>
-      <p style="margin:0"><strong>Foi pro WhatsApp:</strong> ${c.lead ? `sim (${data(c.leadEm)}) · Meta Ads: ${x.meta ? 'disparado' : 'não'} · Google Ads: ${x.google ? 'disparado' : 'não'}` : 'não'}</p>
-    </div>
-    <div class="conversa">
-      ${c.mensagens.map((m) => `
-        <div class="msg ${m.papel === 'visitante' ? 'eu' : 'bot'}">${esc(m.texto)}${m.whatsapp ? `<br><em style="color:#0a7a3a">→ Ofereceu WhatsApp: "${esc(m.whatsapp)}"</em>` : ''}<small>${data(m.em)}</small></div>`).join('')}
+    <div class="cabecalho"><h1>${esc(quem)}</h1><a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div>
+    <div class="lead-grade">
+      <div>
+        <div class="conversa" id="linha-tempo">
+          ${l.mensagens.map((m) => (
+            // numa linha só: a bolha usa white-space: pre-wrap (quebras do texto aparecem)
+            `<div class="msg ${m.papel === 'visitante' ? 'eu' : m.papel === 'equipe' ? 'equipe' : 'bot'}"><span class="msg-origem">${ROTULO_CANAL[m.canal || 'site'] || ''} · ${papelRotulo[m.papel] || m.papel}</span>${esc(m.texto)}${m.whatsapp ? '<br><em style="color:#0a7a3a">→ Ofereceu continuar no WhatsApp</em>' : ''}<small>${data(m.em)}</small></div>`
+          )).join('') || '<p class="rotulo">Sem mensagens.</p>'}
+        </div>
+        ${l.noWhatsapp ? `
+        <form class="card" id="f-responder" style="margin-top:12px">
+          <div class="campo"><label>Responder pelo WhatsApp (como equipe)</label><textarea name="texto" required style="min-height:70px" placeholder="Sua mensagem…"></textarea><small>Ao responder, a IA para neste lead para não atropelar você.</small></div>
+          <div class="acoes"><button class="primario" type="submit">Enviar</button></div>
+        </form>` : '<p class="rotulo" style="margin-top:12px">Este lead ainda não chegou no WhatsApp.</p>'}
+      </div>
+      <div>
+        <div class="card">
+          <div class="campo"><label>Etapa</label><select id="etapa">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></div>
+          <div class="campo" style="margin-top:12px"><label>Nome</label><input id="nome" value="${esc(l.nome)}" placeholder="Nome do cliente"></div>
+          <p style="margin:12px 0 0"><strong>Telefone:</strong> ${l.telefone ? `+${esc(l.telefone)}` : '—'}<br><strong>Código:</strong> #${esc(l.codigo)}<br><strong>Veio por:</strong> ${ROTULO_CANAL[l.origem] || l.origem}${l.pagina ? `<br><strong>Página:</strong> <span class="rotulo">${esc(l.pagina)}</span>` : ''}</p>
+          <div class="secao" style="margin-top:14px;padding-top:14px">
+            <p style="margin:0 0 8px"><strong>IA neste lead:</strong> ${l.iaPausada ? `<span class="etiqueta off">pausada</span> <span class="rotulo">${esc(l.iaPausadaMotivo || '')}</span>` : '<span class="etiqueta ok">respondendo</span>'}</p>
+            <button type="button" id="alternar-ia">${l.iaPausada ? 'Devolver para a IA' : 'Pausar a IA (a equipe assume)'}</button>
+          </div>
+          <div class="campo" style="margin-top:14px"><label>Anotações da equipe</label><textarea id="anotacoes" style="min-height:80px">${esc(l.anotacoes || '')}</textarea></div>
+          <div class="acoes"><button class="primario" type="button" id="salvar-lead">Salvar</button><button type="button" class="perigo" id="apagar-lead" style="margin-left:auto">Apagar</button></div>
+        </div>
+        ${l.etapaHistorico?.length ? `<div class="card"><h2>Histórico de etapas</h2><ul style="margin:0;padding-left:18px">${l.etapaHistorico.slice().reverse().map((h) => `<li><span class="rotulo">${data(h.em)}</span> ${esc(h.de || '—')} → <strong>${esc(h.para)}</strong> <span class="rotulo">(${esc({ 'ia-site': 'IA do site', 'ia-whatsapp': 'IA do WhatsApp', equipe: 'equipe', sistema: 'automático' }[h.por] || h.por)})</span></li>`).join('')}</ul></div>` : ''}
+      </div>
     </div>`;
+  const tl = $('#linha-tempo');
+  tl.scrollTop = tl.scrollHeight;
+  const atualizar = async (body, msg) => {
+    try {
+      await api(`leads/${leadId}`, { method: 'PUT', body });
+      if (msg) aviso(msg);
+      paginaLead(leadId);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
+  $('#salvar-lead').onclick = () => atualizar({ nome: $('#nome').value, anotacoes: $('#anotacoes').value }, 'Lead salvo.');
+  $('#alternar-ia').onclick = () => atualizar({ iaPausada: !l.iaPausada }, l.iaPausada ? 'A IA voltou a responder este lead.' : 'IA pausada neste lead.');
+  $('#apagar-lead').onclick = async () => {
+    if (!confirm('Apagar este lead e todo o histórico dele?')) return;
+    try {
+      await api(`leads/${leadId}`, { method: 'DELETE' });
+      location.hash = rotaEmpresa(l.empresaId, 'leads');
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#f-responder')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const botao = e.target.querySelector('button');
+    botao.disabled = true;
+    try {
+      await api(`leads/${leadId}/mensagem`, { method: 'POST', body: { texto: e.target.elements.texto.value } });
+      paginaLead(leadId);
+    } catch (err) {
+      aviso(err.message, true);
+      botao.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------- usuários (admin)
@@ -900,16 +1104,17 @@ async function rotear() {
       const sub = partes[2] || '';
       const paginas = {
         '': () => paginaEmpresa(id),
+        leads: () => paginaLeads(id, params),
         assistentes: () => paginaAssistentes(id),
-        conversas: () => paginaConversas(id, params),
+        whatsapp: () => paginaWhatsapp(id),
+        midias: () => paginaMidias(id),
         chave: () => paginaChave(id),
-        conversoes: () => paginaConversoes(id),
         instalar: () => paginaInstalar(id)
       };
       if (!paginas[sub]) return void (location.hash = rotaEmpresa(id));
       await paginas[sub]();
     } else {
-      if (ehAdmin() && !['assistentes', 'conversas'].includes(partes[0])) empresaAtual = null;
+      if (ehAdmin() && !['assistentes', 'leads'].includes(partes[0])) empresaAtual = null;
       switch (partes[0]) {
         case undefined: await paginaInicio(); break;
         case 'empresas': await paginaEmpresas(); break;
@@ -917,9 +1122,9 @@ async function rotear() {
           await paginaAssistente(partes[1] || 'novo', params);
           ativo = rotaEmpresa(empresaAtual?.id, 'assistentes');
           break;
-        case 'conversas':
-          await paginaConversa(partes[1]);
-          ativo = rotaEmpresa(empresaAtual?.id, 'conversas');
+        case 'leads':
+          await paginaLead(partes[1]);
+          ativo = rotaEmpresa(empresaAtual?.id, 'leads');
           break;
         case 'usuarios': if (ehAdmin()) await paginaUsuarios(); break;
         case 'configuracoes': if (ehAdmin()) await paginaConfiguracoes(); break;

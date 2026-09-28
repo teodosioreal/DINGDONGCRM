@@ -8,6 +8,9 @@ const { versao } = require('./versao');
 const { estado, salvar, novoId, agora } = require('./db');
 const auth = require('./auth');
 const ia = require('./ia');
+const leads = require('./leads');
+const whatsapp = require('./whatsapp');
+const midias = require('./midias');
 const { linkWhatsapp, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
@@ -16,7 +19,8 @@ const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json')) {
+  const upload = req.method === 'POST' && /\/midias$/.test(req.path) && req.is('application/octet-stream');
+  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
   next();
@@ -92,11 +96,15 @@ router.get('/resumo', (req, res) => {
   const conversas = estado.conversas.filter((c) => ids.has(c.empresaId));
   const seteDias = new Date(Date.now() - 7 * 864e5).toISOString();
   const recentes = conversas.filter((c) => c.criadoEm >= seteDias);
+  const porEtapa = {};
+  for (const c of conversas) porEtapa[c.etapa] = (porEtapa[c.etapa] || 0) + 1;
   res.json({
     empresas: empresasVisiveis.length,
     assistentes: bots.length,
-    conversas7d: recentes.length,
-    leads7d: recentes.filter((c) => c.lead).length,
+    leads7d: recentes.length,
+    noWhatsapp7d: recentes.filter((c) => c.whatsappJid).length,
+    aguardandoEquipe: conversas.filter((c) => c.precisaHumano).length,
+    porEtapa,
     mensagensHoje: bots.reduce((s, b) => s + (estado.uso[b.id]?.data === hoje() ? estado.uso[b.id].mensagens : 0), 0)
   });
 });
@@ -134,26 +142,28 @@ function situacaoChavesEmpresa(e) {
   return saida;
 }
 
-// Configuração de conversões (Meta/Google Ads). Ligado por padrão.
-function conversoesDe(e) {
-  const c = e.conversoes || {};
+// Situação do WhatsApp — sem devolver a API key nem o segredo do webhook
+function situacaoWhatsapp(e) {
+  const c = whatsapp.configDa(e);
   return {
-    metaLead: c.metaLead !== false,
-    metaPixelId: c.metaPixelId || '',
-    googleLead: c.googleLead !== false,
-    googleSendTo: c.googleSendTo || '',
-    valor: Number(c.valor) || 0
+    evolutionUrl: c.evolutionUrl,
+    instancia: c.instancia,
+    apiKeyFinal: mascarar(c.apiKey),
+    iaAtiva: c.iaAtiva,
+    configurado: whatsapp.configurado(e)
   };
 }
 
-// Empresa como o painel vê: sem as chaves de IA
+// Empresa como o painel vê: sem as chaves de IA nem segredos
 function empresaComExtras(e) {
   const bots = estado.bots.filter((b) => b.empresaId === e.id);
   const principal = bots.find((b) => b.principal) || bots[0];
-  const { chavesIa, ...resto } = e;
+  const { chavesIa, whatsappConfig, conversoes, midias: _m, ...resto } = e;
   return {
     ...resto,
-    conversoes: conversoesDe(e),
+    etapas: leads.etapasDa(e),
+    whatsapp: situacaoWhatsapp(e),
+    totalMidias: midias.midiasDa(e).length,
     chaves: situacaoChavesEmpresa(e),
     assistentes: bots.length,
     principalBotId: principal?.id || null
@@ -202,25 +212,112 @@ router.post('/empresas/:id/chaves/testar', async (req, res) => {
   }
 });
 
-// Conversões disparadas quando o visitante vai do chat para o WhatsApp
-router.put('/empresas/:id/conversoes', (req, res) => {
+// Etapas do funil da empresa (uma por linha no painel)
+router.put('/empresas/:id/etapas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const lista = (Array.isArray(req.body?.etapas) ? req.body.etapas : String(req.body?.etapas || '').split('\n'))
+    .map((x) => texto(x, 60))
+    .filter(Boolean);
+  const unicas = [...new Set(lista)].slice(0, 20);
+  if (unicas.length < 2) return res.status(400).json({ erro: 'Cadastre pelo menos 2 etapas.' });
+  empresa.etapas = unicas;
+  // leads em etapas que deixaram de existir vão para a primeira
+  for (const c of estado.conversas) if (c.empresaId === empresa.id && !unicas.includes(c.etapa)) c.etapa = unicas[0];
+  salvar();
+  res.json(empresaComExtras(empresa));
+});
+
+// ---------------------------------------------------------------- WhatsApp da empresa
+
+router.get('/empresas/:id/whatsapp', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ ...situacaoWhatsapp(empresa), webhook: whatsapp.urlWebhook(empresa) });
+});
+
+router.put('/empresas/:id/whatsapp', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const b = req.body || {};
-  const pixel = texto(b.metaPixelId, 30).replace(/\D/g, '');
-  const sendTo = texto(b.googleSendTo, 80).replace(/\s/g, '');
-  if (sendTo && !/^AW-\d+\/[\w-]+$/.test(sendTo)) {
-    return res.status(400).json({ erro: 'Rótulo do Google Ads inválido. Formato: AW-123456789/AbCdEfGh (ID da conta / rótulo da conversão).' });
-  }
-  empresa.conversoes = {
-    metaLead: b.metaLead !== false,
-    metaPixelId: pixel,
-    googleLead: b.googleLead !== false,
-    googleSendTo: sendTo,
-    valor: Math.max(0, Math.min(1e6, Number(String(b.valor || '0').replace(',', '.')) || 0))
+  const atual = empresa.whatsappConfig || {};
+  const url = texto(b.evolutionUrl, 300).replace(/\/+$/, '');
+  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço da Evolution API precisa começar com https://' });
+  empresa.whatsappConfig = {
+    ...atual,
+    evolutionUrl: url,
+    instancia: texto(b.instancia, 100),
+    apiKey: texto(b.apiKey, 300) || atual.apiKey || '',
+    iaAtiva: b.iaAtiva !== false
   };
+  whatsapp.garantirSegredo(empresa);
   salvar();
-  res.json(empresaComExtras(empresa));
+  res.json({ ...situacaoWhatsapp(empresa), webhook: whatsapp.urlWebhook(empresa) });
+});
+
+router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    if (req.params.acao === 'status') return res.json({ estado: await whatsapp.estadoConexao(empresa) });
+    if (req.params.acao === 'qrcode') return res.json(await whatsapp.qrCode(empresa));
+    if (req.params.acao === 'webhook') return res.json({ ok: true, webhook: await whatsapp.configurarWebhook(empresa) });
+    res.status(404).json({ erro: 'Ação desconhecida.' });
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+// ---------------------------------------------------------------- mídias da empresa
+
+router.get('/empresas/:id/midias', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m) })));
+});
+
+router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const midia = midias.salvarMidia(empresa, {
+      buffer: req.body,
+      nomeArquivo: texto(req.query.arquivo, 200),
+      nome: texto(req.query.nome, 80),
+      descricao: texto(req.query.descricao, 300),
+      mimetypeInformado: texto(req.query.tipo, 100)
+    });
+    if (midias.midiasDa(empresa).filter((m) => m.nome.toLowerCase() === midia.nome.toLowerCase()).length > 1) {
+      midias.apagarMidia(empresa, midia.id);
+      return res.status(400).json({ erro: `Já existe uma mídia chamada "${midia.nome}". Use outro nome.` });
+    }
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.put('/empresas/:id/midias/:midiaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const midia = midias.midiasDa(empresa).find((m) => m.id === req.params.midiaId);
+  if (!midia) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+  const nome = texto(req.body?.nome, 80);
+  if (!nome) return res.status(400).json({ erro: 'Dê um nome para a mídia.' });
+  if (midias.midiasDa(empresa).some((m) => m.id !== midia.id && m.nome.toLowerCase() === nome.toLowerCase())) {
+    return res.status(400).json({ erro: `Já existe uma mídia chamada "${nome}".` });
+  }
+  midia.nome = nome;
+  midia.descricao = texto(req.body?.descricao, 300);
+  salvar();
+  res.json({ ...midia, url: midias.urlPublica(midia) });
+});
+
+router.delete('/empresas/:id/midias/:midiaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!midias.apagarMidia(empresa, req.params.midiaId)) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+  res.json({ ok: true });
 });
 
 // Provedor usado por padrão em assistentes novos: o primeiro que tem chave
@@ -277,6 +374,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   const i = estado.empresas.findIndex((e) => e.id === req.params.id);
   if (i < 0) return res.status(404).json({ erro: 'Empresa não encontrada.' });
   const id = estado.empresas[i].id;
+  midias.apagarTodasDa(estado.empresas[i]);
   estado.empresas.splice(i, 1);
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
@@ -305,6 +403,7 @@ function dadosBot(body, req) {
     tom: texto(body.tom, 200),
     conhecimento: texto(body.conhecimento, 30000),
     regras: texto(body.regras, 5000),
+    promptWhatsapp: texto(body.promptWhatsapp, 5000),
     whatsapp: numeroWhatsapp(body.whatsapp),
     mensagemWhatsappPadrao: texto(body.mensagemWhatsappPadrao, 300),
     dominios: listaDominios(body.dominios),
@@ -415,50 +514,123 @@ router.post('/bots/:id/testar', async (req, res) => {
     .slice(-30)
     .map((m) => ({ papel: m.papel === 'visitante' ? 'visitante' : 'assistente', texto: texto(m.texto, 2000) }))
     .filter((m) => m.texto);
+  const canal = req.body?.canal === 'whatsapp' ? 'whatsapp' : 'site';
   try {
-    const r = await ia.responder(rascunho, empresa, historico);
+    const r = await ia.responder(rascunho, empresa, historico, {
+      canal,
+      etapas: leads.etapasDa(empresa),
+      midias: midias.midiasDa(empresa)
+    });
     res.json({
       resposta: r.texto,
-      whatsappUrl: r.mensagemWhatsapp ? linkWhatsapp(rascunho.whatsapp || empresa?.whatsapp, r.mensagemWhatsapp) : null
+      whatsappUrl: r.mensagemWhatsapp ? linkWhatsapp(rascunho.whatsapp || empresa?.whatsapp, r.mensagemWhatsapp) : null,
+      midias: r.midias,
+      etapa: r.etapa,
+      humano: r.humano
     });
   } catch (err) {
     res.status(err.status === 503 ? 503 : 502).json({ erro: ia.descreverErroIa(err) });
   }
 });
 
-// ---------------------------------------------------------------- conversas
+// ---------------------------------------------------------------- leads
 
-router.get('/conversas', (req, res) => {
+function resumoLead(c) {
+  const ultima = [...c.mensagens].reverse().find((m) => m.texto);
+  const canais = [...new Set(c.mensagens.map((m) => m.canal || 'site'))];
+  return {
+    id: c.id,
+    codigo: c.codigo,
+    etapa: c.etapa,
+    nome: c.nome || '',
+    telefone: c.telefone || '',
+    origem: c.origem || 'site',
+    canais,
+    noWhatsapp: Boolean(c.whatsappJid),
+    iaPausada: Boolean(c.iaPausada),
+    precisaHumano: Boolean(c.precisaHumano),
+    mensagens: c.mensagens.length,
+    ultimaMensagem: ultima ? { texto: ultima.texto.slice(0, 140), papel: ultima.papel, canal: ultima.canal || 'site' } : null,
+    criadoEm: c.criadoEm,
+    atualizadoEm: c.atualizadoEm
+  };
+}
+
+function acharLead(req, res) {
+  const c = estado.conversas.find((x) => x.id === req.params.id);
+  if (!c || !podeVerEmpresa(req, c.empresaId)) {
+    res.status(404).json({ erro: 'Lead não encontrado.' });
+    return null;
+  }
+  return c;
+}
+
+router.get('/leads', (req, res) => {
+  const busca = String(req.query.busca || '').trim().toLowerCase();
   const lista = estado.conversas
     .filter((c) => podeVerEmpresa(req, c.empresaId))
-    .filter((c) => !req.query.botId || c.botId === req.query.botId)
     .filter((c) => !req.query.empresaId || c.empresaId === req.query.empresaId)
-    .filter((c) => req.query.soLeads !== '1' || c.lead)
+    .filter((c) => !req.query.etapa || c.etapa === req.query.etapa)
+    .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
     .sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))
-    .slice(0, 300)
-    .map((c) => {
-      const bot = estado.bots.find((b) => b.id === c.botId);
-      const primeira = c.mensagens.find((m) => m.papel === 'visitante');
-      return {
-        id: c.id,
-        botId: c.botId,
-        botNome: bot?.nome || '—',
-        pagina: c.pagina,
-        lead: c.lead,
-        mensagens: c.mensagens.length,
-        primeiraMensagem: primeira?.texto.slice(0, 140) || '',
-        criadoEm: c.criadoEm,
-        atualizadoEm: c.atualizadoEm
-      };
-    });
+    .slice(0, 1000)
+    .map(resumoLead);
   res.json(lista);
 });
 
-router.get('/conversas/:id', (req, res) => {
-  const c = estado.conversas.find((x) => x.id === req.params.id);
-  if (!c || !podeVerEmpresa(req, c.empresaId)) return res.status(404).json({ erro: 'Conversa não encontrada.' });
+router.get('/leads/:id', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   const bot = estado.bots.find((b) => b.id === c.botId);
-  res.json({ ...c, botNome: bot?.nome || '—' });
+  const { whatsappJid, ...resto } = c;
+  res.json({ ...resto, noWhatsapp: Boolean(whatsappJid), botNome: bot?.nome || '—', etapas: leads.etapasDa(empresa) });
+});
+
+// Equipe muda etapa, nome ou liga/desliga a IA naquele lead
+router.put('/leads/:id', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const b = req.body || {};
+  if (b.etapa !== undefined && !leads.moverEtapa(c, empresa, b.etapa, 'equipe') && !leads.acharEtapa(empresa, b.etapa)) {
+    return res.status(400).json({ erro: 'Etapa inválida.' });
+  }
+  if (b.nome !== undefined) c.nome = texto(b.nome, 120);
+  if (b.anotacoes !== undefined) c.anotacoes = texto(b.anotacoes, 5000);
+  if (b.iaPausada !== undefined) {
+    c.iaPausada = b.iaPausada === true;
+    c.iaPausadaMotivo = c.iaPausada ? 'Pausada pela equipe no painel' : '';
+    if (!c.iaPausada) c.precisaHumano = false;
+    if (c.iaPausada) whatsapp.cancelarResposta(c.id);
+  }
+  c.atualizadoEm = agora();
+  salvar();
+  res.json(resumoLead(c));
+});
+
+// Equipe responde pelo painel (vai pelo WhatsApp; a IA para neste lead)
+router.post('/leads/:id/mensagem', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const msg = texto(req.body?.texto, 4000);
+  if (!msg) return res.status(400).json({ erro: 'Escreva a mensagem.' });
+  try {
+    await whatsapp.enviarPelaEquipe(empresa, c, msg);
+    res.json(resumoLead(c));
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+router.delete('/leads/:id', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  whatsapp.cancelarResposta(c.id);
+  estado.conversas = estado.conversas.filter((x) => x.id !== c.id);
+  salvar();
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------- chaves de IA (só admin)

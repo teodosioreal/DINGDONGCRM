@@ -4,12 +4,13 @@
 const express = require('express');
 const { estado, salvar, novoId, agora } = require('./db');
 const ia = require('./ia');
+const leads = require('./leads');
+const whatsapp = require('./whatsapp');
 const { linkWhatsapp, dominioPermitido, hostDe, texto, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
 
 const limitePorIp = criarLimitador(12, 60 * 1000); // 12 mensagens/minuto por IP
-const MAX_CONVERSAS_GUARDADAS = 5000;
 
 function cors(req, res, next) {
   const origem = req.headers.origin;
@@ -56,16 +57,7 @@ function enviarConfig(res, bot, empresa) {
     boasVindas: bot.boasVindas || `Olá! Sou o assistente virtual da ${empresa.nome}. Como posso ajudar?`,
     chamada: bot.chamada || '',
     whatsappUrl: linkWhatsapp(numeroWhatsapp(bot, empresa), bot.mensagemWhatsappPadrao || ''),
-    posicao: bot.posicao === 'esquerda' ? 'esquerda' : 'direita',
-    // Conversões ao ir para o WhatsApp (ligadas por padrão)
-    conversoes: {
-      metaLead: empresa.conversoes?.metaLead !== false,
-      metaPixelId: empresa.conversoes?.metaPixelId || '',
-      googleLead: empresa.conversoes?.googleLead !== false,
-      googleSendTo: empresa.conversoes?.googleSendTo || '',
-      valor: Number(empresa.conversoes?.valor) || 0,
-      moeda: 'BRL'
-    }
+    posicao: bot.posicao === 'esquerda' ? 'esquerda' : 'direita'
   });
 }
 
@@ -117,19 +109,13 @@ router.post('/chat', async (req, res) => {
 
   let conversa = conversaId && estado.conversas.find((c) => c.id === conversaId && c.botId === bot.id);
   if (!conversa) {
-    conversa = {
-      id: novoId('cv'),
-      botId: bot.id,
-      empresaId: empresa.id,
+    conversa = leads.criarLead({
+      empresa,
+      bot,
+      canal: 'site',
       visitanteId: texto(visitanteId, 64) || novoId('vis'),
-      pagina: texto(pagina, 300),
-      mensagens: [],
-      lead: false,
-      criadoEm: agora(),
-      atualizadoEm: agora()
-    };
-    estado.conversas.push(conversa);
-    if (estado.conversas.length > MAX_CONVERSAS_GUARDADAS) estado.conversas.splice(0, estado.conversas.length - MAX_CONVERSAS_GUARDADAS);
+      pagina: texto(pagina, 300)
+    });
   }
 
   const doVisitante = conversa.mensagens.filter((m) => m.papel === 'visitante').length;
@@ -140,26 +126,31 @@ router.post('/chat', async (req, res) => {
     });
   }
 
-  conversa.mensagens.push({ papel: 'visitante', texto: mensagem, em: agora() });
-  conversa.atualizadoEm = agora();
+  leads.adicionarMensagem(conversa, { papel: 'visitante', canal: 'site', texto: mensagem });
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;
   salvar();
 
   try {
-    const resposta = await ia.responder(bot, empresa, conversa.mensagens);
-    const whatsappUrl = resposta.mensagemWhatsapp
-      ? linkWhatsapp(numeroWhatsapp(bot, empresa), resposta.mensagemWhatsapp)
-      : null;
-    conversa.mensagens.push({
-      papel: 'assistente',
-      texto: resposta.texto,
-      whatsapp: resposta.mensagemWhatsapp || undefined,
-      em: agora()
+    const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
+      canal: 'site',
+      etapas: leads.etapasDa(empresa),
+      etapaAtual: conversa.etapa
     });
-    conversa.atualizadoEm = agora();
+    // O código no fim da mensagem liga este atendimento ao WhatsApp: lá a IA
+    // do WhatsApp continua de onde a do site parou.
+    const whatsappUrl = resposta.mensagemWhatsapp
+      ? linkWhatsapp(numeroWhatsapp(bot, empresa), `${resposta.mensagemWhatsapp} (atendimento #${conversa.codigo})`)
+      : null;
+    leads.adicionarMensagem(conversa, {
+      papel: 'assistente',
+      canal: 'site',
+      texto: resposta.texto,
+      whatsapp: resposta.mensagemWhatsapp || undefined
+    });
+    if (resposta.etapa) leads.moverEtapa(conversa, empresa, resposta.etapa, 'ia-site');
     salvar();
-    res.json({ conversaId: conversa.id, visitanteId: conversa.visitanteId, resposta: resposta.texto, whatsappUrl });
+    res.json({ conversaId: conversa.id, visitanteId: conversa.visitanteId, codigo: conversa.codigo, resposta: resposta.texto, whatsappUrl });
   } catch (err) {
     console.error(`[chat ${bot.id}]`, ia.descreverErroIa(err));
     res.status(502).json({
@@ -170,24 +161,31 @@ router.post('/chat', async (req, res) => {
   }
 });
 
-// O widget avisa quando o visitante clica em "Continuar no WhatsApp"
+// O widget avisa quando o visitante clica para ir ao WhatsApp (só registro
+// interno: mostra no lead que ele saiu do site para o WhatsApp)
 router.post('/lead', (req, res) => {
   const { botId, conversaId } = req.body || {};
   const achado = carregarBot(req, res, String(botId || ''));
   if (!achado) return;
   const conversa = estado.conversas.find((c) => c.id === conversaId && c.botId === achado.bot.id);
-  if (conversa && !conversa.lead) {
-    conversa.lead = true;
-    conversa.leadEm = agora();
-    // o que o widget conseguiu disparar no navegador do visitante
-    conversa.conversoes = {
-      meta: req.body?.meta === true,
-      google: req.body?.google === true,
-      gtm: req.body?.gtm === true
-    };
+  if (conversa && !conversa.foiParaWhatsappEm) {
+    conversa.foiParaWhatsappEm = agora();
     salvar();
   }
   res.json({ ok: true });
+});
+
+// Webhook da Evolution API (mensagens do WhatsApp da empresa). O segredo na URL
+// garante que só a instância configurada consegue mandar mensagens para cá.
+router.post('/whatsapp/:empresaId/:segredo', (req, res) => {
+  const empresa = estado.empresas.find((e) => e.id === req.params.empresaId);
+  const segredo = empresa?.whatsappConfig?.segredo || '';
+  const recebido = String(req.params.segredo || '');
+  const confere =
+    segredo && recebido.length === segredo.length && require('crypto').timingSafeEqual(Buffer.from(recebido), Buffer.from(segredo));
+  if (!empresa || !confere) return res.sendStatus(404);
+  res.sendStatus(200); // responde já; o processamento segue em segundo plano
+  whatsapp.receberWebhook(empresa, req.body).catch((err) => console.error(`[webhook ${empresa.id}]`, err.message));
 });
 
 module.exports = router;
