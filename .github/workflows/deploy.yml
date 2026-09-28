@@ -1,0 +1,72 @@
+# Deploy automático: todo push na main atualiza o CRM na VPS.
+# Mexe só em /opt/dingdong-crm e no processo "dingdong-crm" do pm2
+# (veja deploy/atualizar.sh). Se a versão nova não subir, volta sozinho.
+#
+# Segredos necessários em Settings → Secrets and variables → Actions deste
+# repositório (DINGDONGCRM) — podem ser os mesmos valores do rastreador:
+#   VPS_HOST     IP ou domínio da VPS
+#   VPS_USER     usuário do SSH (ex.: root)
+#   VPS_SSH_KEY  chave privada autorizada no ~/.ssh/authorized_keys da VPS
+#   VPS_PORT     (opcional) porta do SSH, padrão 22
+name: Deploy na VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# um deploy por vez; se chegar um push novo no meio, espera o anterior terminar
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir sintaxe antes de enviar
+        run: |
+          for f in server.js src/*.js public/*.js; do node --check "$f"; done
+          bash -n deploy/atualizar.sh deploy/instalar.sh
+
+      - name: Conferir os segredos da VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          faltando=""
+          [ -n "$VPS_HOST" ] || faltando="$faltando VPS_HOST"
+          [ -n "$VPS_USER" ] || faltando="$faltando VPS_USER"
+          [ -n "$VPS_SSH_KEY" ] || faltando="$faltando VPS_SSH_KEY"
+          if [ -n "$faltando" ]; then
+            echo "::error::Cadastre em Settings → Secrets and variables → Actions:$faltando"
+            exit 1
+          fi
+
+      - name: Atualizar na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          # token temporário deste job, só com leitura do repositório (ele é privado)
+          TOKEN_LEITURA: ${{ github.token }}
+        run: |
+          PORTA="${VPS_PORT:-22}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$PORTA" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # O script vai por um arquivo temporário privado (chmod 600) que é apagado
+          # no fim — assim o token não aparece na linha de comando da VPS.
+          { printf 'GITHUB_TOKEN=%q\n' "$TOKEN_LEITURA"; cat deploy/atualizar.sh; } \
+            | ssh -i ~/.ssh/id_deploy -p "$PORTA" -o BatchMode=yes -o ConnectTimeout=20 \
+                "$VPS_USER@$VPS_HOST" \
+                'f=$(mktemp); trap "rm -f $f" EXIT; cat > "$f"; bash "$f" </dev/null'

@@ -100,10 +100,36 @@ Acesse `https://odingdong.tech/crm`, entre com o e-mail/senha que você
 digitou e troque a senha em **Minha conta**. Para o app voltar sozinho após
 reiniciar a VPS: `pm2 startup` (uma vez).
 
-### Atualizar depois
+### Atualizar depois: automático a cada push
 
-Rode o mesmo comando de instalação: ele detecta que já está instalado, baixa
-a versão nova, mantém o `.env` e os dados, e reinicia só o `dingdong-crm`.
+Depois de instalado, **todo `git push` na `main` deste repositório atualiza a
+VPS sozinho** (GitHub Actions → [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+→ [`deploy/atualizar.sh`](deploy/atualizar.sh)). Ele:
+
+- mexe **só** em `/opt/dingdong-crm` e reinicia **só** o processo `dingdong-crm`
+  (outros apps do pm2 e outros sites da VPS não são tocados);
+- instala dependências só quando o `package-lock.json` muda;
+- mantém o `.env` e o `data.json` (dados) como estão;
+- testa se o painel respondeu; **se a versão nova não subir, volta sozinho
+  para a anterior** e o deploy fica vermelho no GitHub;
+- para sem mexer em nada se achar arquivo editado à mão na VPS.
+
+Para ligar (uma vez): em **GitHub → DINGDONGCRM → Settings → Secrets and
+variables → Actions → New repository secret**, cadastre:
+
+| Segredo | Valor |
+|---|---|
+| `VPS_HOST` | IP (ou domínio) da VPS |
+| `VPS_USER` | usuário do SSH — o mesmo que rodou o instalador (ex.: `root`) |
+| `VPS_SSH_KEY` | a chave **privada** cuja pública está em `~/.ssh/authorized_keys` da VPS |
+| `VPS_PORT` | (opcional) porta do SSH, se não for 22 |
+
+Podem ser os mesmos valores usados no rastreador — os segredos são de cada
+repositório, então cadastrar aqui não muda nada lá. Para rodar sem um push
+novo: **Actions → Deploy na VPS → Run workflow**.
+
+Sem os segredos, dá para atualizar à mão na VPS:
+`GITHUB_TOKEN=seu_token bash /opt/dingdong-crm/deploy/atualizar.sh`.
 
 ### Backup
 
@@ -180,5 +206,6 @@ src/ia.js              → monta o prompt do assistente e chama o Claude ou o Ge
 src/rotas-painel.js    → API do painel (empresas, assistentes, conversas, usuários)
 src/rotas-publicas.js  → API do widget (config, chat, lead) com CORS e limites
 public/                → painel (HTML/CSS/JS puro) e o widget chat.js
-deploy/                → bloco do Nginx e config do pm2
+deploy/                → instalador, atualizador, bloco do Nginx e config do pm2
+.github/workflows/     → deploy automático na VPS a cada push na main
 ```
