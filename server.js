@@ -1,0 +1,70 @@
+const path = require('path');
+const express = require('express');
+const config = require('./src/config');
+const { garantirAdmin } = require('./src/auth');
+const { salvarAgora } = require('./src/db');
+const rotasPublicas = require('./src/rotas-publicas');
+const rotasPainel = require('./src/rotas-painel');
+
+garantirAdmin();
+
+const app = express();
+app.disable('x-powered-by');
+// Atrás do Nginx: usa o IP real do visitante (X-Forwarded-For) e o protocolo https
+app.set('trust proxy', 'loopback');
+
+const base = express.Router();
+const pastaPublica = path.join(__dirname, 'public');
+
+base.use(express.json({ limit: '200kb' }));
+
+// Widget que os sites incluem: <script src=".../crm/chat.js" data-bot="...">
+base.get('/chat.js', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.sendFile(path.join(pastaPublica, 'chat.js'));
+});
+
+base.use('/api/public', rotasPublicas);
+base.use('/api', rotasPainel);
+
+base.get('/', (req, res) => res.sendFile(path.join(pastaPublica, 'index.html')));
+base.get('/login', (req, res) => res.sendFile(path.join(pastaPublica, 'login.html')));
+base.use(express.static(pastaPublica, { index: false }));
+
+base.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
+
+if (config.basePath) {
+  // /crm -> /crm/ (o Express 5 trata as duas iguais nas rotas, então confere o caminho exato)
+  app.use((req, res, next) => {
+    if (req.path === config.basePath) {
+      const query = req.originalUrl.slice(req.path.length);
+      return res.redirect(301, `${config.basePath}/${query}`);
+    }
+    next();
+  });
+  app.use(config.basePath, base);
+} else {
+  app.use(base);
+}
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ erro: status === 500 ? 'Erro interno.' : err.message });
+});
+
+const servidor = app.listen(config.port, config.host, () => {
+  console.log(`CRM rodando em http://${config.host}:${config.port}${config.basePath}/`);
+  if (!require('./src/ia').provedoresConfigurados().length) {
+    console.log('Aviso: nenhuma chave de IA configurada — cadastre a do Claude ou do Gemini em Configurações.');
+  }
+});
+
+function desligar() {
+  salvarAgora();
+  servidor.close(() => process.exit(0));
+}
+process.on('SIGINT', desligar);
+process.on('SIGTERM', desligar);
