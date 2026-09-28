@@ -261,9 +261,12 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
   try {
     if (req.params.acao === 'status') return res.json({ estado: await whatsapp.estadoConexao(empresa) });
     if (req.params.acao === 'qrcode') return res.json(await whatsapp.qrCode(empresa));
-    if (req.params.acao === 'webhook') return res.json({ ok: true, webhook: await whatsapp.configurarWebhook(empresa) });
+    if (req.params.acao === 'webhook') {
+      return res.json({ ok: true, webhook: await whatsapp.configurarWebhook(empresa, { forcar: req.body?.forcar === true }) });
+    }
     res.status(404).json({ erro: 'Ação desconhecida.' });
   } catch (err) {
+    if (err.status === 409) return res.status(409).json({ erro: err.message, webhookAtual: err.webhookAtual });
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
   }
 });

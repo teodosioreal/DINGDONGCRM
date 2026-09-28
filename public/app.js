@@ -388,6 +388,7 @@ async function paginaWhatsapp(id) {
     <p class="descricao">A IA do WhatsApp responde os clientes no número da empresa. Quem veio do chat do site chega com o código do atendimento, e a IA continua de onde a IA do site parou, com todo o histórico. Se alguém da equipe responder pelo celular ou pelo painel, a IA para naquele lead.</p>
     <form class="card" id="f-zap">
       <h2>Conexão (Evolution API)</h2>
+      <p class="alerta" style="margin-top:-4px">Use uma <strong>instância só para o CRM</strong>. Cada instância da Evolution manda as mensagens para um único sistema: se o número já é usado por outro sistema (ex.: o rastreador), ligar o webhook aqui tiraria as mensagens dele. O CRM avisa antes de trocar.</p>
       <div class="campos">
         <div class="campo largo"><label>Endereço da Evolution API</label><input name="evolutionUrl" value="${esc(w.evolutionUrl)}" placeholder="https://api.seudominio.com"></div>
         <div class="campo"><label>Nome da instância</label><input name="instancia" value="${esc(w.instancia)}" placeholder="madara-volantes"></div>
@@ -432,9 +433,23 @@ async function paginaWhatsapp(id) {
       ? `<p class="rotulo">No celular da empresa: WhatsApp → Aparelhos conectados → Conectar aparelho → escaneie:</p><img alt="QR code do WhatsApp" src="${esc(r.base64.startsWith('data:') ? r.base64 : `data:image/png;base64,${r.base64}`)}" style="width:260px;max-width:100%;background:#fff;padding:8px;border-radius:8px">`
       : '<p>Nenhum QR code: a instância provavelmente já está conectada. Clique em "Ver conexão".</p>';
   }));
-  $('#zap-webhook')?.addEventListener('click', () => acao('webhook', () => {
-    resultado.innerHTML = '<p><span class="etiqueta ok">Webhook ligado</span> As mensagens do WhatsApp já chegam no CRM.</p>';
-  }));
+  $('#zap-webhook')?.addEventListener('click', async () => {
+    const ligado = () => { resultado.innerHTML = '<p><span class="etiqueta ok">Webhook ligado</span> As mensagens do WhatsApp já chegam no CRM.</p>'; };
+    resultado.innerHTML = '<p class="rotulo">Aguarde…</p>';
+    try {
+      await api(`empresas/${id}/whatsapp/webhook`, { method: 'POST' });
+      ligado();
+    } catch (err) {
+      resultado.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+      // instância já usada por outro sistema: só troca se a pessoa confirmar de propósito
+      if (/SUBSTITUI/.test(err.message) && confirm('Esta instância do WhatsApp já é usada por outro sistema.\n\nSe continuar, o outro sistema PARA de receber as mensagens desse número.\n\nO recomendado é criar uma instância só para o CRM. Trocar mesmo assim?')) {
+        try {
+          await api(`empresas/${id}/whatsapp/webhook`, { method: 'POST', body: { forcar: true } });
+          ligado();
+        } catch (err2) { resultado.innerHTML = `<p class="erro-caixa">${esc(err2.message)}</p>`; }
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------- empresa: mídias

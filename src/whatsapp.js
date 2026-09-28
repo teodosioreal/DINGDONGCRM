@@ -124,9 +124,35 @@ async function qrCode(empresa) {
   return { base64: r?.base64 || r?.qrcode?.base64 || null, codigo: r?.pairingCode || r?.code || null };
 }
 
-// Aponta o webhook da instância para o CRM (só o evento de mensagens)
-async function configurarWebhook(empresa) {
+// Webhook que a instância já tem (cada instância da Evolution tem um só)
+async function webhookAtual(empresa) {
+  try {
+    const r = await evolution(empresa, 'GET', '/webhook/find/{instancia}');
+    const w = r?.webhook || r || {};
+    return w.enabled === false ? '' : w.url || '';
+  } catch (err) {
+    if (err.status === 404) return '';
+    throw err;
+  }
+}
+
+// Aponta o webhook da instância para o CRM (só o evento de mensagens).
+// Se a instância já manda mensagens para OUTRO sistema (ex.: o rastreador),
+// não substitui sem confirmação: trocar o webhook desliga o outro sistema.
+async function configurarWebhook(empresa, { forcar = false } = {}) {
   const url = urlWebhook(empresa);
+  const atual = await webhookAtual(empresa);
+  // "é nosso" só se for o endereço desta mesma empresa no CRM (o rastreador,
+  // por exemplo, usa um caminho parecido: /api/public/whatsapp/…)
+  const desteCrm = atual.startsWith(`${config.urlPublica}/api/public/whatsapp/${empresa.id}/`);
+  if (atual && !desteCrm && !forcar) {
+    throw Object.assign(
+      new Error(
+        `Esta instância já envia as mensagens para outro sistema (${atual}). Ligar aqui SUBSTITUI esse webhook e o outro sistema para de receber as mensagens. Use uma instância só para o CRM ou confirme a troca.`
+      ),
+      { status: 409, webhookAtual: atual }
+    );
+  }
   try {
     await evolution(empresa, 'POST', '/webhook/set/{instancia}', {
       webhook: { enabled: true, url, byEvents: false, base64: false, events: ['MESSAGES_UPSERT'] }
