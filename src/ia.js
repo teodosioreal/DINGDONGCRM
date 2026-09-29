@@ -11,17 +11,21 @@ const PROVEDORES = {
 };
 
 const MODELOS_CLAUDE = [
-  { id: 'claude-opus-5', nome: 'Claude Opus 5 (mais inteligente)' },
-  { id: 'claude-sonnet-5', nome: 'Claude Sonnet 5 (equilibrado)' },
-  { id: 'claude-haiku-4-5', nome: 'Claude Haiku 4.5 (mais rápido e barato)' }
+  { id: 'claude-opus-5-5', nome: 'Claude Opus 5.5 (mais inteligente)' },
+  { id: 'claude-sonnet-5-5', nome: 'Claude Sonnet 5.5 (equilibrado)' },
+  { id: 'claude-haiku-4-5', nome: 'Claude Haiku 4.5 (mais rápido e barato)' },
+  { id: 'claude-opus-5', nome: 'Claude Opus 5 (anterior)' },
+  { id: 'claude-sonnet-5', nome: 'Claude Sonnet 5 (anterior)' }
 ];
+// modelos em que a própria API tenta de novo em outro modelo se recusar por segurança
+const COM_FALLBACK = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
 // Sugestões usadas só se não der para consultar a lista real da sua chave do Google
 const MODELOS_GEMINI_SUGERIDOS = [
   { id: 'gemini-2.5-flash', nome: 'gemini-2.5-flash' },
   { id: 'gemini-2.5-pro', nome: 'gemini-2.5-pro' },
   { id: 'gemini-2.5-flash-lite', nome: 'gemini-2.5-flash-lite' }
 ];
-const MODELO_PADRAO = { anthropic: 'claude-opus-5', gemini: 'gemini-2.5-flash' };
+const MODELO_PADRAO = { anthropic: 'claude-opus-5-5', gemini: 'gemini-2.5-flash' };
 
 const GEMINI_BASE = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 const MARCADOR_WHATSAPP = /\[\[WHATSAPP\]\]\s*([\s\S]*)$/;
@@ -177,7 +181,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       'Continuidade do atendimento:',
       '- O histórico pode ter começado no chat do site da empresa (outra IA, a do site, atendeu antes). Você CONTINUA essa mesma conversa: não se apresente de novo do zero, não repita perguntas que o cliente já respondeu e retome de onde parou.',
       '- Mensagens marcadas como "(equipe)" foram escritas por uma pessoa da empresa. Respeite o que a equipe combinou.',
-      '- Se o cliente mandar áudio ou arquivo que você não consegue ver, peça com educação para ele escrever.'
+      '- Áudios do cliente chegam transcritos ("[áudio do cliente]: …") e fotos chegam descritas ("[foto do cliente]: …"): responda ao conteúdo normalmente, sem comentar que foi transcrito. Se vier só "[o cliente enviou um áudio]" sem texto, peça com educação para ele escrever.'
     );
     if (bot.promptWhatsapp?.trim()) partes.push('', 'Instruções da empresa para o WhatsApp:', bot.promptWhatsapp.trim());
 
@@ -185,9 +189,9 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     if (midias.length) {
       partes.push(
         '',
-        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios):',
-        ...midias.map((m) => `- ${m.nome}${m.descricao ? `: ${m.descricao}` : ''}`),
-        '- Para enviar uma delas, escreva numa linha separada: [[MIDIA: nome exato]]. Pode enviar mais de uma (uma por linha). Só use nomes desta lista e só quando ajudar o cliente.'
+        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda várias fotos de uma vez):',
+        ...midias.map((m) => `- ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? `: ${m.descricao}` : ''}`),
+        '- Para enviar uma delas, escreva numa linha separada: [[MIDIA: nome exato]]. Pode enviar mais de uma (uma por linha). Só use nomes desta lista e só quando ajudar o cliente. Mostrar fotos do trabalho vende muito: ofereça quando o cliente demonstrar interesse.'
       );
     }
     partes.push(
@@ -209,6 +213,28 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     }
     if (bot.regras?.trim()) partes.push('', 'Instruções da empresa para o chat do site:', bot.regras.trim());
   }
+
+  const links = contexto.links || [];
+  if (links.length) {
+    partes.push(
+      '',
+      'Links que você pode mandar (copie o endereço exatamente como está, sozinho numa linha):',
+      ...links.map((l) => `- ${l.nome}: ${l.url}${l.descricao ? ` — quando usar: ${l.descricao}` : ''}`)
+    );
+  }
+
+  // Técnica de vendas: conduzir para o próximo passo sem ser insistente
+  partes.push(
+    '',
+    'Como vender bem (sem ser chato):',
+    `- Seu objetivo é levar o cliente ao próximo passo${bot.objetivo?.trim() ? `: ${bot.objetivo.trim()}` : ' (fechar, agendar ou pedir o orçamento)'}. Toda resposta termina com uma pergunta simples ou um próximo passo claro.`,
+    '- Entenda a necessidade antes de falar de preço. Depois mostre o benefício para ELE (resultado, economia, praticidade), não só características.',
+    '- Objeção de preço: reforce o valor, compare com o custo de não resolver e ofereça as formas de pagamento cadastradas. Objeção de tempo/dúvida: facilite (horários, garantia, prova social) e proponha um passo pequeno.',
+    '- Quando o cliente mostrar interesse, proponha fechar ou agendar na hora, com opções concretas (ex.: "prefere terça ou quinta?").',
+    '- Crie urgência só com informação verdadeira que estiver em "Sobre a empresa" (vagas, promoção, prazo). Nunca invente desconto, prazo ou brinde.',
+    '- Se o cliente sumir ou disser "vou pensar", responda com leveza, tire a última dúvida e deixe a porta aberta.'
+  );
+  if (bot.oferta?.trim()) partes.push(`- Oferta/diferenciais para usar na conversa: ${bot.oferta.trim()}`);
 
   const etapas = contexto.etapas || [];
   if (etapas.length) {
@@ -270,7 +296,7 @@ async function responderClaude(empresa, bot, sistema, turnos) {
   };
 
   const resposta =
-    modelo === 'claude-opus-5'
+    COM_FALLBACK.has(modelo)
       ? // Se o modelo recusar por segurança, a própria API tenta de novo num modelo reserva.
         await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
       : await client.messages.create(params);
@@ -364,6 +390,93 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   return r;
 }
 
+// ---------------------------------------------------------------- áudio e fotos do cliente
+
+const MODELO_OUVIR = process.env.GEMINI_MODELO_AUDIO || 'gemini-2.5-flash';
+
+// A IA do Claude não ouve áudio; o Gemini ouve. Com a chave do Gemini da
+// empresa (ou a padrão), o áudio do cliente vira texto e a IA responde a ele.
+function podeOuvirAudio(empresa) {
+  return Boolean(chave('gemini', empresa));
+}
+
+function textoGemini(dados) {
+  return (dados.candidates?.[0]?.content?.parts || [])
+    .filter((p) => typeof p.text === 'string' && !p.thought)
+    .map((p) => p.text)
+    .join('')
+    .trim();
+}
+
+async function transcreverAudio(empresa, base64, mimetype) {
+  if (!podeOuvirAudio(empresa)) return null;
+  const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
+    method: 'POST',
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inline_data: { mime_type: String(mimetype || 'audio/ogg').split(';')[0], data: base64 } },
+            { text: 'Transcreva este áudio de WhatsApp exatamente como foi falado, em português do Brasil. Responda só com a transcrição, sem comentários. Se não houver fala, responda: (sem fala)' }
+          ]
+        }
+      ],
+      generationConfig: { maxOutputTokens: 2000, temperature: 0 }
+    })
+  });
+  return textoGemini(dados) || null;
+}
+
+const PEDIDO_FOTO = 'Descreva em 1 ou 2 frases, em português, o que aparece nesta foto que um cliente mandou pelo WhatsApp para uma empresa (objeto, estado, detalhes úteis para um orçamento e qualquer texto visível). Responda só com a descrição.';
+
+// Descreve a foto do cliente com a IA da empresa (Claude ou Gemini veem imagens)
+async function descreverImagem(bot, empresa, base64, mimetype) {
+  const mime = String(mimetype || 'image/jpeg').split(';')[0];
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
+  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
+  if (!provedor) return null;
+  if (provedor === 'gemini') {
+    const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
+      method: 'POST',
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_FOTO }] }],
+        generationConfig: { maxOutputTokens: 400, temperature: 0.2 }
+      })
+    });
+    return textoGemini(dados) || null;
+  }
+  const client = obterClienteAnthropic(empresa);
+  const r = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 400,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
+          { type: 'text', text: PEDIDO_FOTO }
+        ]
+      }
+    ]
+  });
+  if (r.stop_reason === 'refusal') return null;
+  return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim() || null;
+}
+
+// ---------------------------------------------------------------- mensagens escritas pela IA para a equipe
+
+// Escreve uma mensagem nova para o lead a partir de uma instrução interna
+// (follow-up, recuperar venda, sugestão de resposta para a equipe…).
+async function escreverMensagem(bot, empresa, historico, instrucao, opcoes = {}) {
+  const interno = {
+    papel: 'visitante',
+    texto: `[INSTRUÇÃO INTERNA DA EMPRESA — não é mensagem do cliente e ele não vê isto]: ${instrucao} Escreva só a mensagem que será enviada ao cliente agora, curta e natural, sem mencionar esta instrução.`
+  };
+  const r = await responder(bot, empresa, [...historico, interno], { ...opcoes, canal: 'whatsapp' });
+  return r;
+}
+
 function descreverErroIa(err) {
   if (err instanceof Anthropic.AuthenticationError) return 'Chave do Claude inválida. Confira a chave de IA da empresa.';
   if (err instanceof Anthropic.RateLimitError) return 'O Claude está recebendo muitas mensagens agora. Tente de novo em instantes.';
@@ -383,6 +496,10 @@ function descreverErroIa(err) {
 
 module.exports = {
   responder,
+  escreverMensagem,
+  transcreverAudio,
+  descreverImagem,
+  podeOuvirAudio,
   extrairAcoes,
   descreverErroIa,
   montarPromptSistema,

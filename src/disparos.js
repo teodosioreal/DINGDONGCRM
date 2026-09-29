@@ -74,12 +74,19 @@ function destinatariosPara(empresa, filtroBruto) {
 function montarMensagem(modelo, lead, empresa) {
   const nomeCompleto = String(lead?.nome || '').trim();
   const primeiro = nomeCompleto.split(/\s+/)[0] || '';
-  const valores = { nome: primeiro, primeiro_nome: primeiro, nome_completo: nomeCompleto, empresa: empresa.nome || '' };
+  const bot = estado.bots.find((b) => b.empresaId === empresa.id && b.principal) || estado.bots.find((b) => b.empresaId === empresa.id);
+  const valores = {
+    nome: primeiro,
+    primeiro_nome: primeiro,
+    nome_completo: nomeCompleto,
+    empresa: empresa.nome || '',
+    link_avaliacao: bot?.linkAvaliacao || ''
+  };
   let t = String(modelo || '').replace(/\{([^{}]*\|[^{}]*)\}/g, (_, opcoes) => {
     const lista = opcoes.split('|');
     return lista[Math.floor(Math.random() * lista.length)];
   });
-  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa)\}/gi, (_, v) => valores[v.toLowerCase()]);
+  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa|link_avaliacao)\}/gi, (_, v) => valores[v.toLowerCase()]);
   // "Oi , tudo bem?" quando não sabemos o nome
   return t.replace(/ +([,!?.])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
@@ -319,6 +326,9 @@ function retomarAoIniciar() {
 
 module.exports = {
   RODAPE_SAIR,
+  horaEmSaoPaulo,
+  HORA_INICIO,
+  HORA_FIM,
   destinatariosPara,
   montarMensagem,
   criar,

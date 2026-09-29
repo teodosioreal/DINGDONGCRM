@@ -99,6 +99,35 @@ precisa digitar Session ID nem API Key.
   reiniciar, continua de onde parou.
 - Quem responde cai no atendimento normal: a IA do WhatsApp continua a conversa.
 
+### Máquina de vendas no WhatsApp
+
+- **A IA ouve áudios e entende fotos.** Áudio do cliente é transcrito pelo
+  Gemini (basta a empresa ter a chave do Gemini — o Claude não recebe áudio) e
+  a IA responde ao que foi falado; foto é descrita pela IA da empresa (Claude
+  ou Gemini). O áudio/foto original fica na conversa, com a transcrição.
+- **A IA já vem com técnica de venda:** entende a necessidade, mostra o
+  benefício, contorna objeção, propõe o próximo passo e fecha — sem inventar
+  preço, desconto ou prazo. Em *Sobre a empresa* ficam o **objetivo** (ex.:
+  agendar) e a **oferta/diferenciais**.
+- **Mídias e links:** fotos/vídeos/PDFs do computador, **pastas do Google
+  Drive** (pasta pública vira um álbum que a IA manda de uma vez; sincroniza
+  sozinha a cada 6 h ou no botão) e **links** (catálogo, mapa, agenda…) que a
+  IA manda quando fizer sentido.
+- **Conversas** (estilo WhatsApp Web): lista com não lidas e "esperando você",
+  chat com fotos, áudios (player + transcrição) e PDFs; mandar texto, arquivo
+  do computador, mídia/álbum da biblioteca; **respostas prontas** (digite
+  `/atalho`); **✨ Sugerir com IA** (a IA escreve, você revisa); **agendar
+  mensagem**; ligar/desligar a IA e mudar a etapa sem sair do chat.
+- **Automações** (Máquina de vendas), com receitas prontas de um clique:
+  recuperar quem parou de responder (a IA retoma, até 2x), **pedir avaliação
+  no Google** 2 dias depois de fechar (link do Google Meu Negócio), reativar
+  quem desistiu, pós-venda e chamar para comprar de novo. Dá para criar a sua:
+  "cliente não responde há X horas" ou "X dias depois de entrar na etapa Y",
+  filtros por etapa/etiqueta, mensagem pronta (com `{nome}`, `{empresa}`,
+  `{link_avaliacao}`) ou escrita pela IA. Ninguém recebe duas vezes, quem
+  pediu SAIR fica de fora, só age até 3 dias depois do critério (ligar uma
+  automação não dispara para leads antigos) e, por padrão, só das 8h às 20h.
+
 ### Como as duas IAs se conversam
 
 - O "conhecimento" (serviços, preços, dúvidas) é o mesmo para as duas; cada
@@ -264,7 +293,8 @@ src/ia.js              → prompts da IA do site e do WhatsApp; chama o Claude o
 src/leads.js           → leads, etapas, etiquetas e o código que liga site ↔ WhatsApp
 src/whatsapp.js        → Evolution API: conectar (Session ID + API Key), webhook, IA respondendo, mídias
 src/disparos.js        → disparos em massa (fila, intervalos, horário comercial, SAIR)
-src/midias.js          → biblioteca de mídias de cada empresa
+src/automacoes.js      → máquina de vendas (receitas, critérios, envio) e mensagens agendadas
+src/midias.js          → mídias, links, álbuns do Google Drive e anexos das conversas
 src/rotas-painel.js    → API do painel (empresas, assistentes, leads, WhatsApp, mídias, usuários)
 src/rotas-publicas.js  → API do widget (config, chat) e webhook do WhatsApp
 public/                → painel (HTML/CSS/JS puro) e o widget chat.js

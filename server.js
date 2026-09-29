@@ -8,6 +8,7 @@ const rotasPainel = require('./src/rotas-painel');
 const { migrarLeads } = require('./src/leads');
 const midias = require('./src/midias');
 const disparos = require('./src/disparos');
+const automacoes = require('./src/automacoes');
 
 garantirAdmin();
 migrarLeads();
@@ -73,6 +74,17 @@ app.use((err, req, res, next) => {
 const servidor = app.listen(config.port, config.host, () => {
   console.log(`CRM rodando em http://${config.host}:${config.port}${config.basePath}/`);
   disparos.retomarAoIniciar();
+  automacoes.iniciar();
+  // pastas do Google Drive: sincroniza sozinho a cada 6 horas
+  setInterval(async () => {
+    const { estado } = require('./src/db');
+    const ia = require('./src/ia');
+    for (const e of estado.empresas) {
+      for (const pasta of midias.pastasDa(e)) {
+        await midias.sincronizarPasta(e, { pastaExistente: pasta, chaveGoogle: ia.chave('gemini', e) }).catch((err) => console.error(`[drive ${e.id}]`, err.message));
+      }
+    }
+  }, 6 * 60 * 60 * 1000).unref();
   if (!require('./src/ia').provedoresConfigurados().length) {
     console.log('Aviso: nenhuma chave de IA configurada — cadastre a do Claude ou do Gemini em Configurações.');
   }

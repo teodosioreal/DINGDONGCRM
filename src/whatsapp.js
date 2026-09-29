@@ -572,7 +572,7 @@ async function receberWebhook(empresa, corpo) {
     const jid = msg?.key?.remoteJid || '';
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
     if (jaProcessada(msg.key.id)) continue;
-    const texto = textoDa(msg);
+    let texto = textoDa(msg);
     if (!texto) continue;
 
     if (msg.key.fromMe) {
@@ -580,7 +580,11 @@ async function receberWebhook(empresa, corpo) {
       if (enviadosPeloCrm.has(msg.key.id)) continue;
       const lead = estado.conversas.find((c) => c.empresaId === empresa.id && c.whatsappJid === jid);
       if (!lead) continue;
-      leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
+      const anexo = await baixarAnexo(empresa, lead, msg).catch(() => null);
+      const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
+      const legenda = texto.replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '');
+      const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
+      leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo });
       lead.iaPausada = true;
       lead.iaPausadaMotivo = 'A equipe respondeu pelo WhatsApp';
       cancelarResposta(lead.id);
@@ -589,7 +593,19 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
-    leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto });
+    // áudio vira texto (Gemini) e foto vira descrição, para a IA entender
+    let anexo = null;
+    try {
+      const r = await baixarAnexo(empresa, lead, msg, { entender: true });
+      if (r) {
+        anexo = r.anexo;
+        if (r.entendido) texto = r.entendido;
+      }
+    } catch (err) {
+      console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
+    }
+    leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined });
+    lead.naoLidas = (lead.naoLidas || 0) + 1;
     leads.aoChegarNoWhatsapp(lead, empresa);
 
     // resposta "SAIR" a um disparo em massa: não recebe mais disparos
@@ -608,6 +624,77 @@ async function receberWebhook(empresa, corpo) {
     salvar();
     agendarResposta(empresa, lead);
   }
+}
+
+// ---------------------------------------------------------------- anexos recebidos
+
+const TIPO_DA_MENSAGEM = [
+  ['imageMessage', 'image'],
+  ['audioMessage', 'audio'],
+  ['videoMessage', 'video'],
+  ['documentMessage', 'document'],
+  ['documentWithCaptionMessage', 'document']
+];
+
+// Baixa o arquivo da mensagem pela Evolution e guarda no lead. Com `entender`,
+// transcreve áudio e descreve foto para a IA responder ao conteúdo.
+async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
+  const m = msg.message || {};
+  const achado = TIPO_DA_MENSAGEM.find(([campo]) => m[campo]);
+  if (!achado) return null;
+  const [campo, tipo] = achado;
+  const info = campo === 'documentWithCaptionMessage' ? m[campo]?.message?.documentMessage || {} : m[campo];
+  const tamanho = Number(info?.fileLength?.low ?? info?.fileLength ?? 0);
+  if (tamanho > midias.TAMANHO_MAXIMO) return null;
+  const r = await evolution(empresa, 'POST', '/chat/getBase64FromMediaMessage/{instancia}', {
+    message: { key: msg.key, message: msg.message },
+    convertToMp4: false
+  });
+  if (!r?.base64) return null;
+  const mimetype = r.mimetype || info?.mimetype || '';
+  const anexo = midias.salvarAnexo(lead.id, Buffer.from(r.base64, 'base64'), mimetype, r.fileName || info?.fileName || '');
+  anexo.tipo = tipo;
+  let entendido = null;
+  if (entender) {
+    const legenda = info?.caption ? ` ${info.caption}` : '';
+    try {
+      if (tipo === 'audio') {
+        const t = await ia.transcreverAudio(empresa, r.base64, mimetype);
+        if (t) {
+          anexo.transcricao = t;
+          entendido = `[áudio do cliente]: ${t}`;
+        }
+      } else if (tipo === 'image') {
+        const d = await ia.descreverImagem(botDoWhatsapp(empresa), empresa, r.base64, mimetype);
+        if (d) {
+          anexo.descricao = d;
+          entendido = `[foto do cliente]: ${d}${legenda}`;
+        }
+      }
+    } catch (err) {
+      console.error(`[whatsapp ${lead.id}] entender ${tipo}:`, ia.descreverErroIa(err));
+    }
+  }
+  return { anexo, entendido };
+}
+
+// Arquivo mandado pela equipe no painel (vai em base64, sem precisar de link público)
+async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda = '' }) {
+  const tipo = midias.TIPOS[mimetype] || (String(mimetype).startsWith('image/') ? 'image' : String(mimetype).startsWith('audio/') ? 'audio' : String(mimetype).startsWith('video/') ? 'video' : 'document');
+  const base64 = buffer.toString('base64');
+  const r =
+    tipo === 'audio'
+      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: base64 })
+      : await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', {
+          number: destinoDe(destino),
+          mediatype: tipo,
+          mimetype,
+          media: base64,
+          fileName: nome || `arquivo${tipo === 'image' ? '.jpg' : ''}`,
+          caption: legenda
+        });
+  lembrarEnvio(r);
+  return { r, tipo };
 }
 
 // ---------------------------------------------------------------- resposta da IA
@@ -648,7 +735,8 @@ async function responderLead(empresaId, leadId) {
       canal: 'whatsapp',
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
-      midias: midias.midiasDa(empresa),
+      midias: midias.paraIa(empresa),
+      links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
   } catch (err) {
@@ -662,16 +750,7 @@ async function responderLead(empresaId, leadId) {
     await enviarTexto(empresa, lead.whatsappJid, r.texto);
     leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto });
   }
-  for (const nome of r.midias) {
-    const midia = midias.acharPorNome(empresa, nome);
-    if (!midia) continue;
-    try {
-      await enviarMidia(empresa, lead.whatsappJid, midia);
-      leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: `[enviou a mídia: ${midia.nome}]`, midiaId: midia.id });
-    } catch (err) {
-      console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);
-    }
-  }
+  await enviarMidiasPedidas(empresa, lead, r.midias);
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
   for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
   if (r.humano) {
@@ -680,6 +759,24 @@ async function responderLead(empresaId, leadId) {
     lead.precisaHumano = true;
   }
   salvar();
+}
+
+// [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
+async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
+  for (const nome of nomes || []) {
+    for (const midia of midias.acharParaEnviar(empresa, nome)) {
+      try {
+        await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia);
+        leads.adicionarMensagem(lead, { papel, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.nome}]`, midiaId: midia.id });
+      } catch (err) {
+        console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);
+      }
+    }
+  }
+}
+
+function whatsappDestino(lead) {
+  return destinoDoLead(lead);
 }
 
 // Mensagem escrita pela equipe no painel: vai pelo WhatsApp e a IA para no lead
@@ -696,6 +793,9 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 
 module.exports = {
   evolutionUrlGlobal,
+  enviarArquivo,
+  enviarMidiasPedidas,
+  botDoWhatsapp,
   chaveGlobal,
   testarChaveGlobal,
   podeCriarInstancia,

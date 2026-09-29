@@ -12,6 +12,7 @@ const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const midias = require('./midias');
 const disparos = require('./disparos');
+const automacoes = require('./automacoes');
 const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
@@ -20,7 +21,7 @@ const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  const upload = req.method === 'POST' && /\/midias$/.test(req.path) && req.is('application/octet-stream');
+  const upload = req.method === 'POST' && /\/(midias|arquivo)$/.test(req.path) && req.is('application/octet-stream');
   if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
@@ -106,6 +107,8 @@ router.get('/resumo', (req, res) => {
     noWhatsapp7d: recentes.filter((c) => c.whatsappJid).length,
     aguardandoEquipe: conversas.filter((c) => c.precisaHumano).length,
     totalLeads: conversas.length,
+    automaticas7d: conversas.reduce((n, c) => n + c.mensagens.filter((m) => m.automacaoId && m.em >= seteDias).length, 0),
+    recuperados7d: conversas.filter((c) => c.ultimaAutomacaoEm && c.ultimaAutomacaoEm >= seteDias && c.mensagens.some((m) => m.papel === 'visitante' && m.em > c.ultimaAutomacaoEm)).length,
     disparosAtivos: estado.disparos.filter((d) => ids.has(d.empresaId) && ['enviando', 'agendado'].includes(d.status)).length,
     porEtapa,
     mensagensHoje: bots.reduce((s, b) => s + (estado.uso[b.id]?.data === hoje() ? estado.uso[b.id].mensagens : 0), 0)
@@ -176,6 +179,11 @@ function empresaComExtras(e, req) {
     ...resto,
     etapas: leads.etapasDa(e),
     etiquetas: leads.etiquetasDa(e),
+    links: midias.linksDa(e),
+    drivePastas: midias.pastasDa(e),
+    respostasRapidas: e.respostasRapidas || [],
+    naoLidas: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? c.naoLidas || 0 : 0), 0),
+    ouveAudio: ia.podeOuvirAudio(e),
     // número salvo no cadastro ("whatsapp" abaixo é a situação da conexão)
     whatsappNumero: e.whatsapp || '',
     // as duas IAs ligam/desligam separadas
@@ -568,6 +576,9 @@ function dadosBot(body, req, base = null) {
     conhecimento: texto(body.conhecimento, 30000),
     regras: texto(body.regras, 5000),
     promptWhatsapp: texto(body.promptWhatsapp, 5000),
+    objetivo: texto(body.objetivo, 300),
+    oferta: texto(body.oferta, 1000),
+    linkAvaliacao: /^https?:\/\//i.test(String(body.linkAvaliacao || '').trim()) ? texto(body.linkAvaliacao, 500) : '',
     whatsapp: numeroWhatsapp(body.whatsapp),
     mensagemWhatsappPadrao: texto(body.mensagemWhatsappPadrao, 300),
     dominios: listaDominios(body.dominios),
@@ -688,7 +699,8 @@ router.post('/bots/:id/testar', async (req, res) => {
     const r = await ia.responder(rascunho, empresa, historico, {
       canal,
       etapas: leads.etapasDa(empresa),
-      midias: midias.midiasDa(empresa),
+      midias: midias.paraIa(empresa),
+      links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
     res.json({
@@ -870,6 +882,7 @@ router.post('/leads/:id/mensagem', async (req, res) => {
   if (!msg) return res.status(400).json({ erro: 'Escreva a mensagem.' });
   try {
     await whatsapp.enviarPelaEquipe(empresa, c, msg);
+    manterIa(c, req.body?.manterIa === true);
     res.json(resumoLead(c));
   } catch (err) {
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
@@ -880,7 +893,277 @@ router.delete('/leads/:id', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   whatsapp.cancelarResposta(c.id);
+  midias.apagarAnexosDoLead(c.id);
   estado.conversas = estado.conversas.filter((x) => x.id !== c.id);
+  salvar();
+  res.json({ ok: true });
+});
+
+
+// A equipe mandou algo mas quer que a IA continue atendendo este lead
+function manterIa(lead, manter) {
+  if (!manter) return;
+  lead.iaPausada = false;
+  lead.iaPausadaMotivo = '';
+  salvar();
+}
+
+// ---------------------------------------------------------------- conversas (estilo WhatsApp Web)
+
+router.get('/empresas/:id/conversas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const busca = String(req.query.busca || '').trim().toLowerCase();
+  const filtro = String(req.query.filtro || 'todas');
+  const lista = estado.conversas
+    .filter((c) => c.empresaId === empresa.id && c.mensagens.length)
+    .filter((c) => filtro !== 'naoLidas' || c.naoLidas > 0)
+    .filter((c) => filtro !== 'equipe' || c.precisaHumano)
+    .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
+    .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.slice(-30).map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
+    .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm }))
+    .sort((a, b) => (a.ultimaEm < b.ultimaEm ? 1 : -1))
+    .slice(0, 300);
+  res.json(lista);
+});
+
+router.post('/leads/:id/lido', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  if (c.naoLidas) {
+    c.naoLidas = 0;
+    salvar();
+  }
+  res.json({ ok: true });
+});
+
+// Arquivo que o cliente mandou (ou a equipe) — só com login
+router.get('/leads/:id/anexos/:arquivo', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const caminho = midias.caminhoAnexo(c.id, req.params.arquivo);
+  const msg = c.mensagens.find((m) => m.anexo?.arquivo === req.params.arquivo);
+  if (!caminho || !msg) return res.sendStatus(404);
+  res.type(msg.anexo.mimetype || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.sendFile(caminho, (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
+// Equipe manda foto/vídeo/áudio/PDF do computador
+router.post('/leads/:id/arquivo', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const destino = whatsapp.destinoDoLead(c);
+  if (!destino) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  if (!req.body?.length) return res.status(400).json({ erro: 'Arquivo vazio.' });
+  const nome = texto(req.query.nome, 120) || 'arquivo';
+  const mimetype = midias.mimeDe(nome, texto(req.query.tipo, 100));
+  const legenda = texto(req.query.legenda, 1000);
+  try {
+    const { tipo } = await whatsapp.enviarArquivo(empresa, destino, { buffer: req.body, mimetype, nome, legenda });
+    const anexo = midias.salvarAnexo(c.id, req.body, mimetype, nome);
+    anexo.tipo = tipo;
+    const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
+    leads.adicionarMensagem(c, { papel: 'equipe', canal: 'whatsapp', texto: legenda || `[enviou ${NOME_TIPO[tipo]}]`, anexo });
+    c.iaPausada = true;
+    c.iaPausadaMotivo = 'A equipe respondeu pelo painel';
+    whatsapp.cancelarResposta(c.id);
+    salvar();
+    manterIa(c, req.query.manterIa === '1');
+    res.json(resumoLead(c));
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+// Equipe manda uma mídia (ou álbum) da biblioteca
+router.post('/leads/:id/midia', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  const nome = texto(req.body?.nome, 120);
+  if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+  await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
+  salvar();
+  res.json(resumoLead(c));
+});
+
+// A IA sugere a próxima mensagem (a equipe revisa antes de enviar)
+router.post('/leads/:id/sugerir', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const bot = whatsapp.botDoWhatsapp(empresa);
+  if (!bot) return res.status(400).json({ erro: 'A empresa não tem assistente.' });
+  const pedido = texto(req.body?.pedido, 500);
+  try {
+    const r = await ia.escreverMensagem(
+      bot,
+      empresa,
+      c.mensagens,
+      `Sugira a melhor próxima mensagem para a equipe mandar a este cliente agora, com foco em avançar a venda (tirar a objeção, propor o próximo passo ou fechar).${pedido ? ` Pedido da equipe: ${pedido}` : ''}`,
+      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa) }
+    );
+    res.json({ texto: r.texto });
+  } catch (err) {
+    res.status(502).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
+router.post('/leads/:id/agendar', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  try {
+    res.status(201).json(automacoes.agendarMensagem(c, req.body || {}, req.usuario));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/leads/:id/agendadas/:agendadaId', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const a = (c.agendadas || []).find((x) => x.id === req.params.agendadaId);
+  if (!a || a.status !== 'pendente') return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  a.status = 'cancelada';
+  salvar();
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- respostas rápidas, links e Google Drive
+
+router.put('/empresas/:id/respostas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const lista = (Array.isArray(req.body?.respostas) ? req.body.respostas : [])
+    .map((r) => ({ id: texto(r?.id, 40) || novoId('rr'), atalho: texto(r?.atalho, 30).replace(/^\/+/, '').replace(/\s+/g, '-').toLowerCase(), texto: texto(r?.texto, 2000) }))
+    .filter((r) => r.atalho && r.texto)
+    .slice(0, 100);
+  empresa.respostasRapidas = lista;
+  salvar();
+  res.json(lista);
+});
+
+router.put('/empresas/:id/links', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const lista = [];
+  for (const l of (Array.isArray(req.body?.links) ? req.body.links : []).slice(0, 50)) {
+    const nome = texto(l?.nome, 80);
+    let url = texto(l?.url, 500);
+    if (!nome && !url) continue;
+    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+    try {
+      new URL(url);
+    } catch {
+      return res.status(400).json({ erro: `Link inválido: ${url || nome}` });
+    }
+    if (!nome) return res.status(400).json({ erro: `Dê um nome para o link ${url}.` });
+    lista.push({ id: texto(l?.id, 40) || novoId('lnk'), nome, url, descricao: texto(l?.descricao, 300) });
+  }
+  empresa.links = lista;
+  salvar();
+  res.json(lista);
+});
+
+router.post('/empresas/:id/drive', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  const driveId = midias.idDaPasta(b.link);
+  if (midias.pastasDa(empresa).some((p) => p.driveId === driveId)) return res.status(400).json({ erro: 'Esta pasta já está conectada. Use "Sincronizar".' });
+  try {
+    res.status(201).json(await midias.sincronizarPasta(empresa, { link: b.link, nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), chaveGoogle: ia.chave('gemini', empresa) }));
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.message });
+  }
+});
+
+router.post('/empresas/:id/drive/:pastaId/sincronizar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const pasta = midias.pastasDa(empresa).find((p) => p.id === req.params.pastaId);
+  if (!pasta) return res.status(404).json({ erro: 'Pasta não encontrada.' });
+  try {
+    res.json(await midias.sincronizarPasta(empresa, { pastaExistente: pasta, chaveGoogle: ia.chave('gemini', empresa) }));
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.message });
+  }
+});
+
+router.put('/empresas/:id/drive/:pastaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const pasta = midias.pastasDa(empresa).find((p) => p.id === req.params.pastaId);
+  if (!pasta) return res.status(404).json({ erro: 'Pasta não encontrada.' });
+  const nome = texto(req.body?.nome, 80);
+  if (!nome) return res.status(400).json({ erro: 'Dê um nome para o álbum.' });
+  pasta.nome = nome;
+  pasta.descricao = texto(req.body?.descricao, 300);
+  salvar();
+  res.json(pasta);
+});
+
+router.delete('/empresas/:id/drive/:pastaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  midias.apagarPasta(empresa, req.params.pastaId);
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- automações (máquina de vendas)
+
+router.get('/empresas/:id/automacoes', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const regras = automacoes.automacoesDa(empresa);
+  res.json({
+    regras: regras.map((r) => automacoes.resumo(r, empresa)),
+    receitas: Object.entries(automacoes.RECEITAS).map(([id, f]) => {
+      const r = f(empresa);
+      return { id, nome: r.nome, explicacao: r.explicacao, jaTem: regras.some((x) => x.receita === id) };
+    }),
+    linkAvaliacao: whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao || '',
+    whatsappConectado: whatsapp.configurado(empresa)
+  });
+});
+
+router.post('/empresas/:id/automacoes', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    if (req.body?.receita) return res.status(201).json(automacoes.resumo(automacoes.criarDeReceita(empresa, String(req.body.receita)), empresa));
+    const regra = { id: novoId('aut'), ...automacoes.normalizarRegra(empresa, req.body || {}), criadoEm: agora() };
+    empresa.automacoes = [...automacoes.automacoesDa(empresa), regra];
+    salvar();
+    res.status(201).json(automacoes.resumo(regra, empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.put('/empresas/:id/automacoes/:regraId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const i = automacoes.automacoesDa(empresa).findIndex((r) => r.id === req.params.regraId);
+  if (i < 0) return res.status(404).json({ erro: 'Automação não encontrada.' });
+  try {
+    empresa.automacoes[i] = automacoes.normalizarRegra(empresa, req.body || {}, empresa.automacoes[i]);
+    salvar();
+    res.json(automacoes.resumo(empresa.automacoes[i], empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/empresas/:id/automacoes/:regraId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  empresa.automacoes = automacoes.automacoesDa(empresa).filter((r) => r.id !== req.params.regraId);
   salvar();
   res.json({ ok: true });
 });

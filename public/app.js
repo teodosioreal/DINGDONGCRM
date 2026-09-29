@@ -165,7 +165,9 @@ const ICONES = {
   empresas: I('<path d="M4 21V5l8-2v18M12 8h8v13M8 8h.01M8 12h.01M8 16h.01M16 12h.01M16 16h.01"/>'),
   usuarios: I('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>'),
   config: I('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
-  visao: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>')
+  visao: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  conversas: I('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8 11h8M8 14h5"/>'),
+  maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>')
 };
 
 // ---------------------------------------------------------------- tema e menu
@@ -210,13 +212,15 @@ function montarMenu(ativo) {
     const ponto = (ligado) => `<span class="ponto ${ligado ? 'on' : 'off'}" title="${ligado ? 'Ligada' : 'Desligada'}"></span>`;
     html += `<p class="titulo-grupo">${esc(empresaAtual.nome)}</p>`;
     html += item(rotaEmpresa(id), 'inicio', 'Início');
-    html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads');
+    html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
+    html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
+    html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
     html += item(rotaEmpresa(id, 'disparos'), 'disparos', 'Disparos em massa');
     html += '<p class="titulo-grupo">Configurar</p>';
     html += item(rotaEmpresa(id, 'ia'), 'cerebro', 'Sobre a empresa');
     html += item(rotaEmpresa(id, 'site'), 'site', 'IA do site', ponto(d.canais?.site));
     html += item(rotaEmpresa(id, 'whatsapp'), 'whatsapp', 'IA do WhatsApp', ponto(d.canais?.whatsapp && d.whatsapp?.configurado));
-    html += item(rotaEmpresa(id, 'midias'), 'midias', 'Mídias');
+    html += item(rotaEmpresa(id, 'midias'), 'midias', 'Mídias e links');
     html += item(rotaEmpresa(id, 'organizar'), 'etiquetas', 'Etiquetas e etapas');
     html += item(rotaEmpresa(id, 'chave'), 'chave', 'Chave de IA');
   }
@@ -364,7 +368,8 @@ async function paginaEmpresa(id) {
   ];
   if (siteLigado) lista.push({ feito: Object.keys(r.porEtapa).length > 0 || r.totalLeads > 0, texto: 'Coloque o chat no seu site', dica: 'Copie e cole um código uma vez só.', href: rotaEmpresa(id, 'site') });
   if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Clique em Gerar QR code e escaneie com o celular.', href: rotaEmpresa(id, 'whatsapp') });
-  if (zapLigado) lista.push({ feito: emp.totalMidias > 0, texto: 'Envie fotos, vídeos ou PDFs para a IA usar (opcional)', dica: 'A IA do WhatsApp manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
+  if (zapLigado) lista.push({ feito: emp.totalMidias > 0 || (emp.links || []).length > 0, texto: 'Coloque fotos (ou uma pasta do Drive) e links para a IA usar', dica: 'Mostrar o trabalho vende: a IA manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
+  if (zapLigado) lista.push({ feito: (emp.automacoes || []).some((a) => a.ativa), texto: 'Ligue a máquina de vendas', dica: 'Recuperar vendas e pedir avaliações no Google, no automático.', href: rotaEmpresa(id, 'automacoes') });
   const feitos = lista.filter((p) => p.feito).length;
   const tudoPronto = feitos === lista.length;
 
@@ -414,6 +419,10 @@ async function paginaEmpresa(id) {
       ${numeroCard('Chegaram no WhatsApp (7 dias)', r.noWhatsapp7d)}
       ${numeroCard('Esperando a equipe', r.aguardandoEquipe, r.aguardandoEquipe ? 'destaque' : '')}
       ${numeroCard('Disparos em andamento', r.disparosAtivos)}
+    </div>
+    <div class="card maquina-card">
+      <div class="maquina-topo"><span class="canal-icone maquina">${ICONES.maquina}</span><div><h2 style="margin:0">Máquina de vendas</h2><p class="rotulo" style="margin:2px 0 0">Mensagens automáticas: recuperar quem sumiu, pedir avaliação no Google, reativar quem desistiu.</p></div><a class="botao primario pequeno" href="${rotaEmpresa(id, 'automacoes')}">${(emp.automacoes || []).some((a) => a.ativa) ? 'Ver automações' : 'Ligar agora'}</a></div>
+      <div class="automacao-numeros"><span><b>${r.automaticas7d}</b> mensagens automáticas (7 dias)</span><span><b>${r.recuperados7d}</b> clientes responderam depois</span><span><b>${emp.naoLidas || 0}</b> mensagens não lidas · <a href="${rotaEmpresa(id, 'conversas')}">abrir conversas</a></span></div>
     </div>
     ${r.aguardandoEquipe ? balao(`${r.aguardandoEquipe} ${r.aguardandoEquipe === 1 ? 'cliente está' : 'clientes estão'} esperando alguém da equipe`, `A IA passou o atendimento para vocês. <a href="${rotaEmpresa(id, 'leads')}">Ver leads</a>`, 'aviso') : ''}
 
@@ -546,11 +555,14 @@ async function paginaCerebro(id) {
     <div class="cabecalho"><div><h1>Sobre a empresa</h1><p class="sub">O que as duas IAs sabem e como elas falam</p></div></div>
     ${balao('Aqui você "treina" a IA', 'Escreva como se estivesse explicando o negócio para um funcionário novo: o que vende, quanto custa, onde atende, horários, prazos, garantia, formas de pagamento e as dúvidas mais comuns. <b>A IA só responde o que estiver aqui</b> — o que não souber, ela diz que vai confirmar com a equipe.')}
     ${semChave ? balao('Falta a chave de IA', `Sem ela as IAs não respondem. <a href="${rotaEmpresa(id, 'chave')}">Cadastrar chave de IA</a>`, 'aviso') : ''}
+    ${balao('A IA já vem treinada para vender', 'Ela entende a necessidade, mostra o benefício, contorna objeções (preço, "vou pensar"), sugere o próximo passo e propõe fechar quando o cliente mostra interesse — sem inventar nada. Preencha o <b>objetivo</b> e a <b>oferta</b> para ela saber aonde chegar.', 'ok')}
     <div class="editor">
       <form id="f-bot" class="card">
         <div class="campos">
           <div class="campo"><label>Nome do atendente virtual ${ajuda('Como a IA se apresenta. Ex.: "Ana, da Madara Volantes" ou só o nome da empresa.')}</label><input name="nomeAssistente" value="${esc(bot.nomeAssistente)}" placeholder="${esc(emp.nome)}"></div>
           <div class="campo"><label>Jeito de falar ${ajuda('Ex.: simpático e descontraído; formal e objetivo; animado, com emojis.')}</label><input name="tom" value="${esc(bot.tom)}" placeholder="simpático, próximo e profissional"></div>
+          <div class="campo"><label>Objetivo da conversa ${ajuda('Onde a IA deve levar o cliente. Ex.: agendar uma visita, fechar o pedido, marcar a avaliação gratuita.')}</label><input name="objetivo" value="${esc(bot.objetivo || '')}" placeholder="Ex.: agendar o serviço"></div>
+          <div class="campo"><label>Oferta e diferenciais ${ajuda('O que faz o cliente escolher você: garantia, parcelamento, promoção do mês, atendimento a domicílio… Só coisas verdadeiras — a IA não inventa.')}</label><input name="oferta" value="${esc(bot.oferta || '')}" placeholder="Ex.: 12x sem juros, garantia de 1 ano"></div>
           <div class="campo largo">
             <label>Tudo o que a IA precisa saber *</label>
             <textarea class="grande" name="conhecimento">${esc(bot.conhecimento || MODELO_CONHECIMENTO)}</textarea>
@@ -791,7 +803,8 @@ async function paginaWhatsapp(id) {
         <div class="o-que-ela-faz">
           <p class="rotulo" style="margin:0 0 6px">Sozinha, a IA do WhatsApp:</p>
           <ul>
-            <li>📎 envia as <a href="${rotaEmpresa(id, 'midias')}">mídias cadastradas</a> quando o cliente pede</li>
+            <li>🎤 ${emp.ouveAudio ? '<b>ouve os áudios</b> e <b>entende as fotos</b> que o cliente manda' : 'entende as fotos que o cliente manda — para <b>ouvir áudios</b>, cadastre também a <a href="' + rotaEmpresa(id, 'chave') + '">chave do Gemini</a> (grátis)'}</li>
+            <li>📎 envia as <a href="${rotaEmpresa(id, 'midias')}">fotos, álbuns do Drive e links</a> quando o cliente pede</li>
             <li>➜ move o lead de <a href="${rotaEmpresa(id, 'organizar')}">etapa</a> e coloca <a href="${rotaEmpresa(id, 'organizar')}">etiquetas</a></li>
             <li>👤 chama alguém da equipe quando precisa (e para de responder aquele cliente)</li>
             <li>✋ para sozinha quando alguém da equipe responde pelo celular</li>
@@ -1008,33 +1021,145 @@ async function paginaWhatsapp(id) {
 const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' };
 
 async function paginaMidias(id) {
-  await definirEmpresaAtual(id);
-  const lista = await api(`empresas/${id}/midias`);
+  const emp = await definirEmpresaAtual(id);
+  const todas = await api(`empresas/${id}/midias`);
+  const lista = todas.filter((m) => !m.pastaId);
+  const pastas = emp.drivePastas || [];
+  let links = (emp.links || []).map((l) => ({ ...l }));
+
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Mídias</h1><p class="sub">Fotos, vídeos, PDFs e áudios que a IA do WhatsApp pode enviar</p></div></div>
-    ${balao('Como a IA sabe o que mandar?', 'Pelo <b>nome</b> e pelo <b>"quando enviar"</b>. Ex.: nome <i>"Fotos volante couro"</i>, quando enviar <i>"quando o cliente pedir fotos do revestimento de couro"</i>. Também dá para usar as mídias nos <a href="' + rotaEmpresa(id, 'disparos') + '">disparos em massa</a>.')}
+    <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
+    ${balao('Mostrar o trabalho vende', 'A IA manda as fotos e links certos na hora certa. Ela escolhe pelo <b>nome</b> e pelo <b>"quando mandar"</b> — ex.: álbum <i>"Volantes em couro"</i>, quando <i>"o cliente pedir fotos ou perguntar do acabamento"</i>. Tudo aqui também pode ir nos disparos, nas automações e na aba Conversas.')}
+
+    <div class="card">
+      <h2>📁 Fotos do Google Drive</h2>
+      <p class="rotulo" style="margin-top:-6px">Cada pasta vira um <b>álbum</b>: a IA manda as fotos da pasta de uma vez. Coloque fotos novas na pasta e o CRM sincroniza sozinho (a cada 6 horas, ou no botão).</p>
+      <details ${pastas.length ? '' : 'open'}><summary>Como compartilhar a pasta</summary>${passos([
+        'No Google Drive, clique com o botão direito na pasta → <b>Compartilhar</b>.',
+        'Em "Acesso geral", escolha <b>Qualquer pessoa com o link</b> (leitor) → <b>Copiar link</b>.',
+        'Cole o link aqui, dê um nome para o álbum e diga quando a IA deve mandar.'
+      ])}</details>
+      <form id="f-drive" class="campos" style="margin-top:12px">
+        <div class="campo largo"><label>Link da pasta</label><input name="link" required placeholder="https://drive.google.com/drive/folders/…"></div>
+        <div class="campo"><label>Nome do álbum</label><input name="nome" placeholder="Ex.: Volantes em couro"></div>
+        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando pedir fotos do couro"></div>
+        <div class="campo largo"><div class="acoes" style="margin-top:0"><button class="primario" type="submit">Conectar pasta</button></div></div>
+      </form>
+      <div class="lista-pastas">
+        ${pastas.map((p) => {
+          const fotos = todas.filter((m) => m.pastaId === p.id);
+          return `
+          <div class="pasta">
+            <div class="pasta-fotos">${fotos.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>📁</span>'}</div>
+            <div class="pasta-info"><strong>${esc(p.nome)}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
+            <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-sinc="${esc(p.id)}">🔄 Sincronizar</button><button type="button" class="pequeno" data-editar-pasta="${esc(p.id)}">Editar</button><button type="button" class="pequeno perigo" data-tirar-pasta="${esc(p.id)}">Remover</button></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🔗 Links</h2>
+      <p class="rotulo" style="margin-top:-6px">Site, catálogo, cardápio, localização no mapa, agenda online, Instagram… A IA manda quando fizer sentido.</p>
+      <div id="lista-links" class="lista-editavel"></div>
+      <div class="acoes"><button type="button" id="add-link">+ Novo link</button><button type="button" class="primario" id="salvar-links">Salvar links</button></div>
+    </div>
+
     <form class="card" id="f-midia">
-      <h2>Adicionar mídia</h2>
+      <h2>📤 Enviar arquivo do computador</h2>
       <label class="soltar" id="soltar">
         <input type="file" name="arquivo" required accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx">
         <span class="soltar-texto">📁 <b>Clique para escolher</b> ou arraste o arquivo aqui<br><span class="rotulo">Até 16 MB — foto, vídeo MP4, áudio ou PDF</span></span>
       </label>
       <div class="campos" style="margin-top:12px">
         <div class="campo"><label>Nome *</label><input name="nome" required placeholder="Ex.: Tabela de preços"></div>
-        <div class="campo"><label>Quando a IA deve enviar</label><input name="descricao" placeholder="Ex.: quando o cliente pedir os preços"></div>
+        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando o cliente pedir os preços"></div>
       </div>
       <div class="acoes"><button class="primario" type="submit">Enviar arquivo</button></div>
     </form>
     <div class="grade-midias">
-      ${lista.length ? lista.map((m) => `
+      ${lista.map((m) => `
         <div class="card midia">
           <a class="midia-previa" href="${esc(m.url)}" target="_blank" rel="noopener">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`}</a>
           <strong>${esc(m.nome)}</strong>
-          <span class="rotulo">${esc(m.descricao) || 'sem instrução de quando enviar'}</span>
+          <span class="rotulo">${esc(m.descricao) || 'sem instrução de quando mandar'}</span>
           <span class="rotulo">${esc(m.arquivo)} · ${(m.tamanho / 1024 / 1024).toFixed(1)} MB</span>
           <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
-        </div>`).join('') : '<div class="card vazio">Nenhuma mídia ainda.</div>'}
+        </div>`).join('')}
     </div>`;
+
+  // ---------- Drive
+  $('#f-drive').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await comEspera(e.target.querySelector('button[type=submit]'), () => api(`empresas/${id}/drive`, { method: 'POST', body: formParaObjeto(e.target) }), 'Baixando fotos…');
+      aviso(`Álbum "${r.pasta.nome}" conectado: ${r.adicionados} arquivos.${r.falhas.length ? ` ${r.falhas.length} não baixaram.` : ''}`);
+      paginaMidias(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-sinc]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        const r = await comEspera(b, () => api(`empresas/${id}/drive/${b.dataset.sinc}/sincronizar`, { method: 'POST' }), 'Sincronizando…');
+        aviso(`Sincronizado: ${r.adicionados} novos, ${r.removidos} removidos.`);
+        paginaMidias(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-tirar-pasta]').forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Remover este álbum?', texto: 'As fotos saem do CRM (no seu Drive continuam).', botao: 'Remover', perigo: true }))) return;
+      await api(`empresas/${id}/drive/${b.dataset.tirarPasta}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+      paginaMidias(id);
+    };
+  });
+  $$('[data-editar-pasta]').forEach((b) => {
+    b.onclick = () => {
+      const p = pastas.find((x) => x.id === b.dataset.editarPasta);
+      abrirModal(`
+        <h2>Editar álbum</h2>
+        <form id="f-ed-pasta">
+          <div class="campo"><label>Nome do álbum</label><input name="nome" required value="${esc(p.nome)}"></div>
+          <div class="campo" style="margin-top:12px"><label>Quando a IA deve mandar</label><input name="descricao" value="${esc(p.descricao || '')}"></div>
+          <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+        </form>`, (m, fechar) => {
+        $('#f-ed-pasta', m).onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await api(`empresas/${id}/drive/${p.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
+            fechar();
+            paginaMidias(id);
+          } catch (err) { aviso(err.message, true); }
+        };
+      });
+    };
+  });
+
+  // ---------- links
+  function desenharLinks() {
+    $('#lista-links').innerHTML = links.map((l, i) => `
+      <div class="linha-link">
+        <input value="${esc(l.nome)}" data-lnome="${i}" placeholder="Nome (ex.: Catálogo)" maxlength="80">
+        <input value="${esc(l.url)}" data-lurl="${i}" placeholder="https://…">
+        <input value="${esc(l.descricao || '')}" data-ldesc="${i}" placeholder="Quando mandar (ex.: quando pedir o catálogo)">
+        <button type="button" class="pequeno perigo" data-ltirar="${i}" title="Remover">✕</button>
+      </div>`).join('') || '<p class="rotulo">Nenhum link ainda.</p>';
+    $$('[data-lnome]').forEach((el) => { el.oninput = () => { links[el.dataset.lnome].nome = el.value; }; });
+    $$('[data-lurl]').forEach((el) => { el.oninput = () => { links[el.dataset.lurl].url = el.value; }; });
+    $$('[data-ldesc]').forEach((el) => { el.oninput = () => { links[el.dataset.ldesc].descricao = el.value; }; });
+    $$('[data-ltirar]').forEach((el) => { el.onclick = () => { links.splice(Number(el.dataset.ltirar), 1); desenharLinks(); }; });
+  }
+  desenharLinks();
+  $('#add-link').onclick = () => { links.push({ nome: '', url: '', descricao: '' }); desenharLinks(); $$('[data-lnome]').pop()?.focus(); };
+  $('#salvar-links').onclick = async () => {
+    try {
+      links = (await api(`empresas/${id}/links`, { method: 'PUT', body: { links } })).map((l) => ({ ...l }));
+      desenharLinks();
+      aviso('Links salvos.');
+    } catch (err) { aviso(err.message, true); }
+  };
+
+  // ---------- arquivos
   const f = $('#f-midia');
   const entrada = f.elements.arquivo;
   entrada.onchange = () => {
@@ -1056,9 +1181,8 @@ async function paginaMidias(id) {
     const arquivo = entrada.files[0];
     if (!arquivo) return;
     if (arquivo.size > 16 * 1024 * 1024) return aviso('Arquivo maior que 16 MB (limite do WhatsApp).', true);
-    const botao = f.querySelector('button[type=submit]');
     try {
-      await comEspera(botao, async () => {
+      await comEspera(f.querySelector('button[type=submit]'), async () => {
         const qs = new URLSearchParams({ arquivo: arquivo.name, nome: f.elements.nome.value, descricao: f.elements.descricao.value, tipo: arquivo.type || '' });
         const r = await fetch(`api/empresas/${id}/midias?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arquivo });
         const dados = await r.json().catch(() => ({}));
@@ -1084,7 +1208,7 @@ async function paginaMidias(id) {
         <h2>Editar mídia</h2>
         <form id="f-ed-midia">
           <div class="campo"><label>Nome</label><input name="nome" required value="${esc(m.nome)}"></div>
-          <div class="campo" style="margin-top:12px"><label>Quando a IA deve enviar</label><input name="descricao" value="${esc(m.descricao)}"></div>
+          <div class="campo" style="margin-top:12px"><label>Quando a IA deve mandar</label><input name="descricao" value="${esc(m.descricao)}"></div>
           <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
         </form>`, (modal, fechar) => {
         $('#f-ed-midia', modal).onsubmit = async (e) => {
@@ -1474,17 +1598,14 @@ function modalNovoLead(emp, depois) {
 async function paginaLead(leadId) {
   const l = await api(`leads/${leadId}`);
   await definirEmpresaAtual(l.empresaId);
-  const papelRotulo = { visitante: 'Cliente', assistente: 'IA', equipe: 'Equipe' };
   const etiquetasLead = new Set(l.etiquetas);
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div>
+    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra">${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
         <div class="conversa" id="linha-tempo">
-          ${l.mensagens.map((m) => (
-            `<div class="msg ${m.papel === 'visitante' ? 'eu' : m.papel === 'equipe' ? 'equipe' : 'bot'}"><span class="msg-origem">${ROTULO_CANAL[m.canal || 'site'] || ''} · ${m.disparoId ? 'Disparo' : papelRotulo[m.papel] || m.papel}</span>${esc(m.texto)}${m.whatsapp ? '<br><em style="color:#0a7a3a">→ Ofereceu continuar no WhatsApp</em>' : ''}<small>${data(m.em)}</small></div>`
-          )).join('') || '<p class="rotulo">Sem mensagens ainda.</p>'}
+          ${l.mensagens.map((m) => htmlMensagem(m, l.id)).join('') || '<p class="rotulo">Sem mensagens ainda.</p>'}
         </div>
         ${l.podeReceber ? `
         <form class="card" id="f-responder" style="margin-top:12px">
@@ -1786,6 +1907,544 @@ async function paginaDisparo(id, disparoId) {
   }
 }
 
+// ---------------------------------------------------------------- mensagens (reusado em Conversas e no lead)
+
+const PAPEL_ROTULO = { visitante: 'Cliente', assistente: 'IA', equipe: 'Equipe' };
+
+function htmlAnexo(m, leadId) {
+  const a = m.anexo;
+  if (!a) return '';
+  const url = `api/leads/${encodeURIComponent(leadId)}/anexos/${encodeURIComponent(a.arquivo)}`;
+  if (a.tipo === 'image') return `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="anexo-img" src="${esc(url)}" alt="foto" loading="lazy"></a>${a.descricao ? `<span class="anexo-nota">👁️ ${esc(a.descricao)}</span>` : ''}`;
+  if (a.tipo === 'audio') return `<audio class="anexo-audio" controls preload="none" src="${esc(url)}"></audio>${a.transcricao ? `<span class="anexo-nota">📝 ${esc(a.transcricao)}</span>` : ''}`;
+  if (a.tipo === 'video') return `<video class="anexo-img" controls preload="none" src="${esc(url)}"></video>`;
+  return `<a class="anexo-doc" href="${esc(url)}" target="_blank" rel="noopener">📄 ${esc(a.nome || 'arquivo')}</a>`;
+}
+
+function htmlMensagem(m, leadId) {
+  const classe = m.papel === 'visitante' ? 'eu' : m.papel === 'equipe' ? 'equipe' : 'bot';
+  const origem = m.automacaoNome ? `⚡ ${m.automacaoNome}` : m.disparoId ? '📣 Disparo' : m.agendadaId ? '🕒 Agendada' : PAPEL_ROTULO[m.papel] || m.papel;
+  // o texto do cliente com áudio/foto já foi trocado pela transcrição: mostra o arquivo e a transcrição
+  const textoVisivel = m.anexo && /^\[(áudio|foto) do cliente\]:/.test(m.texto || '') ? '' : m.texto;
+  return `<div class="msg ${classe}"><span class="msg-origem">${ROTULO_CANAL[m.canal || 'site'] || ''} · ${esc(origem)}</span>${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${esc(textoVisivel).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<small>${data(m.em)}</small></div>`;
+}
+
+// ---------------------------------------------------------------- empresa: conversas (estilo WhatsApp Web)
+
+function horaCurta(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const hoje = new Date();
+  return d.toDateString() === hoje.toDateString()
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function inicial(nome) {
+  return esc((String(nome || '?').trim()[0] || '?').toUpperCase());
+}
+
+async function paginaConversas(id, params) {
+  const emp = await definirEmpresaAtual(id);
+  let filtro = 'todas';
+  let busca = '';
+  let abertoId = params.get('lead') || '';
+  let lista = [];
+  let leadAberto = null;
+  let assinaturaAberta = '';
+
+  conteudo.innerHTML = `
+    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
+    ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
+    <div class="inbox ${abertoId ? 'com-chat' : ''}" id="inbox">
+      <aside class="inbox-lista">
+        <div class="inbox-busca"><input id="busca-conversa" placeholder="🔎 Buscar nome, telefone ou mensagem"></div>
+        <div class="inbox-filtros">
+          <button type="button" class="chip-filtro ativo" data-filtro="todas">Todas</button>
+          <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
+          <button type="button" class="chip-filtro" data-filtro="equipe">Esperando você</button>
+        </div>
+        <div id="lista-conversas" class="lista-conversas"><p class="rotulo" style="padding:16px">Carregando…</p></div>
+      </aside>
+      <section class="inbox-chat" id="inbox-chat">
+        <div class="inbox-vazio">${ICONES.leads}<p><b>Escolha uma conversa</b><br><span class="rotulo">As novas mensagens aparecem sozinhas.</span></p></div>
+      </section>
+    </div>`;
+
+  function desenharLista() {
+    const el = $('#lista-conversas');
+    if (!el) return;
+    el.innerHTML = lista.length
+      ? lista.map((c) => `
+        <button type="button" class="item-conversa ${c.id === abertoId ? 'ativo' : ''}" data-lead="${esc(c.id)}">
+          <span class="avatar">${inicial(nomeDoLead(c))}</span>
+          <span class="item-meio">
+            <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
+            <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
+            <span class="item-linha item-tags">${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
+          </span>
+        </button>`).join('')
+      : `<p class="rotulo" style="padding:16px">${busca || filtro !== 'todas' ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
+    $$('.item-conversa', el).forEach((b) => { b.onclick = () => abrir(b.dataset.lead); });
+  }
+
+  async function carregarLista() {
+    lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca })}`);
+    desenharLista();
+  }
+
+  function desenharChat() {
+    const l = leadAberto;
+    const area = $('#inbox-chat');
+    if (!area || !l) return;
+    const pendentes = (l.agendadas || []).filter((a) => a.status === 'pendente');
+    area.innerHTML = `
+      <header class="chat-topo">
+        <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
+        <span class="avatar">${inicial(nomeDoLead(l))}</span>
+        <div class="chat-quem"><strong>${esc(nomeDoLead(l))}</strong><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'} · <a href="#/leads/${esc(l.id)}">ver lead</a></span></div>
+        <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
+        ${interruptor('chat-ia', !l.iaPausada, 'IA')}
+      </header>
+      ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
+      <div class="conversa chat-mensagens" id="chat-mensagens">${l.mensagens.map((m) => htmlMensagem(m, l.id)).join('') || '<p class="rotulo">Sem mensagens.</p>'}</div>
+      ${pendentes.length ? `<div class="chat-agendadas">${pendentes.map((a) => `<span>🕒 ${esc(new Date(a.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}: ${esc(a.texto.slice(0, 60))} <button type="button" class="link-botao" data-cancelar="${esc(a.id)}">cancelar</button></span>`).join('')}</div>` : ''}
+      ${l.podeReceber ? `
+      <form class="chat-envio" id="chat-envio">
+        <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
+        <div class="chat-ferramentas">
+          <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
+          <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
+          <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
+          <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
+          <button type="button" class="pequeno" id="chat-agendar" title="Mandar mais tarde">🕒 Agendar</button>
+        </div>
+        <div class="chat-linha">
+          <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem… (Enter envia, / para respostas prontas)"></textarea>
+          <button class="primario" type="submit" id="chat-enviar">Enviar</button>
+        </div>
+        <label class="linha-check rotulo manter-ia"><input type="checkbox" id="chat-manter-ia"> Deixar a IA continuar atendendo depois da minha mensagem</label>
+      </form>` : '<p class="rotulo" style="padding:12px 16px">Este lead não tem WhatsApp. Coloque o telefone no lead para conversar.</p>'}`;
+    const caixa = $('#chat-mensagens');
+    caixa.scrollTop = caixa.scrollHeight;
+    ligarChat();
+  }
+
+  async function abrir(leadId, rolar = true) {
+    abertoId = leadId;
+    $('#inbox')?.classList.add('com-chat');
+    desenharLista();
+    history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
+    leadAberto = await api(`leads/${leadId}`);
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}`;
+    if (rolar) desenharChat();
+    if (leadAberto.naoLidas) {
+      api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
+      const item = lista.find((c) => c.id === leadId);
+      if (item) item.naoLidas = 0;
+      desenharLista();
+    }
+  }
+
+  async function recarregarAberto() {
+    if (!abertoId) return;
+    const l = await api(`leads/${abertoId}`);
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}`;
+    if (assinatura === assinaturaAberta) return;
+    // não apaga o que a pessoa está digitando
+    const rascunho = $('#chat-texto')?.value || '';
+    const foco = document.activeElement?.id === 'chat-texto';
+    leadAberto = l;
+    assinaturaAberta = assinatura;
+    desenharChat();
+    if ($('#chat-texto')) {
+      $('#chat-texto').value = rascunho;
+      if (foco) $('#chat-texto').focus();
+    }
+    if (l.naoLidas) api(`leads/${abertoId}/lido`, { method: 'POST' }).catch(() => {});
+  }
+
+  async function enviarTexto(textoMsg) {
+    const botao = $('#chat-enviar');
+    await comEspera(botao, () => api(`leads/${abertoId}/mensagem`, { method: 'POST', body: { texto: textoMsg, manterIa: $('#chat-manter-ia')?.checked } }), '…');
+    await recarregarAberto();
+    carregarLista();
+  }
+
+  function ligarChat() {
+    $('#voltar-lista')?.addEventListener('click', () => {
+      abertoId = '';
+      $('#inbox').classList.remove('com-chat');
+      history.replaceState(null, '', rotaEmpresa(id, 'conversas'));
+      desenharLista();
+    });
+    $('#chat-etapa')?.addEventListener('change', async (e) => {
+      try {
+        await api(`leads/${abertoId}`, { method: 'PUT', body: { etapa: e.target.value } });
+        aviso('Etapa atualizada.');
+      } catch (err) { aviso(err.message, true); }
+    });
+    $('#chat-ia')?.addEventListener('change', async (e) => {
+      try {
+        await api(`leads/${abertoId}`, { method: 'PUT', body: { iaPausada: !e.target.checked } });
+        aviso(e.target.checked ? 'A IA voltou a responder este cliente.' : 'IA pausada: você atende este cliente.');
+        recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
+    $$('[data-cancelar]').forEach((b) => {
+      b.onclick = async () => {
+        await api(`leads/${abertoId}/agendadas/${b.dataset.cancelar}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+        assinaturaAberta = '';
+        recarregarAberto();
+      };
+    });
+    const form = $('#chat-envio');
+    if (!form) return;
+    const campo = $('#chat-texto');
+    const ajustarAltura = () => { campo.style.height = 'auto'; campo.style.height = `${Math.min(160, campo.scrollHeight)}px`; };
+    const rapidas = emp.respostasRapidas || [];
+    const caixaRapidas = $('#sugestoes-rapidas');
+    const mostrarRapidas = () => {
+      const m = campo.value.match(/^\/(\S*)$/);
+      const achadas = m ? rapidas.filter((r) => r.atalho.includes(m[1].toLowerCase())).slice(0, 6) : [];
+      caixaRapidas.hidden = !achadas.length;
+      caixaRapidas.innerHTML = achadas.map((r) => `<button type="button" data-rapida="${esc(r.id)}"><b>/${esc(r.atalho)}</b> ${esc(r.texto.slice(0, 80))}</button>`).join('');
+      $$('[data-rapida]', caixaRapidas).forEach((b) => {
+        b.onclick = () => {
+          campo.value = rapidas.find((r) => r.id === b.dataset.rapida).texto;
+          caixaRapidas.hidden = true;
+          ajustarAltura();
+          campo.focus();
+        };
+      });
+    };
+    campo.addEventListener('input', () => { ajustarAltura(); mostrarRapidas(); });
+    campo.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const t = campo.value.trim();
+      if (!t) return;
+      try {
+        campo.value = '';
+        await enviarTexto(t);
+      } catch (err) {
+        campo.value = t;
+        aviso(err.message, true);
+      }
+    };
+    $('#chat-arquivo').onchange = async (e) => {
+      const arquivo = e.target.files[0];
+      e.target.value = '';
+      if (!arquivo) return;
+      if (arquivo.size > 16 * 1024 * 1024) return aviso('Arquivo maior que 16 MB (limite do WhatsApp).', true);
+      const legenda = arquivo.type.startsWith('audio/') ? '' : campo.value.trim();
+      try {
+        await comEspera($('#chat-enviar'), async () => {
+          const qs = new URLSearchParams({ nome: arquivo.name, tipo: arquivo.type || '', legenda, manterIa: $('#chat-manter-ia').checked ? '1' : '0' });
+          const r = await fetch(`api/leads/${abertoId}/arquivo?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arquivo });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+        }, 'Enviando…');
+        campo.value = '';
+        aviso('Arquivo enviado.');
+        await recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#chat-biblioteca').onclick = async () => {
+      const lista = await api(`empresas/${id}/midias`);
+      const avulsas = lista.filter((m) => !m.pastaId);
+      const albuns = (emp.drivePastas || []).filter((p) => p.total);
+      abrirModal(`
+        <h2>Enviar da biblioteca</h2>
+        ${!avulsas.length && !albuns.length ? `<p class="rotulo">Nenhuma mídia cadastrada. <a href="${rotaEmpresa(id, 'midias')}">Cadastrar mídias</a></p>` : ''}
+        <div class="grade-escolha">
+          ${albuns.map((p) => `<button type="button" class="escolha" data-nome="${esc(p.nome)}"><span class="escolha-icone">📁</span><b>${esc(p.nome)}</b><span class="rotulo">álbum · ${p.total} arquivos</span></button>`).join('')}
+          ${avulsas.map((m) => `<button type="button" class="escolha" data-nome="${esc(m.nome)}">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `<span class="escolha-icone">${ICONE_TIPO[m.tipo] || '📎'}</span>`}<b>${esc(m.nome)}</b></button>`).join('')}
+        </div>
+        <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+        $$('[data-nome]', m).forEach((b) => {
+          b.onclick = async () => {
+            try {
+              await comEspera(b, () => api(`leads/${abertoId}/midia`, { method: 'POST', body: { nome: b.dataset.nome } }), 'Enviando…');
+              fechar();
+              aviso('Enviado.');
+              recarregarAberto();
+            } catch (err) { aviso(err.message, true); }
+          };
+        });
+      });
+    };
+    $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, (textoEscolhido) => {
+      campo.value = textoEscolhido;
+      ajustarAltura();
+      campo.focus();
+    });
+    $('#chat-sugerir').onclick = async (e) => {
+      try {
+        const r = await comEspera(e.currentTarget, () => api(`leads/${abertoId}/sugerir`, { method: 'POST', body: { pedido: campo.value.trim() } }), 'Pensando…');
+        campo.value = r.texto;
+        ajustarAltura();
+        campo.focus();
+        aviso('Sugestão pronta — revise e clique em Enviar.');
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#chat-agendar').onclick = () => {
+      const amanha = new Date(Date.now() + 24 * 3600 * 1000);
+      amanha.setHours(9, 0, 0, 0);
+      const local = new Date(amanha.getTime() - amanha.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      abrirModal(`
+        <h2>Agendar mensagem</h2>
+        ${balao('Mande na hora certa', 'Ex.: lembrar do orçamento amanhã cedo, confirmar o horário na véspera, dar parabéns depois do serviço.')}
+        <form id="f-agendar">
+          <div class="campo"><label>Mensagem</label><textarea name="texto" required style="min-height:100px">${esc(campo.value)}</textarea></div>
+          <div class="campo" style="margin-top:12px"><label>Quando</label><input type="datetime-local" name="quando" required value="${local}"></div>
+          <div class="acoes"><button class="primario" type="submit">Agendar</button><button type="button" data-fechar>Cancelar</button></div>
+        </form>`, (m, fechar) => {
+        $('#f-agendar', m).onsubmit = async (ev) => {
+          ev.preventDefault();
+          const f = formParaObjeto(ev.target);
+          try {
+            await api(`leads/${abertoId}/agendar`, { method: 'POST', body: { texto: f.texto, quando: new Date(f.quando).toISOString() } });
+            fechar();
+            campo.value = '';
+            aviso('Mensagem agendada.');
+            assinaturaAberta = '';
+            recarregarAberto();
+          } catch (err) { aviso(err.message, true); }
+        };
+      });
+    };
+  }
+
+  $$('[data-filtro]').forEach((b) => {
+    b.onclick = () => {
+      filtro = b.dataset.filtro;
+      $$('[data-filtro]').forEach((x) => x.classList.toggle('ativo', x === b));
+      carregarLista();
+    };
+  });
+  let espera = null;
+  $('#busca-conversa').oninput = (e) => {
+    clearTimeout(espera);
+    espera = setTimeout(() => { busca = e.target.value.trim(); carregarLista(); }, 300);
+  };
+
+  await carregarLista();
+  if (abertoId) await abrir(abertoId);
+  const aqui = rotaEmpresa(id, 'conversas');
+  atualizador = setInterval(() => {
+    if (!location.hash.startsWith(aqui)) return void clearInterval(atualizador);
+    carregarLista().catch(() => {});
+    recarregarAberto().catch(() => {});
+  }, 4000);
+}
+
+function modalRespostasRapidas(emp, aoEscolher) {
+  let lista = (emp.respostasRapidas || []).map((r) => ({ ...r }));
+  abrirModal(`
+    <h2>Respostas prontas</h2>
+    ${balao('Economize tempo', 'Cadastre as respostas que você manda sempre (endereço, formas de pagamento, horário…). Na conversa, digite <b>/</b> e o atalho para usar.')}
+    <div id="lista-rapidas" class="lista-editavel"></div>
+    <div class="acoes"><button type="button" id="add-rapida">+ Nova resposta</button><button type="button" class="primario" id="salvar-rapidas">Salvar</button><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+    const desenhar = () => {
+      $('#lista-rapidas', m).innerHTML = lista.map((r, i) => `
+        <div class="rapida">
+          <div class="linha-editavel"><span class="rotulo">/</span><input value="${esc(r.atalho)}" data-atalho="${i}" placeholder="atalho (ex.: pix)" maxlength="30"><button type="button" class="pequeno" data-usar="${i}">Usar</button><button type="button" class="pequeno perigo" data-tirar="${i}">✕</button></div>
+          <textarea data-texto="${i}" placeholder="Texto da resposta">${esc(r.texto)}</textarea>
+        </div>`).join('') || '<p class="rotulo">Nenhuma resposta pronta ainda.</p>';
+      $$('[data-atalho]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.atalho].atalho = el.value; }; });
+      $$('[data-texto]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.texto].texto = el.value; }; });
+      $$('[data-tirar]', m).forEach((el) => { el.onclick = () => { lista.splice(Number(el.dataset.tirar), 1); desenhar(); }; });
+      $$('[data-usar]', m).forEach((el) => {
+        el.onclick = () => {
+          const r = lista[Number(el.dataset.usar)];
+          if (!r.texto.trim()) return;
+          aoEscolher?.(r.texto);
+          fechar();
+        };
+      });
+    };
+    desenhar();
+    $('#add-rapida', m).onclick = () => { lista.push({ atalho: '', texto: '' }); desenhar(); };
+    $('#salvar-rapidas', m).onclick = async () => {
+      try {
+        emp.respostasRapidas = await api(`empresas/${emp.id}/respostas`, { method: 'PUT', body: { respostas: lista } });
+        lista = emp.respostasRapidas.map((r) => ({ ...r }));
+        desenhar();
+        aviso('Respostas salvas.');
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
+// ---------------------------------------------------------------- empresa: máquina de vendas (automações)
+
+function descreverGatilho(r) {
+  const h = r.gatilho.horas;
+  const tempo = h % 24 === 0 ? `${h / 24} ${h / 24 === 1 ? 'dia' : 'dias'}` : `${h} ${h === 1 ? 'hora' : 'horas'}`;
+  return r.gatilho.tipo === 'sem_resposta'
+    ? `Quando o cliente não responde há ${tempo}`
+    : `${tempo} depois de o lead entrar em "${r.gatilho.etapa}"`;
+}
+
+async function paginaAutomacoes(id) {
+  const emp = await definirEmpresaAtual(id);
+  const d = await api(`empresas/${id}/automacoes`);
+  const precisaLink = d.regras.some((r) => r.ativa && /\{link_avaliacao\}/i.test(r.acao.texto || '')) && !d.linkAvaliacao;
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Máquina de vendas</h1><p class="sub">Mensagens automáticas que recuperam vendas, trazem avaliações e clientes de volta</p></div><button type="button" class="primario" id="nova-regra">+ Criar automação</button></div>
+    ${d.whatsappConectado ? '' : balao('Conecte o WhatsApp primeiro', `As automações saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
+    ${balao('Como funciona', 'Cada automação olha seus leads a cada minuto e manda a mensagem sozinha para quem cumpre o critério — ex.: "parou de responder há 20 horas" ou "fechou há 2 dias". Quando o cliente responde, a IA continua a conversa. <b>Ninguém recebe duas vezes</b>, quem pediu SAIR fica de fora e, por padrão, só envia das 8h às 20h.')}
+
+    <div class="card">
+      <h2>Link de avaliação do Google</h2>
+      <p class="rotulo" style="margin-top:-6px">Usado na automação "Pedir avaliação no Google" (variável <code>{link_avaliacao}</code>).</p>
+      <details ${d.linkAvaliacao ? '' : 'open'}><summary>Onde pego esse link?</summary>${passos(['Abra o <a href="https://business.google.com" target="_blank" rel="noopener">Google Meu Negócio</a> (ou pesquise o nome da sua empresa no Google, logado).', 'Clique em <b>Pedir avaliações</b> (ou "Receber mais avaliações").', 'Copie o link que aparece (ex.: <code>https://g.page/r/…/review</code>) e cole aqui.'])}</details>
+      <form id="f-link-avaliacao" class="linha-form" style="margin-top:10px"><input name="linkAvaliacao" value="${esc(d.linkAvaliacao)}" placeholder="https://g.page/r/…/review"><button type="submit" class="primario">Salvar</button></form>
+      ${precisaLink ? '<p class="erro-caixa" style="margin-top:10px">A automação de avaliação está ligada, mas falta o link — ela não envia até você salvar.</p>' : ''}
+    </div>
+
+    <h2>Suas automações</h2>
+    <div class="lista-automacoes">
+      ${d.regras.length ? d.regras.map((r) => `
+        <div class="card automacao ${r.ativa ? 'ligada' : ''}">
+          <div class="automacao-topo">
+            <div><strong>${esc(r.nome)}</strong><div class="rotulo">${esc(descreverGatilho(r))} · ${r.acao.modo === 'ia' ? '✨ a IA escreve' : '✉️ mensagem pronta'}${r.maxPorLead > 1 ? ` · até ${r.maxPorLead}x por lead` : ''}${r.horarioComercial ? ' · 8h–20h' : ''}</div></div>
+            ${interruptor(`regra-${r.id}`, r.ativa)}
+          </div>
+          ${r.explicacao ? `<p class="rotulo" style="margin:8px 0 0">${esc(r.explicacao)}</p>` : ''}
+          <div class="automacao-numeros">
+            <span><b>${r.numeros.leadsAtingidos}</b> clientes receberam</span>
+            <span><b>${r.numeros.responderam}</b> responderam</span>
+            <span><b>${r.numeros.prontosAgora}</b> na fila agora</span>
+          </div>
+          <div class="acoes"><button type="button" class="pequeno" data-editar="${esc(r.id)}">Editar</button><button type="button" class="pequeno perigo" data-apagar="${esc(r.id)}">Apagar</button></div>
+        </div>`).join('') : '<div class="card vazio">Nenhuma automação ainda. Comece por uma receita pronta abaixo 👇</div>'}
+    </div>
+
+    <h2>Receitas prontas</h2>
+    <div class="grade-receitas">
+      ${d.receitas.map((r) => `
+        <div class="card receita">
+          <strong>${esc(r.nome)}</strong>
+          <p class="rotulo">${esc(r.explicacao)}</p>
+          ${r.jaTem ? '<span class="etiqueta ok">✓ Na sua lista</span>' : `<button type="button" class="primario pequeno" data-receita="${esc(r.id)}">Ligar</button>`}
+        </div>`).join('')}
+    </div>`;
+
+  $('#f-link-avaliacao').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const bot = await principalDa(id);
+      await api(`bots/${bot.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('Link salvo.');
+      paginaAutomacoes(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-receita]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await comEspera(b, () => api(`empresas/${id}/automacoes`, { method: 'POST', body: { receita: b.dataset.receita } }));
+        aviso('Automação ligada!');
+        paginaAutomacoes(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  for (const r of d.regras) {
+    $(`#regra-${r.id}`).onchange = async (e) => {
+      try {
+        await api(`empresas/${id}/automacoes/${r.id}`, { method: 'PUT', body: { ativa: e.target.checked } });
+        aviso(e.target.checked ? 'Automação ligada.' : 'Automação desligada.');
+      } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
+    };
+  }
+  $$('[data-apagar]').forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Apagar esta automação?', texto: 'As mensagens que já saíram continuam nas conversas.', botao: 'Apagar', perigo: true }))) return;
+      await api(`empresas/${id}/automacoes/${b.dataset.apagar}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+      paginaAutomacoes(id);
+    };
+  });
+  $$('[data-editar]').forEach((b) => { b.onclick = () => modalAutomacao(emp, d.regras.find((r) => r.id === b.dataset.editar), () => paginaAutomacoes(id)); });
+  $('#nova-regra').onclick = () => modalAutomacao(emp, null, () => paginaAutomacoes(id));
+}
+
+async function modalAutomacao(emp, r, depois) {
+  const lista = await api(`empresas/${emp.id}/midias`);
+  const horas = r?.gatilho.horas || 24;
+  const emDias = horas % 24 === 0;
+  abrirModal(`
+    <h2>${r ? 'Editar automação' : 'Nova automação'}</h2>
+    <form id="f-regra">
+      <div class="campo"><label>Nome</label><input name="nome" required value="${esc(r?.nome || '')}" placeholder="Ex.: Lembrar orçamento enviado"></div>
+      <div class="campo" style="margin-top:12px"><label>Quando enviar</label>
+        <select name="tipo"><option value="sem_resposta" ${r?.gatilho.tipo !== 'etapa' ? 'selected' : ''}>Quando o cliente não responde há…</option><option value="etapa" ${r?.gatilho.tipo === 'etapa' ? 'selected' : ''}>Depois que o lead entra numa etapa…</option></select>
+      </div>
+      <div class="campos" style="margin-top:12px">
+        <div class="campo"><label>Tempo</label><div class="linha-form"><input type="number" name="quantidade" min="1" value="${emDias ? horas / 24 : horas}"><select name="unidade" style="width:auto"><option value="h" ${emDias ? '' : 'selected'}>horas</option><option value="d" ${emDias ? 'selected' : ''}>dias</option></select></div></div>
+        <div class="campo" id="campo-etapa-gatilho"><label>Etapa</label><select name="etapa">${emp.etapas.map((e) => `<option ${e === r?.gatilho.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></div>
+      </div>
+      <div class="campo" style="margin-top:12px"><label>Só para leads nas etapas ${ajuda('Nenhuma marcada = todas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="fetapa" value="${esc(e)}" ${r?.filtro.etapas.includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>
+      <div class="campo" style="margin-top:12px"><label>Só para leads com as etiquetas ${ajuda('Nenhuma marcada = qualquer uma.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="fetiqueta" value="${esc(t.id)}" ${r?.filtro.etiquetas.includes(t.id) ? 'checked' : ''}><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">sem etiquetas</span>'}</div></div>
+      <div class="campo" style="margin-top:12px"><label>O que mandar</label>
+        <div class="seletor-canal"><button type="button" data-modo="ia" class="${r?.acao.modo !== 'texto' ? 'ativo' : ''}">✨ A IA escreve (personalizado)</button><button type="button" data-modo="texto" class="${r?.acao.modo === 'texto' ? 'ativo' : ''}">✉️ Mensagem pronta</button></div>
+        <textarea name="instrucao" data-painel-modo="ia" placeholder="Ex.: Lembre o cliente do orçamento enviado, pergunte se ficou alguma dúvida e ofereça o parcelamento.">${esc(r?.acao.instrucao || '')}</textarea>
+        <textarea name="texto" data-painel-modo="texto" placeholder="{Oi|Olá} {nome}! …">${esc(r?.acao.texto || '')}</textarea>
+        <small>Na mensagem pronta: <code>{nome}</code>, <code>{empresa}</code>, <code>{link_avaliacao}</code> e variações <code>{Oi|Olá}</code>.</small>
+      </div>
+      <div class="campos" style="margin-top:12px">
+        <div class="campo"><label>Mandar junto (opcional)</label><select name="midiaId"><option value="">Nada</option>${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}" ${m.id === r?.acao.midiaId ? 'selected' : ''}>${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</select></div>
+        <div class="campo"><label>Vezes por lead ${ajuda('Quantas vezes, no máximo, o mesmo cliente recebe esta automação.')}</label><input type="number" name="maxPorLead" min="1" max="5" value="${r?.maxPorLead || 1}"></div>
+      </div>
+      <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="horarioComercial" ${r?.horarioComercial === false ? '' : 'checked'}> Só das 8h às 20h</label>
+      <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="incluirPausados" ${r?.incluirPausados ? 'checked' : ''}> Mandar também para leads que a equipe está atendendo</label>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+    </form>`, (m, fechar) => {
+    const f = $('#f-regra', m);
+    let modo = r?.acao.modo === 'texto' ? 'texto' : 'ia';
+    const ajustar = () => {
+      $('#campo-etapa-gatilho', m).hidden = f.elements.tipo.value !== 'etapa';
+      $$('[data-painel-modo]', m).forEach((t) => { t.hidden = t.dataset.painelModo !== modo; });
+    };
+    $$('[data-modo]', m).forEach((b) => {
+      b.onclick = () => {
+        modo = b.dataset.modo;
+        $$('[data-modo]', m).forEach((x) => x.classList.toggle('ativo', x === b));
+        ajustar();
+      };
+    });
+    f.elements.tipo.onchange = ajustar;
+    ajustar();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const o = formParaObjeto(f);
+      const corpo = {
+        nome: o.nome,
+        gatilho: { tipo: o.tipo, etapa: o.etapa, horas: Number(o.quantidade) * (o.unidade === 'd' ? 24 : 1) },
+        filtro: { etapas: $$('input[name=fetapa]:checked', f).map((c) => c.value), etiquetas: $$('input[name=fetiqueta]:checked', f).map((c) => c.value) },
+        acao: { modo, instrucao: o.instrucao, texto: o.texto, midiaId: o.midiaId },
+        maxPorLead: Number(o.maxPorLead),
+        horarioComercial: o.horarioComercial,
+        incluirPausados: o.incluirPausados,
+        ...(r ? {} : { ativa: true })
+      };
+      try {
+        await api(r ? `empresas/${emp.id}/automacoes/${r.id}` : `empresas/${emp.id}/automacoes`, { method: r ? 'PUT' : 'POST', body: corpo });
+        fechar();
+        aviso('Automação salva.');
+        depois();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
 // ---------------------------------------------------------------- usuários (admin)
 
 async function paginaUsuarios() {
@@ -1988,6 +2647,8 @@ async function rotear() {
       const paginas = {
         '': () => paginaEmpresa(id),
         leads: () => paginaLeads(id, params),
+        conversas: () => paginaConversas(id, params),
+        automacoes: () => paginaAutomacoes(id),
         disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id)),
         ia: () => paginaCerebro(id),
         site: () => paginaSite(id),
