@@ -128,6 +128,23 @@ precisa digitar Session ID nem API Key.
   pediu SAIR fica de fora, só age até 3 dias depois do critério (ligar uma
   automação não dispara para leads antigos) e, por padrão, só das 8h às 20h.
 
+### Faturamento (vendas pelos comprovantes do Pix)
+
+- Quando o cliente manda o **comprovante do Pix** (print ou PDF) no WhatsApp,
+  o CRM lê valor, data, quem pagou, quem recebeu e o ID da transação e
+  registra a venda no **Faturamento** da empresa. O lead vai para "Fechado",
+  ganha a etiqueta "Cliente" e a IA agradece.
+- **Lê sem IA** (não gasta crédito): PDF pelo texto do arquivo e foto por
+  reconhecimento de texto (OCR) rodando no próprio servidor (tesseract.js com
+  português embutido, sem internet). Só se não der para ler a IA tenta — e
+  isso pode ser desligado.
+- **Anti-fraude:** cadastre quem recebe (nome, CNPJ/CPF, chave Pix).
+  Comprovante para outra pessoa, com data antiga ou lido pela IA fica
+  "A conferir"; comprovante repetido não conta duas vezes.
+- Painel com hoje / 7 dias / mês (vs. mês anterior) / ticket médio, gráfico de
+  30 dias, lista com confirmar/cancelar/editar, "Ler comprovante" pelo
+  computador e "Lançar venda" à mão (dinheiro, cartão…).
+
 ### Como as duas IAs se conversam
 
 - O "conhecimento" (serviços, preços, dúvidas) é o mesmo para as duas; cada
@@ -294,6 +311,7 @@ src/leads.js           → leads, etapas, etiquetas e o código que liga site �
 src/whatsapp.js        → Evolution API: conectar (Session ID + API Key), webhook, IA respondendo, mídias
 src/disparos.js        → disparos em massa (fila, intervalos, horário comercial, SAIR)
 src/automacoes.js      → máquina de vendas (receitas, critérios, envio) e mensagens agendadas
+src/comprovantes.js    → leitura de comprovantes (PDF/OCR sem IA, IA como plano B) e faturamento
 src/midias.js          → mídias, links, álbuns do Google Drive e anexos das conversas
 src/rotas-painel.js    → API do painel (empresas, assistentes, leads, WhatsApp, mídias, usuários)
 src/rotas-publicas.js  → API do widget (config, chat) e webhook do WhatsApp

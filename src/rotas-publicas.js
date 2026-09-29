@@ -2,6 +2,7 @@
 // Não exigem login; a proteção é: assistente ativo, domínio autorizado e limites de uso.
 
 const express = require('express');
+const config = require('./config');
 const { estado, salvar, novoId, agora } = require('./db');
 const ia = require('./ia');
 const leads = require('./leads');
@@ -52,7 +53,7 @@ function enviarConfig(res, bot, empresa) {
   res.json({
     id: bot.id,
     nomeAssistente: bot.nomeAssistente || empresa.nome,
-    avatarUrl: bot.avatarUrl || '',
+    avatarUrl: bot.avatarUrl || (empresa.logo ? `${config.urlPublica}/logo/${empresa.id}?v=${encodeURIComponent(empresa.logo.v)}` : ''),
     cor: bot.cor || '#008069',
     boasVindas: bot.boasVindas || `Olá! Sou o assistente virtual da ${empresa.nome}. Como posso ajudar?`,
     chamada: bot.chamada || '',

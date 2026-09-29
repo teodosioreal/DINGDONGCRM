@@ -585,3 +585,57 @@ html.dark .automacao.ligada { border-color: #166534; }
 .pasta-info { flex: 1; min-width: 180px; display: flex; flex-direction: column; }
 .linha-link { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr auto; gap: 8px; align-items: center; }
 @media (max-width: 768px) { .linha-link { grid-template-columns: 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--borda); } }
+
+/* ---------- logo / avatar da empresa ---------- */
+.avatar-empresa { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; flex-shrink: 0; display: inline-grid; place-items: center; color: #fff; font-weight: 700; font-size: 12px; background: var(--hover); }
+.avatar-empresa.grande { width: 56px; height: 56px; border-radius: 14px; font-size: 20px; }
+.empresa-menu { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 600; background: var(--hover); flex-shrink: 0; }
+.empresa-menu span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.titulo-empresa { display: flex; align-items: center; gap: 14px; }
+.logo-botao { position: relative; padding: 0; border: 0; background: none; border-radius: 14px; }
+.logo-lapis { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%; background: var(--superficie); border: 1px solid var(--borda); font-size: 12px; display: grid; place-items: center; }
+.logo-editar { display: flex; gap: 14px; align-items: center; padding: 12px; border: 1px solid var(--borda); border-radius: 10px; margin-bottom: 16px; }
+
+/* ---------- cartões das empresas ---------- */
+.grade-empresas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.cartao-empresa {
+  display: flex; flex-direction: column; gap: 16px; padding: 20px; border: 1px solid var(--borda); border-radius: 14px;
+  background: var(--superficie); text-decoration: none; transition: border-color .15s, box-shadow .15s, transform .15s; min-height: 200px;
+}
+.cartao-empresa:hover { border-color: var(--suave); box-shadow: 0 6px 20px rgba(15,23,42,.08); transform: translateY(-1px); }
+.cartao-empresa.pausada { opacity: .65; }
+.cartao-empresa-topo { display: flex; gap: 14px; align-items: center; }
+.cartao-empresa-nome { display: flex; flex-direction: column; min-width: 0; }
+.cartao-empresa-nome strong { font-size: 18px; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cartao-empresa-numeros { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; padding: 12px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
+.cartao-empresa-numeros div { display: flex; flex-direction: column; gap: 2px; }
+.cartao-empresa-numeros .rotulo { font-size: 11.5px; }
+.cartao-empresa-numeros b { font-size: 16px; }
+.cartao-empresa-rodape { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+.nova-empresa { align-items: center; justify-content: center; text-align: center; border-style: dashed; border-width: 2px; cursor: pointer; font: inherit; color: inherit; }
+.nova-empresa .mais { width: 48px; height: 48px; border-radius: 50%; background: var(--hover); display: grid; place-items: center; font-size: 26px; }
+
+/* ---------- faturamento ---------- */
+.variacao { margin-top: 4px; }
+tr.cancelada td { opacity: .55; }
+tr.cancelada td b { text-decoration: line-through; }
+.grafico { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; height: 240px; }
+.grafico-eixo { display: flex; flex-direction: column; justify-content: space-between; text-align: right; font-size: 11.5px; color: var(--suave); padding-bottom: 20px; margin-top: -7px; }
+.grafico-area { position: relative; }
+.grafico-grade { position: absolute; inset: 0 0 20px 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.grafico-grade span { border-top: 1px solid var(--borda); }
+.grafico-barras { position: absolute; inset: 0; display: flex; gap: 2px; }
+.coluna-grafico { flex: 1; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 20px; cursor: pointer; border-radius: 4px; outline: none; }
+.coluna-grafico:hover, .coluna-grafico:focus-visible { background: var(--hover); }
+.barra-grafico { display: block; width: min(18px, 75%); margin: 0 auto; background: #16a34a; border-radius: 4px 4px 0 0; }
+.dia-grafico { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--suave); white-space: nowrap; }
+.valor-topo { position: absolute; left: 50%; transform: translateX(-50%); font-size: 11.5px; font-weight: 600; color: var(--texto); white-space: nowrap; }
+.dica-grafico { position: absolute; top: -8px; padding: 6px 10px; border-radius: 6px; background: #0f172a; color: #f8fafc; font-size: 12.5px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.2); z-index: 2; }
+html.dark .dica-grafico { background: #f1f5f9; color: #0f172a; }
+@media (max-width: 768px) {
+  .grafico { height: 200px; }
+  .cartao-empresa-numeros { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+.valor-topo.fim { left: auto; right: 0; transform: none; }
+.valor-topo.inicio { left: 0; transform: none; }

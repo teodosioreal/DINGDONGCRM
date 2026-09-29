@@ -13,6 +13,9 @@ const whatsapp = require('./whatsapp');
 const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
+const comprovantes = require('./comprovantes');
+const fs = require('fs');
+const path = require('path');
 const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
@@ -21,7 +24,7 @@ const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  const upload = req.method === 'POST' && /\/(midias|arquivo)$/.test(req.path) && req.is('application/octet-stream');
+  const upload = req.method === 'POST' && /\/(midias|arquivo|logo|comprovante)$/.test(req.path) && req.is('application/octet-stream');
   if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
@@ -183,6 +186,9 @@ function empresaComExtras(e, req) {
     drivePastas: midias.pastasDa(e),
     respostasRapidas: e.respostasRapidas || [],
     naoLidas: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? c.naoLidas || 0 : 0), 0),
+    logoUrl: e.logo ? `${config.urlPublica}/logo/${e.id}?v=${encodeURIComponent(e.logo.v)}` : '',
+    faturamentoMes: comprovantes.resumo(e).mes,
+    leads7d: estado.conversas.filter((c) => c.empresaId === e.id && c.criadoEm >= new Date(Date.now() - 7 * 864e5).toISOString()).length,
     ouveAudio: ia.podeOuvirAudio(e),
     // número salvo no cadastro ("whatsapp" abaixo é a situação da conexão)
     whatsappNumero: e.whatsapp || '',
@@ -544,6 +550,8 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   const id = estado.empresas[i].id;
   midias.apagarTodasDa(estado.empresas[i]);
   disparos.apagarTodosDa(id);
+  apagarLogo(estado.empresas[i]);
+  estado.vendas = (estado.vendas || []).filter((v) => v.empresaId !== id);
   estado.empresas.splice(i, 1);
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
@@ -1164,6 +1172,198 @@ router.delete('/empresas/:id/automacoes/:regraId', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   empresa.automacoes = automacoes.automacoesDa(empresa).filter((r) => r.id !== req.params.regraId);
+  salvar();
+  res.json({ ok: true });
+});
+
+
+// ---------------------------------------------------------------- logo da empresa
+
+const LOGO_MIMES = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
+function pastaLogos() {
+  return path.join(config.midiasDir, 'logos');
+}
+function apagarLogo(empresa) {
+  if (!empresa?.logo) return;
+  try {
+    fs.unlinkSync(path.join(pastaLogos(), empresa.logo.arquivo));
+  } catch {
+    /* já não existia */
+  }
+  delete empresa.logo;
+}
+
+router.post('/empresas/:id/logo', express.raw({ type: 'application/octet-stream', limit: 3 * 1024 * 1024 }), (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const mime = texto(req.query.tipo, 60).toLowerCase();
+  if (!LOGO_MIMES[mime]) return res.status(400).json({ erro: 'Envie uma imagem PNG, JPG ou WEBP.' });
+  if (!req.body?.length) return res.status(400).json({ erro: 'Imagem vazia.' });
+  apagarLogo(empresa);
+  fs.mkdirSync(pastaLogos(), { recursive: true });
+  const arquivo = `${empresa.id}${LOGO_MIMES[mime]}`;
+  fs.writeFileSync(path.join(pastaLogos(), arquivo), req.body);
+  empresa.logo = { arquivo, mimetype: mime, v: Date.now().toString(36) };
+  salvar();
+  res.json(empresaComExtras(empresa, req));
+});
+
+router.delete('/empresas/:id/logo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  apagarLogo(empresa);
+  salvar();
+  res.json(empresaComExtras(empresa, req));
+});
+
+// ---------------------------------------------------------------- faturamento (vendas)
+
+function vendaPublica(v) {
+  const lead = v.leadId ? estado.conversas.find((c) => c.id === v.leadId) : null;
+  const { hash, ...resto } = v;
+  return {
+    ...resto,
+    cliente: v.cliente || lead?.nome || '',
+    leadNome: lead ? lead.nome || (lead.telefone ? `+${lead.telefone}` : 'Lead') : '',
+    comprovanteUrl: v.anexo ? (v.anexo.leadId ? `api/leads/${v.anexo.leadId}/anexos/${v.anexo.arquivo}` : `api/empresas/${v.empresaId}/vendas/${v.id}/comprovante`) : ''
+  };
+}
+
+function acharVenda(req, res) {
+  const v = (estado.vendas || []).find((x) => x.id === req.params.vendaId && x.empresaId === req.params.id);
+  if (!v || !podeVerEmpresa(req, v.empresaId)) {
+    res.status(404).json({ erro: 'Venda não encontrada.' });
+    return null;
+  }
+  return v;
+}
+
+router.get('/empresas/:id/faturamento', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : '';
+  const lista = comprovantes
+    .vendasDa(empresa)
+    .filter((v) => !mes || new Date(new Date(v.data).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 7) === mes)
+    .sort((a, b) => (a.data < b.data ? 1 : -1))
+    .slice(0, 1000)
+    .map(vendaPublica);
+  res.json({ resumo: comprovantes.resumo(empresa), vendas: lista, config: comprovantes.configDa(empresa) });
+});
+
+router.put('/empresas/:id/faturamento/config', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  empresa.faturamento = {
+    ...(empresa.faturamento || {}),
+    ...(b.ativo !== undefined ? { ativo: b.ativo === true } : {}),
+    ...(b.usarIa !== undefined ? { usarIa: b.usarIa === true } : {}),
+    ...(b.moverParaFechado !== undefined ? { moverParaFechado: b.moverParaFechado === true } : {}),
+    ...(b.recebedores !== undefined ? { recebedores: texto(b.recebedores, 500) } : {})
+  };
+  salvar();
+  res.json(comprovantes.configDa(empresa));
+});
+
+function dadosVenda(b) {
+  const valor = comprovantes.paraNumero(String(b.valor ?? '').replace('R$', '')) ?? Number(b.valor);
+  if (!Number.isFinite(valor) || valor <= 0) throw Object.assign(new Error('Informe o valor da venda.'), { status: 400 });
+  const data = b.data ? new Date(b.data) : new Date();
+  if (Number.isNaN(data.getTime())) throw Object.assign(new Error('Data inválida.'), { status: 400 });
+  return {
+    valor: Math.round(valor * 100) / 100,
+    data: data.toISOString(),
+    forma: ['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].includes(b.forma) ? b.forma : 'Pix',
+    cliente: texto(b.cliente, 120),
+    descricao: texto(b.descricao, 300)
+  };
+}
+
+// Venda lançada à mão pela equipe
+router.post('/empresas/:id/vendas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const d = dadosVenda(req.body || {});
+    const lead = req.body?.leadId ? estado.conversas.find((c) => c.id === req.body.leadId && c.empresaId === empresa.id) : null;
+    const { venda } = comprovantes.registrar(empresa, lead, { ...d, pagador: d.cliente }, { origem: 'manual', lidoPor: 'manual', descricao: d.descricao });
+    venda.cliente = d.cliente || venda.cliente;
+    salvar();
+    res.status(201).json(vendaPublica(venda));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+// Comprovante enviado pelo painel (ex.: chegou por outro lugar)
+router.post('/empresas/:id/vendas/comprovante', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!req.body?.length) return res.status(400).json({ erro: 'Arquivo vazio.' });
+  const nome = texto(req.query.nome, 120) || 'comprovante';
+  const mimetype = midias.mimeDe(nome, texto(req.query.tipo, 100));
+  const lead = req.query.leadId ? estado.conversas.find((c) => c.id === req.query.leadId && c.empresaId === empresa.id) : null;
+  const anexo = midias.salvarAnexo(`vendas-${empresa.id}`, req.body, mimetype, nome);
+  const bot = whatsapp.botDoWhatsapp(empresa);
+  const r = await comprovantes
+    .processarArquivo({ ...empresa, faturamento: { ...(empresa.faturamento || {}), ativo: true } }, lead, {
+      buffer: req.body,
+      mimetype,
+      anexo: null,
+      lerComIa: () => ia.lerComprovante(bot, empresa, req.body.toString('base64'), mimetype)
+    })
+    .catch((err) => ({ erro: err.message }));
+  if (!r || r.erro) return res.status(400).json({ erro: r?.erro || 'Não consegui ler este comprovante. Lance a venda à mão.' });
+  // empresa "clonada" acima só para forçar a leitura: corrige o id e guarda o arquivo
+  r.venda.empresaId = empresa.id;
+  r.venda.origem = 'painel';
+  r.venda.anexo = { leadId: null, arquivo: anexo.arquivo, mimetype: anexo.mimetype };
+  salvar();
+  res.status(201).json({ ...vendaPublica(r.venda), repetida: /já tinha sido registrado/.test(r.texto) });
+});
+
+router.get('/empresas/:id/vendas/:vendaId/comprovante', (req, res) => {
+  const v = acharVenda(req, res);
+  if (!v) return;
+  const caminho = v.anexo && !v.anexo.leadId ? midias.caminhoAnexo(`vendas-${v.empresaId}`, v.anexo.arquivo) : null;
+  if (!caminho) return res.sendStatus(404);
+  res.type(v.anexo.mimetype || 'application/octet-stream');
+  res.sendFile(caminho, (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
+router.put('/empresas/:id/vendas/:vendaId', (req, res) => {
+  const v = acharVenda(req, res);
+  if (!v) return;
+  const empresa = estado.empresas.find((e) => e.id === v.empresaId);
+  const b = req.body || {};
+  try {
+    if (b.valor !== undefined || b.data !== undefined) {
+      const d = dadosVenda({ valor: b.valor ?? v.valor, data: b.data ?? v.data, forma: b.forma ?? v.forma, cliente: b.cliente ?? v.cliente, descricao: b.descricao ?? v.descricao });
+      Object.assign(v, d);
+    } else {
+      if (b.cliente !== undefined) v.cliente = texto(b.cliente, 120);
+      if (b.descricao !== undefined) v.descricao = texto(b.descricao, 300);
+    }
+    if (['confirmada', 'conferir', 'cancelada'].includes(b.status) && b.status !== v.status) {
+      v.status = b.status;
+      v.statusPor = req.usuario.email;
+      const lead = v.leadId && estado.conversas.find((c) => c.id === v.leadId);
+      if (b.status === 'confirmada' && lead) comprovantes.aoVender(empresa, lead);
+    }
+    salvar();
+    res.json(vendaPublica(v));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/empresas/:id/vendas/:vendaId', (req, res) => {
+  const v = acharVenda(req, res);
+  if (!v) return;
+  estado.vendas = estado.vendas.filter((x) => x.id !== v.id);
   salvar();
   res.json({ ok: true });
 });

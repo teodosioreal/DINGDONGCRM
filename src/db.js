@@ -19,6 +19,8 @@ function estadoInicial() {
     conversas: [],
     // disparos em massa pelo WhatsApp (campanhas)
     disparos: [],
+    // vendas do Faturamento (comprovantes lidos ou lançadas à mão)
+    vendas: [],
     // chaves de IA cadastradas pelo painel: { anthropicApiKey, geminiApiKey }
     config: {},
     // uso diário por assistente: { [botId]: { data: 'AAAA-MM-DD', mensagens: n } }

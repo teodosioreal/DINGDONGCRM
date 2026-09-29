@@ -464,6 +464,55 @@ async function descreverImagem(bot, empresa, base64, mimetype) {
   return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim() || null;
 }
 
+// Plano B do comprovante (quando o OCR/texto do PDF não deu conta): a IA lê
+// a imagem/PDF e devolve os dados do pagamento em JSON.
+const PEDIDO_COMPROVANTE =
+  'Esta imagem/arquivo é um comprovante de pagamento (Pix, transferência, boleto)? Responda SOMENTE com um JSON, sem texto antes ou depois, no formato: {"ehComprovante": true|false, "valor": "1.250,90", "data": "dd/mm/aaaa hh:mm", "pagador": "nome de quem pagou", "recebedor": "nome de quem recebeu", "banco": "banco de quem pagou", "idTransacao": "id/autenticação", "forma": "Pix|Transferência|Boleto"}. Use "" quando não souber. Não invente valores.';
+
+async function lerComprovante(bot, empresa, base64, mimetype) {
+  const mime = String(mimetype || '').split(';')[0];
+  const ehPdf = /pdf/i.test(mime);
+  if (!ehPdf && !/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
+  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
+  if (!provedor) return null;
+  let bruto = '';
+  if (provedor === 'gemini') {
+    const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
+      method: 'POST',
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_COMPROVANTE }] }],
+        generationConfig: { maxOutputTokens: 500, temperature: 0 }
+      })
+    });
+    bruto = textoGemini(dados);
+  } else {
+    const r = await obterClienteAnthropic(empresa).messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            ehPdf
+              ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+              : { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
+            { type: 'text', text: PEDIDO_COMPROVANTE }
+          ]
+        }
+      ]
+    });
+    if (r.stop_reason === 'refusal') return null;
+    bruto = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+  }
+  const json = (bruto.match(/\{[\s\S]*\}/) || [])[0];
+  if (!json) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- mensagens escritas pela IA para a equipe
 
 // Escreve uma mensagem nova para o lead a partir de uma instrução interna
@@ -499,6 +548,7 @@ module.exports = {
   escreverMensagem,
   transcreverAudio,
   descreverImagem,
+  lerComprovante,
   podeOuvirAudio,
   extrairAcoes,
   descreverErroIa,

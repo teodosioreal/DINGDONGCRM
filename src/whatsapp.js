@@ -21,6 +21,7 @@ const { hoje, soDigitos, numeroWhatsapp } = require('./util');
 const ia = require('./ia');
 const leads = require('./leads');
 const midias = require('./midias');
+const comprovantes = require('./comprovantes');
 
 // ---------------------------------------------------------------- configuração
 
@@ -652,11 +653,31 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
   });
   if (!r?.base64) return null;
   const mimetype = r.mimetype || info?.mimetype || '';
-  const anexo = midias.salvarAnexo(lead.id, Buffer.from(r.base64, 'base64'), mimetype, r.fileName || info?.fileName || '');
+  const buffer = Buffer.from(r.base64, 'base64');
+  const anexo = midias.salvarAnexo(lead.id, buffer, mimetype, r.fileName || info?.fileName || '');
   anexo.tipo = tipo;
   let entendido = null;
   if (entender) {
     const legenda = info?.caption ? ` ${info.caption}` : '';
+    // comprovante de Pix (foto ou PDF) → venda no Faturamento (lê sem IA primeiro)
+    if (tipo === 'image' || /pdf/i.test(mimetype)) {
+      const comp = await comprovantes
+        .processarArquivo(empresa, lead, {
+          buffer,
+          mimetype,
+          anexo,
+          lerComIa: () => ia.lerComprovante(botDoWhatsapp(empresa), empresa, r.base64, mimetype)
+        })
+        .catch((err) => {
+          console.error(`[whatsapp ${lead.id}] comprovante:`, err.message);
+          return null;
+        });
+      if (comp) {
+        anexo.vendaId = comp.venda.id;
+        anexo.descricao = `Comprovante ${comp.venda.forma} de ${comprovantes.brl(comp.venda.valor)}`;
+        return { anexo, entendido: `${comp.texto}${legenda}` };
+      }
+    }
     try {
       if (tipo === 'audio') {
         const t = await ia.transcreverAudio(empresa, r.base64, mimetype);

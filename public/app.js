@@ -167,7 +167,8 @@ const ICONES = {
   config: I('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
   visao: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   conversas: I('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8 11h8M8 14h5"/>'),
-  maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>')
+  maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+  dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>')
 };
 
 // ---------------------------------------------------------------- tema e menu
@@ -210,8 +211,9 @@ function montarMenu(ativo) {
     const id = empresaAtual.id;
     const d = empresaAtual.dados || {};
     const ponto = (ligado) => `<span class="ponto ${ligado ? 'on' : 'off'}" title="${ligado ? 'Ligada' : 'Desligada'}"></span>`;
-    html += `<p class="titulo-grupo">${esc(empresaAtual.nome)}</p>`;
+    html += `<a class="empresa-menu" href="${rotaEmpresa(id)}">${avatarEmpresa(d)}<span>${esc(empresaAtual.nome)}</span></a>`;
     html += item(rotaEmpresa(id), 'inicio', 'Início');
+    html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
     html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
     html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
     html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
@@ -264,9 +266,9 @@ async function paginaInicio() {
       ${numeroCard('Esperando a equipe', r.aguardandoEquipe, r.aguardandoEquipe ? 'destaque' : '')}
     </div>
     <div class="cabecalho"><h2 style="margin:0">Empresas</h2><button class="primario" id="nova">+ Nova empresa</button></div>
-    ${tabelaEmpresas(empresas)}`;
+    ${gradeEmpresas(empresas)}`;
   $('#nova').onclick = () => modalEmpresa();
-  ligarTabelaEmpresas();
+  $('#nova-cartao')?.addEventListener('click', () => modalEmpresa());
 }
 
 function numeroCard(rotulo, valor, classe = '') {
@@ -302,15 +304,16 @@ async function paginaEmpresas() {
   const lista = await api('empresas');
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Empresas</h1><p class="sub">Cada empresa tem as próprias IAs, chave de IA, WhatsApp e leads.</p></div><button class="primario" id="nova">+ Nova empresa</button></div>
-    ${tabelaEmpresas(lista)}`;
+    ${gradeEmpresas(lista)}`;
   $('#nova').onclick = () => modalEmpresa();
-  ligarTabelaEmpresas();
+  $('#nova-cartao')?.addEventListener('click', () => modalEmpresa());
 }
 
 function modalEmpresa(emp) {
   abrirModal(`
     <h2>${emp ? 'Editar empresa' : 'Nova empresa'}</h2>
     <form id="f-emp">
+      ${emp ? `<div class="logo-editar">${avatarEmpresa(emp, 'grande')}<div><b>Foto / logo da empresa</b><div class="rotulo">Aparece no painel e no chat do site (se o assistente não tiver outra foto).</div><div class="acoes" style="margin-top:6px"><button type="button" class="pequeno" id="trocar-logo">${emp.logoUrl ? 'Trocar foto' : 'Adicionar foto'}</button>${emp.logoUrl ? '<button type="button" class="pequeno perigo" id="tirar-logo">Remover</button>' : ''}</div></div></div>` : ''}
       <div class="campos">
         <div class="campo largo"><label>Nome da empresa *</label><input name="nome" required value="${esc(emp?.nome)}"></div>
         <div class="campo"><label>Ramo ${ajuda('Ex.: estética automotiva, clínica odontológica, loja de roupas. Ajuda a IA a entender o negócio.')}</label><input name="nicho" placeholder="Ex.: estética automotiva" value="${esc(emp?.nicho)}"></div>
@@ -337,6 +340,13 @@ function modalEmpresa(emp) {
         if (emp) rotear();
       } catch (err) { aviso(err.message, true); }
     };
+    $('#trocar-logo', m)?.addEventListener('click', () => escolherLogo(emp, () => { fechar(); empresaAtual = null; rotear(); }));
+    $('#tirar-logo', m)?.addEventListener('click', async () => {
+      await api(`empresas/${emp.id}/logo`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+      fechar();
+      empresaAtual = null;
+      rotear();
+    });
     const excluir = $('#excluir', m);
     if (excluir) excluir.onclick = async () => {
       if (!(await confirmar({ titulo: `Excluir "${emp.nome}"?`, texto: 'Apaga também os leads, mídias, disparos e usuários dessa empresa. Não dá para desfazer.', botao: 'Excluir', perigo: true }))) return;
@@ -398,7 +408,7 @@ async function paginaEmpresa(id) {
 
   conteudo.innerHTML = `
     <div class="cabecalho">
-      <div><h1>${esc(emp.nome)}</h1><p class="sub">${esc(emp.nicho || 'Painel da empresa')}</p></div>
+      <div class="titulo-empresa"><button type="button" class="logo-botao" id="logo-inicio" title="Trocar a foto da empresa">${avatarEmpresa(emp, 'grande')}<span class="logo-lapis">✎</span></button><div><h1>${esc(emp.nome)}</h1><p class="sub">${esc(emp.nicho || 'Painel da empresa')} · faturamento no mês: <a href="${rotaEmpresa(id, 'faturamento')}"><b>${brl(emp.faturamentoMes)}</b></a></p></div></div>
       ${ehAdmin() ? '<button type="button" id="editar-emp">Editar empresa</button>' : ''}
     </div>
 
@@ -433,6 +443,7 @@ async function paginaEmpresa(id) {
       </div>
     </div>`;
   $('#editar-emp')?.addEventListener('click', () => modalEmpresa(emp));
+  $('#logo-inicio').onclick = () => escolherLogo(emp, () => paginaEmpresa(id).then(() => montarMenu(rotaEmpresa(id))));
   for (const tipo of ['site', 'whatsapp']) {
     $(`#canal-${tipo}`).onchange = async (e) => {
       const ligado = e.target.checked;
@@ -1600,7 +1611,7 @@ async function paginaLead(leadId) {
   await definirEmpresaAtual(l.empresaId);
   const etiquetasLead = new Set(l.etiquetas);
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra">${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
+    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
@@ -1643,6 +1654,7 @@ async function paginaLead(leadId) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
+  $('#registrar-venda').onclick = () => modalVenda({ id: l.empresaId }, null, l.id, () => paginaLead(leadId), { cliente: l.nome });
   $$('[data-tag]').forEach((b) => {
     b.onclick = () => {
       if (etiquetasLead.has(b.dataset.tag)) etiquetasLead.delete(b.dataset.tag);
@@ -2445,6 +2457,251 @@ async function modalAutomacao(emp, r, depois) {
   });
 }
 
+// ---------------------------------------------------------------- logo / avatar da empresa
+
+const CORES_AVATAR = ['#0f766e', '#1d4ed8', '#7c3aed', '#be185d', '#b45309', '#15803d', '#0e7490', '#4338ca'];
+function avatarEmpresa(e, classe = '') {
+  if (e?.logoUrl) return `<img class="avatar-empresa ${classe}" src="${esc(e.logoUrl)}" alt="">`;
+  const nome = String(e?.nome || '?').trim();
+  const iniciais = nome.split(/\s+/).slice(0, 2).map((p) => p[0] || '').join('').toUpperCase();
+  const cor = CORES_AVATAR[[...nome].reduce((s, c) => s + c.charCodeAt(0), 0) % CORES_AVATAR.length];
+  return `<span class="avatar-empresa ${classe}" style="background:${cor}">${esc(iniciais || '?')}</span>`;
+}
+
+function brl(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Escolher e enviar a foto/logo da empresa
+function escolherLogo(emp, depois) {
+  const entrada = document.createElement('input');
+  entrada.type = 'file';
+  entrada.accept = 'image/png,image/jpeg,image/webp';
+  entrada.onchange = async () => {
+    const f = entrada.files[0];
+    if (!f) return;
+    if (f.size > 3 * 1024 * 1024) return aviso('Imagem maior que 3 MB.', true);
+    try {
+      const r = await fetch(`api/empresas/${emp.id}/logo?tipo=${encodeURIComponent(f.type)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+      aviso('Foto da empresa atualizada.');
+      depois?.(d);
+    } catch (err) { aviso(err.message, true); }
+  };
+  entrada.click();
+}
+
+function gradeEmpresas(lista) {
+  return `
+    <div class="grade-empresas">
+      ${lista.map((e) => `
+        <a class="cartao-empresa ${e.ativa === false ? 'pausada' : ''}" href="${rotaEmpresa(e.id)}">
+          <div class="cartao-empresa-topo">${avatarEmpresa(e, 'grande')}<div class="cartao-empresa-nome"><strong>${esc(e.nome)}</strong><span class="rotulo">${esc(e.nicho || 'Sem ramo definido')}</span></div></div>
+          <div class="cartao-empresa-numeros">
+            <div><span class="rotulo">Faturamento no mês</span><b>${brl(e.faturamentoMes)}</b></div>
+            <div><span class="rotulo">Leads (7 dias)</span><b>${e.leads7d || 0}</b></div>
+            <div><span class="rotulo">Não lidas</span><b>${e.naoLidas || 0}</b></div>
+          </div>
+          <div class="cartao-empresa-rodape">
+            <span class="etiqueta ${e.canais?.site ? 'ok' : ''}">🌐 Site ${e.canais?.site ? 'ligado' : 'desligado'}</span>
+            <span class="etiqueta ${e.canais?.whatsapp && e.whatsapp?.configurado ? 'ok' : ''}">🟢 WhatsApp ${e.whatsapp?.configurado ? (e.canais?.whatsapp ? 'ligado' : 'desligado') : 'não conectado'}</span>
+            ${e.ativa === false ? '<span class="etiqueta off">Pausada</span>' : ''}
+          </div>
+        </a>`).join('')}
+      ${ehAdmin() ? '<button type="button" class="cartao-empresa nova-empresa" id="nova-cartao"><span class="mais">+</span><strong>Nova empresa</strong><span class="rotulo">Cadastre um cliente e configure em minutos</span></button>' : ''}
+    </div>`;
+}
+
+// ---------------------------------------------------------------- empresa: faturamento
+
+async function paginaFaturamento(id, params) {
+  const emp = await definirEmpresaAtual(id);
+  const mes = params.get('mes') || '';
+  const d = await api(`empresas/${id}/faturamento?${new URLSearchParams({ mes })}`);
+  const r = d.resumo;
+  const cfg = d.config;
+  const variacao = r.mesAnterior ? Math.round(((r.mes - r.mesAnterior) / r.mesAnterior) * 100) : null;
+  const meses = [];
+  for (let i = 0; i < 12; i++) {
+    const dt = new Date();
+    dt.setDate(1);
+    dt.setMonth(dt.getMonth() - i);
+    meses.push({ id: dt.toISOString().slice(0, 7), nome: dt.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+  }
+  const maxDia = Math.max(...r.porDia.map((x) => x.total), 0);
+  const topo = maxDia ? Math.ceil(maxDia / 10 ** Math.floor(Math.log10(maxDia))) * 10 ** Math.floor(Math.log10(maxDia)) : 100;
+  const iMaior = r.porDia.findIndex((x) => x.total === maxDia && maxDia > 0);
+  const ROTULO_ORIGEM = { texto: '📄 lido do PDF', ocr: '📷 lido da foto', ia: '✨ lido pela IA', manual: '✍️ lançada à mão' };
+
+  conteudo.innerHTML = `
+    <div class="cabecalho">
+      <div><h1>Faturamento</h1><p class="sub">Vendas confirmadas pelos comprovantes do WhatsApp e lançadas pela equipe</p></div>
+      <div class="barra">
+        <label class="botao" title="Enviar um comprovante (foto ou PDF) pelo computador">📄 Ler comprovante<input type="file" id="ler-comprovante" hidden accept="image/*,.pdf"></label>
+        <button type="button" class="primario" id="nova-venda">+ Lançar venda</button>
+      </div>
+    </div>
+    ${balao('As vendas entram sozinhas', `Quando o cliente manda o <b>comprovante do Pix</b> (print ou PDF) no WhatsApp, o CRM lê o valor, a data e quem pagou <b>sem usar IA</b> (não gasta crédito), registra a venda aqui, move o lead para "Fechado" e a IA agradece o cliente. ${cfg.usarIa ? 'Só quando a foto está ruim de ler a IA ajuda.' : 'A IA não é usada para ler comprovantes.'}`)}
+    ${cfg.recebedores ? '' : balao('Proteja-se de comprovante falso', 'Informe abaixo, em <b>Configurações</b>, o nome, CNPJ/CPF ou chave Pix de quem recebe. Comprovante feito para outra pessoa fica marcado "A conferir".', 'aviso')}
+    ${r.aConferir ? balao(`${r.aConferir} ${r.aConferir === 1 ? 'venda precisa' : 'vendas precisam'} ser conferida${r.aConferir === 1 ? '' : 's'}`, 'Veja na lista abaixo (marcadas com ⚠). Confira no extrato do banco e clique em Confirmar ou Cancelar.', 'aviso') : ''}
+
+    <div class="grade-resumo">
+      ${numeroCard('Hoje', brl(r.hoje))}
+      ${numeroCard('Últimos 7 dias', brl(r.seteDias))}
+      <div class="card numero-card"><div class="rotulo">Este mês</div><div class="numero">${brl(r.mes)}</div>${variacao !== null ? `<div class="rotulo variacao">${variacao >= 0 ? '▲' : '▼'} ${Math.abs(variacao)}% vs. mês passado (${brl(r.mesAnterior)})</div>` : ''}</div>
+      <div class="card numero-card"><div class="rotulo">Ticket médio (mês)</div><div class="numero">${brl(r.ticketMedio)}</div><div class="rotulo variacao">${r.vendasMes} ${r.vendasMes === 1 ? 'venda' : 'vendas'} no mês</div></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:4px">Vendas por dia</h2>
+      <p class="rotulo" style="margin:0 0 12px">Últimos 30 dias · só vendas confirmadas · passe o mouse (ou toque) numa barra</p>
+      <div class="grafico" role="img" aria-label="Faturamento por dia nos últimos 30 dias">
+        <div class="grafico-eixo"><span>${brl(topo)}</span><span>${brl(topo / 2)}</span><span>R$ 0</span></div>
+        <div class="grafico-area">
+          <div class="grafico-grade"><span></span><span></span><span></span></div>
+          <div class="grafico-barras">
+            ${r.porDia.map((x, i) => {
+              const dia = new Date(x.dia);
+              const rotulo = dia.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
+              return `<div class="coluna-grafico" tabindex="0" data-dica="${esc(`${rotulo}: ${brl(x.total)} · ${x.vendas} ${x.vendas === 1 ? 'venda' : 'vendas'}`)}">
+                ${i === iMaior ? `<span class="valor-topo${i > 24 ? ' fim' : i < 4 ? ' inicio' : ''}" style="bottom:calc(${(x.total / topo) * 100}% + 4px)">${brl(x.total)}</span>` : ''}
+                <span class="barra-grafico" style="height:${x.total ? Math.max(2, (x.total / topo) * 100) : 0}%"></span>
+                <span class="dia-grafico">${i % 5 === 4 || i === 29 ? rotulo : ''}</span>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="dica-grafico" id="dica-grafico" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card tabela-wrap">
+      <div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Vendas</h2>
+        <select id="filtro-mes" style="width:auto"><option value="">Todas</option>${meses.map((m) => `<option value="${m.id}" ${m.id === mes ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
+      </div>
+      <table>
+        <thead><tr><th>Data</th><th>Cliente</th><th>Valor</th><th class="esconde-mobile">Como entrou</th><th>Situação</th><th></th></tr></thead>
+        <tbody>
+          ${d.vendas.length ? d.vendas.map((v) => `
+            <tr class="${v.status === 'cancelada' ? 'cancelada' : ''}">
+              <td style="white-space:nowrap">${data(v.data)}</td>
+              <td>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || v.leadNome || 'Cliente')}</a>` : esc(v.cliente || v.pagador || '—')}${v.descricao ? `<br><span class="rotulo">${esc(v.descricao)}</span>` : ''}</td>
+              <td style="white-space:nowrap"><b>${brl(v.valor)}</b><br><span class="rotulo">${esc(v.forma)}</span></td>
+              <td class="esconde-mobile rotulo">${ROTULO_ORIGEM[v.lidoPor] || v.lidoPor}${v.comprovanteUrl ? `<br><a href="${esc(v.comprovanteUrl)}" target="_blank" rel="noopener">ver comprovante</a>` : ''}</td>
+              <td>${v.status === 'confirmada' ? '<span class="etiqueta ok">✓ Confirmada</span>' : v.status === 'conferir' ? `<span class="etiqueta aviso">⚠ A conferir</span><br><span class="rotulo">${esc(v.motivoConferir)}</span>` : '<span class="etiqueta off">✕ Cancelada</span>'}</td>
+              <td style="white-space:nowrap">
+                ${v.status !== 'confirmada' ? `<button type="button" class="pequeno" data-status="confirmada" data-venda="${esc(v.id)}">Confirmar</button>` : ''}
+                ${v.status !== 'cancelada' ? `<button type="button" class="pequeno" data-status="cancelada" data-venda="${esc(v.id)}">Cancelar</button>` : ''}
+                <button type="button" class="pequeno" data-editar-venda="${esc(v.id)}">Editar</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="6" class="vazio">Nenhuma venda ainda. Elas aparecem aqui quando um cliente manda o comprovante no WhatsApp.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <details class="card secao-avancada" ${cfg.recebedores ? '' : 'open'}>
+      <summary>Configurações da leitura de comprovantes</summary>
+      <form id="f-cfg-fat" style="margin-top:12px">
+        <div class="campo"><label>Quem recebe os pagamentos ${ajuda('Nome da empresa como aparece no comprovante, CNPJ/CPF e/ou chave Pix. Separe por vírgula. Comprovante para outra pessoa fica "A conferir".')}</label><input name="recebedores" value="${esc(cfg.recebedores)}" placeholder="Ex.: MADARA VOLANTES, 12.345.678/0001-90, pix@madara.com"></div>
+        <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="ativo" ${cfg.ativo ? 'checked' : ''}> Registrar vendas pelos comprovantes que chegam no WhatsApp</label>
+        <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="usarIa" ${cfg.usarIa ? 'checked' : ''}> Se não der para ler sem IA (foto ruim), deixar a IA tentar ${ajuda('Gasta um pouco de crédito da IA só nesses casos. Desmarcado = nunca usa IA para comprovantes.')}</label>
+        <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="moverParaFechado" ${cfg.moverParaFechado ? 'checked' : ''}> Mover o lead para "Fechado" quando pagar (e colocar a etiqueta "Cliente")</label>
+        <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
+      </form>
+    </details>`;
+
+  // dica do gráfico (mouse e teclado)
+  const dica = $('#dica-grafico');
+  $$('.coluna-grafico').forEach((c) => {
+    const mostrar = () => {
+      dica.textContent = c.dataset.dica;
+      dica.hidden = false;
+      const area = c.parentElement.getBoundingClientRect();
+      const col = c.getBoundingClientRect();
+      dica.style.left = `${Math.min(Math.max(0, col.left - area.left + col.width / 2 - dica.offsetWidth / 2), area.width - dica.offsetWidth)}px`;
+    };
+    c.onmouseenter = mostrar;
+    c.onfocus = mostrar;
+    c.onclick = mostrar;
+    c.onmouseleave = () => { dica.hidden = true; };
+    c.onblur = () => { dica.hidden = true; };
+  });
+
+  $('#filtro-mes').onchange = (e) => { location.hash = rotaEmpresa(id, 'faturamento') + (e.target.value ? `?mes=${e.target.value}` : ''); };
+  $('#f-cfg-fat').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api(`empresas/${id}/faturamento/config`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('Configurações salvas.');
+      paginaFaturamento(id, params);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-status]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api(`empresas/${id}/vendas/${b.dataset.venda}`, { method: 'PUT', body: { status: b.dataset.status } });
+        aviso(b.dataset.status === 'confirmada' ? 'Venda confirmada.' : 'Venda cancelada.');
+        paginaFaturamento(id, params);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-editar-venda]').forEach((b) => {
+    b.onclick = () => modalVenda(emp, d.vendas.find((v) => v.id === b.dataset.editarVenda), null, () => paginaFaturamento(id, params));
+  });
+  $('#nova-venda').onclick = () => modalVenda(emp, null, null, () => paginaFaturamento(id, params));
+  $('#ler-comprovante').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const qs = new URLSearchParams({ nome: f.name, tipo: f.type || '' });
+      const resp = await fetch(`api/empresas/${id}/vendas/comprovante?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+      const v = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(v.erro || `Erro ${resp.status}`);
+      aviso(v.repetida ? `Este comprovante (${brl(v.valor)}) já estava registrado.` : `Venda de ${brl(v.valor)} registrada${v.status === 'conferir' ? ' — a conferir' : ''}.`);
+      paginaFaturamento(id, params);
+    } catch (err) { aviso(err.message, true); }
+  };
+}
+
+function modalVenda(emp, v, leadId, depois, padrao = {}) {
+  const agora = new Date(v ? v.data : Date.now());
+  const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  abrirModal(`
+    <h2>${v ? 'Editar venda' : 'Lançar venda'}</h2>
+    <form id="f-venda">
+      <div class="campos">
+        <div class="campo"><label>Valor (R$) *</label><input name="valor" required inputmode="decimal" value="${v ? esc(String(v.valor).replace('.', ',')) : ''}" placeholder="150,00"></div>
+        <div class="campo"><label>Forma de pagamento</label><select name="forma">${['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].map((f) => `<option ${f === (v?.forma || 'Pix') ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+        <div class="campo"><label>Data</label><input type="datetime-local" name="data" value="${local}"></div>
+        <div class="campo"><label>Cliente</label><input name="cliente" value="${esc(v?.cliente || padrao.cliente || '')}" placeholder="Nome do cliente"></div>
+        <div class="campo largo"><label>O que foi vendido (opcional)</label><input name="descricao" value="${esc(v?.descricao || '')}" placeholder="Ex.: revestimento de volante"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button>${v ? '<button type="button" class="perigo" id="apagar-venda" style="margin-left:auto">Apagar</button>' : ''}</div>
+    </form>`, (m, fechar) => {
+    $('#f-venda', m).onsubmit = async (e) => {
+      e.preventDefault();
+      const f = formParaObjeto(e.target);
+      const corpo = { ...f, data: f.data ? new Date(f.data).toISOString() : undefined, ...(leadId ? { leadId } : {}) };
+      try {
+        await api(v ? `empresas/${emp.id}/vendas/${v.id}` : `empresas/${emp.id}/vendas`, { method: v ? 'PUT' : 'POST', body: corpo });
+        fechar();
+        aviso('Venda salva.');
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#apagar-venda', m)?.addEventListener('click', async () => {
+      if (!(await confirmar({ titulo: 'Apagar esta venda?', texto: 'Ela sai do faturamento. Para só não contar, prefira "Cancelar".', botao: 'Apagar', perigo: true }))) return;
+      try {
+        await api(`empresas/${emp.id}/vendas/${v.id}`, { method: 'DELETE' });
+        fechar();
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    });
+  });
+}
+
 // ---------------------------------------------------------------- usuários (admin)
 
 async function paginaUsuarios() {
@@ -2648,6 +2905,7 @@ async function rotear() {
         '': () => paginaEmpresa(id),
         leads: () => paginaLeads(id, params),
         conversas: () => paginaConversas(id, params),
+        faturamento: () => paginaFaturamento(id, params),
         automacoes: () => paginaAutomacoes(id),
         disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id)),
         ia: () => paginaCerebro(id),

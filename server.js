@@ -41,6 +41,18 @@ base.get('/midia/:id/:arquivo', (req, res) => {
   });
 });
 
+// Logo da empresa (aparece no painel e, se o assistente não tiver foto, no chat do site)
+base.get('/logo/:empresaId', (req, res) => {
+  const { estado } = require('./src/db');
+  const empresa = estado.empresas.find((e) => e.id === req.params.empresaId);
+  if (!empresa?.logo) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type(empresa.logo.mimetype);
+  res.sendFile(path.join(config.midiasDir, 'logos', empresa.logo.arquivo), (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
 base.use('/api/public', rotasPublicas);
 base.use('/api', rotasPainel);
 
