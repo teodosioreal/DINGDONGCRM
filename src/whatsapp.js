@@ -29,6 +29,16 @@ function evolutionUrlGlobal() {
   return String(estado.config?.evolutionUrl || config.evolutionUrlPadrao || '').replace(/\/+$/, '');
 }
 
+// Chave global da Evolution (a do servidor): permite o CRM criar as instâncias
+// sozinho, como o DingDong Tracking. Do painel (admin) ou do .env.
+function chaveGlobal() {
+  return String(estado.config?.evolutionApiKey || config.evolutionApiKey || '').trim();
+}
+
+function podeCriarInstancia() {
+  return Boolean(evolutionUrlGlobal() && chaveGlobal());
+}
+
 function configDa(empresa) {
   const c = empresa.whatsappConfig || {};
   return {
@@ -38,7 +48,8 @@ function configDa(empresa) {
     apiKey: c.apiKey || '',
     iaAtiva: c.iaAtiva !== false,
     segredo: c.segredo || '',
-    perfil: c.perfil || null
+    perfil: c.perfil || null,
+    criadaPeloCrm: Boolean(c.criadaPeloCrm)
   };
 }
 
@@ -164,7 +175,20 @@ async function situacao(empresa) {
 
 async function qrCode(empresa) {
   const r = await evolution(empresa, 'GET', '/instance/connect/{instancia}');
-  return { base64: r?.base64 || r?.qrcode?.base64 || null, codigo: r?.pairingCode || r?.code || null };
+  const estadoAgora = r?.instance?.state;
+  return { conectado: estadoAgora === 'open', base64: r?.base64 || r?.qrcode?.base64 || null, codigo: r?.pairingCode || null };
+}
+
+// Código de 8 letras para conectar sem QR (WhatsApp → Aparelhos conectados →
+// Conectar com número de telefone)
+async function codigoPareamento(empresa, telefone) {
+  const numero = numeroWhatsapp(telefone);
+  if (numero.length < 10) throw erro('Informe o número do WhatsApp com DDD.', 400);
+  const r = await evolution(empresa, 'GET', `/instance/connect/{instancia}?number=${numero}`);
+  if (r?.instance?.state === 'open') return { conectado: true };
+  const codigo = r?.pairingCode || r?.code;
+  if (!codigo || String(codigo).length > 12) throw erro('O servidor do WhatsApp não devolveu o código agora. Tente de novo em alguns segundos ou use o QR code.', 502);
+  return { codigo };
 }
 
 // Webhook que a instância já tem (cada instância da Evolution tem um só)
@@ -249,7 +273,13 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
 // Tira o WhatsApp do CRM (não desconecta o número da Evolution: a instância é
 // da empresa). Desliga o webhook só se ele apontar para o CRM.
 async function desconectar(empresa) {
-  if (configurado(empresa)) {
+  const c = configDa(empresa);
+  if (configurado(empresa) && c.criadaPeloCrm && chaveGlobal()) {
+    // instância criada pelo CRM: apaga da Evolution (sai do número junto)
+    const admin = { evolutionUrl: c.evolutionUrl, instancia: c.instancia, apiKey: chaveGlobal() };
+    await chamar(admin, 'DELETE', '/instance/logout/{instancia}').catch(() => {});
+    await chamar(admin, 'DELETE', '/instance/delete/{instancia}').catch((err) => console.error(`[whatsapp ${empresa.id}] apagar instância:`, err.message));
+  } else if (configurado(empresa)) {
     try {
       if (ehNossoWebhook(empresa, await webhookAtual(empresa))) {
         await evolution(empresa, 'POST', '/webhook/set/{instancia}', {
@@ -263,6 +293,76 @@ async function desconectar(empresa) {
   const { segredo, iaAtiva, evolutionUrl } = empresa.whatsappConfig || {};
   // segredo novo: o endereço antigo do webhook deixa de valer
   empresa.whatsappConfig = { iaAtiva, evolutionUrl, segredo: segredo ? crypto.randomBytes(16).toString('hex') : undefined };
+  salvar();
+}
+
+// Nome da instância: nome da empresa + final do id (igual ao DingDong Tracking)
+function nomeInstancia(empresa) {
+  const base = String(empresa.nome || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 30);
+  return `crm-${base || 'empresa'}-${empresa.id.slice(-6)}`;
+}
+
+// Cria a instância na nossa Evolution API, já com o webhook do CRM, e devolve
+// o QR code para o cliente escanear. Se a instância desta empresa já existir
+// (ex.: criada antes e desconectada), reaproveita.
+async function criarInstancia(empresa) {
+  const url = evolutionUrlGlobal();
+  const global = chaveGlobal();
+  if (!url || !global) {
+    throw erro('Falta a chave global da Evolution API (Configurações do sistema) para criar conexões automaticamente.', 400);
+  }
+  const nome = nomeInstancia(empresa);
+  const webhook = { url: urlWebhook(empresa), byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] };
+  const admin = { evolutionUrl: url, instancia: nome, apiKey: global };
+  let token = '';
+  try {
+    const r = await chamar(admin, 'POST', '/instance/create', {
+      instanceName: nome,
+      qrcode: true,
+      integration: 'WHATSAPP-BAILEYS',
+      groupsIgnore: true,
+      webhook: { enabled: true, ...webhook }
+    });
+    token = typeof r?.hash === 'string' ? r.hash : r?.hash?.apikey || '';
+  } catch (err) {
+    // já existe (criada antes por este CRM): busca o token dela
+    if (!/already in use|já está em uso|exists/i.test(err.message) && err.status !== 403) throw err;
+    const lista = await chamar(admin, 'GET', `/instance/fetchInstances?instanceName=${encodeURIComponent(nome)}`);
+    const item = (Array.isArray(lista) ? lista : [lista]).map((x) => x?.instance || x).find((x) => (x?.name || x?.instanceName) === nome);
+    token = item?.token || item?.apikey || '';
+  }
+  empresa.whatsappConfig = {
+    ...(empresa.whatsappConfig || {}),
+    evolutionUrl: '',
+    instancia: nome,
+    // o token da própria instância; se a Evolution não devolver, usa a chave global
+    apiKey: token || global,
+    criadaPeloCrm: true,
+    perfil: { estado: 'connecting', conferidoEm: agora() },
+    criadaEm: agora()
+  };
+  garantirSegredo(empresa);
+  salvar();
+  // garante o webhook (versões antigas ignoram o webhook no create)
+  await configurarWebhook(empresa, { forcar: false });
+  return qrCode(empresa);
+}
+
+// Desconecta o número do WhatsApp (sai do aparelho). A instância continua e
+// dá para conectar outro número com um QR code novo.
+async function sairDoNumero(empresa) {
+  try {
+    await evolution(empresa, 'DELETE', '/instance/logout/{instancia}');
+  } catch (err) {
+    if (!/not connected|não está conectad/i.test(err.message)) throw err;
+  }
+  empresa.whatsappConfig.perfil = { estado: 'close', conferidoEm: agora() };
   salvar();
 }
 
@@ -578,6 +678,11 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 
 module.exports = {
   evolutionUrlGlobal,
+  chaveGlobal,
+  podeCriarInstancia,
+  criarInstancia,
+  codigoPareamento,
+  sairDoNumero,
   configDa,
   configurado,
   urlWebhook,

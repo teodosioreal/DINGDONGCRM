@@ -154,6 +154,9 @@ function situacaoWhatsapp(e, req) {
     iaAtiva: c.iaAtiva,
     configurado: whatsapp.configurado(e),
     perfil: c.perfil,
+    criadaPeloCrm: c.criadaPeloCrm,
+    // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
+    podeCriar: whatsapp.podeCriarInstancia(),
     // endereço da Evolution: só o admin vê/troca (a empresa só usa Session ID + API Key)
     ...(req && ehAdmin(req) ? { evolutionUrl: c.evolutionUrl, evolutionUrlPropria: e.whatsappConfig?.evolutionUrl || '' } : {})
   };
@@ -280,6 +283,13 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
     switch (req.params.acao) {
       case 'conectar':
         return res.json(await whatsapp.conectar(empresa, { sessionId: texto(b.sessionId, 120), apiKey: texto(b.apiKey, 300), forcar: b.forcar === true }));
+      case 'criar':
+        return res.json(await whatsapp.criarInstancia(empresa));
+      case 'pareamento':
+        return res.json(await whatsapp.codigoPareamento(empresa, texto(b.telefone, 30)));
+      case 'sair-numero':
+        await whatsapp.sairDoNumero(empresa);
+        return res.json({ ok: true });
       case 'situacao':
         return res.json(await whatsapp.situacao(empresa));
       case 'qrcode':
@@ -892,7 +902,8 @@ function situacaoChaves() {
     anthropic: item('anthropicApiKey', 'anthropicApiKey'),
     gemini: item('geminiApiKey', 'geminiApiKey'),
     evolutionUrl: whatsapp.evolutionUrlGlobal(),
-    evolutionUrlDoPainel: Boolean(salvas.evolutionUrl)
+    evolutionUrlDoPainel: Boolean(salvas.evolutionUrl),
+    evolutionChave: item('evolutionApiKey', 'evolutionApiKey')
   };
 }
 
@@ -906,6 +917,9 @@ router.put('/config', auth.exigirAdmin, (req, res) => {
     if (valor) estado.config[campo] = valor;
     if ((req.body?.remover || []).includes(provedor)) delete estado.config[campo];
   }
+  const chaveEvo = texto(req.body?.evolutionApiKey, 300);
+  if (chaveEvo) estado.config.evolutionApiKey = chaveEvo;
+  if ((req.body?.remover || []).includes('evolution')) delete estado.config.evolutionApiKey;
   if (req.body?.evolutionUrl !== undefined) {
     const url = texto(req.body.evolutionUrl, 300).replace(/\/+$/, '');
     if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço precisa começar com https://' });

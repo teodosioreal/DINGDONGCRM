@@ -454,3 +454,33 @@ details.secao-avancada { margin-top: 16px; }
   .grade-resumo { grid-template-columns: 1fr 1fr; gap: 10px; }
   .grade-resumo .card { padding: 14px; }
 }
+
+/* modo escuro no menu */
+.linha-tema { justify-content: space-between; cursor: pointer; }
+.linha-tema .trilho { width: 36px; height: 20px; }
+.linha-tema .bolinha { width: 14px; height: 14px; }
+.linha-tema input:checked + .trilho .bolinha { transform: translateX(16px); }
+
+/* QR code do WhatsApp */
+.qr-area:not(:empty) { margin-top: 16px; }
+.qr-caixa { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.qr-lado { flex: 1; min-width: 220px; }
+.qr-vazio { width: 260px; height: 260px; display: grid; place-items: center; }
+.codigo-pareamento { font-family: ui-monospace, Menlo, monospace; font-size: 28px; font-weight: 700; letter-spacing: .2em; margin: 12px 0; }
+.qr-lado .girando { width: 12px; height: 12px; vertical-align: -1px; }
+
+/* modo escuro: ajustes dos blocos novos */
+html.dark .canal-icone.site { background: #1e3a8a66; color: #93c5fd; }
+html.dark .canal-icone.whatsapp, html.dark .foto-zap.vazia { background: #14532d66; color: #86efac; }
+html.dark .chat, html.dark .conversa { background: #0b141a; }
+html.dark .chat .msg.bot, html.dark .conversa .msg.bot { background: #202c33; color: #e9edef; }
+html.dark .chat .msg.eu, html.dark .conversa .msg.eu { background: #005c4b; color: #e9edef; }
+html.dark .conversa .msg.equipe { background: #1e3a8a; color: #e9edef; }
+html.dark .chat .msg.acao-ia { background: #3b2f0b; color: #fde68a; }
+html.dark .conversa .msg small, html.dark .msg-origem { color: #8696a0; }
+html.dark .primeiros-passos { border-color: #1e3a8a; }
+html.dark .numero-card.destaque { border-color: #7f1d1d; }
+html.dark .chip { color: color-mix(in srgb, var(--cor) 70%, white); }
+html.dark input[type=color] { background: var(--superficie); }
+html.dark .qr { border-color: #fff; }
+.lateral nav > *, .lateral .rodape-menu > * { flex-shrink: 0; }

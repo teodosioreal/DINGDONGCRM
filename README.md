@@ -23,7 +23,7 @@ caminho `/crm`. O resto do domínio `odingdong.tech` não é tocado.
 ## O que tem
 
 O visual segue o do painel DingDong (menu lateral, tons de cinza, modo escuro
-no botão do canto). Pensado para o **próprio empresário configurar**: cada tela
+no botão do canto e em "Modo escuro" no menu). Pensado para o **próprio empresário configurar**: cada tela
 explica em balões o que fazer, e os campos têm um "?" com a explicação.
 
 Dentro de cada empresa:
@@ -50,11 +50,9 @@ Dentro de cada empresa:
   - **IA do site** — o código para colar no site (com o passo a passo de
     cada plataforma), instruções da IA do site, boas-vindas, aparência,
     número do WhatsApp e sites autorizados. Chat de teste.
-  - **IA do WhatsApp** — **conectar informando só a Session ID e a API Key**
-    da instância já criada na nossa Evolution API. O CRM confere as duas,
-    mostra foto, nome, número e se está online, e liga o webhook sozinho.
-    QR code se o celular estiver desconectado. Instruções da IA do WhatsApp e
-    chat de teste.
+  - **IA do WhatsApp** — **Gerar QR code**: o CRM cria a conexão na nossa
+    Evolution API e o cliente só escaneia com o celular. Mostra foto, nome,
+    número e se está online. Instruções da IA do WhatsApp e chat de teste.
   - **Mídias** — fotos, vídeos, PDFs e áudios (até 16 MB) que a IA do WhatsApp
     envia e que podem ir nos disparos.
   - **Etiquetas e etapas** — criar/renomear/colorir etiquetas; criar,
@@ -68,20 +66,26 @@ sistema** (endereço da Evolution API e chave de IA padrão opcional).
 
 ### Conectar o WhatsApp (Evolution API)
 
-- O endereço da Evolution fica nas **Configurações do sistema** (ou em
-  `EVOLUTION_API_URL`; padrão `https://api.evolutiondingdong.online`). A
-  empresa não precisa saber dele.
-- A empresa informa a **Session ID** (nome da instância; o ID interno também
-  funciona) e a **API Key** (token da instância). O CRM confere em
-  `/instance/fetchInstances`, que só responde se a API Key for daquela
-  instância.
-- O webhook (`MESSAGES_UPSERT` + `CONNECTION_UPDATE`) é configurado
-  automaticamente. **Se a instância já manda as mensagens para outro sistema**
-  (ex.: o rastreador), o CRM **não troca sem perguntar**: mostra para onde vai
-  hoje e só substitui se a pessoa confirmar. O recomendado é uma instância só
-  para o CRM.
-- "Desconectar do CRM" desliga o webhook (só se ele for do CRM) e invalida o
-  endereço antigo; o número continua conectado na Evolution.
+Igual ao DingDong Tracking: **o CRM cria a conexão sozinho na nossa Evolution
+API**.
+
+1. Uma vez só, o admin cola a **chave global** da Evolution
+   (`AUTHENTICATION_API_KEY` do servidor — a mesma `EVOLUTION_API_KEY` do
+   tracker) em **Configurações do sistema** (ou em `EVOLUTION_API_KEY` no
+   `.env`). O endereço padrão é `https://api.evolutiondingdong.online`.
+2. Na tela **IA do WhatsApp**, o cliente clica em **Gerar QR code**. O CRM
+   cria a instância `crm-<nome-da-empresa>-<id>` (`POST /instance/create`), já
+   com o webhook do CRM, e mostra o QR code — que se renova sozinho. Sem
+   câmera? "Conectar com o número" gera o código de 8 letras.
+3. A tela percebe sozinha quando o celular conecta e mostra foto, nome e
+   número. Cada empresa guarda só o token da própria instância (a chave global
+   fica só nas configurações do servidor).
+
+Outras ações: **Trocar de número** (desconecta o aparelho e gera QR novo) e
+**Remover conexão** (apaga a instância criada pelo CRM). Quem já tem uma
+instância pode ligar informando **Session ID + API Key** ("Já tenho uma
+instância"). Se a instância já mandar as mensagens para **outro sistema**
+(ex.: o rastreador), o CRM **não troca sem perguntar**.
 
 ### Disparos em massa: cuidados contra bloqueio
 
@@ -242,6 +246,7 @@ direto para o WhatsApp.
 | `PUBLIC_URL` | Endereço público, usado no código de incorporação |
 | `ANTHROPIC_API_KEY` | Chave padrão do Claude (opcional — cada empresa cadastra a sua no painel) |
 | `GEMINI_API_KEY` | Chave padrão do Gemini (opcional — cada empresa cadastra a sua no painel) |
+| `EVOLUTION_API_KEY` | Chave global da Evolution: o CRM cria as conexões sozinho (também dá para colar no painel) |
 | `EVOLUTION_API_URL` | Endereço da Evolution API onde ficam as instâncias (padrão `https://api.evolutiondingdong.online`; também dá para trocar no painel) |
 | `WHATSAPP_ESPERA_MS` | Espera (ms) o cliente parar de digitar antes de a IA responder (padrão 6000) |
 | `MIDIAS_DIR` | Pasta das mídias (padrão `midias/` dentro do app) |

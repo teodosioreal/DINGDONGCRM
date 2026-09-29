@@ -178,6 +178,8 @@ function ajustarBotaoTema() {
   const b = $('#tema');
   b.innerHTML = escuro ? ICONE_SOL : ICONE_LUA;
   b.title = escuro ? 'Mudar para o modo claro' : 'Mudar para o modo escuro';
+  const chave = $('#tema-menu');
+  if (chave) chave.checked = escuro;
 }
 
 function alternarTema() {
@@ -361,7 +363,7 @@ async function paginaEmpresa(id) {
     { feito: Boolean(principal && (principal.conhecimento || '').replace(/\.\.\.|R\$ \.\.\./g, '').trim().length > 150), texto: 'Conte para a IA sobre a sua empresa', dica: 'Serviços, preços, horários, dúvidas comuns.', href: rotaEmpresa(id, 'ia') }
   ];
   if (siteLigado) lista.push({ feito: Object.keys(r.porEtapa).length > 0 || r.totalLeads > 0, texto: 'Coloque o chat no seu site', dica: 'Copie e cole um código uma vez só.', href: rotaEmpresa(id, 'site') });
-  if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Só a Session ID e a API Key.', href: rotaEmpresa(id, 'whatsapp') });
+  if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Clique em Gerar QR code e escaneie com o celular.', href: rotaEmpresa(id, 'whatsapp') });
   if (zapLigado) lista.push({ feito: emp.totalMidias > 0, texto: 'Envie fotos, vídeos ou PDFs para a IA usar (opcional)', dica: 'A IA do WhatsApp manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
   const feitos = lista.filter((p) => p.feito).length;
   const tudoPronto = feitos === lista.length;
@@ -701,41 +703,81 @@ async function paginaWhatsapp(id) {
   const w = emp.whatsapp || {};
   const ligado = emp.canais.whatsapp;
   const p = w.perfil || {};
+  const online = p.estado === 'open';
 
-  const conexao = w.configurado
-    ? `
+  const formManual = (aberto) => `
+    <details class="secao-avancada" ${aberto ? 'open' : ''}>
+      <summary>Já tenho uma instância na Evolution (Session ID + API Key)</summary>
+      <form id="f-conectar">
+        <div class="campos">
+          <div class="campo"><label>Session ID ${ajuda('O nome da instância na Evolution. Ex.: "minha-empresa".')}</label><input name="sessionId" required autocomplete="off" placeholder="ex.: minha-empresa"></div>
+          <div class="campo"><label>API Key ${ajuda('O token da instância. Fica guardado só no servidor.')}</label><input name="apiKey" type="password" required autocomplete="off" placeholder="cole a API Key"></div>
+        </div>
+        <div id="manual-erro"></div>
+        <div class="acoes"><button type="submit">Conectar esta instância</button></div>
+      </form>
+    </details>`;
+
+  const areaQr = `
+    <div id="zap-qr-area" class="qr-area"></div>`;
+
+  let conexao;
+  if (!w.configurado) {
+    conexao = w.podeCriar
+      ? `
+      <div class="card">
+        <h2>1. Conecte o WhatsApp da empresa</h2>
+        ${passos([
+          'Clique em <b>Gerar QR code</b> — o CRM cria a conexão sozinho.',
+          'No celular da empresa, abra o WhatsApp e toque em <b>⋮ (ou Configurações) → Aparelhos conectados → Conectar um aparelho</b>.',
+          'Aponte a câmera para o QR code. <b>Pronto!</b> Esta tela percebe sozinha quando conectar.'
+        ])}
+        <div class="acoes"><button type="button" class="primario grande-botao" id="zap-criar" style="max-width:320px">Gerar QR code</button></div>
+        ${areaQr}
+        ${formManual(false)}
+      </div>`
+      : `
+      <div class="card">
+        <h2>1. Conecte o WhatsApp da empresa</h2>
+        ${ehAdmin()
+          ? balao('Falta a chave global da Evolution API', 'Com ela o CRM cria a conexão sozinho e o cliente só escaneia o QR code. <a href="#/configuracoes">Cadastrar em Configurações do sistema</a>', 'aviso')
+          : balao('Conexão automática ainda não liberada', 'Peça ao administrador para liberar, ou conecte uma instância que você já tem, abaixo.', 'aviso')}
+        ${formManual(true)}
+      </div>`;
+  } else if (!online) {
+    conexao = `
+      <div class="card">
+        <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">Falta conectar o celular</h2><span class="etiqueta aviso">● Aguardando conexão</span></div>
+        ${passos([
+          'No celular da empresa, abra o WhatsApp.',
+          'Toque em <b>⋮ (ou Configurações) → Aparelhos conectados → Conectar um aparelho</b>.',
+          'Aponte a câmera para o QR code abaixo. Esta tela percebe sozinha quando conectar.'
+        ])}
+        ${areaQr}
+        <div class="acoes">
+          <button type="button" class="perigo" id="zap-sair" style="margin-left:auto">Remover conexão</button>
+        </div>
+      </div>`;
+  } else {
+    conexao = `
       <div class="card">
         <div class="cabecalho" style="margin-bottom:12px;padding-right:0"><h2 style="margin:0">WhatsApp conectado</h2><button type="button" class="pequeno" id="zap-atualizar">Atualizar</button></div>
         <div class="perfil-zap">
           ${p.foto ? `<img src="${esc(p.foto)}" alt="" class="foto-zap" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'foto-zap vazia'}))">` : `<span class="foto-zap vazia">${ICONES.whatsapp}</span>`}
           <div>
             <strong>${esc(p.nome || 'WhatsApp')}</strong>
-            <div class="rotulo">${p.numero ? esc(telefoneBonito(p.numero)) : 'número ainda não informado'} · sessão <code>${esc(w.sessao)}</code></div>
-            <div id="zap-estado" style="margin-top:6px">${p.estado === 'open' ? '<span class="etiqueta ok">● Online</span>' : p.estado ? `<span class="etiqueta off">● ${esc(p.estado === 'close' ? 'Desconectado do celular' : p.estado)}</span>` : ''}</div>
+            <div class="rotulo">${p.numero ? esc(telefoneBonito(p.numero)) : ''}${w.criadaPeloCrm ? '' : ` · sessão <code>${esc(w.sessao)}</code>`}</div>
+            <div style="margin-top:6px"><span class="etiqueta ok">● Online</span></div>
           </div>
         </div>
         <div id="zap-resultado"></div>
         <div class="acoes">
-          ${p.estado && p.estado !== 'open' ? '<button type="button" class="primario" id="zap-qr">Conectar o celular (QR code)</button>' : ''}
-          <button type="button" id="zap-trocar">Trocar Session ID / API Key</button>
-          <button type="button" class="perigo" id="zap-sair" style="margin-left:auto">Desconectar do CRM</button>
+          <button type="button" id="zap-trocar-numero">Trocar de número</button>
+          ${w.criadaPeloCrm ? '' : '<button type="button" id="zap-trocar">Trocar Session ID / API Key</button>'}
+          <button type="button" class="perigo" id="zap-sair" style="margin-left:auto">Remover conexão</button>
         </div>
-      </div>`
-    : `
-      <form class="card" id="f-conectar">
-        <h2>1. Conecte o WhatsApp</h2>
-        ${passos([
-          'Abra a instância do seu WhatsApp no painel da Evolution (a que já está criada para a sua empresa).',
-          'Copie a <b>Session ID</b> (é o nome da instância) e a <b>API Key</b> (o token da instância).',
-          'Cole as duas aqui embaixo e clique em <b>Conectar</b>. O CRM confere e configura tudo sozinho.'
-        ])}
-        <div class="campos">
-          <div class="campo"><label>Session ID ${ajuda('O nome da instância na Evolution. Ex.: "madara-volantes".')}</label><input name="sessionId" required autocomplete="off" placeholder="ex.: minha-empresa"></div>
-          <div class="campo"><label>API Key ${ajuda('O token da instância (não é a chave global do servidor). Fica guardado só no servidor.')}</label><input name="apiKey" type="password" required autocomplete="off" placeholder="cole a API Key"></div>
-        </div>
-        <div id="zap-resultado"></div>
-        <div class="acoes"><button class="primario" type="submit">Conectar</button></div>
-      </form>`;
+      </div>`;
+  }
 
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>IA do WhatsApp</h1><p class="sub">Responde no número da empresa, manda fotos e vídeos e passa para a equipe</p></div>${interruptor('ligar-zap', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
@@ -765,66 +807,144 @@ async function paginaWhatsapp(id) {
     ${ehAdmin() ? `
     <details class="card secao-avancada">
       <summary>Servidor da Evolution desta empresa (só admin)</summary>
-      <p class="rotulo">Vazio = usa o servidor padrão (${esc(w.evolutionUrl && !w.evolutionUrlPropria ? w.evolutionUrl : 'Configurações do sistema')}). Só preencha se esta empresa usar outra Evolution.</p>
+      <p class="rotulo">Vazio = usa o servidor padrão das Configurações do sistema. Só preencha se esta empresa usar outra Evolution.</p>
       <form id="f-evo" class="linha-form"><input name="evolutionUrl" value="${esc(w.evolutionUrlPropria || '')}" placeholder="https://outra-evolution.com"><button type="submit">Salvar</button></form>
     </details>` : ''}`;
 
-  const resultado = () => $('#zap-resultado');
-  const mostrarErro = (msg) => { resultado().innerHTML = `<p class="erro-caixa">${esc(msg)}</p>`; };
+  const recarregar = () => paginaWhatsapp(id).then(() => montarMenu(rotaEmpresa(id, 'whatsapp')));
+  const aqui = location.hash;
+
+  // ---------- QR code que se atualiza e percebe sozinho quando conectar
+  function mostrarQr(r) {
+    const area = $('#zap-qr-area');
+    if (!area) return;
+    if (r.conectado) return void conectou();
+    area.innerHTML = `
+      <div class="qr-caixa">
+        ${r.base64 ? `<img alt="QR code do WhatsApp" class="qr" src="${esc(r.base64.startsWith('data:') ? r.base64 : `data:image/png;base64,${r.base64}`)}">` : '<div class="qr qr-vazio"><span class="girando"></span></div>'}
+        <div class="qr-lado">
+          <p class="rotulo" style="margin:0"><span class="girando"></span> Esperando você escanear… o código se renova sozinho.</p>
+          <details style="margin-top:12px"><summary>Não consegue escanear? Conectar com o número</summary>
+            <form id="f-pareamento" class="linha-form" style="margin-top:8px"><input name="telefone" placeholder="(21) 99999-9999" inputmode="tel"><button type="submit">Gerar código</button></form>
+            <div id="codigo-pareamento"></div>
+          </details>
+        </div>
+      </div>`;
+    $('#f-pareamento').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const c = await comEspera(e.target.querySelector('button'), () => api(`empresas/${id}/whatsapp/pareamento`, { method: 'POST', body: formParaObjeto(e.target) }));
+        if (c.conectado) return conectou();
+        pararQr = true; // o QR novo invalidaria o código
+        $('#codigo-pareamento').innerHTML = `<div class="codigo-pareamento">${esc(c.codigo)}</div>${passos(['No celular: WhatsApp → <b>Aparelhos conectados → Conectar um aparelho</b>.', 'Toque em <b>Conectar com número de telefone</b>.', 'Digite o código acima.'])}`;
+      } catch (err) { aviso(err.message, true); }
+    };
+  }
+  let pararQr = false;
+  let ultimoQr = 0;
+  function conectou() {
+    clearInterval(atualizador);
+    atualizador = null;
+    aviso('WhatsApp conectado! 🎉');
+    recarregar();
+  }
+  function acompanhar() {
+    clearInterval(atualizador);
+    ultimoQr = Date.now();
+    atualizador = setInterval(async () => {
+      if (location.hash !== aqui || !$('#zap-qr-area')) return void clearInterval(atualizador);
+      try {
+        const s = await api(`empresas/${id}/whatsapp/situacao`, { method: 'POST' });
+        if (s.conectado) return conectou();
+        if (!pararQr && Date.now() - ultimoQr > 30000) {
+          ultimoQr = Date.now();
+          mostrarQr(await api(`empresas/${id}/whatsapp/qrcode`, { method: 'POST' }));
+        }
+      } catch { /* tenta de novo no próximo ciclo */ }
+    }, 4000);
+  }
+  async function pedirQr() {
+    const area = $('#zap-qr-area');
+    area.innerHTML = '<p class="rotulo"><span class="girando"></span> Gerando o QR code…</p>';
+    try {
+      mostrarQr(await api(`empresas/${id}/whatsapp/qrcode`, { method: 'POST' }));
+      acompanhar();
+    } catch (err) {
+      area.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p><div class="acoes"><button type="button" id="qr-tentar">Tentar de novo</button></div>`;
+      $('#qr-tentar').onclick = pedirQr;
+    }
+  }
+
+  $('#zap-criar')?.addEventListener('click', async (e) => {
+    const area = $('#zap-qr-area');
+    try {
+      const r = await comEspera(e.target, () => api(`empresas/${id}/whatsapp/criar`, { method: 'POST' }), 'Criando conexão…');
+      e.target.closest('.acoes').hidden = true;
+      mostrarQr(r);
+      acompanhar();
+    } catch (err) {
+      if (err.status === 409) return tratarConflito(err, () => recarregar());
+      area.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+    }
+  });
+  if (w.configurado && !online) pedirQr();
 
   $('#ligar-zap').onchange = async (e) => {
     try {
       await api(`empresas/${id}/canais`, { method: 'PUT', body: { whatsapp: e.target.checked } });
       aviso(e.target.checked ? 'IA do WhatsApp ligada.' : 'IA do WhatsApp desligada.');
-      paginaWhatsapp(id).then(() => montarMenu(rotaEmpresa(id, 'whatsapp')));
+      recarregar();
     } catch (err) { aviso(err.message, true); }
   };
 
-  async function conectar(dados, botao) {
+  async function tratarConflito(err, depois) {
+    const ok = await confirmar({
+      titulo: 'Este WhatsApp já está ligado a outro sistema',
+      texto: `<p>A instância manda as mensagens para: <code>${esc(err.dados?.webhookAtual || '')}</code></p><p>Se continuar, <b>esse outro sistema para de receber as mensagens</b> deste número.</p><p class="rotulo">O recomendado é usar uma conexão só para o CRM.</p>`,
+      botao: 'Trocar mesmo assim',
+      perigo: true
+    });
+    if (!ok) return aviso('Nada foi trocado.');
+    try {
+      await api(`empresas/${id}/whatsapp/webhook`, { method: 'POST', body: { forcar: true } });
+      depois();
+    } catch (e2) { aviso(e2.message, true); }
+  }
+
+  async function conectarManual(dados, botao, erroEl) {
     try {
       await comEspera(botao, () => api(`empresas/${id}/whatsapp/conectar`, { method: 'POST', body: dados }), 'Conferindo…');
       aviso('WhatsApp conectado!');
-      paginaWhatsapp(id).then(() => montarMenu(rotaEmpresa(id, 'whatsapp')));
+      recarregar();
     } catch (err) {
-      if (err.status === 409) {
-        const ok = await confirmar({
-          titulo: 'Este WhatsApp já está ligado a outro sistema',
-          texto: `<p>A instância manda as mensagens para: <code>${esc(err.dados?.webhookAtual || '')}</code></p><p>Se continuar, <b>esse outro sistema para de receber as mensagens</b> deste número.</p><p class="rotulo">O recomendado é usar uma instância só para o CRM.</p>`,
-          botao: 'Trocar mesmo assim',
-          perigo: true
-        });
-        if (ok) return conectar({ ...dados, forcar: true }, botao);
-        aviso('Nada foi trocado.');
-        return paginaWhatsapp(id);
-      }
-      mostrarErro(err.message);
+      if (err.status === 409) return tratarConflito(err, recarregar);
+      if (erroEl) erroEl.innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(err.message)}</p>`;
+      else aviso(err.message, true);
     }
   }
-
   $('#f-conectar')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    conectar(formParaObjeto(e.target), e.target.querySelector('button[type=submit]'));
+    conectarManual(formParaObjeto(e.target), e.target.querySelector('button[type=submit]'), $('#manual-erro'));
   });
 
   $('#zap-atualizar')?.addEventListener('click', (e) => comEspera(e.target, async () => {
     try {
       const s = await api(`empresas/${id}/whatsapp/situacao`, { method: 'POST' });
       if (s.webhookOk === false) {
-        resultado().innerHTML = balao('As mensagens não estão chegando no CRM', 'O webhook da instância foi trocado. Clique em "Trocar Session ID / API Key" e conecte de novo.', 'aviso');
+        $('#zap-resultado').innerHTML = balao('As mensagens não estão chegando no CRM', 'A ligação com o CRM foi trocada por outro sistema. Clique em "Remover conexão" e conecte de novo.', 'aviso');
         return;
       }
-      paginaWhatsapp(id);
-    } catch (err) { mostrarErro(err.message); }
+      recarregar();
+    } catch (err) { $('#zap-resultado').innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; }
   }, 'Conferindo…'));
 
-  $('#zap-qr')?.addEventListener('click', (e) => comEspera(e.target, async () => {
+  $('#zap-trocar-numero')?.addEventListener('click', async (e) => {
+    if (!(await confirmar({ titulo: 'Trocar de número?', texto: 'O número atual sai do CRM (é desconectado no celular). Depois é só escanear um QR code novo com o outro número.', botao: 'Desconectar e trocar', perigo: true }))) return;
     try {
-      const r = await api(`empresas/${id}/whatsapp/qrcode`, { method: 'POST' });
-      resultado().innerHTML = r.base64
-        ? `${passos(['No celular da empresa, abra o WhatsApp.', 'Toque em <b>⋮ → Aparelhos conectados → Conectar um aparelho</b>.', 'Aponte a câmera para o código abaixo e depois clique em "Atualizar".'])}<img alt="QR code do WhatsApp" class="qr" src="${esc(r.base64.startsWith('data:') ? r.base64 : `data:image/png;base64,${r.base64}`)}">${r.codigo ? `<p class="rotulo">Ou use o código: <b>${esc(r.codigo)}</b></p>` : ''}`
-        : balao('Sem QR code', 'O número provavelmente já está conectado. Clique em "Atualizar".', 'dica');
-    } catch (err) { mostrarErro(err.message); }
-  }));
+      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/sair-numero`, { method: 'POST' }));
+      recarregar();
+    } catch (err) { aviso(err.message, true); }
+  });
 
   $('#zap-trocar')?.addEventListener('click', () => abrirModal(`
     <h2>Trocar Session ID / API Key</h2>
@@ -834,27 +954,21 @@ async function paginaWhatsapp(id) {
       <div id="trocar-erro"></div>
       <div class="acoes"><button class="primario" type="submit">Conectar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {
-    $('#f-trocar', m).onsubmit = async (e) => {
+    $('#f-trocar', m).onsubmit = (e) => {
       e.preventDefault();
-      const dados = formParaObjeto(e.target);
-      try {
-        await comEspera(e.target.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp/conectar`, { method: 'POST', body: dados }), 'Conferindo…');
-        fechar();
-        aviso('WhatsApp conectado!');
-        paginaWhatsapp(id);
-      } catch (err) {
-        if (err.status === 409) { fechar(); return conectar(dados, $('#zap-trocar')); }
-        $('#trocar-erro', m).innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(err.message)}</p>`;
-      }
+      conectarManual(formParaObjeto(e.target), e.target.querySelector('button[type=submit]'), $('#trocar-erro', m)).then(() => { if (!$('#trocar-erro', m)?.innerHTML) fechar(); });
     };
   }));
 
-  $('#zap-sair')?.addEventListener('click', async () => {
-    if (!(await confirmar({ titulo: 'Desconectar o WhatsApp do CRM?', texto: 'A IA para de responder e as mensagens deixam de chegar aqui. O número continua conectado na Evolution — dá para conectar de novo quando quiser.', botao: 'Desconectar', perigo: true }))) return;
+  $('#zap-sair')?.addEventListener('click', async (e) => {
+    const texto = w.criadaPeloCrm
+      ? 'O número é desconectado e a IA para de responder. Para voltar, é só gerar um QR code novo.'
+      : 'A IA para de responder e as mensagens deixam de chegar aqui. O número continua conectado na Evolution.';
+    if (!(await confirmar({ titulo: 'Remover a conexão do WhatsApp?', texto, botao: 'Remover', perigo: true }))) return;
     try {
-      await api(`empresas/${id}/whatsapp/desconectar`, { method: 'POST' });
-      aviso('WhatsApp desconectado do CRM.');
-      paginaWhatsapp(id).then(() => montarMenu(rotaEmpresa(id, 'whatsapp')));
+      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/desconectar`, { method: 'POST' }));
+      aviso('Conexão removida.');
+      recarregar();
     } catch (err) { aviso(err.message, true); }
   });
 
@@ -1749,9 +1863,13 @@ async function paginaConfiguracoes() {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Configurações do sistema</h1><p class="sub">Vale para todas as empresas</p></div></div>
     <form class="card" id="f-evolution">
-      <h2>Servidor do WhatsApp (Evolution API)</h2>
-      ${balao('As empresas só informam Session ID e API Key', 'As instâncias ficam neste servidor. Cada empresa conecta o WhatsApp dela informando só a Session ID (nome da instância) e a API Key da instância.')}
-      <div class="linha-form"><input name="evolutionUrl" value="${esc(c.evolutionUrl)}" placeholder="https://api.suaevolution.com"><button class="primario" type="submit">Salvar</button></div>
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">Servidor do WhatsApp (Evolution API)</h2>${c.evolutionChave.configurada ? '<span class="etiqueta ok">Criação automática ligada</span>' : '<span class="etiqueta aviso">Criação automática desligada</span>'}</div>
+      ${balao('O cliente só clica em "Gerar QR code"', 'Com a <b>chave global</b> da sua Evolution API, o CRM cria a conexão (instância) de cada empresa sozinho e já liga as mensagens no CRM — igual ao DingDong Tracking. A chave fica só no servidor.')}
+      <div class="campos">
+        <div class="campo largo"><label>Endereço da Evolution API</label><input name="evolutionUrl" value="${esc(c.evolutionUrl)}" placeholder="https://api.suaevolution.com"></div>
+        <div class="campo largo"><label>Chave global (AUTHENTICATION_API_KEY) ${ajuda('É a chave do servidor da Evolution (a mesma EVOLUTION_API_KEY do .env do DingDong Tracking). Não é a API Key de uma instância.')}</label><input name="evolutionApiKey" type="password" autocomplete="off" placeholder="${c.evolutionChave.configurada ? `salva — termina em ${esc(c.evolutionChave.final)} (deixe vazio para manter)` : 'cole a chave global'}"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button>${c.evolutionChave.origem === 'painel' ? '<button type="button" class="perigo" id="remover-evo">Remover chave</button>' : ''}</div>
     </form>
     <h2 style="margin-top:24px">Chave de IA padrão (opcional)</h2>
     ${balao('Normalmente fica vazia', 'Cada empresa cadastra a própria chave em <b>Chave de IA</b>. A chave padrão só é usada por empresas sem chave — por exemplo, se você quiser pagar a IA de um cliente.')}
@@ -1763,8 +1881,16 @@ async function paginaConfiguracoes() {
     try {
       await api('config', { method: 'PUT', body: formParaObjeto(e.target) });
       aviso('Servidor do WhatsApp salvo.');
+      paginaConfiguracoes();
     } catch (err) { aviso(err.message, true); }
   };
+  $('#remover-evo')?.addEventListener('click', async () => {
+    if (!(await confirmar({ titulo: 'Remover a chave global?', texto: 'As conexões que já existem continuam funcionando; só não dá mais para criar novas pelo botão.', botao: 'Remover', perigo: true }))) return;
+    try {
+      await api('config', { method: 'PUT', body: { remover: ['evolution'] } });
+      paginaConfiguracoes();
+    } catch (err) { aviso(err.message, true); }
+  });
   $$('form[data-provedor]').forEach((f) => {
     const provedor = f.dataset.provedor;
     const recarregar = async () => {
@@ -1892,6 +2018,7 @@ async function rotear() {
 async function iniciar() {
   ajustarBotaoTema();
   $('#tema').onclick = alternarTema;
+  $('#tema-menu').onchange = alternarTema;
   $('#abrir-menu').onclick = () => document.body.classList.add('menu-aberto');
   $('#cortina').onclick = fecharMenu;
   try {

@@ -22,6 +22,8 @@ module.exports = {
   // WhatsApp (Evolution API) onde ficam as instâncias das empresas. A empresa
   // só informa a Session ID (nome da instância) e a API Key dela. O admin pode
   // trocar este endereço pelo painel (Configurações do sistema).
+  // chave global da Evolution: com ela o CRM cria as instâncias sozinho
+  evolutionApiKey: (process.env.EVOLUTION_API_KEY || '').trim(),
   evolutionUrlPadrao: (process.env.EVOLUTION_API_URL || 'https://api.evolutiondingdong.online').replace(/\/+$/, ''),
   // espera o cliente parar de digitar antes de a IA responder no WhatsApp
   whatsappEsperaMs: Number(process.env.WHATSAPP_ESPERA_MS) || 6000,
