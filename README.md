@@ -69,10 +69,12 @@ sistema** (endereço da Evolution API e chave de IA padrão opcional).
 Igual ao DingDong Tracking: **o CRM cria a conexão sozinho na nossa Evolution
 API**.
 
-1. Uma vez só, o admin cola a **chave global** da Evolution
-   (`AUTHENTICATION_API_KEY` do servidor — a mesma `EVOLUTION_API_KEY` do
-   tracker) em **Configurações do sistema** (ou em `EVOLUTION_API_KEY` no
-   `.env`). O endereço padrão é `https://api.evolutiondingdong.online`.
+1. A **chave global** da Evolution (`AUTHENTICATION_API_KEY` do servidor — a
+   mesma `EVOLUTION_API_KEY` do tracker) vem sozinha: no deploy, se o `.env`
+   do CRM não tiver, o script **lê** (sem alterar) o `.env` do DingDong
+   Tracking (`/var/www/dingdong/.env`) e copia a chave e o endereço. Também
+   dá para colar em **Configurações do sistema** ou direto na tela do
+   WhatsApp (admin). O CRM confere a chave antes de salvar.
 2. Na tela **IA do WhatsApp**, o cliente clica em **Gerar QR code**. O CRM
    cria a instância `crm-<nome-da-empresa>-<id>` (`POST /instance/create`), já
    com o webhook do CRM, e mostra o QR code — que se renova sozinho. Sem
@@ -82,10 +84,8 @@ API**.
    fica só nas configurações do servidor).
 
 Outras ações: **Trocar de número** (desconecta o aparelho e gera QR novo) e
-**Remover conexão** (apaga a instância criada pelo CRM). Quem já tem uma
-instância pode ligar informando **Session ID + API Key** ("Já tenho uma
-instância"). Se a instância já mandar as mensagens para **outro sistema**
-(ex.: o rastreador), o CRM **não troca sem perguntar**.
+**Remover conexão** (apaga a instância criada pelo CRM). O cliente nunca
+precisa digitar Session ID nem API Key.
 
 ### Disparos em massa: cuidados contra bloqueio
 

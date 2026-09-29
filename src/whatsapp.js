@@ -35,6 +35,18 @@ function chaveGlobal() {
   return String(estado.config?.evolutionApiKey || config.evolutionApiKey || '').trim();
 }
 
+// Confere se a chave global é aceita pela Evolution (antes de salvar)
+async function testarChaveGlobal(chave, url = evolutionUrlGlobal()) {
+  try {
+    await chamar({ evolutionUrl: url, instancia: '-', apiKey: chave }, 'GET', '/instance/fetchInstances');
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) {
+      throw erro('O servidor do WhatsApp recusou essa chave. Ela precisa ser a chave GLOBAL da Evolution (a mesma EVOLUTION_API_KEY do DingDong Tracking), não a de uma instância.', 400);
+    }
+    throw err;
+  }
+}
+
 function podeCriarInstancia() {
   return Boolean(evolutionUrlGlobal() && chaveGlobal());
 }
@@ -321,6 +333,7 @@ async function criarInstancia(empresa) {
   const webhook = { url: urlWebhook(empresa), byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] };
   const admin = { evolutionUrl: url, instancia: nome, apiKey: global };
   let token = '';
+  let qrDoCreate = null;
   try {
     const r = await chamar(admin, 'POST', '/instance/create', {
       instanceName: nome,
@@ -330,7 +343,9 @@ async function criarInstancia(empresa) {
       webhook: { enabled: true, ...webhook }
     });
     token = typeof r?.hash === 'string' ? r.hash : r?.hash?.apikey || '';
+    qrDoCreate = r?.qrcode?.base64 || null;
   } catch (err) {
+    if (err.status === 401) throw erro('O servidor do WhatsApp recusou a chave global. Confira a chave em Configurações do sistema (a mesma EVOLUTION_API_KEY do DingDong Tracking).', 400);
     // já existe (criada antes por este CRM): busca o token dela
     if (!/already in use|já está em uso|exists/i.test(err.message) && err.status !== 403) throw err;
     const lista = await chamar(admin, 'GET', `/instance/fetchInstances?instanceName=${encodeURIComponent(nome)}`);
@@ -351,7 +366,10 @@ async function criarInstancia(empresa) {
   salvar();
   // garante o webhook (versões antigas ignoram o webhook no create)
   await configurarWebhook(empresa, { forcar: false });
-  return qrCode(empresa);
+  const qr = await qrCode(empresa).catch(() => ({ conectado: false, base64: null }));
+  // logo depois de criar, o connect às vezes ainda não tem o QR: usa o do create
+  if (!qr.base64 && qrDoCreate) qr.base64 = qrDoCreate;
+  return qr;
 }
 
 // Desconecta o número do WhatsApp (sai do aparelho). A instância continua e
@@ -679,6 +697,7 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 module.exports = {
   evolutionUrlGlobal,
   chaveGlobal,
+  testarChaveGlobal,
   podeCriarInstancia,
   criarInstancia,
   codigoPareamento,

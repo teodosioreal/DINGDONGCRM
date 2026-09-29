@@ -74,6 +74,28 @@ responde() {
   return 1
 }
 
+# Chave global da Evolution API (o CRM cria as conexões de WhatsApp sozinho,
+# como o DingDong Tracking). Se o .env do CRM ainda não tem, copia do .env do
+# tracker — só LÊ o arquivo do tracker, nunca altera nada nele.
+ENV_TRACKER="${ENV_TRACKER:-/var/www/dingdong/.env}"
+ler_env() { grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//'; }
+if [ -f .env ] && [ -z "$(ler_env EVOLUTION_API_KEY .env)" ] && [ -r "$ENV_TRACKER" ]; then
+  CHAVE_EVO="$(ler_env EVOLUTION_API_KEY "$ENV_TRACKER")"
+  URL_EVO="$(ler_env EVOLUTION_API_URL "$ENV_TRACKER")"
+  if [ -n "$CHAVE_EVO" ]; then
+    [ -n "$(tail -c 1 .env)" ] && echo >> .env
+    sed -i '/^EVOLUTION_API_KEY=[[:space:]]*$/d' .env
+    printf 'EVOLUTION_API_KEY=%s\n' "$CHAVE_EVO" >> .env
+    if [ -n "$URL_EVO" ] && [ -z "$(ler_env EVOLUTION_API_URL .env)" ]; then
+      sed -i '/^EVOLUTION_API_URL=[[:space:]]*$/d' .env
+      printf 'EVOLUTION_API_URL=%s\n' "$URL_EVO" >> .env
+    fi
+    echo "==> Chave global da Evolution copiada do .env do DingDong Tracking (só leitura)"
+  else
+    echo "==> Aviso: o .env do tracker não tem EVOLUTION_API_KEY; cole a chave no painel (Configurações do sistema)"
+  fi
+fi
+
 # Data/hora do deploy, mostrada no painel ("Última atualização"). Gravada antes
 # de reiniciar (o painel lê ao subir); se precisar voltar, volta a antiga junto.
 VERSAO_ANTERIOR="$(cat .ultima-atualizacao 2>/dev/null || true)"

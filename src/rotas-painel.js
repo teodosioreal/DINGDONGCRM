@@ -909,7 +909,7 @@ function situacaoChaves() {
 
 router.get('/config', auth.exigirAdmin, (req, res) => res.json(situacaoChaves()));
 
-router.put('/config', auth.exigirAdmin, (req, res) => {
+router.put('/config', auth.exigirAdmin, async (req, res) => {
   estado.config = estado.config || {};
   const campos = { anthropic: 'anthropicApiKey', gemini: 'geminiApiKey' };
   for (const [provedor, campo] of Object.entries(campos)) {
@@ -918,7 +918,15 @@ router.put('/config', auth.exigirAdmin, (req, res) => {
     if ((req.body?.remover || []).includes(provedor)) delete estado.config[campo];
   }
   const chaveEvo = texto(req.body?.evolutionApiKey, 300);
-  if (chaveEvo) estado.config.evolutionApiKey = chaveEvo;
+  if (chaveEvo) {
+    const urlNova = texto(req.body?.evolutionUrl, 300).replace(/\/+$/, '') || whatsapp.evolutionUrlGlobal();
+    try {
+      await whatsapp.testarChaveGlobal(chaveEvo, urlNova);
+    } catch (err) {
+      return res.status(400).json({ erro: err.message });
+    }
+    estado.config.evolutionApiKey = chaveEvo;
+  }
   if ((req.body?.remover || []).includes('evolution')) delete estado.config.evolutionApiKey;
   if (req.body?.evolutionUrl !== undefined) {
     const url = texto(req.body.evolutionUrl, 300).replace(/\/+$/, '');

@@ -705,45 +705,42 @@ async function paginaWhatsapp(id) {
   const p = w.perfil || {};
   const online = p.estado === 'open';
 
-  const formManual = (aberto) => `
-    <details class="secao-avancada" ${aberto ? 'open' : ''}>
-      <summary>Já tenho uma instância na Evolution (Session ID + API Key)</summary>
-      <form id="f-conectar">
-        <div class="campos">
-          <div class="campo"><label>Session ID ${ajuda('O nome da instância na Evolution. Ex.: "minha-empresa".')}</label><input name="sessionId" required autocomplete="off" placeholder="ex.: minha-empresa"></div>
-          <div class="campo"><label>API Key ${ajuda('O token da instância. Fica guardado só no servidor.')}</label><input name="apiKey" type="password" required autocomplete="off" placeholder="cole a API Key"></div>
-        </div>
-        <div id="manual-erro"></div>
-        <div class="acoes"><button type="submit">Conectar esta instância</button></div>
-      </form>
-    </details>`;
-
   const areaQr = `
     <div id="zap-qr-area" class="qr-area"></div>`;
 
   let conexao;
   if (!w.configurado) {
-    conexao = w.podeCriar
-      ? `
+    const comoConectar = passos([
+      'Clique em <b>Gerar QR code</b> — o CRM cria a conexão sozinho no nosso servidor do WhatsApp.',
+      'No celular da empresa, abra o WhatsApp e toque em <b>⋮ (ou Configurações) → Aparelhos conectados → Conectar um aparelho</b>.',
+      'Aponte a câmera para o QR code. <b>Pronto!</b> Esta tela percebe sozinha quando conectar.'
+    ]);
+    if (w.podeCriar) {
+      conexao = `
       <div class="card">
         <h2>1. Conecte o WhatsApp da empresa</h2>
-        ${passos([
-          'Clique em <b>Gerar QR code</b> — o CRM cria a conexão sozinho.',
-          'No celular da empresa, abra o WhatsApp e toque em <b>⋮ (ou Configurações) → Aparelhos conectados → Conectar um aparelho</b>.',
-          'Aponte a câmera para o QR code. <b>Pronto!</b> Esta tela percebe sozinha quando conectar.'
-        ])}
+        ${comoConectar}
         <div class="acoes"><button type="button" class="primario grande-botao" id="zap-criar" style="max-width:320px">Gerar QR code</button></div>
         ${areaQr}
-        ${formManual(false)}
-      </div>`
-      : `
+      </div>`;
+    } else if (ehAdmin()) {
+      // falta a chave global: o admin cola aqui mesmo e já gera o QR code
+      conexao = `
+      <div class="card" id="f-chave-global">
+        <h2>1. Conecte o WhatsApp da empresa</h2>
+        ${balao('Só uma vez: a chave global da Evolution API', 'É a mesma <code>EVOLUTION_API_KEY</code> do DingDong Tracking (a <code>AUTHENTICATION_API_KEY</code> do servidor da Evolution). Com ela o CRM cria a conexão de cada empresa sozinho. Fica guardada só no servidor e vale para todas as empresas.', 'aviso')}
+        <div class="campo"><label>Chave global da Evolution API</label><input id="chave-global" type="password" autocomplete="off" placeholder="cole a chave global"></div>
+        <div id="chave-global-erro"></div>
+        <div class="acoes"><button type="button" class="primario" id="salvar-chave-global">Salvar e gerar QR code</button></div>
+        ${areaQr}
+      </div>`;
+    } else {
+      conexao = `
       <div class="card">
         <h2>1. Conecte o WhatsApp da empresa</h2>
-        ${ehAdmin()
-          ? balao('Falta a chave global da Evolution API', 'Com ela o CRM cria a conexão sozinho e o cliente só escaneia o QR code. <a href="#/configuracoes">Cadastrar em Configurações do sistema</a>', 'aviso')
-          : balao('Conexão automática ainda não liberada', 'Peça ao administrador para liberar, ou conecte uma instância que você já tem, abaixo.', 'aviso')}
-        ${formManual(true)}
+        ${balao('Conexão ainda não liberada', 'O administrador do sistema precisa ativar a conexão automática. Assim que ativar, aqui aparece o botão "Gerar QR code".', 'aviso')}
       </div>`;
+    }
   } else if (!online) {
     conexao = `
       <div class="card">
@@ -856,7 +853,8 @@ async function paginaWhatsapp(id) {
       try {
         const s = await api(`empresas/${id}/whatsapp/situacao`, { method: 'POST' });
         if (s.conectado) return conectou();
-        if (!pararQr && Date.now() - ultimoQr > 30000) {
+        const semImagem = !document.querySelector('#zap-qr-area img.qr');
+        if (!pararQr && (semImagem || Date.now() - ultimoQr > 30000)) {
           ultimoQr = Date.now();
           mostrarQr(await api(`empresas/${id}/whatsapp/qrcode`, { method: 'POST' }));
         }
@@ -888,6 +886,25 @@ async function paginaWhatsapp(id) {
     }
   });
   if (w.configurado && !online) pedirQr();
+
+  $('#salvar-chave-global')?.addEventListener('click', async (e) => {
+    const botao = e.currentTarget;
+    const chave = $('#chave-global').value.trim();
+    if (!chave) return aviso('Cole a chave global.', true);
+    $('#chave-global-erro').innerHTML = '';
+    try {
+      const r = await comEspera(botao, async () => {
+        await api('config', { method: 'PUT', body: { evolutionApiKey: chave } });
+        return api(`empresas/${id}/whatsapp/criar`, { method: 'POST' });
+      }, 'Criando conexão…');
+      botao.closest('.acoes').hidden = true;
+      mostrarQr(r);
+      acompanhar();
+    } catch (err) {
+      if (err.status === 409) return tratarConflito(err, () => recarregar());
+      $('#chave-global-erro').innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(/não conferem|Unauthorized|401/i.test(err.message) ? 'A Evolution recusou essa chave. Confira se é a chave GLOBAL do servidor (a mesma EVOLUTION_API_KEY do DingDong Tracking).' : err.message)}</p>`;
+    }
+  });
 
   $('#ligar-zap').onchange = async (e) => {
     try {
@@ -922,10 +939,6 @@ async function paginaWhatsapp(id) {
       else aviso(err.message, true);
     }
   }
-  $('#f-conectar')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    conectarManual(formParaObjeto(e.target), e.target.querySelector('button[type=submit]'), $('#manual-erro'));
-  });
 
   $('#zap-atualizar')?.addEventListener('click', (e) => comEspera(e.target, async () => {
     try {
