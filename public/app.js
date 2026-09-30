@@ -2093,7 +2093,7 @@ async function paginaLeads(id, params) {
     $('#lote-etiqueta').onchange = (e) => e.target.value && lote({ adicionarEtiqueta: e.target.value }, 'Etiqueta colocada.');
     $('#lote-apagar').onclick = async () => {
       const n = selecionados().length;
-      if (await confirmar({ titulo: `Apagar ${n} lead${n === 1 ? '' : 's'}?`, texto: 'Apaga também as conversas. Não dá para desfazer.', botao: 'Apagar', perigo: true })) lote({ apagar: true }, 'Leads apagados.');
+      if (await confirmar({ titulo: `Apagar ${n} lead${n === 1 ? '' : 's'}?`, texto: 'Os leads e as conversas vão para a Lixeira (Conversas → 🗑️) e podem ser restaurados por 30 dias.', botao: 'Apagar', perigo: true })) lote({ apagar: true }, 'Leads na lixeira (30 dias para restaurar).');
     };
     $('#lote-disparar').onclick = () => {
       sessionStorage.setItem('disparo_leads', JSON.stringify(selecionados()));
@@ -2255,9 +2255,10 @@ async function paginaLead(leadId) {
   $('#salvar-lead').onclick = () => atualizar({ nome: $('#nome').value, anotacoes: $('#anotacoes').value, ...($('#telefone') ? { telefone: $('#telefone').value } : {}) }, 'Lead salvo.');
   $('#alternar-ia').onclick = () => atualizar({ iaPausada: !l.iaPausada }, l.iaPausada ? 'A IA voltou a responder este lead.' : 'IA pausada neste lead.');
   $('#apagar-lead').onclick = async () => {
-    if (!(await confirmar({ titulo: 'Apagar este lead?', texto: 'Apaga também todo o histórico da conversa.', botao: 'Apagar', perigo: true }))) return;
+    if (!(await confirmar({ titulo: 'Apagar este lead?', texto: 'O lead e a conversa vão para a Lixeira (em Conversas → 🗑️) e podem ser restaurados por 30 dias.', botao: 'Apagar', perigo: true }))) return;
     try {
-      await api(`leads/${leadId}`, { method: 'DELETE' });
+      await api(`leads/${leadId}`, { method: 'DELETE', body: {} });
+      aviso('Lead na lixeira (Conversas → 🗑️) por 30 dias.');
       location.hash = rotaEmpresa(l.empresaId, 'leads');
     } catch (err) { aviso(err.message, true); }
   };
@@ -2825,6 +2826,7 @@ async function paginaConversas(id, params) {
           <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
           <button type="button" class="chip-filtro" data-filtro="vendas">✅ Vendas concluídas</button>
           <button type="button" class="chip-filtro" data-filtro="arquivadas" title="Arquivadas ou apagadas no WhatsApp">🗄️</button>
+          <button type="button" class="chip-filtro" data-filtro="lixeira" title="Lixeira: conversas apagadas (dá para restaurar por 30 dias)">🗑️</button>
         </div>
         <div id="lista-conversas" class="lista-conversas"><p class="rotulo" style="padding:16px">Carregando…</p></div>
       </aside>
@@ -2833,11 +2835,74 @@ async function paginaConversas(id, params) {
       </section>
     </div>`;
 
+  function desenharLixeira(el) {
+    el.innerHTML = `
+      <div class="lixeira-topo"><span class="rotulo">🗑️ Ficam aqui por 30 dias e depois somem de vez. O WhatsApp do celular não é mexido.</span>${lista.length ? '<button type="button" class="pequeno perigo" id="esvaziar-lixeira">Esvaziar lixeira</button>' : ''}</div>
+      ${lista.length ? lista.map((c) => `
+        <div class="item-conversa item-lixeira">
+          ${avatarLead(c)}
+          <span class="item-meio">
+            <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">apagada ${horaCurta(c.apagadaEm)}</span></span>
+            <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? esc(c.ultimaMensagem.texto) : ''}</span></span>
+            <span class="item-linha item-tags"><span class="etiqueta off">some em ${c.diasRestantes} ${c.diasRestantes === 1 ? 'dia' : 'dias'}</span><span class="acoes-lixeira"><button type="button" class="pequeno" data-restaurar="${esc(c.id)}">↩️ Restaurar</button><button type="button" class="pequeno perigo" data-apagar-vez="${esc(c.id)}">Apagar de vez</button></span></span>
+          </span>
+        </div>`).join('') : '<p class="rotulo" style="padding:16px">A lixeira está vazia.</p>'}`;
+    $$('[data-restaurar]', el).forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await comEspera(b, () => api(`lixeira/${b.dataset.restaurar}/restaurar`, { method: 'POST', body: {} }));
+          aviso('Conversa restaurada.');
+          carregarLista();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-apagar-vez]', el).forEach((b) => {
+      b.onclick = async () => {
+        if (!(await confirmar({ titulo: 'Apagar de vez?', texto: 'A conversa, as fotos, áudios e arquivos dela somem para sempre. As vendas continuam no Faturamento.', botao: 'Apagar de vez', perigo: true }))) return;
+        try {
+          await api(`lixeira/${b.dataset.apagarVez}`, { method: 'DELETE', body: {} });
+          aviso('Apagada para sempre.');
+          carregarLista();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $('#esvaziar-lixeira')?.addEventListener('click', async () => {
+      if (!(await confirmar({ titulo: 'Esvaziar a lixeira?', texto: `${lista.length} ${lista.length === 1 ? 'conversa some' : 'conversas somem'} para sempre, com fotos, áudios e arquivos. As vendas continuam no Faturamento.`, botao: 'Esvaziar', perigo: true }))) return;
+      try {
+        await api(`empresas/${id}/lixeira`, { method: 'DELETE', body: {} });
+        aviso('Lixeira esvaziada.');
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
+  }
+
+  // 🗑️ manda a conversa para a lixeira (com confirmação)
+  async function apagarConversa(leadId) {
+    const c = lista.find((x) => x.id === leadId) || leadAberto;
+    if (!(await confirmar({ titulo: 'Apagar esta conversa?', texto: `A conversa com ${nomeDoLead(c || {})} vai para a Lixeira (🗑️) e pode ser restaurada por 30 dias. Mensagens agendadas para ela são canceladas. O WhatsApp do celular não é mexido.`, botao: 'Apagar', perigo: true }))) return;
+    try {
+      await api(`leads/${leadId}`, { method: 'DELETE', body: {} });
+      aviso('Conversa na lixeira.');
+      if (abertoId === leadId) {
+        abertoId = '';
+        leadAberto = null;
+        $('#inbox')?.classList.remove('com-chat');
+        history.replaceState(null, '', rotaEmpresa(id, 'conversas'));
+        const area = $('#inbox-chat');
+        if (area) area.innerHTML = `<div class="inbox-vazio">${ICONES.leads}<p><b>Conversa apagada</b><br><span class="rotulo">Está na Lixeira (🗑️) por 30 dias.</span></p></div>`;
+      }
+      carregarLista();
+    } catch (err) { aviso(err.message, true); }
+  }
+
   function desenharLista() {
     const el = $('#lista-conversas');
     if (!el) return;
+    if (filtro === 'lixeira') return desenharLixeira(el);
     el.innerHTML = lista.length
       ? lista.map((c) => `
+        <div class="item-conversa-caixa">
+        <button type="button" class="apagar-conversa" data-apagar-conversa="${esc(c.id)}" title="Apagar conversa" aria-label="Apagar conversa">🗑️</button>
         <button type="button" class="item-conversa ${c.id === abertoId ? 'ativo' : ''}" data-lead="${esc(c.id)}">
           ${avatarLead(c)}
           <span class="item-meio">
@@ -2845,14 +2910,21 @@ async function paginaConversas(id, params) {
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
             <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
-        </button>`).join('')
+        </button>
+        </div>`).join('')
       : `<p class="rotulo" style="padding:16px">${busca || filtro !== 'todas' ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
     $$('.item-conversa', el).forEach((b) => { b.onclick = () => abrir(b.dataset.lead); });
+    $$('[data-apagar-conversa]', el).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); apagarConversa(b.dataset.apagarConversa); }; });
     ligarRelogio();
   }
 
   async function carregarLista() {
-    lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca })}`);
+    if (filtro === 'lixeira') {
+      const b = busca.toLowerCase();
+      lista = (await api(`empresas/${id}/lixeira`)).filter((c) => !b || [c.nome, c.telefone, c.ultimaMensagem?.texto].join(' ').toLowerCase().includes(b));
+    } else {
+      lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca })}`);
+    }
     desenharLista();
   }
 
@@ -2868,6 +2940,7 @@ async function paginaConversas(id, params) {
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
         <button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
+        <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button>
       </header>
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
@@ -2942,6 +3015,7 @@ async function paginaConversas(id, params) {
   }
 
   function ligarChat() {
+    $('#chat-apagar')?.addEventListener('click', () => apagarConversa(abertoId));
     $('#chat-arquivar')?.addEventListener('click', async (e) => {
       const arquivar = !leadAberto.arquivado;
       try {

@@ -93,6 +93,7 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/alertas').iniciar();
   require('./src/backup').iniciar();
   require('./src/fotos-clientes').iniciar();
+  require('./src/lixeira').iniciar();
   // vídeos que ficaram no meio da conversão (ou ainda não conferidos) voltam para a fila
   setTimeout(() => {
     try {

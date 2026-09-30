@@ -14,6 +14,7 @@ const origem = require('./origem');
 const siteEmpresa = require('./site');
 const tickets = require('./tickets');
 const fotosClientes = require('./fotos-clientes');
+const lixeira = require('./lixeira');
 const alertas = require('./alertas');
 const backup = require('./backup');
 const midias = require('./midias');
@@ -845,6 +846,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
   estado.conversas = estado.conversas.filter((c) => c.empresaId !== id);
+  lixeira.esvaziar(id);
   for (const botId of botsRemovidos) delete estado.uso[botId];
   const usuariosRemovidos = new Set(estado.usuarios.filter((u) => u.empresaId === id).map((u) => u.id));
   estado.usuarios = estado.usuarios.filter((u) => u.empresaId !== id);
@@ -1119,8 +1121,7 @@ router.post('/empresas/:id/leads/lote', (req, res) => {
   if (!alvo.length) return res.status(400).json({ erro: 'Selecione pelo menos um lead.' });
   const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
   if (b.apagar === true) {
-    for (const c of alvo) whatsapp.cancelarResposta(c.id);
-    estado.conversas = estado.conversas.filter((c) => !(c.empresaId === empresa.id && ids.has(c.id)));
+    for (const c of alvo) lixeira.moverParaLixeira(c, req.usuario?.email || ''); // restaurável por 30 dias
   } else {
     for (const c of alvo) {
       if (b.etapa) leads.moverEtapa(c, empresa, b.etapa, 'equipe');
@@ -1272,14 +1273,56 @@ router.post('/leads/:id/mensagem', async (req, res) => {
   }
 });
 
+// Apagar conversa/lead: vai para a Lixeira (30 dias para restaurar)
 router.delete('/leads/:id', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
-  whatsapp.cancelarResposta(c.id);
-  midias.apagarAnexosDoLead(c.id);
-  estado.conversas = estado.conversas.filter((x) => x.id !== c.id);
-  salvar();
+  lixeira.moverParaLixeira(c, req.usuario?.email || '');
+  res.json({ ok: true, lixeira: true, dias: lixeira.DIAS });
+});
+
+// ---------------------------------------------------------------- lixeira
+function acharNaLixeira(req, res) {
+  const c = lixeira.acharNaLixeira(req.params.id);
+  if (!c || !podeVerEmpresa(req, c.empresaId)) {
+    res.status(404).json({ erro: 'Conversa não está na lixeira.' });
+    return null;
+  }
+  return c;
+}
+
+router.get('/empresas/:id/lixeira', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(
+    lixeira.daEmpresa(empresa.id).map((c) => ({
+      ...resumoLead(c),
+      ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm,
+      apagadaEm: c.naLixeira?.em,
+      apagadaPor: c.naLixeira?.por || '',
+      diasRestantes: lixeira.diasRestantes(c)
+    }))
+  );
+});
+
+router.post('/lixeira/:id/restaurar', (req, res) => {
+  const c = acharNaLixeira(req, res);
+  if (!c) return;
+  lixeira.restaurar(c);
+  res.json(resumoLead(c));
+});
+
+router.delete('/lixeira/:id', (req, res) => {
+  const c = acharNaLixeira(req, res);
+  if (!c) return;
+  lixeira.apagarDeVez(c);
   res.json({ ok: true });
+});
+
+router.delete('/empresas/:id/lixeira', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ apagadas: lixeira.esvaziar(empresa.id) });
 });
 
 

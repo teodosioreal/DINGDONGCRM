@@ -200,6 +200,17 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
   pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
 
+### Lixeira de conversas
+
+- Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat.
+  A conversa vai para a **Lixeira** (filtro 🗑️ em Conversas): some das Conversas,
+  do funil, das automações, dos disparos e da IA; mensagens agendadas para ela são
+  canceladas. Dá para **Restaurar** por 30 dias; depois é apagada de vez (com fotos,
+  áudios e arquivos). Também há "Apagar de vez" e "Esvaziar lixeira".
+- "Apagar lead" (perfil e ações em massa) também vai para a Lixeira.
+- As vendas continuam no Faturamento. O WhatsApp do celular não é mexido (a Evolution
+  não apaga conversa do celular). Se o cliente escrever de novo, começa conversa nova.
+
 ### Apagar mensagens
 
 - Em cada balão da conversa (Conversas e perfil do lead) há o botão **⌄** →
