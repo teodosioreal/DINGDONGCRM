@@ -573,6 +573,7 @@ module.exports = {
   apagarPasta,
   salvarAnexo,
   caminhoAnexo,
+  pastaAnexosDoLead: pastaAnexos,
   apagarAnexosDoLead,
   mimeDe,
   midiasDa,

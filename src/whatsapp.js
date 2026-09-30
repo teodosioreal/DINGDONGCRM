@@ -702,6 +702,7 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
+    require('./fotos-clientes').agendar(lead); // foto de perfil do cliente (se ainda não tem ou está velha)
     // cliente mandou mensagem de novo: a conversa volta para a lista
     if (lead.arquivado) {
       lead.arquivado = false;
@@ -1128,6 +1129,7 @@ module.exports = {
   sairDoNumero,
   configDa,
   configurado,
+  evolution,
   urlWebhook,
   garantirSegredo,
   situacao,

@@ -1973,7 +1973,7 @@ function cartaoLead(l, etiquetas) {
   const ultima = l.ultimaMensagem ? `${l.ultimaMensagem.papel === 'visitante' ? '' : l.ultimaMensagem.papel === 'equipe' ? 'Equipe: ' : 'IA: '}${l.ultimaMensagem.texto}` : '';
   return `
     <a class="cartao-lead" href="#/leads/${esc(l.id)}" draggable="true" data-lead="${esc(l.id)}">
-      <span class="cartao-topo"><strong>${esc(nomeDoLead(l))}</strong>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
+      <span class="cartao-topo"><span class="cartao-quem">${avatarLead(l, 'mini')}<strong>${esc(nomeDoLead(l))}</strong></span>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
       ${l.etiquetas?.length ? `<span class="chips">${chipsDoLead(l, etiquetas)}</span>` : ''}
       <span class="rotulo cartao-texto">${esc(ultima)}</span>
       <span class="cartao-rodape">
@@ -2065,7 +2065,7 @@ async function paginaLeads(id, params) {
             ${lista.map((l) => `
               <tr>
                 <td><input type="checkbox" class="sel" value="${esc(l.id)}" aria-label="Selecionar"></td>
-                <td><a href="#/leads/${esc(l.id)}"><strong>${esc(nomeDoLead(l))}</strong></a>${l.telefone && l.nome ? `<br><span class="rotulo">${esc(telefoneBonito(l.telefone))}</span>` : ''}${l.precisaHumano ? ' <span class="etiqueta off">chamou a equipe</span>' : ''}</td>
+                <td><div class="celula-lead">${avatarLead(l, 'mini')}<div><a href="#/leads/${esc(l.id)}"><strong>${esc(nomeDoLead(l))}</strong></a>${l.telefone && l.nome ? `<br><span class="rotulo">${esc(telefoneBonito(l.telefone))}</span>` : ''}${l.precisaHumano ? ' <span class="etiqueta off">chamou a equipe</span>' : ''}</div></div></td>
                 <td class="esconde-mobile"><span class="chips">${chipsDoLead(l, etiquetas) || '<span class="rotulo">—</span>'}</span></td>
                 <td>${esc(l.etapa)}</td>
                 <td class="esconde-mobile">${l.canais.map((c) => ROTULO_CANAL[c] || c).join(' ')}</td>
@@ -2174,7 +2174,7 @@ async function paginaLead(leadId) {
   const etiquetasLead = new Set(l.etiquetas);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
+    <div class="cabecalho"><div class="lead-quem">${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l, 'grande')}</a>` : avatarLead(l, 'grande')}<div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}${l.noWhatsapp ? ` · <button type="button" class="link-botao" id="atualizar-foto" title="Buscar a foto de perfil do WhatsApp de novo">🔄 ${l.fotoUrl ? 'atualizar foto' : 'buscar foto'}</button>` : ''}</p></div></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
@@ -2220,6 +2220,19 @@ async function paginaLead(leadId) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
+  $('#atualizar-foto')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = '⏳ buscando…';
+    try {
+      const r = await api(`leads/${leadId}/foto/atualizar`, { method: 'POST', body: {} });
+      aviso(r.temFoto ? 'Foto atualizada.' : 'Este cliente não tem foto no WhatsApp (ou esconde pela privacidade).');
+      paginaLead(leadId);
+    } catch (err) {
+      aviso(err.message, true);
+      e.target.disabled = false;
+      e.target.textContent = '🔄 buscar foto';
+    }
+  });
   $('#registrar-venda').onclick = () => modalVenda({ id: l.empresaId }, null, l.id, () => paginaLead(leadId), { cliente: l.nome });
   $('#marcar-agendamento').onclick = () => modalAgendamento(l.id, () => paginaLead(leadId));
   ligarPedidos(conteudo, l, () => paginaLead(leadId));
@@ -2744,6 +2757,13 @@ function inicial(nome) {
   return esc((String(nome || '').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
 }
 
+// Foto de perfil do WhatsApp do cliente (ou a inicial, se ele não tem/esconde a foto)
+function avatarLead(l, classe = '') {
+  const letra = inicial(nomeDoLead(l));
+  if (!l?.fotoUrl) return `<span class="avatar ${classe}">${letra}</span>`;
+  return `<span class="avatar ${classe}"><img src="${esc(l.fotoUrl)}" alt="" loading="lazy" onerror="this.remove()"><span class="avatar-letra">${letra}</span></span>`;
+}
+
 async function paginaConversas(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -2782,7 +2802,7 @@ async function paginaConversas(id, params) {
     el.innerHTML = lista.length
       ? lista.map((c) => `
         <button type="button" class="item-conversa ${c.id === abertoId ? 'ativo' : ''}" data-lead="${esc(c.id)}">
-          <span class="avatar">${inicial(nomeDoLead(c))}</span>
+          ${avatarLead(c)}
           <span class="item-meio">
             <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
@@ -2806,7 +2826,7 @@ async function paginaConversas(id, params) {
     area.innerHTML = `
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
-        <span class="avatar">${inicial(nomeDoLead(l))}</span>
+        ${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l)}</a>` : avatarLead(l)}
         <div class="chat-quem"><strong>${esc(nomeDoLead(l))}</strong><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'} · <a href="#/leads/${esc(l.id)}">ver lead</a></span></div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}

@@ -13,6 +13,7 @@ const whatsapp = require('./whatsapp');
 const origem = require('./origem');
 const siteEmpresa = require('./site');
 const tickets = require('./tickets');
+const fotosClientes = require('./fotos-clientes');
 const alertas = require('./alertas');
 const backup = require('./backup');
 const midias = require('./midias');
@@ -1025,6 +1026,7 @@ function resumoLead(c) {
     etapa: c.etapa,
     nome: c.nome || '',
     telefone: c.telefone || '',
+    fotoUrl: fotosClientes.urlDaFoto(c),
     origem: c.origem || 'site',
     canais,
     noWhatsapp: Boolean(c.whatsappJid),
@@ -1139,6 +1141,7 @@ router.get('/leads/:id', (req, res) => {
   const { whatsappJid, origemSite, ...resto } = c;
   res.json({
     ...resto,
+    fotoUrl: fotosClientes.urlDaFoto(c),
     origemSite: origem.resumoOrigem(c, empresa),
     pedidos: automacoes.pedidosFeitos(c, empresa),
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
@@ -1319,6 +1322,28 @@ router.post('/leads/:id/lido', (req, res) => {
     salvar();
   }
   res.json({ ok: true });
+});
+
+// Foto de perfil do WhatsApp do cliente — só com login
+router.get('/leads/:id/foto', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  if (!fotosClientes.temFoto(c)) return res.sendStatus(404);
+  res.type('image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=604800'); // o endereço muda quando a foto muda
+  res.sendFile(fotosClientes.caminhoDaFoto(c), (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
+// Buscar a foto de novo agora (botão no perfil do lead)
+router.post('/leads/:id/foto/atualizar', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  if (!c.whatsappJid) return res.status(400).json({ erro: 'Este lead ainda não conversou pelo WhatsApp.' });
+  const r = await fotosClientes.buscar(c);
+  if (!r.ok) return res.status(502).json({ erro: `Não consegui buscar a foto: ${r.motivo}` });
+  res.json({ temFoto: r.temFoto, fotoUrl: fotosClientes.urlDaFoto(c) });
 });
 
 // Arquivo que o cliente mandou (ou a equipe) — só com login

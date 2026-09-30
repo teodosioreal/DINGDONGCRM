@@ -200,6 +200,15 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
   pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
 
+### Foto de perfil dos clientes
+
+- A foto do WhatsApp de cada cliente aparece nas Conversas, no funil, na lista e
+  no perfil do lead (quem não tem foto ou esconde pela privacidade fica com a inicial).
+- O CRM busca a foto quando o cliente manda mensagem e numa varredura a cada 6 h
+  (clientes dos últimos 60 dias), uma por vez. Guarda uma cópia (o link do WhatsApp
+  expira) junto com os anexos do lead — só abre com login. Renova a cada 7 dias;
+  no perfil do lead há o botão "atualizar foto".
+
 ### Ritmo, avisos e blindagem
 
 - Ritmo da IA no WhatsApp: **rápido / humanizado / mais lento** e espera extra na

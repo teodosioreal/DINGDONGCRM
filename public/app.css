@@ -587,6 +587,17 @@ html.dark .automacao.ligada { border-color: #166534; }
 @media (max-width: 768px) { .linha-link { grid-template-columns: 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--borda); } }
 
 /* ---------- logo / avatar da empresa ---------- */
+/* foto de perfil do cliente (WhatsApp); a inicial fica por baixo se a foto não carregar */
+.avatar { position: relative; overflow: hidden; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.avatar.grande { width: 64px; height: 64px; font-size: 26px; }
+.avatar.mini { width: 24px; height: 24px; font-size: 11px; }
+a > .avatar { display: grid; }
+.lead-quem { display: flex; align-items: center; gap: 14px; }
+.lead-quem h1 { margin: 0; }
+.celula-lead { display: flex; align-items: center; gap: 10px; }
+.celula-lead .avatar.mini { width: 32px; height: 32px; font-size: 13px; }
+.cartao-quem { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .avatar-empresa { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; flex-shrink: 0; display: inline-grid; place-items: center; color: #fff; font-weight: 700; font-size: 12px; background: var(--hover); }
 .avatar-empresa.grande { width: 56px; height: 56px; border-radius: 14px; font-size: 20px; }
 .empresa-menu { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 600; background: var(--hover); flex-shrink: 0; }
