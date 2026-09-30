@@ -829,6 +829,7 @@ async function responderLead(empresaId, leadId) {
     r = await ia.responder(bot, empresa, lead.mensagens, {
       canal: 'whatsapp',
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
+      tickets: require('./tickets').paraIa(lead),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),
@@ -851,6 +852,12 @@ async function responderLead(empresaId, leadId) {
   }
   await enviarMidiasPedidas(empresa, lead, r.midias);
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
+  // venda/agendamento confirmados → aviso na conversa (e venda no Faturamento)
+  try {
+    require('./tickets').aplicarDaIa(empresa, lead, r);
+  } catch (err) {
+    console.error(`[whatsapp ${lead.id}] venda/agendamento:`, err.message);
+  }
   for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
   if (r.humano) {
     lead.iaPausada = true;

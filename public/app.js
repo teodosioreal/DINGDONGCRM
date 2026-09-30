@@ -1812,12 +1812,12 @@ async function paginaLead(leadId) {
   const etiquetasLead = new Set(l.etiquetas);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
+    <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
         <div class="conversa" id="linha-tempo">
-          ${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens ainda.</p>'}
+          ${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens ainda.</p>'}
         </div>
         ${l.podeReceber ? `
         <form class="card" id="f-responder" style="margin-top:12px">
@@ -1857,6 +1857,8 @@ async function paginaLead(leadId) {
   };
   $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
   $('#registrar-venda').onclick = () => modalVenda({ id: l.empresaId }, null, l.id, () => paginaLead(leadId), { cliente: l.nome });
+  $('#marcar-agendamento').onclick = () => modalAgendamento(l.id, () => paginaLead(leadId));
+  ligarCancelarAgendamento(conteudo, l.id, () => paginaLead(leadId));
   $$('[data-tag]').forEach((b) => {
     b.onclick = () => {
       if (etiquetasLead.has(b.dataset.tag)) etiquetasLead.delete(b.dataset.tag);
@@ -2180,21 +2182,99 @@ function htmlMensagem(m, leadId, anterior) {
 }
 
 // A conversa inteira, com o separador de dia do WhatsApp
-function htmlConversa(mensagens, leadId) {
+// "sáb. 03/10 às 09:00" — agendamentos sempre no horário de Brasília
+function quandoBrasilia(iso, comDia = true) {
+  const d = new Date(iso);
+  const f = (o) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', ...o });
+  return `${comDia ? `${f({ weekday: 'short' })} ` : ''}${f({ day: '2-digit', month: '2-digit' })} às ${f({ hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// Aviso no meio da conversa: VENDA CONCLUÍDA ou AGENDADO
+function htmlTicket(t) {
+  const quando = (iso) => quandoBrasilia(iso);
+  const hora = new Date(t.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (t.tipo === 'venda') {
+    const quem = t.origem === 'ia' ? 'entendida pela IA' : t.origem === 'comprovante' ? `comprovante ${esc(t.forma || 'Pix')}` : 'registrada pela equipe';
+    return `<div class="wa-ticket venda${t.status === 'conferir' ? ' conferir' : ''}" role="note">
+      <span class="ticket-icone" aria-hidden="true">✅</span>
+      <div class="ticket-corpo"><b>VENDA CONCLUÍDA</b><span class="ticket-info">${t.valor ? brl(t.valor) : 'valor a informar'}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
+      <small>${quem} · ${hora}${t.status === 'conferir' ? ' · <span class="ticket-conferir">a conferir no Faturamento</span>' : ''}</small></div>
+    </div>`;
+  }
+  const cancelado = t.status === 'cancelado';
+  return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
+    <span class="ticket-icone" aria-hidden="true">📅</span>
+    <div class="ticket-corpo"><b>${cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO'}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
+    <small>${t.por === 'ia' ? 'marcado pela IA' : 'marcado pela equipe'} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}">cancelar</button>`}</small></div>
+  </div>`;
+}
+
+function htmlConversa(mensagens, leadId, tickets = []) {
   let dia = '';
   let anterior = null;
   let html = '';
-  for (const m of mensagens) {
-    const d = diaDaMensagem(m.em);
+  const fila = [...(tickets || [])].sort((a, b) => (a.em < b.em ? -1 : 1));
+  const separador = (em) => {
+    const d = diaDaMensagem(em);
     if (d !== dia) {
       html += `<div class="wa-dia">${esc(d)}</div>`;
       dia = d;
       anterior = null;
     }
+  };
+  const avisosAte = (em) => {
+    while (fila.length && (!em || fila[0].em <= em)) {
+      const t = fila.shift();
+      separador(t.em);
+      html += htmlTicket(t);
+      anterior = null;
+    }
+  };
+  for (const m of mensagens) {
+    avisosAte(m.em);
+    separador(m.em);
     html += htmlMensagem(m, leadId, anterior);
     anterior = m;
   }
+  avisosAte(null);
   return html;
+}
+
+// Marcar agendamento pela equipe
+function modalAgendamento(leadId, depois) {
+  const amanha = new Date(Date.now() + 24 * 3600 * 1000);
+  amanha.setHours(9, 0, 0, 0);
+  const local = new Date(amanha.getTime() - amanha.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  abrirModal(`
+    <h2>📅 Marcar agendamento</h2>
+    <p class="rotulo" style="margin-top:-4px">Aparece como aviso na conversa. A IA também marca sozinha quando o cliente confirma dia e horário.</p>
+    <form id="f-ag">
+      <div class="campo"><label>Dia e horário</label><input type="datetime-local" name="quando" value="${local}" required></div>
+      <div class="campo" style="margin-top:10px"><label>O que foi agendado</label><input name="descricao" maxlength="200" placeholder="Ex.: Instalação do volante"></div>
+      <div class="acoes"><button class="primario" type="submit">Marcar</button><button type="button" data-fechar>Cancelar</button></div>
+    </form>`, (m, fechar) => {
+    $('#f-ag', m).onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`leads/${leadId}/agendamentos`, { method: 'POST', body: formParaObjeto(e.target) });
+        fechar();
+        aviso('Agendamento marcado.');
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
+function ligarCancelarAgendamento(raiz, leadId, depois) {
+  $$('[data-cancelar-ag]', raiz).forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'O aviso fica na conversa como cancelado.', botao: 'Cancelar agendamento', perigo: true }))) return;
+      try {
+        await api(`leads/${leadId}/agendamentos/${b.dataset.cancelarAg}`, { method: 'DELETE' });
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
 }
 
 // ---------------------------------------------------------------- empresa: conversas (estilo WhatsApp Web)
@@ -2253,7 +2333,7 @@ async function paginaConversas(id, params) {
           <span class="item-meio">
             <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
-            <span class="item-linha item-tags">${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
+            <span class="item-linha item-tags">${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
         </button>`).join('')
       : `<p class="rotulo" style="padding:16px">${busca || filtro !== 'todas' ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
@@ -2281,7 +2361,7 @@ async function paginaConversas(id, params) {
       ${linhaOrigem(l.origemSite)}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
-      <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens.</p>'}</div>
+      <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${pendentes.length ? `<div class="chat-agendadas">${pendentes.map((a) => `<span>🕒 ${esc(new Date(a.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}: ${esc(a.texto.slice(0, 60))} <button type="button" class="link-botao" data-cancelar="${esc(a.id)}">cancelar</button></span>`).join('')}</div>` : ''}
       ${l.podeReceber ? `
       <form class="chat-envio" id="chat-envio">
@@ -2291,7 +2371,9 @@ async function paginaConversas(id, params) {
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
-          <button type="button" class="pequeno" id="chat-agendar" title="Mandar mais tarde">🕒 Agendar</button>
+          <button type="button" class="pequeno" id="chat-agendar" title="Mandar uma mensagem mais tarde">🕒 Mandar depois</button>
+          <button type="button" class="pequeno" id="chat-venda" title="Marcar venda concluída">✅ Venda</button>
+          <button type="button" class="pequeno" id="chat-agendamento" title="Marcar agendamento com o cliente">📅 Agendamento</button>
         </div>
         <div class="rapida-pendente" id="rapida-pendente" hidden></div>
         <div class="chat-linha">
@@ -2311,7 +2393,7 @@ async function paginaConversas(id, params) {
     desenharLista();
     history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
     leadAberto = await api(`leads/${leadId}`);
-    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}`;
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}`;
     if (rolar) desenharChat();
     if (leadAberto.naoLidas) {
       api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
@@ -2324,7 +2406,7 @@ async function paginaConversas(id, params) {
   async function recarregarAberto() {
     if (!abertoId) return;
     const l = await api(`leads/${abertoId}`);
-    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}`;
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}`;
     if (assinatura === assinaturaAberta) return;
     // não apaga o que a pessoa está digitando
     const rascunho = $('#chat-texto')?.value || '';
@@ -2347,6 +2429,7 @@ async function paginaConversas(id, params) {
   }
 
   function ligarChat() {
+    ligarCancelarAgendamento($('#inbox-chat'), abertoId, () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); });
     $('#voltar-lista')?.addEventListener('click', () => {
       abertoId = '';
       $('#inbox').classList.remove('com-chat');
@@ -2489,6 +2572,9 @@ async function paginaConversas(id, params) {
       });
     };
     $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
+    const recarregarJa = () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); };
+    $('#chat-venda').onclick = () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome });
+    $('#chat-agendamento').onclick = () => modalAgendamento(abertoId, recarregarJa);
     $('#chat-sugerir').onclick = async (e) => {
       try {
         const r = await comEspera(e.currentTarget, () => api(`leads/${abertoId}/sugerir`, { method: 'POST', body: { pedido: campo.value.trim() } }), 'Pensando…');

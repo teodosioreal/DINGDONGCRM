@@ -8,6 +8,7 @@ const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const origem = require('./origem');
+const tickets = require('./tickets');
 const { linkWhatsapp, numeroDoAtendimento, dominioPermitido, hostDe, texto, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
@@ -141,6 +142,7 @@ router.post('/chat', async (req, res) => {
     const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
       canal: 'site',
       origem: await origem.contextoParaIa(conversa, bot, 'site', empresa),
+      tickets: tickets.paraIa(conversa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: conversa.etapa,
       etiquetas: leads.etiquetasDa(empresa)
@@ -158,6 +160,7 @@ router.post('/chat', async (req, res) => {
     });
     if (resposta.etapa) leads.moverEtapa(conversa, empresa, resposta.etapa, 'ia-site');
     for (const nome of resposta.etiquetas || []) leads.aplicarEtiqueta(conversa, empresa, nome);
+    tickets.aplicarDaIa(empresa, conversa, resposta);
     salvar();
     res.json({ conversaId: conversa.id, visitanteId: conversa.visitanteId, codigo: conversa.codigo, resposta: resposta.texto, whatsappUrl });
   } catch (err) {

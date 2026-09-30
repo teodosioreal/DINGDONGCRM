@@ -257,6 +257,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
+  const hojeSp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  partes.push(
+    '',
+    'Registrar vendas e agendamentos (a equipe vê um aviso na conversa e a venda vai para o Faturamento):',
+    `- Hoje é ${hojeSp} (horário de Brasília). Use isso para transformar "amanhã", "sábado" etc. em data.`,
+    '- Quando o cliente CONFIRMAR a compra (fechou o pedido e combinou o pagamento, ou avisou que pagou), escreva numa linha separada: [[VENDA: valor | o que ele comprou]] — ex.: [[VENDA: 350,00 | Volante em couro]]. Sem valor certo, deixe o valor vazio: [[VENDA: | Volante em couro]].',
+    '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | Instalação do volante]].',
+    '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado abaixo. Remarcou? Marque o novo horário.',
+    contexto.tickets ? `Já registrado nesta conversa:\n${contexto.tickets}` : ''
+  );
+
   if (contexto.origem) {
     partes.push(
       '',
@@ -380,6 +391,18 @@ function extrairAcoes(bruto) {
   let etapa = null;
   let humano = false;
   const etiquetas = [];
+  let venda = null;
+  let agendamento = null;
+  texto = texto.replace(/\[\[\s*VENDA\s*:?\s*([^\]]*?)\s*\]\]/gi, (_, dentro) => {
+    const [valor, ...resto] = dentro.split('|');
+    venda = { valor: (valor || '').trim(), descricao: resto.join('|').trim() };
+    return '';
+  });
+  texto = texto.replace(/\[\[\s*AGENDAMENTO\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
+    const [quando, ...resto] = dentro.split('|');
+    agendamento = { quando: (quando || '').trim(), descricao: resto.join('|').trim() };
+    return '';
+  });
   texto = texto.replace(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
     etiquetas.push(nome.trim());
     return '';
@@ -403,7 +426,7 @@ function extrairAcoes(bruto) {
     texto = texto.slice(0, marcador.index);
   }
   texto = texto.replace(/\n{3,}/g, '\n\n').trim();
-  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas };
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento };
 }
 
 /**
@@ -418,7 +441,7 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   const provedor = normalizarProvedor(bot.provedor);
 
   const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
-  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [] };
+  if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
   const r = extrairAcoes(bruto.texto);
   if (canal === 'whatsapp') r.mensagemWhatsapp = null; // já está no WhatsApp

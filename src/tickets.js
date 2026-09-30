@@ -1,0 +1,158 @@
+// tickets.js — avisos no meio da conversa: VENDA CONCLUÍDA e AGENDADO.
+//
+// A IA (site e WhatsApp) marca na resposta [[VENDA: ...]] quando o cliente
+// confirma a compra e [[AGENDAMENTO: ...]] quando confirma dia e horário. A
+// equipe também marca pelo painel, e comprovante de Pix vira venda sozinho.
+// A venda vai para o Faturamento (a da IA fica "a conferir", porque o valor
+// veio da conversa e não de um comprovante). O agendamento fica no lead.
+
+const { estado, salvar, novoId, agora } = require('./db');
+const leads = require('./leads');
+const comprovantes = require('./comprovantes');
+
+const FUSO = '-03:00'; // horário de Brasília (sem horário de verão)
+
+// "350", "R$ 1.250,90", "1250.9" → 1250.9 (ou null)
+function valorDe(v) {
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+  const n = comprovantes.paraNumero(String(v || '').replace(/[^\d.,]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// "04/10/2026 09:00", "4/10 9h", "2026-10-04T09:00" → ISO em Brasília (ou null)
+function quandoDe(v, referencia = new Date()) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/);
+  const br = s.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\D+(\d{1,2})(?:[:h](\d{2})?)?)?/i);
+  let ano, mes, dia, hora = 9, min = 0;
+  if (iso) {
+    [ano, mes, dia] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+    if (iso[4]) [hora, min] = [Number(iso[4]), Number(iso[5])];
+  } else if (br) {
+    dia = Number(br[1]);
+    mes = Number(br[2]);
+    ano = br[3] ? Number(br[3].length === 2 ? `20${br[3]}` : br[3]) : referencia.getFullYear();
+    if (br[4]) [hora, min] = [Number(br[4]), Number(br[5] || 0)];
+    // sem ano e a data já passou: é do ano que vem
+    if (!br[3] && new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}T23:59:00${FUSO}`) < referencia) ano++;
+  } else return null;
+  if (!(mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31 && hora >= 0 && hora <= 23 && min >= 0 && min <= 59)) return null;
+  const d = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}T${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}:00${FUSO}`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function acharEtapaAgendamento(empresa) {
+  return leads.etapasDa(empresa).find((e) => /agend/i.test(e)) || null;
+}
+
+// Venda entendida pela IA (ou marcada pela equipe no chat)
+function registrarVenda(empresa, lead, { valor, descricao, por = 'ia' }) {
+  const v = valorDe(valor);
+  const desc = String(descricao || '').trim().slice(0, 200);
+  // já tem venda deste cliente nas últimas 24h (ex.: comprovante): não duplica
+  const recente = (estado.vendas || []).find(
+    (x) => x.leadId === lead.id && x.status !== 'cancelada' && Date.now() - new Date(x.criadoEm).getTime() < 24 * 3600 * 1000
+  );
+  if (recente) {
+    if (!recente.descricao && desc) recente.descricao = desc;
+    if (!recente.valor && v) recente.valor = v;
+    lead.atualizadoEm = agora();
+    salvar();
+    return { venda: recente, nova: false };
+  }
+  const { venda } = comprovantes.registrar(
+    empresa,
+    lead,
+    { valor: v || 0, forma: 'Combinado na conversa', pagador: lead.nome || '' },
+    { origem: por === 'ia' ? 'ia' : 'manual', lidoPor: por === 'ia' ? 'ia-conversa' : 'manual', descricao: desc }
+  );
+  if (por === 'ia') {
+    venda.status = 'conferir';
+    venda.motivoConferir = v ? 'a IA entendeu a venda pela conversa — confira o valor' : 'a IA entendeu a venda pela conversa — coloque o valor';
+  }
+  comprovantes.aoVender(empresa, lead); // vai para "Fechado" e ganha a etiqueta "Cliente"
+  lead.atualizadoEm = agora();
+  salvar();
+  return { venda, nova: true };
+}
+
+function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) {
+  const iso = quandoDe(quando);
+  const desc = String(descricao || '').trim().slice(0, 200);
+  lead.agendamentos = Array.isArray(lead.agendamentos) ? lead.agendamentos : [];
+  // o mesmo horário de novo (ou remarcação no mesmo dia): atualiza em vez de duplicar
+  const mesmo = lead.agendamentos.find((a) => a.status !== 'cancelado' && ((iso && a.quando === iso) || (!iso && !a.quando && a.descricao === desc)));
+  if (mesmo) {
+    if (desc) mesmo.descricao = desc;
+    salvar();
+    return { agendamento: mesmo, novo: false };
+  }
+  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora() };
+  lead.agendamentos.push(ag);
+  const etapa = acharEtapaAgendamento(empresa);
+  if (etapa) {
+    const etapas = leads.etapasDa(empresa);
+    if (etapas.indexOf(lead.etapa) < etapas.indexOf(etapa)) leads.moverEtapa(lead, empresa, etapa, por === 'ia' ? 'ia-whatsapp' : 'equipe');
+  }
+  lead.atualizadoEm = agora();
+  salvar();
+  return { agendamento: ag, novo: true };
+}
+
+function cancelarAgendamento(lead, id) {
+  const ag = (lead.agendamentos || []).find((a) => a.id === id);
+  if (!ag) return null;
+  ag.status = 'cancelado';
+  ag.canceladoEm = agora();
+  lead.atualizadoEm = agora();
+  salvar();
+  return ag;
+}
+
+// Tudo o que aparece como aviso na conversa, em ordem
+function ticketsDoLead(lead) {
+  const vendas = (estado.vendas || [])
+    .filter((v) => v.leadId === lead.id && v.status !== 'cancelada')
+    .map((v) => ({ id: v.id, tipo: 'venda', em: v.criadoEm, valor: v.valor, descricao: v.descricao || '', forma: v.forma, status: v.status, origem: v.origem, lidoPor: v.lidoPor }));
+  const ags = (lead.agendamentos || []).map((a) => ({ id: a.id, tipo: 'agendamento', em: a.criadoEm, quando: a.quando, quandoTexto: a.quandoTexto, descricao: a.descricao, por: a.por, status: a.status }));
+  return [...vendas, ...ags].sort((a, b) => (a.em < b.em ? -1 : 1));
+}
+
+// Resumo curto para a lista de conversas: próximo agendamento ou última venda
+function destaqueDoLead(lead) {
+  const agora_ = Date.now();
+  const proximo = (lead.agendamentos || [])
+    .filter((a) => a.status === 'agendado' && a.quando && new Date(a.quando).getTime() > agora_ - 3600 * 1000)
+    .sort((a, b) => (a.quando < b.quando ? -1 : 1))[0];
+  if (proximo) return { tipo: 'agendamento', quando: proximo.quando };
+  const venda = (estado.vendas || []).filter((v) => v.leadId === lead.id && v.status !== 'cancelada').sort((a, b) => (a.criadoEm < b.criadoEm ? 1 : -1))[0];
+  if (venda) return { tipo: 'venda', valor: venda.valor };
+  return null;
+}
+
+// Para a IA não marcar de novo o que já está marcado
+function paraIa(lead) {
+  const t = ticketsDoLead(lead);
+  if (!t.length) return '';
+  const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return t
+    .map((x) =>
+      x.tipo === 'venda'
+        ? `- Venda já registrada${x.valor ? ` (${comprovantes.brl(x.valor)})` : ''}${x.descricao ? `: ${x.descricao}` : ''}.`
+        : x.status === 'cancelado'
+          ? `- Agendamento cancelado: ${x.quando ? fmt(x.quando) : x.quandoTexto}.`
+          : `- Agendamento já registrado: ${x.quando ? fmt(x.quando) : x.quandoTexto}${x.descricao ? ` — ${x.descricao}` : ''}.`
+    )
+    .join('\n');
+}
+
+// Aplica o que a IA marcou na resposta
+function aplicarDaIa(empresa, lead, r) {
+  const feitos = [];
+  if (r?.venda) feitos.push({ tipo: 'venda', ...registrarVenda(empresa, lead, { ...r.venda, por: 'ia' }) });
+  if (r?.agendamento) feitos.push({ tipo: 'agendamento', ...registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' }) });
+  return feitos;
+}
+
+module.exports = { valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };

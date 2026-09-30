@@ -153,6 +153,22 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Avisos na conversa: VENDA CONCLUÍDA e AGENDADO
+
+- A IA (site e WhatsApp) marca `[[VENDA: valor | o que comprou]]` quando o
+  cliente confirma a compra e `[[AGENDAMENTO: dd/mm/aaaa hh:mm | o quê]]`
+  quando confirma dia e horário (o prompt leva a data de hoje em Brasília e o
+  que já foi marcado, para não repetir). O marcador não vai para o cliente.
+- Na conversa aparece um aviso no meio do chat: **✅ VENDA CONCLUÍDA** (valor e
+  produto) ou **📅 AGENDADO** (dia, hora e o quê); na lista de conversas, o
+  próximo agendamento ou "Venda".
+- A venda da IA vai para o Faturamento como **a conferir** (o valor veio da
+  conversa), não duplica se já houver venda do cliente nas últimas 24 h (ex.:
+  comprovante de Pix) e move o lead para "Fechado". Agendamento move para a
+  etapa com "agend" no nome, se o lead estiver antes dela.
+- A equipe também marca pelos botões **✅ Venda** e **📅 Agendamento** (Conversas
+  e página do lead) e pode cancelar um agendamento.
+
 ### Aprendizados da IA: seu site e seus anúncios
 
 - **🌐 Seu site:** cole os links do site (um por linha). O CRM lê a página e,

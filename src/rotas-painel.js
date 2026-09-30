@@ -12,6 +12,7 @@ const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const origem = require('./origem');
 const siteEmpresa = require('./site');
+const tickets = require('./tickets');
 const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
@@ -802,6 +803,7 @@ function resumoLead(c) {
     naoDisparar: Boolean(c.naoDisparar),
     iaStatus: c.iaStatus || null,
     fonte: c.origemSite?.classificacao?.fonte || '',
+    destaque: tickets.destaqueDoLead(c),
     iaPausada: Boolean(c.iaPausada),
     precisaHumano: Boolean(c.precisaHumano),
     mensagens: c.mensagens.length,
@@ -906,6 +908,7 @@ router.get('/leads/:id', (req, res) => {
   res.json({
     ...resto,
     origemSite: origem.resumoOrigem(c, empresa),
+    tickets: tickets.ticketsDoLead(c),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     noWhatsapp: Boolean(whatsappJid),
@@ -948,6 +951,23 @@ router.put('/leads/:id', (req, res) => {
   c.atualizadoEm = agora();
   salvar();
   res.json(resumoLead(c));
+});
+
+// Agendamento marcado pela equipe (aparece como aviso na conversa)
+router.post('/leads/:id/agendamentos', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  if (!tickets.quandoDe(req.body?.quando)) return res.status(400).json({ erro: 'Escolha o dia e o horário.' });
+  const r = tickets.registrarAgendamento(empresa, c, { quando: req.body.quando, descricao: texto(req.body?.descricao, 200), por: 'equipe' });
+  res.status(201).json(r.agendamento);
+});
+
+router.delete('/leads/:id/agendamentos/:agId', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  if (!tickets.cancelarAgendamento(c, req.params.agId)) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  res.json({ ok: true });
 });
 
 // Equipe responde pelo painel (vai pelo WhatsApp; a IA para neste lead)
