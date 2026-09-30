@@ -250,6 +250,44 @@ async function definirEmpresaAtual(id) {
   return dados;
 }
 
+// ---------------------------------------------------------------- de onde o cliente veio (site)
+const ICONE_FONTE = { anuncio: '📣', busca: '🔎', rede: '📱', direto: '🌐', site: '🔗' };
+function caminhoDe(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname === '/' ? u.hostname.replace(/^www\./, '') : decodeURIComponent(u.pathname);
+  } catch {
+    return url;
+  }
+}
+const nomePagina = (p) => p.titulo || caminhoDe(p.url);
+const linkPagina = (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}">${esc(nomePagina(p))}</a>`;
+
+// Linha curta (topo do chat): "📣 Anúncio Instagram · campanha verao · vendo: Volante em couro"
+function linhaOrigem(o) {
+  if (!o || (!o.fonte && !o.atual)) return '';
+  const atual = o.atual || o.paginas?.[o.paginas.length - 1];
+  return `<div class="chat-origem">${ICONE_FONTE[o.tipo] || '🌐'} Veio ${o.fonte ? `de <b>${esc(o.fonte)}</b>` : 'do site'}${o.campanha ? ` · campanha <b>${esc(o.campanha)}</b>` : ''}${atual ? ` · estava vendo ${linkPagina(atual)}` : ''}</div>`;
+}
+
+function cardOrigem(o) {
+  if (!o) return '';
+  const atual = o.atual || o.paginas?.[o.paginas.length - 1];
+  const utm = Object.entries(o.utm || {}).map(([k, v]) => `<span class="etiqueta">${esc(k)}: ${esc(v)}</span>`).join(' ');
+  const outras = (o.paginas || []).filter((p) => p.url !== atual?.url && p.url !== o.chegada?.url).slice(-6).reverse();
+  return `
+    <div class="card origem-card">
+      <h2 style="margin:0 0 10px;font-size:16px">De onde veio ${ajuda('O chat do site anota como o cliente chegou (anúncio, Google, Instagram…) e as páginas que ele viu. As duas IAs usam isso para entender o interesse dele.')}</h2>
+      <div class="origem-fonte">${ICONE_FONTE[o.tipo] || '🌐'} <b>${esc(o.fonte || 'Site')}</b>${o.campanha ? `<span class="rotulo"> · campanha ${esc(o.campanha)}</span>` : ''}</div>
+      ${utm ? `<div class="chips" style="margin-top:8px">${utm}</div>` : ''}
+      <dl class="origem-lista">
+        ${o.chegada ? `<dt>Entrou por</dt><dd>${linkPagina(o.chegada)}${o.chegada.referrer ? `<span class="rotulo"> · vindo de ${esc(caminhoDe(o.chegada.referrer))}</span>` : ''}</dd>` : ''}
+        ${atual ? `<dt>Estava vendo</dt><dd>${linkPagina(atual)}</dd>` : ''}
+        ${outras.length ? `<dt>Também viu</dt><dd>${outras.map(linkPagina).join('<br>')}</dd>` : ''}
+      </dl>
+    </div>`;
+}
+
 // Faixa vermelha quando a empresa está pausada (a IA e as automações não respondem ninguém)
 function faixaPausada(emp) {
   if (!emp || emp.ativa !== false) return '';
@@ -467,7 +505,13 @@ async function paginaEmpresa(id) {
       <div class="funil">
         ${emp.etapas.map((e) => `<a class="funil-etapa" href="${rotaEmpresa(id, 'leads')}"><span class="rotulo">${esc(e)}</span><strong>${r.porEtapa[e] || 0}</strong></a>`).join('')}
       </div>
-    </div>`;
+    </div>
+    ${(r.porFonte || []).length ? `
+    <div class="card">
+      <h2 style="margin:0 0 4px">De onde vêm seus clientes</h2>
+      <p class="rotulo" style="margin:0 0 12px">Leads dos últimos 30 dias, pela forma como chegaram ${ajuda('Para saber qual anúncio ou campanha trouxe cada cliente, use links com UTM (ex.: ?utm_source=instagram&utm_medium=paid&utm_campaign=promo). O Google Ads e o Facebook Ads já são reconhecidos sozinhos.')}</p>
+      <div class="fontes">${(() => { const max = Math.max(...r.porFonte.map((f) => f.n)); return r.porFonte.map((f) => `<div class="fonte-linha"><span class="fonte-nome">${esc(f.fonte)}</span><span class="fonte-barra"><span style="width:${Math.max(4, Math.round((f.n / max) * 100))}%"></span></span><b>${f.n}</b></div>`).join(''); })()}</div>
+    </div>` : ''}`;
   $('#editar-emp')?.addEventListener('click', () => modalEmpresa(emp));
   $('#logo-inicio').onclick = () => escolherLogo(emp, () => paginaEmpresa(id).then(() => montarMenu(rotaEmpresa(id))));
   for (const tipo of ['site', 'whatsapp']) {
@@ -712,6 +756,11 @@ async function paginaSite(id) {
             <div class="campo"><label>Cor do chat</label><input type="color" name="cor" value="${esc(bot.cor || '#008069')}"></div>
             <div class="campo"><label>Lado da tela</label><select name="posicao"><option value="direita" ${bot.posicao !== 'esquerda' ? 'selected' : ''}>Canto direito</option><option value="esquerda" ${bot.posicao === 'esquerda' ? 'selected' : ''}>Canto esquerdo</option></select></div>
           </div>
+        </div>
+        <div class="secao">
+          <h2>Contexto do cliente</h2>
+          <label class="linha-check"><input type="checkbox" name="lerPaginaDoSite" ${bot.lerPaginaDoSite === false ? '' : 'checked'}> A IA lê a página em que o cliente está ${ajuda('O chat conta para a IA de onde o cliente veio (anúncio, Google, Instagram) e em que página ele está. Com esta opção, a IA também lê o texto dessa página para já saber qual produto ou serviço ele estava olhando. Só páginas do seu site (os domínios em Segurança).')}</label>
+          <small class="rotulo">Também vale para a IA do WhatsApp quando o cliente veio do site. Botões de WhatsApp do seu site levam um código para o CRM ligar o cliente à página de onde ele clicou.</small>
         </div>
         <div class="secao">
           <h2>Passagem para o WhatsApp</h2>
@@ -1778,6 +1827,7 @@ async function paginaLead(leadId) {
           <div class="campo" style="margin-top:14px"><label>Anotações da equipe</label><textarea id="anotacoes" style="min-height:80px">${esc(l.anotacoes || '')}</textarea></div>
           <div class="acoes"><button class="primario" type="button" id="salvar-lead">Salvar</button><button type="button" class="perigo" id="apagar-lead" style="margin-left:auto">Apagar lead</button></div>
         </div>
+        ${cardOrigem(l.origemSite)}
         ${l.etapaHistorico?.length ? `<div class="card"><h2>Histórico de etapas</h2><ul class="historico">${l.etapaHistorico.slice().reverse().map((h) => `<li><span class="rotulo">${data(h.em)}</span> ${esc(h.de || '—')} → <strong>${esc(h.para)}</strong> <span class="rotulo">(${esc({ 'ia-site': 'IA do site', 'ia-whatsapp': 'IA do WhatsApp', equipe: 'equipe', sistema: 'automático' }[h.por] || h.por)})</span></li>`).join('')}</ul></div>` : ''}
       </div>
     </div>`;
@@ -2208,6 +2258,7 @@ async function paginaConversas(id, params) {
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
       </header>
+      ${linhaOrigem(l.origemSite)}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens.</p>'}</div>
@@ -2542,6 +2593,7 @@ async function paginaAutomacoes(id) {
   const emp = await definirEmpresaAtual(id);
   const d = await api(`empresas/${id}/automacoes`);
   const precisaLink = d.regras.some((r) => r.ativa && /\{link_avaliacao\}/i.test(r.acao.texto || '')) && !d.linkAvaliacao;
+  const precisaAnuncio = d.regras.some((r) => r.ativa && /\{link_anuncio\}/i.test(r.acao.texto || '')) && !d.linkAnuncio;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Máquina de vendas</h1><p class="sub">Mensagens automáticas que recuperam vendas, trazem avaliações e clientes de volta</p></div><button type="button" class="primario" id="nova-regra">+ Criar automação</button></div>
@@ -2554,6 +2606,14 @@ async function paginaAutomacoes(id) {
       <details ${d.linkAvaliacao ? '' : 'open'}><summary>Onde pego esse link?</summary>${passos(['Abra o <a href="https://business.google.com" target="_blank" rel="noopener">Google Meu Negócio</a> (ou pesquise o nome da sua empresa no Google, logado).', 'Clique em <b>Pedir avaliações</b> (ou "Receber mais avaliações").', 'Copie o link que aparece (ex.: <code>https://g.page/r/…/review</code>) e cole aqui.'])}</details>
       <form id="f-link-avaliacao" class="linha-form" style="margin-top:10px"><input name="linkAvaliacao" value="${esc(d.linkAvaliacao)}" placeholder="https://g.page/r/…/review"><button type="submit" class="primario">Salvar</button></form>
       ${precisaLink ? '<p class="erro-caixa" style="margin-top:10px">A automação de avaliação está ligada, mas falta o link — ela não envia até você salvar.</p>' : ''}
+    </div>
+
+    <div class="card">
+      <h2>Link do anúncio (Instagram/Facebook)</h2>
+      <p class="rotulo" style="margin-top:-6px">Usado na automação "Pedir comentário no anúncio" (variável <code>{link_anuncio}</code>). O cliente abre o post do anúncio e comenta como foi — comentários reais no anúncio passam confiança para quem ainda não comprou.</p>
+      <details ${d.linkAnuncio ? '' : 'open'}><summary>Onde pego esse link?</summary>${passos(['Abra o <a href="https://adsmanager.facebook.com" target="_blank" rel="noopener">Gerenciador de Anúncios</a> e clique no anúncio que está rodando.', 'Em <b>Visualização do anúncio</b>, clique no ícone de compartilhar (↗) e escolha <b>Publicação do Instagram com comentários</b> (ou do Facebook).', 'Copie o link da publicação (ex.: <code>https://www.instagram.com/p/…</code>) e cole aqui. Trocou de anúncio? É só colar o link novo.'])}<p class="rotulo" style="margin:8px 0 0">Dica: peça só a clientes reais e não ofereça brinde em troca do comentário — as regras do Meta não permitem.</p></details>
+      <form id="f-link-anuncio" class="linha-form" style="margin-top:10px"><input name="linkAnuncio" value="${esc(d.linkAnuncio)}" placeholder="https://www.instagram.com/p/…"><button type="submit" class="primario">Salvar</button></form>
+      ${precisaAnuncio ? '<p class="erro-caixa" style="margin-top:10px">A automação de comentário no anúncio está ligada, mas falta o link — ela não envia até você salvar.</p>' : ''}
     </div>
 
     <h2>Suas automações</h2>
@@ -2584,6 +2644,15 @@ async function paginaAutomacoes(id) {
         </div>`).join('')}
     </div>`;
 
+  $('#f-link-anuncio').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const bot = await principalDa(id);
+      await api(`bots/${bot.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('Link do anúncio salvo.');
+      paginaAutomacoes(id);
+    } catch (err) { aviso(err.message, true); }
+  };
   $('#f-link-avaliacao').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -2642,7 +2711,7 @@ async function modalAutomacao(emp, r, depois) {
         <div class="seletor-canal"><button type="button" data-modo="ia" class="${r?.acao.modo !== 'texto' ? 'ativo' : ''}">✨ A IA escreve (personalizado)</button><button type="button" data-modo="texto" class="${r?.acao.modo === 'texto' ? 'ativo' : ''}">✉️ Mensagem pronta</button></div>
         <textarea name="instrucao" data-painel-modo="ia" placeholder="Ex.: Lembre o cliente do orçamento enviado, pergunte se ficou alguma dúvida e ofereça o parcelamento.">${esc(r?.acao.instrucao || '')}</textarea>
         <textarea name="texto" data-painel-modo="texto" placeholder="{Oi|Olá} {nome}! …">${esc(r?.acao.texto || '')}</textarea>
-        <small>Na mensagem pronta: <code>{nome}</code>, <code>{empresa}</code>, <code>{link_avaliacao}</code> e variações <code>{Oi|Olá}</code>.</small>
+        <small>Na mensagem pronta: <code>{nome}</code>, <code>{empresa}</code>, <code>{link_avaliacao}</code>, <code>{link_anuncio}</code> e variações <code>{Oi|Olá}</code>.</small>
       </div>
       <div class="campos" style="margin-top:12px">
         <div class="campo"><label>Mandar junto (opcional)</label><select name="midiaId"><option value="">Nada</option>${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}" ${m.id === r?.acao.midiaId ? 'selected' : ''}>${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</select></div>

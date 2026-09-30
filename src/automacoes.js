@@ -66,6 +66,20 @@ const RECEITAS = {
     incluirPausados: true,
     horarioComercial: true
   }),
+  comentario: (empresa) => ({
+    nome: 'Pedir comentário no anúncio (Instagram/Facebook)',
+    explicacao: 'Quatro dias depois de fechar, agradece e manda o link do seu anúncio para o cliente comentar como foi. Comentários de clientes reais no anúncio passam confiança para quem vê o anúncio.',
+    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'fechad', 'ganh', 'vendid') || leads.etapasDa(empresa).slice(-2)[0], horas: 96 },
+    filtro: { etapas: [], etiquetas: [] },
+    acao: {
+      modo: 'texto',
+      texto:
+        '{Oi|Olá} {nome}! Que bom que deu tudo certo 😊\n\nPosso te pedir uma ajuda rápida? Deixa um comentário no nosso post contando como foi com a {empresa}. Isso ajuda muito outras pessoas a confiarem na gente 🙏\n{link_anuncio}'
+    },
+    maxPorLead: 1,
+    incluirPausados: true,
+    horarioComercial: true
+  }),
   reativar: (empresa) => ({
     nome: 'Reativar quem desistiu',
     explicacao: '15 dias depois de o lead ir para "Perdido", a IA pergunta se ainda tem interesse e lembra uma condição ou novidade (sem inventar).',
@@ -198,6 +212,10 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
     const bot = whatsapp.botDoWhatsapp(empresa);
     if (!bot?.linkAvaliacao) return 'falta o link de avaliação';
   }
+  if (regra.acao.modo === 'texto' && /\{link_anuncio\}/i.test(regra.acao.texto)) {
+    const bot = whatsapp.botDoWhatsapp(empresa);
+    if (!bot?.linkAnuncio) return 'falta o link do anúncio';
+  }
   return null;
 }
 
@@ -213,6 +231,7 @@ async function executar(regra, lead, empresa) {
   } else {
     if (!bot) throw new Error('empresa sem assistente');
     const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, regra.acao.instrucao, {
+      origem: await require('./origem').contextoParaIa(lead, bot, 'whatsapp'),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),

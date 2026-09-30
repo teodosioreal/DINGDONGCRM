@@ -7,11 +7,13 @@ const { estado, salvar, novoId, agora } = require('./db');
 const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
+const origem = require('./origem');
 const { linkWhatsapp, numeroDoAtendimento, dominioPermitido, hostDe, texto, hoje, criarLimitador } = require('./util');
 
 const router = express.Router();
 
 const limitePorIp = criarLimitador(12, 60 * 1000); // 12 mensagens/minuto por IP
+const limiteVisitas = criarLimitador(30, 60 * 1000); // cliques em botões de WhatsApp
 
 function cors(req, res, next) {
   const origem = req.headers.origin;
@@ -89,6 +91,7 @@ router.get('/empresas/:empresaId', (req, res) => {
 
 router.post('/chat', async (req, res) => {
   const { botId, visitanteId, conversaId, pagina } = req.body || {};
+  const rastro = origem.normalizarRastro(req.body?.rastro);
   const mensagem = texto(req.body?.mensagem, 1000);
   if (!mensagem) return res.status(400).json({ erro: 'Mensagem vazia.' });
 
@@ -127,6 +130,7 @@ router.post('/chat', async (req, res) => {
     });
   }
 
+  origem.registrarNoLead(conversa, rastro);
   leads.adicionarMensagem(conversa, { papel: 'visitante', canal: 'site', texto: mensagem });
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;
@@ -135,6 +139,7 @@ router.post('/chat', async (req, res) => {
   try {
     const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
       canal: 'site',
+      origem: await origem.contextoParaIa(conversa, bot, 'site'),
       etapas: leads.etapasDa(empresa),
       etapaAtual: conversa.etapa,
       etiquetas: leads.etiquetasDa(empresa)
@@ -174,6 +179,25 @@ router.post('/lead', (req, res) => {
   if (conversa && !conversa.foiParaWhatsappEm) {
     conversa.foiParaWhatsappEm = agora();
     salvar();
+  }
+  res.json({ ok: true });
+});
+
+// Clique num botão de WhatsApp do site (do chat ou do próprio site): o widget
+// manda o código que vai na mensagem + de onde o cliente veio. Quando a
+// mensagem chegar no WhatsApp, a IA de lá já sabe o contexto.
+router.post('/visita', (req, res) => {
+  const { botId, conversaId } = req.body || {};
+  const achado = carregarBot(req, res, String(botId || ''));
+  if (!achado) return;
+  if (!limiteVisitas(req.ip)) return res.status(429).json({ erro: 'Muitas requisições.' });
+  const rastro = origem.normalizarRastro(req.body?.rastro);
+  const conversa = conversaId && estado.conversas.find((c) => c.id === conversaId && c.botId === achado.bot.id);
+  if (conversa) {
+    origem.registrarNoLead(conversa, rastro);
+    salvar();
+  } else {
+    origem.guardarVisita(achado.empresa.id, achado.bot.id, String(req.body?.codigo || ''), rastro);
   }
   res.json({ ok: true });
 });

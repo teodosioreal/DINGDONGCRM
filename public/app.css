@@ -699,3 +699,19 @@ html.dark ul.diagnostico li.ruim > span { background: #450a0a; color: #fecaca; }
 .faixa-pausada > div { flex: 1; min-width: 220px; }
 .faixa-pausada .botao, .faixa-pausada button { margin-left: auto; }
 html.dark .faixa-pausada { background: #3f1515; color: #fecaca; border-color: #7f1d1d; }
+
+/* ---------- de onde o cliente veio ---------- */
+.chat-origem { padding: 6px 14px; font-size: 13px; color: var(--suave); background: var(--hover); border-bottom: 1px solid var(--borda); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-origem b { color: var(--texto); font-weight: 600; }
+.chat-origem a { color: inherit; }
+.origem-card { margin-top: 12px; }
+.origem-fonte { font-size: 15px; }
+.origem-lista { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 12px 0 0; font-size: 13.5px; }
+.origem-lista dt { color: var(--suave); }
+.origem-lista dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fontes { display: flex; flex-direction: column; gap: 8px; }
+.fonte-linha { display: grid; grid-template-columns: minmax(110px, 190px) 1fr 36px; gap: 10px; align-items: center; font-size: 14px; }
+.fonte-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fonte-barra { height: 10px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+.fonte-barra span { display: block; height: 100%; border-radius: 999px; background: #16a34a; }
+.fonte-linha b { text-align: right; font-variant-numeric: tabular-nums; }

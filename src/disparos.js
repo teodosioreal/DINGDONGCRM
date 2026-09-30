@@ -80,13 +80,14 @@ function montarMensagem(modelo, lead, empresa) {
     primeiro_nome: primeiro,
     nome_completo: nomeCompleto,
     empresa: empresa.nome || '',
-    link_avaliacao: bot?.linkAvaliacao || ''
+    link_avaliacao: bot?.linkAvaliacao || '',
+    link_anuncio: bot?.linkAnuncio || ''
   };
   let t = String(modelo || '').replace(/\{([^{}]*\|[^{}]*)\}/g, (_, opcoes) => {
     const lista = opcoes.split('|');
     return lista[Math.floor(Math.random() * lista.length)];
   });
-  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa|link_avaliacao)\}/gi, (_, v) => valores[v.toLowerCase()]);
+  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa|link_avaliacao|link_anuncio)\}/gi, (_, v) => valores[v.toLowerCase()]);
   // "Oi , tudo bem?" quando não sabemos o nome
   return t.replace(/ +([,!?.])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }

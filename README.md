@@ -135,6 +135,30 @@ automações **só respondem os números de teste** cadastrados (com ou sem o 9)
 As mensagens dos outros clientes continuam chegando no CRM, sem resposta
 automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
+### De onde o cliente veio (contexto para a IA)
+
+- O `chat.js` anota, no navegador do visitante, como ele chegou ao site
+  (Google, Instagram, anúncio do Google/Meta, UTM `utm_source/medium/campaign`)
+  e as páginas que abriu — inclusive em sites de uma página só (React/Lovable).
+- Isso vai para o CRM quando ele conversa no chat **ou clica num botão de
+  WhatsApp do próprio site**: o link ganha `(atendimento #CÓDIGO)` e, quando a
+  mensagem chega no WhatsApp, o lead já nasce com a origem.
+  Para desligar a marcação dos botões: `data-rastrear-whatsapp="nao"` no script.
+- As duas IAs recebem esse contexto (anúncio/campanha, página de entrada,
+  página atual, outras páginas vistas). Com *IA do site → Contexto do cliente*
+  ligado, a IA também lê o texto da página atual — só páginas dos domínios do
+  assistente (ou do site onde o chat rodou), com bloqueio de endereços internos
+  e cache de 6 h. Sites que montam o texto só no navegador entregam só título e
+  descrição.
+- No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
+  *De onde vêm seus clientes* (30 dias) no Início.
+
+### Comentário no anúncio do Meta
+
+Receita *Pedir comentário no anúncio (Instagram/Facebook)* na Máquina de
+vendas: 4 dias depois de fechar, manda `{link_anuncio}` (link do post do
+anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
+
 ### A IA não está respondendo?
 
 - Em *IA do WhatsApp → 🩺 Verificar agora*: o CRM confere endereço público,

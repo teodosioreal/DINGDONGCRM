@@ -61,6 +61,115 @@
     }
   }
 
+  // ---------------------------------------------------------------- de onde o visitante veio
+  // Anota (só no navegador dele, junto com a conversa) como ele chegou ao site
+  // — Google, Instagram, anúncio, campanha — e as páginas que abriu. Vai para o
+  // CRM só quando ele fala com o chat ou clica num botão de WhatsApp, para a IA
+  // entender o que ele estava procurando.
+
+  var PARAMS_CAMPANHA = /(^|&)(utm_[a-z]+|gclid|gbraid|wbraid|fbclid|ttclid|msclkid)=/i;
+  var TRINTA_DIAS = 30 * 24 * 3600 * 1000;
+
+  function semWww(h) {
+    return String(h || '').toLowerCase().replace(/^www\./, '');
+  }
+
+  function hostDoReferrer() {
+    try {
+      return document.referrer ? semWww(new URL(document.referrer).hostname) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function anotarPagina() {
+    var r = memoria.rastro;
+    var url = location.href.split('#')[0].slice(0, 500);
+    var ultima = r.paginas[r.paginas.length - 1];
+    if (ultima && ultima.url === url) {
+      if (!ultima.titulo && document.title) ultima.titulo = document.title.slice(0, 160);
+    } else {
+      r.paginas = r.paginas.filter(function (p) { return p.url !== url; });
+      r.paginas.push({ url: url, titulo: (document.title || '').slice(0, 160), em: Date.now() });
+      r.paginas = r.paginas.slice(-15);
+    }
+    gravar(memoria);
+  }
+
+  function anotarChegada() {
+    var r = (memoria.rastro = memoria.rastro || {});
+    r.paginas = r.paginas || [];
+    if (r.chegada && Date.now() - r.chegada.em > TRINTA_DIAS) {
+      r.chegada = null;
+      r.primeira = null;
+      r.paginas = [];
+    }
+    var ref = hostDoReferrer();
+    var externo = ref && ref !== semWww(location.hostname);
+    var campanha = PARAMS_CAMPANHA.test(location.search.slice(1));
+    // uma entrada "direta" não apaga uma chegada por anúncio/rede de antes
+    if (campanha || externo || !r.chegada) {
+      r.chegada = { url: location.href.slice(0, 500), titulo: (document.title || '').slice(0, 160), referrer: externo ? document.referrer.slice(0, 500) : '', em: Date.now() };
+      if (!r.primeira) r.primeira = r.chegada;
+    }
+    anotarPagina();
+    // sites de uma página só (React, Lovable…) trocam de página sem recarregar
+    var ultimaUrl = location.href;
+    setInterval(function () {
+      if (document.hidden || location.href === ultimaUrl) return;
+      ultimaUrl = location.href;
+      setTimeout(anotarPagina, 800); // espera o título da página nova
+    }, 1500);
+  }
+
+  function montarRastro() {
+    var r = memoria.rastro || {};
+    if (r.paginas && r.paginas.length) anotarPagina();
+    return {
+      atual: { url: location.href.split('#')[0].slice(0, 500), titulo: (document.title || '').slice(0, 160) },
+      chegada: r.chegada || null,
+      primeira: r.primeira || null,
+      paginas: r.paginas || []
+    };
+  }
+
+  function novoCodigo() {
+    var alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    var bytes = new Uint8Array(6);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    var c = '';
+    for (var i = 0; i < 6; i++) c += alfabeto[bytes[i] % alfabeto.length];
+    return c;
+  }
+
+  // Coloca "(atendimento #CODIGO)" no texto de um link de WhatsApp
+  function comCodigo(url, codigo, padrao) {
+    if (!codigo || !url) return url;
+    try {
+      var u = new URL(url);
+      var texto = u.searchParams.get('text') || padrao || 'Olá! Vim pelo site.';
+      if (texto.indexOf('#' + codigo) === -1) u.searchParams.set('text', texto + ' (atendimento #' + codigo + ')');
+      return u.toString();
+    } catch (e) {
+      return url;
+    }
+  }
+
+  function numeroDoLink(url) {
+    try {
+      var u = new URL(url);
+      if (/(^|\.)wa\.me$/i.test(u.hostname)) return u.pathname.replace(/\D/g, '');
+      if (/whatsapp\.com$/i.test(u.hostname) || u.protocol === 'whatsapp:') return (u.searchParams.get('phone') || '').replace(/\D/g, '');
+    } catch (e) {
+      /* não é link */
+    }
+    return '';
+  }
+
+  function mesmoNumero(a, b) {
+    return a && b && a.slice(-8) === b.slice(-8);
+  }
+
   // ---------------------------------------------------------------- utilidades
 
   function el(tag, classe, texto) {
@@ -202,13 +311,44 @@
       botId = r.dados.id;
       chaveLocal = 'ddcrm_' + botId;
       carregarMemoria();
+      try {
+        anotarChegada();
+      } catch (e) {
+        /* sem rastro: o chat funciona do mesmo jeito */
+      }
       quandoPronto(function () {
         montar(r.dados);
+        if (script.getAttribute('data-rastrear-whatsapp') !== 'nao') vigiarBotoesWhatsapp(r.dados);
       });
     })
     .catch(function () {
       /* servidor fora do ar: o site segue normal, sem o botão */
     });
+
+  // Botões de WhatsApp do próprio site (fora do chat): o link ganha o código do
+  // atendimento e o CRM guarda de onde o cliente veio. Quando ele mandar a
+  // mensagem, a IA do WhatsApp já sabe o contexto (anúncio, página que via…).
+  function vigiarBotoesWhatsapp(cfg) {
+    var numeroEmpresa = numeroDoLink(cfg.whatsappUrl);
+    if (!numeroEmpresa) return;
+    var avisado = {};
+    function aoClicar(e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a || !/wa\.me\/|whatsapp\.com\/send|^whatsapp:/i.test(a.href)) return;
+      if (!mesmoNumero(numeroDoLink(a.href), numeroEmpresa)) return;
+      if (!memoria.codigo && !memoria.codigoVisita) {
+        memoria.codigoVisita = novoCodigo();
+        gravar(memoria);
+      }
+      var codigo = memoria.codigo || memoria.codigoVisita;
+      a.href = comCodigo(a.href, codigo, cfg.mensagemWhatsappPadrao);
+      if (avisado[codigo]) return;
+      avisado[codigo] = true;
+      pedir('/api/public/visita', { botId: botId, codigo: codigo, conversaId: memoria.conversaId || null, rastro: montarRastro() }).catch(function () {});
+    }
+    document.addEventListener('click', aoClicar, true);
+    document.addEventListener('auxclick', aoClicar, true);
+  }
 
   function montar(cfg) {
     var posicao = script.getAttribute('data-posicao') || cfg.posicao || 'direita';
@@ -362,20 +502,13 @@
       memoria.leads[memoria.conversaId] = Date.now();
       gravar(memoria);
       pedir('/api/public/lead', { botId: botId, conversaId: memoria.conversaId }).catch(function () {});
+      pedir('/api/public/visita', { botId: botId, conversaId: memoria.conversaId, rastro: montarRastro() }).catch(function () {});
     }
 
     // O botão do WhatsApp do topo leva o código do atendimento, para a IA do
     // WhatsApp saber de qual conversa do site o cliente veio.
     function linkComCodigo(url) {
-      if (!memoria.codigo || !url) return url;
-      try {
-        var u = new URL(url);
-        var texto = u.searchParams.get('text') || 'Olá! Vim pelo site.';
-        if (texto.indexOf('#' + memoria.codigo) === -1) u.searchParams.set('text', texto + ' (atendimento #' + memoria.codigo + ')');
-        return u.toString();
-      } catch (e) {
-        return url;
-      }
+      return comCodigo(url, memoria.codigo);
     }
 
     function desenharHistorico() {
@@ -453,7 +586,8 @@
         visitanteId: memoria.visitanteId,
         conversaId: memoria.conversaId || null,
         mensagem: texto,
-        pagina: location.href.slice(0, 300)
+        pagina: location.href.slice(0, 300),
+        rastro: montarRastro()
       })
         .then(function (r) {
           var d = r.dados || {};

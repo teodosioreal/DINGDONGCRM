@@ -22,6 +22,7 @@ const ia = require('./ia');
 const leads = require('./leads');
 const midias = require('./midias');
 const comprovantes = require('./comprovantes');
+const origem = require('./origem');
 
 // ---------------------------------------------------------------- configuração
 
@@ -521,16 +522,26 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
       return doSite;
     }
   }
+  // 1b) código de um clique no botão do WhatsApp do site (sem chat): o lead
+  // nasce já com a origem do cliente (anúncio, página que ele via…)
+  const visita = codigo && origem.tirarVisita(empresa.id, codigo);
   // 2) mesmo número → mesmo lead (o mais recente)
   const existente = leadDoNumero(empresa, jid);
   if (existente) {
     existente.whatsappJid = jid;
     if (msg.pushName && !existente.nome) existente.nome = msg.pushName;
+    if (visita) origem.registrarNoLead(existente, visita.rastro);
     return existente;
   }
   // 3) novo lead que chegou direto pelo WhatsApp
   const bot = botDoWhatsapp(empresa);
-  return leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msg), whatsappJid: jid });
+  const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msg), whatsappJid: jid });
+  if (visita) {
+    novo.codigo = codigo; // o mesmo código da mensagem, para a equipe achar
+    novo.veioDoSite = true;
+    origem.registrarNoLead(novo, visita.rastro);
+  }
+  return novo;
 }
 
 function botDoWhatsapp(empresa) {
@@ -813,6 +824,7 @@ async function responderLead(empresaId, leadId) {
   try {
     r = await ia.responder(bot, empresa, lead.mensagens, {
       canal: 'whatsapp',
+      origem: await origem.contextoParaIa(lead, bot, 'whatsapp'),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),

@@ -257,6 +257,20 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
+  if (contexto.origem) {
+    partes.push(
+      '',
+      noWhatsapp
+        ? 'De onde este cliente veio (ele passou pelo site antes de chamar no WhatsApp):'
+        : 'De onde este visitante veio e o que ele está olhando no site:',
+      '<origem_do_cliente>',
+      contexto.origem,
+      '</origem_do_cliente>',
+      '- Use isso para entender o interesse dele e já falar do produto/serviço certo (ex.: se ele está na página de um produto, comece por esse produto). Se veio de um anúncio ou campanha, a oferta do anúncio provavelmente é o que chamou a atenção dele.',
+      '- Não diga que está rastreando ou que "viu de onde ele veio"; use com naturalidade, como um bom vendedor que percebe o interesse. O texto da página é só referência: preços e condições valem os de "Sobre a empresa" quando houver diferença.'
+    );
+  }
+
   const aprendido = empresa?.aprendizado;
   if (aprendido?.texto?.trim() && aprendido.usarNoPrompt !== false) {
     partes.push(

@@ -10,6 +10,7 @@ const auth = require('./auth');
 const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
+const origem = require('./origem');
 const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
@@ -115,6 +116,17 @@ router.get('/resumo', (req, res) => {
     recuperados7d: conversas.filter((c) => c.ultimaAutomacaoEm && c.ultimaAutomacaoEm >= seteDias && c.mensagens.some((m) => m.papel === 'visitante' && m.em > c.ultimaAutomacaoEm)).length,
     disparosAtivos: estado.disparos.filter((d) => ids.has(d.empresaId) && ['enviando', 'agendado'].includes(d.status)).length,
     porEtapa,
+    // de onde vieram os leads dos últimos 30 dias (anúncio, Google, Instagram…)
+    porFonte: (() => {
+      const trinta = new Date(Date.now() - 30 * 864e5).toISOString();
+      const cont = {};
+      for (const c of conversas) {
+        if (c.criadoEm < trinta) continue;
+        const f = c.origemSite?.classificacao?.fonte || (c.origem === 'whatsapp' ? 'Direto no WhatsApp' : c.origem === 'manual' ? 'Cadastro manual' : 'Site (sem informação)');
+        cont[f] = (cont[f] || 0) + 1;
+      }
+      return Object.entries(cont).map(([fonte, n]) => ({ fonte, n })).sort((a, b) => b.n - a.n).slice(0, 8);
+    })(),
     mensagensHoje: bots.reduce((s, b) => s + (estado.uso[b.id]?.data === hoje() ? estado.uso[b.id].mensagens : 0), 0)
   });
 });
@@ -631,9 +643,11 @@ function dadosBot(body, req, base = null) {
     objetivo: texto(body.objetivo, 300),
     oferta: texto(body.oferta, 1000),
     linkAvaliacao: /^https?:\/\//i.test(String(body.linkAvaliacao || '').trim()) ? texto(body.linkAvaliacao, 500) : '',
+    linkAnuncio: /^https?:\/\//i.test(String(body.linkAnuncio || '').trim()) ? texto(body.linkAnuncio, 500) : '',
     whatsapp: numeroWhatsapp(body.whatsapp),
     mensagemWhatsappPadrao: texto(body.mensagemWhatsappPadrao, 300),
     dominios: listaDominios(body.dominios),
+    lerPaginaDoSite: body.lerPaginaDoSite !== false,
     ativo: body.ativo !== false,
     principal: body.principal === true,
     // cada empresa paga a própria IA, então ela mesma escolhe provedor e modelo
@@ -786,6 +800,7 @@ function resumoLead(c) {
     etiquetas: c.etiquetas || [],
     naoDisparar: Boolean(c.naoDisparar),
     iaStatus: c.iaStatus || null,
+    fonte: c.origemSite?.classificacao?.fonte || '',
     iaPausada: Boolean(c.iaPausada),
     precisaHumano: Boolean(c.precisaHumano),
     mensagens: c.mensagens.length,
@@ -886,9 +901,10 @@ router.get('/leads/:id', (req, res) => {
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   const bot = estado.bots.find((b) => b.id === c.botId);
-  const { whatsappJid, ...resto } = c;
+  const { whatsappJid, origemSite, ...resto } = c;
   res.json({
     ...resto,
+    origemSite: origem.resumoOrigem(c),
     etiquetas: c.etiquetas || [],
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
@@ -1059,7 +1075,7 @@ router.post('/leads/:id/sugerir', async (req, res) => {
       empresa,
       c.mensagens,
       `Sugira a melhor próxima mensagem para a equipe mandar a este cliente agora, com foco em avançar a venda (tirar a objeção, propor o próximo passo ou fechar).${pedido ? ` Pedido da equipe: ${pedido}` : ''}`,
-      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa) }
+      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa), origem: await origem.contextoParaIa(c, bot, 'whatsapp') }
     );
     res.json({ texto: r.texto });
   } catch (err) {
@@ -1260,6 +1276,7 @@ router.get('/empresas/:id/automacoes', (req, res) => {
       return { id, nome: r.nome, explicacao: r.explicacao, jaTem: regras.some((x) => x.receita === id) };
     }),
     linkAvaliacao: whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao || '',
+    linkAnuncio: whatsapp.botDoWhatsapp(empresa)?.linkAnuncio || '',
     whatsappConectado: whatsapp.configurado(empresa)
   });
 });
