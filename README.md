@@ -135,6 +135,21 @@ automações **só respondem os números de teste** cadastrados (com ou sem o 9)
 As mensagens dos outros clientes continuam chegando no CRM, sem resposta
 automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
+### A IA não está respondendo?
+
+- Em *IA do WhatsApp → 🩺 Verificar agora*: o CRM confere endereço público,
+  conexão do celular, webhook, última mensagem recebida, IA ligada, a chave de
+  IA (com um pedido real ao modelo escolhido), modo teste e conversas pausadas.
+  Botões para consertar o webhook e devolver todas as conversas para a IA.
+- Uma tabela mostra o que a IA fez com as últimas mensagens (respondeu, não
+  respondeu e por quê, ou o erro).
+- Na aba Conversas, quando a IA não respondeu o último cliente, aparece o
+  motivo em cima do chat e o botão *Devolver para a IA*.
+- As conversas aparecem como no WhatsApp: cliente à esquerda, empresa/IA à
+  direita, balões com hora, separador de dia e *negrito*/_itálico_.
+- O deploy imprime no log do GitHub Actions o `PUBLIC_URL` e os últimos erros
+  do `pm2` do CRM (números mascarados).
+
 ### Respostas rápidas com mídia (também no celular)
 
 - Atalhos como `/preco` e `/catalogo` que mandam **texto + foto, PDF ou álbum**

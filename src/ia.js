@@ -576,8 +576,14 @@ function descreverErroIa(err) {
   if (err instanceof Anthropic.AuthenticationError) return 'Chave do Claude inválida. Confira a chave de IA da empresa.';
   if (err instanceof Anthropic.RateLimitError) return 'O Claude está recebendo muitas mensagens agora. Tente de novo em instantes.';
   if (err instanceof Anthropic.NotFoundError) return 'Modelo do Claude não encontrado para esta chave.';
+  if (/credit balance/i.test(err?.message || '')) return 'A chave do Claude está sem crédito. Recarregue em console.anthropic.com.';
   if (err instanceof Anthropic.BadRequestError) return `O Claude recusou o pedido: ${err.message}`;
-  if (err instanceof Anthropic.APIError) return `Erro no Claude (HTTP ${err.status}).`;
+  if (err instanceof Anthropic.APIConnectionError) return 'Não consegui falar com o Claude (sem conexão ou tempo esgotado). Tente de novo em instantes.';
+  if (err instanceof Anthropic.APIError) {
+    if (err.status === 402) return 'A chave do Claude está sem crédito. Recarregue em console.anthropic.com.';
+    if (err.status === 403) return 'A chave do Claude não tem permissão para este modelo. Escolha outro modelo no assistente.';
+    return `Erro no Claude (HTTP ${err.status ?? '?'}): ${err.message}`;
+  }
   if (err.provedor === 'gemini') {
     if (/API_KEY_INVALID|API key not valid/i.test(err.message) || err.status === 401 || err.status === 403) {
       return 'Chave do Gemini inválida ou sem permissão. Confira a chave de IA da empresa.';

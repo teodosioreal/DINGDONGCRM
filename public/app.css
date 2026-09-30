@@ -651,3 +651,46 @@ html.dark .dica-grafico { background: #f1f5f9; color: #0f172a; }
 html.dark .modo-teste.ligado { border-color: #78350f; }
 .faixa-teste { margin: -4px 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--aviso-fundo); color: var(--aviso-texto); font-size: 13.5px; }
 .faixa-teste a { font-weight: 600; }
+
+/* ---------- balões iguais ao WhatsApp ---------- */
+.conversa { gap: 2px; padding: 14px 6%; background-color: #efeae2;
+  background-image: radial-gradient(rgba(0,0,0,.035) 1px, transparent 1px); background-size: 18px 18px; }
+.conversa .msg { position: relative; max-width: min(65%, 520px); padding: 6px 7px 8px 9px; border-radius: 7.5px;
+  font-size: 14.2px; line-height: 19px; color: #111b21; white-space: normal; word-break: break-word;
+  box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+.conversa .msg.entrada { align-self: flex-start; background: #fff; }
+.conversa .msg.saida { align-self: flex-end; background: #d9fdd3; }
+.conversa .msg.cauda { margin-top: 8px; }
+.conversa .msg.entrada.cauda { border-top-left-radius: 0; }
+.conversa .msg.saida.cauda { border-top-right-radius: 0; }
+.conversa .msg.cauda::before { content: ''; position: absolute; top: 0; width: 8px; height: 13px; }
+.conversa .msg.entrada.cauda::before { left: -8px; background: #fff; clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.conversa .msg.saida.cauda::before { right: -8px; background: #d9fdd3; clip-path: polygon(0 0, 100% 0, 0 100%); }
+.conversa .msg .msg-texto { display: inline; white-space: pre-wrap; }
+.msg-rodape { float: right; margin: 6px 0 -4px 10px; font-size: 11px; line-height: 15px; color: #667781; white-space: nowrap; }
+.msg-rodape .checks { color: #53bdeb; letter-spacing: -3px; margin-left: 2px; }
+.conversa .msg .msg-origem { font-size: 12px; font-weight: 600; color: #1f7aec; margin-bottom: 1px; }
+.conversa .msg.saida .msg-origem { color: #0a7a3a; }
+.wa-dia { align-self: center; margin: 10px 0 4px; padding: 5px 12px; border-radius: 7.5px; background: #fff;
+  color: #54656f; font-size: 12.5px; box-shadow: 0 1px .5px rgba(11,20,26,.13); text-transform: uppercase; }
+.chat-ia-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 14px; font-size: 13.5px;
+  background: var(--aviso-fundo); color: var(--aviso-texto); border-top: 1px solid var(--borda); }
+.chat-ia-status.erro { background: #fde2e1; color: #9f1d1d; }
+.chat-ia-status .botao { margin-left: auto; }
+ul.diagnostico { list-style: none; padding: 0; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+ul.diagnostico li { display: flex; gap: 10px; align-items: flex-start; }
+ul.diagnostico li > span { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 700; font-size: 13px; background: #dcfce7; color: #15803d; }
+ul.diagnostico li.ruim > span { background: #fee2e2; color: #b91c1c; }
+html.dark .conversa { background-color: #0b141a; background-image: radial-gradient(rgba(255,255,255,.03) 1px, transparent 1px); }
+html.dark .conversa .msg.entrada, html.dark .conversa .msg.entrada.cauda::before { background: #202c33; }
+html.dark .conversa .msg.saida, html.dark .conversa .msg.saida.cauda::before { background: #005c4b; }
+html.dark .conversa .msg { color: #e9edef; }
+html.dark .msg-rodape { color: rgba(233,237,239,.6); }
+html.dark .wa-dia { background: #182229; color: #8696a0; }
+html.dark .conversa .msg .msg-origem { color: #53bdeb; }
+html.dark .conversa .msg.saida .msg-origem { color: #7ee2a8; }
+html.dark .chat-ia-status.erro { background: #3f1515; color: #fecaca; }
+html.dark ul.diagnostico li > span { background: #14532d; color: #bbf7d0; }
+html.dark ul.diagnostico li.ruim > span { background: #450a0a; color: #fecaca; }
+@media (max-width: 600px) { .conversa { padding: 10px 12px; } .conversa .msg { max-width: 85%; } }

@@ -103,9 +103,20 @@ printf '{"em":"%s","commit":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev
 
 echo "==> Reiniciando só o \"$NOME_PM2\""
 pm2 restart "$NOME_PM2" --update-env >/dev/null
+# Diagnóstico (só do CRM): endereço público e os últimos erros do app, com os
+# números de telefone escondidos. Aparece no log do GitHub Actions.
+diagnostico() {
+  echo "==> Diagnóstico do CRM"
+  echo "    PUBLIC_URL=$(ler_env PUBLIC_URL .env)"
+  echo "    Últimos erros do app (números escondidos):"
+  pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
+    | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true
+}
+
 if responde; then
   pm2 save >/dev/null
   echo "==> Atualizado: $(git log -1 --format='%h %s')"
+  diagnostico
   exit 0
 fi
 

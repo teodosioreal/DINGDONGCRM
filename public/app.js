@@ -818,6 +818,11 @@ async function paginaWhatsapp(id) {
     <div class="cabecalho"><div><h1>IA do WhatsApp</h1><p class="sub">Responde no número da empresa, manda fotos e vídeos e passa para a equipe</p></div>${interruptor('ligar-zap', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
     ${ligado ? '' : balao('A IA do WhatsApp está desligada', 'As mensagens continuam chegando no CRM (você vê tudo em Leads), mas a IA não responde. Ligue no botão acima quando quiser.', 'aviso')}
     ${conexao}
+    <div class="card" id="card-diagnostico">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🩺 A IA não está respondendo?</h2><button type="button" class="primario pequeno" id="rodar-diagnostico">Verificar agora</button></div>
+      <p class="rotulo" style="margin:0">O CRM confere tudo: conexão do celular, se as mensagens estão chegando, chave de IA, modo teste e conversas pausadas — e mostra o que a IA fez com as últimas mensagens.</p>
+      <div id="resultado-diagnostico"></div>
+    </div>
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -949,6 +954,42 @@ async function paginaWhatsapp(id) {
       $('#chave-global-erro').innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(/não conferem|Unauthorized|401/i.test(err.message) ? 'A Evolution recusou essa chave. Confira se é a chave GLOBAL do servidor (a mesma EVOLUTION_API_KEY do DingDong Tracking).' : err.message)}</p>`;
     }
   });
+
+  const TIPO_EVENTO = { respondeu: '✅ respondeu', ignorou: '⏸️ não respondeu', erro: '❌ erro' };
+  async function rodarDiagnostico(botao) {
+    const alvo = $('#resultado-diagnostico');
+    try {
+      const d = await comEspera(botao, () => api(`empresas/${id}/whatsapp/diagnostico`, { method: 'POST' }), 'Verificando…');
+      const webhookRuim = d.itens.find((i) => i.titulo.startsWith('Mensagens chegando') && !i.ok);
+      const pausadas = d.itens.find((i) => i.titulo.startsWith('Conversas com a IA pausada'));
+      alvo.innerHTML = `
+        <ul class="diagnostico">${d.itens.map((i) => `<li class="${i.ok ? 'ok' : 'ruim'}"><span>${i.ok ? '✓' : '✕'}</span><div><b>${esc(i.titulo)}</b>${i.detalhe ? `<div class="rotulo">${esc(i.detalhe)}</div>` : ''}</div></li>`).join('')}</ul>
+        <div class="acoes">
+          ${webhookRuim ? '<button type="button" class="primario pequeno" id="consertar-webhook">Consertar: ligar as mensagens no CRM</button>' : ''}
+          ${pausadas && /^\d/.test(pausadas.detalhe) ? '<button type="button" class="pequeno" id="devolver-todas">Devolver todas as conversas para a IA</button>' : ''}
+        </div>
+        ${d.eventos.length ? `<h3 style="margin:16px 0 8px;font-size:15px">O que a IA fez com as últimas mensagens</h3>
+        <div class="tabela-wrap"><table><thead><tr><th>Quando</th><th>Cliente</th><th>O que aconteceu</th></tr></thead><tbody>${d.eventos.slice(0, 20).map((ev) => `<tr><td class="rotulo" style="white-space:nowrap">${data(ev.em)}</td><td>${ev.leadId ? `<a href="#/leads/${esc(ev.leadId)}">${esc(ev.cliente || 'cliente')}</a>` : '—'}</td><td>${TIPO_EVENTO[ev.tipo] || ev.tipo} <span class="rotulo">${esc(ev.motivo)}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="rotulo" style="margin-top:12px">Nenhuma mensagem recebida ainda desde a atualização. Mande um "oi" de outro número e verifique de novo.</p>'}`;
+      $('#consertar-webhook')?.addEventListener('click', async (e) => {
+        try {
+          await comEspera(e.target, () => api(`empresas/${id}/whatsapp/webhook`, { method: 'POST' }));
+          aviso('Pronto: as mensagens voltam a chegar no CRM.');
+          rodarDiagnostico($('#rodar-diagnostico'));
+        } catch (err) {
+          if (err.status === 409) return tratarConflito(err, () => rodarDiagnostico($('#rodar-diagnostico')));
+          aviso(err.message, true);
+        }
+      });
+      $('#devolver-todas')?.addEventListener('click', async () => {
+        const r = await api(`empresas/${id}/whatsapp/devolver-ia`, { method: 'POST' }).catch((err) => aviso(err.message, true));
+        if (r) aviso(`${r.devolvidas} conversas devolvidas para a IA.`);
+        rodarDiagnostico($('#rodar-diagnostico'));
+      });
+    } catch (err) {
+      alvo.innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(err.message)}</p>`;
+    }
+  }
+  $('#rodar-diagnostico').onclick = (e) => rodarDiagnostico(e.currentTarget);
 
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
@@ -1693,7 +1734,7 @@ async function paginaLead(leadId) {
     <div class="lead-grade">
       <div>
         <div class="conversa" id="linha-tempo">
-          ${l.mensagens.map((m) => htmlMensagem(m, l.id)).join('') || '<p class="rotulo">Sem mensagens ainda.</p>'}
+          ${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens ainda.</p>'}
         </div>
         ${l.podeReceber ? `
         <form class="card" id="f-responder" style="margin-top:12px">
@@ -2016,12 +2057,55 @@ function htmlAnexo(m, leadId) {
   return `<a class="anexo-doc" href="${esc(url)}" target="_blank" rel="noopener">📄 ${esc(a.nome || 'arquivo')}</a>`;
 }
 
-function htmlMensagem(m, leadId) {
-  const classe = m.papel === 'visitante' ? 'eu' : m.papel === 'equipe' ? 'equipe' : 'bot';
-  const origem = m.automacaoNome ? `⚡ ${m.automacaoNome}` : m.disparoId ? '📣 Disparo' : m.agendadaId ? '🕒 Agendada' : PAPEL_ROTULO[m.papel] || m.papel;
+// Formatação do WhatsApp: *negrito*, _itálico_, ~riscado~ e links
+function formatarWhats(t) {
+  return esc(t)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, '$1<strong>$2</strong>')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?]|$)/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])~([^~\n]+)~(?=[\s).,!?]|$)/g, '$1<s>$2</s>');
+}
+
+function diaDaMensagem(iso) {
+  const d = new Date(iso);
+  const hoje = new Date();
+  const ontem = new Date(Date.now() - 864e5);
+  if (d.toDateString() === hoje.toDateString()) return 'HOJE';
+  if (d.toDateString() === ontem.toDateString()) return 'ONTEM';
+  if (Date.now() - d.getTime() < 6 * 864e5) return d.toLocaleDateString('pt-BR', { weekday: 'long' }).toUpperCase();
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// Uma mensagem no balão, do lado certo (cliente à esquerda, empresa à direita)
+function htmlMensagem(m, leadId, anterior) {
+  const saida = m.papel !== 'visitante';
+  const lado = saida ? 'saida' : 'entrada';
+  const seguida = anterior && (anterior.papel !== 'visitante') === saida && new Date(m.em) - new Date(anterior.em) < 5 * 60 * 1000;
+  const rotulo = m.automacaoNome ? `⚡ ${m.automacaoNome}` : m.disparoId ? '📣 Disparo' : m.agendadaId ? '🕒 Agendada' : m.papel === 'assistente' ? '🤖 IA' : '';
+  const canal = m.canal === 'site' ? '🌐 chat do site' : '';
+  const topo = [rotulo, canal].filter(Boolean).join(' · ');
   // o texto do cliente com áudio/foto já foi trocado pela transcrição: mostra o arquivo e a transcrição
   const textoVisivel = m.anexo && /^\[(áudio|foto) do cliente\]:/.test(m.texto || '') ? '' : m.texto;
-  return `<div class="msg ${classe}"><span class="msg-origem">${ROTULO_CANAL[m.canal || 'site'] || ''} · ${esc(origem)}</span>${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${esc(textoVisivel).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<small>${data(m.em)}</small></div>`;
+  const hora = new Date(m.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
+}
+
+// A conversa inteira, com o separador de dia do WhatsApp
+function htmlConversa(mensagens, leadId) {
+  let dia = '';
+  let anterior = null;
+  let html = '';
+  for (const m of mensagens) {
+    const d = diaDaMensagem(m.em);
+    if (d !== dia) {
+      html += `<div class="wa-dia">${esc(d)}</div>`;
+      dia = d;
+      anterior = null;
+    }
+    html += htmlMensagem(m, leadId, anterior);
+    anterior = m;
+  }
+  return html;
 }
 
 // ---------------------------------------------------------------- empresa: conversas (estilo WhatsApp Web)
@@ -2105,7 +2189,8 @@ async function paginaConversas(id, params) {
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
       </header>
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
-      <div class="conversa chat-mensagens" id="chat-mensagens">${l.mensagens.map((m) => htmlMensagem(m, l.id)).join('') || '<p class="rotulo">Sem mensagens.</p>'}</div>
+      ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : ''}</div>` : ''}
+      <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${pendentes.length ? `<div class="chat-agendadas">${pendentes.map((a) => `<span>🕒 ${esc(new Date(a.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}: ${esc(a.texto.slice(0, 60))} <button type="button" class="link-botao" data-cancelar="${esc(a.id)}">cancelar</button></span>`).join('')}</div>` : ''}
       ${l.podeReceber ? `
       <form class="chat-envio" id="chat-envio">
@@ -2176,6 +2261,15 @@ async function paginaConversas(id, params) {
       $('#inbox').classList.remove('com-chat');
       history.replaceState(null, '', rotaEmpresa(id, 'conversas'));
       desenharLista();
+    });
+    $('#devolver-ia')?.addEventListener('click', async () => {
+      try {
+        await api(`leads/${abertoId}`, { method: 'PUT', body: { iaPausada: false } });
+        aviso('A IA voltou a responder este cliente (a partir da próxima mensagem dele).');
+        assinaturaAberta = '';
+        recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
     });
     $('#chat-etapa')?.addEventListener('change', async (e) => {
       try {

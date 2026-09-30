@@ -314,6 +314,22 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
       case 'sair-numero':
         await whatsapp.sairDoNumero(empresa);
         return res.json({ ok: true });
+      case 'devolver-ia': {
+        // devolve para a IA todas as conversas pausadas (a IA volta a responder)
+        let n = 0;
+        for (const l of estado.conversas) {
+          if (l.empresaId === empresa.id && l.iaPausada) {
+            l.iaPausada = false;
+            l.iaPausadaMotivo = '';
+            l.precisaHumano = false;
+            n++;
+          }
+        }
+        salvar();
+        return res.json({ ok: true, devolvidas: n });
+      }
+      case 'diagnostico':
+        return res.json(await whatsapp.diagnostico(empresa));
       case 'situacao':
         return res.json(await whatsapp.situacao(empresa));
       case 'qrcode':
@@ -751,6 +767,7 @@ function resumoLead(c) {
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
     etiquetas: c.etiquetas || [],
     naoDisparar: Boolean(c.naoDisparar),
+    iaStatus: c.iaStatus || null,
     iaPausada: Boolean(c.iaPausada),
     precisaHumano: Boolean(c.precisaHumano),
     mensagens: c.mensagens.length,
