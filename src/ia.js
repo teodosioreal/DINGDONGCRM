@@ -257,6 +257,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
+  const aprendido = empresa?.aprendizado;
+  if (aprendido?.texto?.trim() && aprendido.usarNoPrompt !== false) {
+    partes.push(
+      '',
+      'Como esta empresa atende de verdade (aprendido lendo as conversas reais do WhatsApp — imite o jeito de falar, as perguntas e a forma de fechar; se algo aqui conflitar com "Sobre a empresa", vale "Sobre a empresa"):',
+      '<aprendizados>',
+      aprendido.texto.trim(),
+      '</aprendizados>'
+    );
+  }
+
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
   return partes.filter((l) => l !== null).join('\n');
@@ -513,6 +524,41 @@ async function lerComprovante(bot, empresa, base64, mimetype) {
   }
 }
 
+// Chamada simples (um pedido, uma resposta) com a IA da empresa — usada na
+// varredura das conversas. Respeita o provedor/modelo escolhido pela empresa.
+async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000) {
+  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
+  if (!provedor) throw erroSemChave(normalizarProvedor(bot?.provedor));
+  const turnos = [{ role: 'user', content: pedido }];
+  const falso = { ...bot, provedor, modelo: provedor === normalizarProvedor(bot?.provedor) ? bot.modelo : MODELO_PADRAO[provedor] };
+  if (provedor === 'gemini') {
+    const modelo = normalizarModelo('gemini', falso.modelo);
+    const dados = await chamarGemini(empresa, `models/${encodeURIComponent(modelo)}:generateContent`, {
+      method: 'POST',
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sistema }] },
+        contents: [{ role: 'user', parts: [{ text: pedido }] }],
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 }
+      })
+    });
+    return textoGemini(dados);
+  }
+  const client = obterClienteAnthropic(empresa);
+  const modelo = normalizarModelo('anthropic', falso.modelo);
+  const params = {
+    model: modelo,
+    max_tokens: maxTokens,
+    system: sistema,
+    messages: turnos,
+    ...(modelo === 'claude-haiku-4-5' ? {} : { output_config: { effort: 'low' } })
+  };
+  const r = COM_FALLBACK.has(modelo)
+    ? await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
+    : await client.messages.create(params);
+  if (r.stop_reason === 'refusal') throw new Error('A IA recusou o pedido.');
+  return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+}
+
 // ---------------------------------------------------------------- mensagens escritas pela IA para a equipe
 
 // Escreve uma mensagem nova para o lead a partir de uma instrução interna
@@ -549,6 +595,7 @@ module.exports = {
   transcreverAudio,
   descreverImagem,
   lerComprovante,
+  gerarTexto,
   podeOuvirAudio,
   extrairAcoes,
   descreverErroIa,

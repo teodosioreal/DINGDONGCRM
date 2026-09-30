@@ -128,6 +128,29 @@ precisa digitar Session ID nem API Key.
   pediu SAIR fica de fora, só age até 3 dias depois do critério (ligar uma
   automação não dispara para leads antigos) e, por padrão, só das 8h às 20h.
 
+### Respostas rápidas com mídia (também no celular)
+
+- Atalhos como `/preco` e `/catalogo` que mandam **texto + foto, PDF ou álbum**
+  cadastrado. Na aba Conversas: digite `/` e escolha (a mídia vai junto).
+- **No WhatsApp do celular:** a equipe digita só `/preco` na conversa do
+  cliente; o CRM apaga esse `/preco` e manda no lugar o texto e a mídia.
+  Pode ser desligado.
+
+### Aprendizados da IA (varredura das conversas)
+
+- Todo dia às **8h** (horário de Brasília) ou no botão **Varrer agora**, a
+  IA lê as conversas do WhatsApp (histórico da Evolution API) e mantém um
+  **arquivo de aprendizados**: jeito de falar do dono/equipe, perguntas,
+  preços e condições passados, objeções e respostas, como fecha, perguntas
+  frequentes e o que evitar — sem dados pessoais dos clientes.
+- Lê o histórico **uma vez** e depois **só mensagens novas** (guarda até onde
+  leu em cada conversa). Conversa com **venda concluída** (lead em "Fechado"
+  ou venda confirmada) é lida uma última vez e depois não é mais lida.
+  Grupos ficam de fora. Primeira leitura muito grande continua na próxima.
+- As IAs do site e do WhatsApp usam o arquivo para atender cada vez mais
+  parecido com a empresa. Dá para ler, corrigir, baixar (.txt), desligar ou
+  recomeçar do zero.
+
 ### Faturamento (vendas pelos comprovantes do Pix)
 
 - Quando o cliente manda o **comprovante do Pix** (print ou PDF) no WhatsApp,
@@ -312,6 +335,7 @@ src/whatsapp.js        → Evolution API: conectar (Session ID + API Key), webho
 src/disparos.js        → disparos em massa (fila, intervalos, horário comercial, SAIR)
 src/automacoes.js      → máquina de vendas (receitas, critérios, envio) e mensagens agendadas
 src/comprovantes.js    → leitura de comprovantes (PDF/OCR sem IA, IA como plano B) e faturamento
+src/aprendizado.js     → varredura diária das conversas e arquivo de aprendizados da IA
 src/midias.js          → mídias, links, álbuns do Google Drive e anexos das conversas
 src/rotas-painel.js    → API do painel (empresas, assistentes, leads, WhatsApp, mídias, usuários)
 src/rotas-publicas.js  → API do widget (config, chat) e webhook do WhatsApp

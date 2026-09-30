@@ -579,6 +579,12 @@ async function receberWebhook(empresa, corpo) {
     if (msg.key.fromMe) {
       // enviada pelo próprio CRM (eco) → ignora; enviada pela equipe no celular → IA para
       if (enviadosPeloCrm.has(msg.key.id)) continue;
+      // atalho digitado no celular (ex.: /preco) → o CRM manda a resposta pronta com a mídia
+      const atalho = respostaPorAtalho(empresa, texto);
+      if (atalho) {
+        await usarAtalhoDoCelular(empresa, jid, msg, atalho).catch((err) => console.error(`[whatsapp atalho ${jid}]`, err.message));
+        continue;
+      }
       const lead = estado.conversas.find((c) => c.empresaId === empresa.id && c.whatsappJid === jid);
       if (!lead) continue;
       const anexo = await baixarAnexo(empresa, lead, msg).catch(() => null);
@@ -782,6 +788,38 @@ async function responderLead(empresaId, leadId) {
   salvar();
 }
 
+// ---------------------------------------------------------------- respostas rápidas com mídia
+
+function respostaPorAtalho(empresa, texto) {
+  if (empresa.atalhosNoCelular === false) return null;
+  const m = String(texto || '').trim().match(/^\/([\w\u00C0-\u017F-]{1,30})$/);
+  if (!m) return null;
+  const alvo = m[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return (empresa.respostasRapidas || []).find((r) => r.atalho.normalize('NFD').replace(/[\u0300-\u036f]/g, '') === alvo) || null;
+}
+
+// Manda uma resposta pronta (texto + mídia/álbum) para o lead
+async function enviarRespostaRapida(empresa, lead, resposta) {
+  const destino = lead.whatsappJid || destinoDoLead(lead);
+  if (resposta.texto) {
+    await enviarTexto(empresa, destino, resposta.texto, { digitando: false });
+    leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: resposta.texto, respostaRapida: resposta.atalho });
+  }
+  if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe');
+}
+
+async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
+  // apaga o "/preco" da conversa do cliente (se der) antes de mandar a resposta
+  await evolution(empresa, 'DELETE', '/chat/deleteMessageForEveryone/{instancia}', { id: msg.key.id, fromMe: true, remoteJid: jid }).catch(() => {});
+  const lead = acharOuCriarLead(empresa, jid, '', { ...msg, pushName: '' });
+  await enviarRespostaRapida(empresa, lead, resposta);
+  // a equipe está atendendo esse cliente pelo celular
+  lead.iaPausada = true;
+  lead.iaPausadaMotivo = 'A equipe respondeu pelo WhatsApp';
+  cancelarResposta(lead.id);
+  salvar();
+}
+
 // [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
 async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
   for (const nome of nomes || []) {
@@ -814,6 +852,9 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 
 module.exports = {
   evolutionUrlGlobal,
+  evolucao: evolution,
+  enviarRespostaRapida,
+  respostaPorAtalho,
   enviarArquivo,
   enviarMidiasPedidas,
   botDoWhatsapp,

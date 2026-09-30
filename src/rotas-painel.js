@@ -14,6 +14,7 @@ const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
 const comprovantes = require('./comprovantes');
+const aprendizado = require('./aprendizado');
 const fs = require('fs');
 const path = require('path');
 const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
@@ -185,6 +186,7 @@ function empresaComExtras(e, req) {
     links: midias.linksDa(e),
     drivePastas: midias.pastasDa(e),
     respostasRapidas: e.respostasRapidas || [],
+    atalhosNoCelular: e.atalhosNoCelular !== false,
     naoLidas: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? c.naoLidas || 0 : 0), 0),
     logoUrl: e.logo ? `${config.urlPublica}/logo/${e.id}?v=${encodeURIComponent(e.logo.v)}` : '',
     faturamentoMes: comprovantes.resumo(e).mes,
@@ -1042,16 +1044,95 @@ router.delete('/leads/:id/agendadas/:agendadaId', (req, res) => {
   res.json({ ok: true });
 });
 
+
+// Equipe usa uma resposta pronta (texto + mídia) na conversa
+router.post('/leads/:id/resposta-rapida', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const resposta = (empresa.respostasRapidas || []).find((r) => r.id === req.body?.id);
+  if (!resposta) return res.status(404).json({ erro: 'Resposta pronta não encontrada.' });
+  if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  try {
+    await whatsapp.enviarRespostaRapida(empresa, c, { ...resposta, texto: req.body?.texto !== undefined ? texto(req.body.texto, 4000) : resposta.texto });
+    c.iaPausada = true;
+    c.iaPausadaMotivo = 'A equipe respondeu pelo painel';
+    whatsapp.cancelarResposta(c.id);
+    salvar();
+    manterIa(c, req.body?.manterIa === true);
+    res.json(resumoLead(c));
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+// ---------------------------------------------------------------- aprendizados (varredura das conversas)
+
+router.get('/empresas/:id/aprendizado', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(aprendizado.resumo(empresa));
+});
+
+router.put('/empresas/:id/aprendizado', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  const mudancas = {};
+  if (b.texto !== undefined) mudancas.texto = texto(b.texto, 20000);
+  if (b.diario !== undefined) mudancas.diario = b.diario === true;
+  if (b.usarNoPrompt !== undefined) mudancas.usarNoPrompt = b.usarNoPrompt === true;
+  aprendizado.guardar(empresa, mudancas);
+  res.json(aprendizado.resumo(empresa));
+});
+
+router.post('/empresas/:id/aprendizado/varrer', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (aprendizado.progresso(empresa)) return res.status(409).json({ erro: 'Já existe uma varredura em andamento.' });
+  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
+  // roda em segundo plano; o painel acompanha pelo GET
+  aprendizado.varrer(empresa, { motivo: `manual (${req.usuario.email})` }).catch((err) => console.error(`[aprendizado ${empresa.id}]`, err.message));
+  res.status(202).json(aprendizado.resumo(empresa));
+});
+
+router.post('/empresas/:id/aprendizado/zerar', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    aprendizado.zerar(empresa);
+    res.json(aprendizado.resumo(empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.get('/empresas/:id/aprendizado/arquivo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const nome = `aprendizados-${String(empresa.nome).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').toLowerCase()}.txt`;
+  res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+  res.type('text/plain; charset=utf-8').send(aprendizado.configDa(empresa).texto || '(ainda vazio — faça a primeira varredura)');
+});
+
 // ---------------------------------------------------------------- respostas rápidas, links e Google Drive
 
 router.put('/empresas/:id/respostas', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const lista = (Array.isArray(req.body?.respostas) ? req.body.respostas : [])
-    .map((r) => ({ id: texto(r?.id, 40) || novoId('rr'), atalho: texto(r?.atalho, 30).replace(/^\/+/, '').replace(/\s+/g, '-').toLowerCase(), texto: texto(r?.texto, 2000) }))
-    .filter((r) => r.atalho && r.texto)
+    .map((r) => ({
+      id: texto(r?.id, 40) || novoId('rr'),
+      atalho: texto(r?.atalho, 30).replace(/^\/+/, '').replace(/\s+/g, '-').toLowerCase(),
+      texto: texto(r?.texto, 2000),
+      midia: texto(r?.midia, 120)
+    }))
+    .map((r) => ({ ...r, midia: r.midia && midias.acharParaEnviar(empresa, r.midia).length ? r.midia : '' }))
+    .filter((r) => r.atalho && (r.texto || r.midia))
     .slice(0, 100);
+  const repetido = lista.find((r, i) => lista.findIndex((x) => x.atalho === r.atalho) !== i);
+  if (repetido) return res.status(400).json({ erro: `O atalho /${repetido.atalho} está repetido.` });
   empresa.respostasRapidas = lista;
+  if (req.body?.atalhosNoCelular !== undefined) empresa.atalhosNoCelular = req.body.atalhosNoCelular === true;
   salvar();
   res.json(lista);
 });

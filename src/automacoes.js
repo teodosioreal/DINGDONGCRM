@@ -301,6 +301,7 @@ async function ciclo() {
   for (const empresa of estado.empresas) {
     if (empresa.ativa === false || !whatsapp.configurado(empresa)) continue;
     await cicloDaEmpresa(empresa).catch((err) => console.error(`[automações ${empresa.id}]`, err.message));
+    require('./aprendizado').verificarAgenda(empresa);
   }
 }
 

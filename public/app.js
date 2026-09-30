@@ -168,6 +168,7 @@ const ICONES = {
   visao: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   conversas: I('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8 11h8M8 14h5"/>'),
   maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+  livro: I('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h5"/>'),
   dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>')
 };
 
@@ -220,6 +221,7 @@ function montarMenu(ativo) {
     html += item(rotaEmpresa(id, 'disparos'), 'disparos', 'Disparos em massa');
     html += '<p class="titulo-grupo">Configurar</p>';
     html += item(rotaEmpresa(id, 'ia'), 'cerebro', 'Sobre a empresa');
+    html += item(rotaEmpresa(id, 'aprendizado'), 'livro', 'Aprendizados da IA');
     html += item(rotaEmpresa(id, 'site'), 'site', 'IA do site', ponto(d.canais?.site));
     html += item(rotaEmpresa(id, 'whatsapp'), 'whatsapp', 'IA do WhatsApp', ponto(d.canais?.whatsapp && d.whatsapp?.configurado));
     html += item(rotaEmpresa(id, 'midias'), 'midias', 'Mídias e links');
@@ -256,7 +258,9 @@ async function principalDa(empresaId) {
 // ---------------------------------------------------------------- visão geral (admin)
 
 async function paginaInicio() {
+  const hashDaPagina = location.hash;
   const [r, empresas] = await Promise.all([api('resumo'), api('empresas')]);
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Visão geral</h1><p class="sub">Todas as empresas do CRM</p></div></div>
     <div class="grade-resumo">
@@ -301,7 +305,9 @@ function ligarTabelaEmpresas() {
 }
 
 async function paginaEmpresas() {
+  const hashDaPagina = location.hash;
   const lista = await api('empresas');
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Empresas</h1><p class="sub">Cada empresa tem as próprias IAs, chave de IA, WhatsApp e leads.</p></div><button class="primario" id="nova">+ Nova empresa</button></div>
     ${gradeEmpresas(lista)}`;
@@ -364,6 +370,7 @@ function modalEmpresa(emp) {
 // ---------------------------------------------------------------- empresa: início
 
 async function paginaEmpresa(id) {
+  const hashDaPagina = location.hash;
   const [emp, r, principal] = await Promise.all([definirEmpresaAtual(id), api(`resumo?empresaId=${encodeURIComponent(id)}`), principalDa(id)]);
   const provedor = principal?.provedor || 'anthropic';
   const temChave = Boolean(emp.chaves?.[provedor]?.funciona);
@@ -406,6 +413,7 @@ async function paginaEmpresa(id) {
       </div>`;
   };
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho">
       <div class="titulo-empresa"><button type="button" class="logo-botao" id="logo-inicio" title="Trocar a foto da empresa">${avatarEmpresa(emp, 'grande')}<span class="logo-lapis">✎</span></button><div><h1>${esc(emp.nome)}</h1><p class="sub">${esc(emp.nicho || 'Painel da empresa')} · faturamento no mês: <a href="${rotaEmpresa(id, 'faturamento')}"><b>${brl(emp.faturamentoMes)}</b></a></p></div></div>
@@ -559,9 +567,11 @@ PERGUNTAS FREQUENTES
 `;
 
 async function paginaCerebro(id) {
+  const hashDaPagina = location.hash;
   const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
   if (!bot) return void (conteudo.innerHTML = '<p class="erro-caixa">Esta empresa ainda não tem assistente. Fale com o administrador.</p>');
   const semChave = !emp.chaves?.[bot.provedor || 'anthropic']?.funciona;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Sobre a empresa</h1><p class="sub">O que as duas IAs sabem e como elas falam</p></div></div>
     ${balao('Aqui você "treina" a IA', 'Escreva como se estivesse explicando o negócio para um funcionário novo: o que vende, quanto custa, onde atende, horários, prazos, garantia, formas de pagamento e as dúvidas mais comuns. <b>A IA só responde o que estiver aqui</b> — o que não souber, ela diz que vai confirmar com a equipe.')}
@@ -638,10 +648,12 @@ function ligarSeletorModelo(form, empresaId) {
 // ---------------------------------------------------------------- empresa: IA do site
 
 async function paginaSite(id) {
+  const hashDaPagina = location.hash;
   const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
   if (!bot) return void (conteudo.innerHTML = '<p class="erro-caixa">Esta empresa ainda não tem assistente.</p>');
   const codigo = codigoEmpresa(emp.id);
   const ligado = emp.canais.site;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>IA do site</h1><p class="sub">Um chat estilo WhatsApp no seu site, respondendo 24h</p></div>${interruptor('ligar-site', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
     ${ligado ? '' : balao('A IA do site está desligada', 'O chat não aparece no site. Ligue no botão acima quando quiser usar.', 'aviso')}
@@ -722,6 +734,7 @@ async function paginaSite(id) {
 // ---------------------------------------------------------------- empresa: IA do WhatsApp
 
 async function paginaWhatsapp(id) {
+  const hashDaPagina = location.hash;
   const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
   const w = emp.whatsapp || {};
   const ligado = emp.canais.whatsapp;
@@ -799,6 +812,7 @@ async function paginaWhatsapp(id) {
       </div>`;
   }
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>IA do WhatsApp</h1><p class="sub">Responde no número da empresa, manda fotos e vídeos e passa para a equipe</p></div>${interruptor('ligar-zap', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
     ${ligado ? '' : balao('A IA do WhatsApp está desligada', 'As mensagens continuam chegando no CRM (você vê tudo em Leads), mas a IA não responde. Ligue no botão acima quando quiser.', 'aviso')}
@@ -1032,12 +1046,14 @@ async function paginaWhatsapp(id) {
 const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' };
 
 async function paginaMidias(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const todas = await api(`empresas/${id}/midias`);
   const lista = todas.filter((m) => !m.pastaId);
   const pastas = emp.drivePastas || [];
   let links = (emp.links || []).map((l) => ({ ...l }));
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
     ${balao('Mostrar o trabalho vende', 'A IA manda as fotos e links certos na hora certa. Ela escolhe pelo <b>nome</b> e pelo <b>"quando mandar"</b> — ex.: álbum <i>"Volantes em couro"</i>, quando <i>"o cliente pedir fotos ou perguntar do acabamento"</i>. Tudo aqui também pode ir nos disparos, nas automações e na aba Conversas.')}
@@ -1070,6 +1086,12 @@ async function paginaMidias(id) {
     </div>
 
     <div class="card">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">⚡ Respostas rápidas com mídia</h2><button type="button" class="primario pequeno" id="abrir-rapidas">Gerenciar</button></div>
+      <p class="rotulo" style="margin:0 0 10px">Atalhos como <b>/preco</b> e <b>/catalogo</b> que mandam texto + foto, PDF ou álbum de uma vez — na aba Conversas${emp.atalhosNoCelular !== false ? ' e digitando no WhatsApp do celular' : ''}.</p>
+      <div class="chips">${(emp.respostasRapidas || []).map((r) => `<span class="etiqueta">/${esc(r.atalho)}${r.midia ? ` · 📎 ${esc(r.midia)}` : ''}</span>`).join('') || '<span class="rotulo">Nenhuma ainda.</span>'}</div>
+    </div>
+
+    <div class="card">
       <h2>🔗 Links</h2>
       <p class="rotulo" style="margin-top:-6px">Site, catálogo, cardápio, localização no mapa, agenda online, Instagram… A IA manda quando fizer sentido.</p>
       <div id="lista-links" class="lista-editavel"></div>
@@ -1098,6 +1120,17 @@ async function paginaMidias(id) {
           <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
         </div>`).join('')}
     </div>`;
+
+  $('#abrir-rapidas').onclick = () => modalRespostasRapidas(emp, null).then(() => {
+    // redesenha a lista resumida quando o modal fechar (se ainda estiver nesta página)
+    const aqui = location.hash;
+    const obs = new MutationObserver(() => {
+      if (document.querySelector('.fundo-modal')) return;
+      obs.disconnect();
+      if (location.hash === aqui) paginaMidias(id);
+    });
+    obs.observe(document.body, { childList: true });
+  });
 
   // ---------- Drive
   $('#f-drive').onsubmit = async (e) => {
@@ -1238,11 +1271,13 @@ async function paginaMidias(id) {
 // ---------------------------------------------------------------- empresa: etiquetas e etapas
 
 async function paginaOrganizar(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   let etiquetas = emp.etiquetas.map((t) => ({ ...t }));
   let etapas = emp.etapas.slice();
   const CORES = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Etiquetas e etapas</h1><p class="sub">Como os seus leads ficam organizados</p></div></div>
     <div class="duas-colunas">
@@ -1323,6 +1358,7 @@ async function paginaOrganizar(id) {
 // ---------------------------------------------------------------- empresa: chave de IA
 
 async function paginaChave(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const bloco = (provedor, campo, onde, dica, passosCriar, recomendado) => {
     const c = emp.chaves[provedor];
@@ -1345,6 +1381,7 @@ async function paginaChave(id) {
         </form>
       </div>`;
   };
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Chave de IA</h1><p class="sub">O "motor" das suas IAs</p></div></div>
     ${balao('Basta uma chave', 'Cadastre a do <b>Gemini</b> <u>ou</u> a do <b>Claude</b>. O custo das conversas fica na conta da sua empresa (o Gemini tem uma faixa gratuita para começar). A chave fica guardada só no servidor e nunca aparece no site.')}
@@ -1426,6 +1463,7 @@ function cartaoLead(l, etiquetas) {
 }
 
 async function paginaLeads(id, params) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const busca = params.get('busca') || '';
   const etiqueta = params.get('etiqueta') || '';
@@ -1437,6 +1475,7 @@ async function paginaLeads(id, params) {
     location.hash = rotaEmpresa(id, 'leads') + (p.toString() ? `?${p}` : '');
   };
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho">
       <div><h1>Leads</h1><p class="sub">${lista.length} ${lista.length === 1 ? 'lead' : 'leads'}${busca || etiqueta ? ' neste filtro' : ''}</p></div>
@@ -1607,9 +1646,11 @@ function modalNovoLead(emp, depois) {
 }
 
 async function paginaLead(leadId) {
+  const hashDaPagina = location.hash;
   const l = await api(`leads/${leadId}`);
   await definirEmpresaAtual(l.empresaId);
   const etiquetasLead = new Set(l.etiquetas);
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}</p></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
@@ -1703,8 +1744,10 @@ function barraProgresso(d) {
 }
 
 async function paginaDisparos(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const lista = await api(`empresas/${id}/disparos`);
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Disparos em massa</h1><p class="sub">Mande uma mensagem pelo WhatsApp para vários leads de uma vez</p></div>${emp.whatsapp?.configurado ? `<a class="botao primario" href="${rotaEmpresa(id, 'disparos/novo')}">+ Novo disparo</a>` : ''}</div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `Os disparos saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
@@ -1732,11 +1775,13 @@ async function paginaDisparos(id) {
 }
 
 async function paginaNovoDisparo(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const lista = await api(`empresas/${id}/midias`);
   let leadIds = [];
   try { leadIds = JSON.parse(sessionStorage.getItem('disparo_leads') || '[]'); sessionStorage.removeItem('disparo_leads'); } catch { leadIds = []; }
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Novo disparo</h1><p class="sub">3 passos: quem recebe, a mensagem e quando enviar</p></div><a class="botao" href="${rotaEmpresa(id, 'disparos')}">← Disparos</a></div>
     <form id="f-disparo" class="editor">
@@ -1865,9 +1910,11 @@ async function paginaNovoDisparo(id) {
 }
 
 async function paginaDisparo(id, disparoId) {
+  const hashDaPagina = location.hash;
   await definirEmpresaAtual(id);
   const d = await api(`empresas/${id}/disparos/${disparoId}`);
   const ST = { pendente: ['na fila', ''], enviado: ['enviado', 'ok'], erro: ['erro', 'off'], ignorado: ['ficou de fora', ''], cancelado: ['cancelado', ''] };
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>${esc(d.nome)}</h1><p class="sub">${statusDisparo(d)} ${d.agendadoPara && d.status === 'agendado' ? `começa em ${data(d.agendadoPara)}` : ''}</p></div><a class="botao" href="${rotaEmpresa(id, 'disparos')}">← Disparos</a></div>
     ${d.status === 'pausado' && d.motivoPausa ? balao('Disparo pausado', esc(d.motivoPausa), 'aviso') : ''}
@@ -1953,10 +2000,11 @@ function horaCurta(iso) {
 }
 
 function inicial(nome) {
-  return esc((String(nome || '?').trim()[0] || '?').toUpperCase());
+  return esc((String(nome || '').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
 }
 
 async function paginaConversas(id, params) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   let filtro = 'todas';
   let busca = '';
@@ -1965,6 +2013,7 @@ async function paginaConversas(id, params) {
   let leadAberto = null;
   let assinaturaAberta = '';
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
@@ -2031,6 +2080,7 @@ async function paginaConversas(id, params) {
           <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
           <button type="button" class="pequeno" id="chat-agendar" title="Mandar mais tarde">🕒 Agendar</button>
         </div>
+        <div class="rapida-pendente" id="rapida-pendente" hidden></div>
         <div class="chat-linha">
           <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem… (Enter envia, / para respostas prontas)"></textarea>
           <button class="primario" type="submit" id="chat-enviar">Enviar</button>
@@ -2115,20 +2165,31 @@ async function paginaConversas(id, params) {
     if (!form) return;
     const campo = $('#chat-texto');
     const ajustarAltura = () => { campo.style.height = 'auto'; campo.style.height = `${Math.min(160, campo.scrollHeight)}px`; };
-    const rapidas = emp.respostasRapidas || [];
     const caixaRapidas = $('#sugestoes-rapidas');
+    // resposta pronta com mídia escolhida: vai junto quando clicar em Enviar
+    let pendente = null;
+    const mostrarPendente = () => {
+      const el = $('#rapida-pendente');
+      el.hidden = !pendente;
+      el.innerHTML = pendente ? `⚡ <b>/${esc(pendente.atalho)}</b> vai com 📎 <b>${esc(pendente.midia)}</b> <button type="button" class="link-botao" id="tirar-pendente">tirar</button>` : '';
+      $('#tirar-pendente')?.addEventListener('click', () => { pendente = null; mostrarPendente(); });
+    };
+    const escolherRapida = (r) => {
+      campo.value = r.texto || '';
+      pendente = r.midia ? r : null;
+      mostrarPendente();
+      caixaRapidas.hidden = true;
+      ajustarAltura();
+      campo.focus();
+    };
     const mostrarRapidas = () => {
+      const rapidas = emp.respostasRapidas || [];
       const m = campo.value.match(/^\/(\S*)$/);
       const achadas = m ? rapidas.filter((r) => r.atalho.includes(m[1].toLowerCase())).slice(0, 6) : [];
       caixaRapidas.hidden = !achadas.length;
-      caixaRapidas.innerHTML = achadas.map((r) => `<button type="button" data-rapida="${esc(r.id)}"><b>/${esc(r.atalho)}</b> ${esc(r.texto.slice(0, 80))}</button>`).join('');
+      caixaRapidas.innerHTML = achadas.map((r) => `<button type="button" data-rapida="${esc(r.id)}"><b>/${esc(r.atalho)}</b> ${r.midia ? `📎 ${esc(r.midia)} · ` : ''}${esc((r.texto || '').slice(0, 80))}</button>`).join('');
       $$('[data-rapida]', caixaRapidas).forEach((b) => {
-        b.onclick = () => {
-          campo.value = rapidas.find((r) => r.id === b.dataset.rapida).texto;
-          caixaRapidas.hidden = true;
-          ajustarAltura();
-          campo.focus();
-        };
+        b.onclick = () => escolherRapida(rapidas.find((r) => r.id === b.dataset.rapida));
       });
     };
     campo.addEventListener('input', () => { ajustarAltura(); mostrarRapidas(); });
@@ -2141,6 +2202,18 @@ async function paginaConversas(id, params) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       const t = campo.value.trim();
+      if (pendente) {
+        const r = pendente;
+        try {
+          await comEspera($('#chat-enviar'), () => api(`leads/${abertoId}/resposta-rapida`, { method: 'POST', body: { id: r.id, texto: t, manterIa: $('#chat-manter-ia')?.checked } }), 'Enviando…');
+          campo.value = '';
+          pendente = null;
+          mostrarPendente();
+          await recarregarAberto();
+          carregarLista();
+        } catch (err) { aviso(err.message, true); }
+        return;
+      }
       if (!t) return;
       try {
         campo.value = '';
@@ -2193,11 +2266,7 @@ async function paginaConversas(id, params) {
         });
       });
     };
-    $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, (textoEscolhido) => {
-      campo.value = textoEscolhido;
-      ajustarAltura();
-      campo.focus();
-    });
+    $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
     $('#chat-sugerir').onclick = async (e) => {
       try {
         const r = await comEspera(e.currentTarget, () => api(`leads/${abertoId}/sugerir`, { method: 'POST', body: { pedido: campo.value.trim() } }), 'Pensando…');
@@ -2258,36 +2327,47 @@ async function paginaConversas(id, params) {
   }, 4000);
 }
 
-function modalRespostasRapidas(emp, aoEscolher) {
+async function modalRespostasRapidas(emp, aoEscolher) {
   let lista = (emp.respostasRapidas || []).map((r) => ({ ...r }));
+  const todas = await api(`empresas/${emp.id}/midias`).catch(() => []);
+  const opcoesMidia = [
+    ...(emp.drivePastas || []).filter((p) => p.total).map((p) => ({ nome: p.nome, rotulo: `📁 ${p.nome} (álbum)` })),
+    ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.nome, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome}` }))
+  ];
   abrirModal(`
-    <h2>Respostas prontas</h2>
-    ${balao('Economize tempo', 'Cadastre as respostas que você manda sempre (endereço, formas de pagamento, horário…). Na conversa, digite <b>/</b> e o atalho para usar.')}
+    <h2>Respostas rápidas</h2>
+    ${balao('Texto + foto/catálogo com um atalho', `Ex.: <b>/preco</b> manda a tabela de preços, <b>/catalogo</b> manda o álbum de fotos. Use aqui na aba Conversas${emp.atalhosNoCelular !== false ? ' <b>e também no WhatsApp do celular</b>: digite <b>/preco</b> na conversa do cliente e o CRM troca pelo texto + mídia' : ''}.`)}
+    <label class="linha-check" style="margin-bottom:12px"><input type="checkbox" id="atalhos-celular" ${emp.atalhosNoCelular !== false ? 'checked' : ''}> Funcionar também quando eu digitar o atalho no WhatsApp do celular ${ajuda('Você digita só "/preco" na conversa do cliente, no seu celular. O CRM apaga esse "/preco" e manda no lugar o texto e a mídia cadastrados.')}</label>
     <div id="lista-rapidas" class="lista-editavel"></div>
     <div class="acoes"><button type="button" id="add-rapida">+ Nova resposta</button><button type="button" class="primario" id="salvar-rapidas">Salvar</button><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
     const desenhar = () => {
       $('#lista-rapidas', m).innerHTML = lista.map((r, i) => `
         <div class="rapida">
-          <div class="linha-editavel"><span class="rotulo">/</span><input value="${esc(r.atalho)}" data-atalho="${i}" placeholder="atalho (ex.: pix)" maxlength="30"><button type="button" class="pequeno" data-usar="${i}">Usar</button><button type="button" class="pequeno perigo" data-tirar="${i}">✕</button></div>
-          <textarea data-texto="${i}" placeholder="Texto da resposta">${esc(r.texto)}</textarea>
-        </div>`).join('') || '<p class="rotulo">Nenhuma resposta pronta ainda.</p>';
+          <div class="linha-editavel"><span class="rotulo">/</span><input value="${esc(r.atalho)}" data-atalho="${i}" placeholder="atalho (ex.: preco)" maxlength="30">${aoEscolher ? `<button type="button" class="pequeno" data-usar="${i}">Usar</button>` : ''}<button type="button" class="pequeno perigo" data-tirar="${i}">✕</button></div>
+          <textarea data-texto="${i}" placeholder="Texto (opcional se tiver mídia)">${esc(r.texto || '')}</textarea>
+          <select data-midia="${i}"><option value="">Sem mídia</option>${opcoesMidia.map((o) => `<option value="${esc(o.nome)}" ${o.nome === r.midia ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select>
+        </div>`).join('') || '<p class="rotulo">Nenhuma resposta rápida ainda.</p>';
       $$('[data-atalho]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.atalho].atalho = el.value; }; });
       $$('[data-texto]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.texto].texto = el.value; }; });
+      $$('[data-midia]', m).forEach((el) => { el.onchange = () => { lista[el.dataset.midia].midia = el.value; }; });
       $$('[data-tirar]', m).forEach((el) => { el.onclick = () => { lista.splice(Number(el.dataset.tirar), 1); desenhar(); }; });
       $$('[data-usar]', m).forEach((el) => {
         el.onclick = () => {
           const r = lista[Number(el.dataset.usar)];
-          if (!r.texto.trim()) return;
-          aoEscolher?.(r.texto);
+          if (!r.id) return aviso('Salve antes de usar.', true);
+          if (!(r.texto || '').trim() && !r.midia) return;
+          aoEscolher?.(r);
           fechar();
         };
       });
     };
     desenhar();
-    $('#add-rapida', m).onclick = () => { lista.push({ atalho: '', texto: '' }); desenhar(); };
+    $('#add-rapida', m).onclick = () => { lista.push({ atalho: '', texto: '', midia: '' }); desenhar(); };
     $('#salvar-rapidas', m).onclick = async () => {
       try {
-        emp.respostasRapidas = await api(`empresas/${emp.id}/respostas`, { method: 'PUT', body: { respostas: lista } });
+        const celular = $('#atalhos-celular', m).checked;
+        emp.respostasRapidas = await api(`empresas/${emp.id}/respostas`, { method: 'PUT', body: { respostas: lista, atalhosNoCelular: celular } });
+        emp.atalhosNoCelular = celular;
         lista = emp.respostasRapidas.map((r) => ({ ...r }));
         desenhar();
         aviso('Respostas salvas.');
@@ -2307,9 +2387,11 @@ function descreverGatilho(r) {
 }
 
 async function paginaAutomacoes(id) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const d = await api(`empresas/${id}/automacoes`);
   const precisaLink = d.regras.some((r) => r.ativa && /\{link_avaliacao\}/i.test(r.acao.texto || '')) && !d.linkAvaliacao;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Máquina de vendas</h1><p class="sub">Mensagens automáticas que recuperam vendas, trazem avaliações e clientes de volta</p></div><button type="button" class="primario" id="nova-regra">+ Criar automação</button></div>
     ${d.whatsappConectado ? '' : balao('Conecte o WhatsApp primeiro', `As automações saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
@@ -2516,6 +2598,7 @@ function gradeEmpresas(lista) {
 // ---------------------------------------------------------------- empresa: faturamento
 
 async function paginaFaturamento(id, params) {
+  const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const mes = params.get('mes') || '';
   const d = await api(`empresas/${id}/faturamento?${new URLSearchParams({ mes })}`);
@@ -2534,6 +2617,7 @@ async function paginaFaturamento(id, params) {
   const iMaior = r.porDia.findIndex((x) => x.total === maxDia && maxDia > 0);
   const ROTULO_ORIGEM = { texto: '📄 lido do PDF', ocr: '📷 lido da foto', ia: '✨ lido pela IA', manual: '✍️ lançada à mão' };
 
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho">
       <div><h1>Faturamento</h1><p class="sub">Vendas confirmadas pelos comprovantes do WhatsApp e lançadas pela equipe</p></div>
@@ -2702,10 +2786,105 @@ function modalVenda(emp, v, leadId, depois, padrao = {}) {
   });
 }
 
+// ---------------------------------------------------------------- empresa: aprendizados da IA (varredura das conversas)
+
+async function paginaAprendizado(id) {
+  const hashDaPagina = location.hash;
+  const emp = await definirEmpresaAtual(id);
+  const a = await api(`empresas/${id}/aprendizado`);
+  const rodando = a.rodando;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Aprendizados da IA</h1><p class="sub">A IA lê as conversas do seu WhatsApp e aprende o seu jeito de atender e vender</p></div>
+      <div class="barra"><a class="botao" href="api/empresas/${esc(id)}/aprendizado/arquivo">⬇️ Baixar arquivo</a><button type="button" class="primario" id="varrer" ${rodando || !emp.whatsapp?.configurado ? 'disabled' : ''}>🔍 Varrer agora</button></div>
+    </div>
+    ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
+    ${balao('Como funciona', `${passos([
+      'Todo dia às <b>8h</b> (ou quando você clicar em <b>Varrer agora</b>) a IA lê as conversas do WhatsApp.',
+      'Da primeira vez ela lê o histórico; depois, <b>só as mensagens novas</b>. Conversa com <b>venda concluída</b> é lida uma última vez e depois não é mais lida.',
+      'Ela anota como <b>você</b> atende: jeito de falar, perguntas, preços que você passa, como responde objeções e como fecha — sem guardar dados pessoais dos clientes.',
+      'A IA do WhatsApp e a do site usam esse arquivo para atender cada vez mais parecido com você. Você pode ler, corrigir ou desligar.'
+    ])}`)}
+
+    ${rodando ? `<div class="card varredura-andamento"><span class="girando"></span> <b>${esc(rodando.etapa)}</b><div class="rotulo">${rodando.lidas} de ${rodando.conversas} conversas verificadas · ${rodando.mensagens} mensagens novas · ${rodando.lotes} ${rodando.lotes === 1 ? 'parte estudada' : 'partes estudadas'}</div></div>` : ''}
+
+    <div class="grade-resumo">
+      ${numeroCard('Última varredura', a.ultimaVarredura ? data(a.ultimaVarredura) : 'nunca')}
+      ${numeroCard('Conversas acompanhadas', a.conversasConhecidas)}
+      ${numeroCard('Vendas concluídas (não lê mais)', a.conversasConcluidas)}
+      ${numeroCard('Ficou para a próxima', a.pendentes || 0)}
+    </div>
+
+    <div class="card">
+      ${interruptor('diario', a.diario, 'Varrer sozinho todo dia às 8h')}
+      <div style="height:10px"></div>
+      ${interruptor('usar', a.usarNoPrompt, 'A IA usa estes aprendizados para atender')}
+    </div>
+
+    <form class="card" id="f-aprendizado">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📘 O que a IA aprendeu</h2><span class="rotulo">${(a.texto || '').split(/\s+/).filter(Boolean).length} palavras</span></div>
+      <p class="rotulo" style="margin:0 0 10px">Pode corrigir à vontade: a próxima varredura continua a partir do que estiver aqui.</p>
+      <textarea class="grande" name="texto" placeholder="Ainda vazio. Clique em &quot;Varrer agora&quot; para a IA ler as suas conversas.">${esc(a.texto || '')}</textarea>
+      <div class="acoes"><button class="primario" type="submit">Salvar alterações</button></div>
+    </form>
+
+    ${a.historico.length ? `
+    <div class="card tabela-wrap">
+      <table>
+        <thead><tr><th>Quando</th><th>Como</th><th>Conversas lidas</th><th class="esconde-mobile">Mensagens</th><th>Situação</th></tr></thead>
+        <tbody>${a.historico.map((h) => `<tr><td>${data(h.em)}</td><td class="rotulo">${esc(h.motivo)}</td><td>${h.conversas}${h.concluidasIgnoradas ? ` <span class="rotulo">(+${h.concluidasIgnoradas} concluídas puladas)</span>` : ''}</td><td class="esconde-mobile">${h.mensagens}</td><td>${h.status === 'ok' ? '<span class="etiqueta ok">✓ ok</span>' : `<span class="etiqueta off">erro</span> <span class="rotulo">${esc(h.erro)}</span>`}${h.pendentes ? ` <span class="rotulo">· ${h.pendentes} para a próxima</span>` : ''}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+
+    <details class="card secao-avancada"><summary>Recomeçar do zero</summary>
+      <p class="rotulo">Apaga o arquivo e faz a IA ler todas as conversas de novo na próxima varredura.</p>
+      <button type="button" class="perigo" id="zerar">Apagar aprendizados e recomeçar</button>
+    </details>`;
+
+  $('#varrer')?.addEventListener('click', async (e) => {
+    try {
+      await comEspera(e.target, () => api(`empresas/${id}/aprendizado/varrer`, { method: 'POST' }), 'Começando…');
+      aviso('Varredura começou. Pode continuar usando o painel.');
+      paginaAprendizado(id);
+    } catch (err) { aviso(err.message, true); }
+  });
+  $('#diario').onchange = (e) => api(`empresas/${id}/aprendizado`, { method: 'PUT', body: { diario: e.target.checked } }).then(() => aviso(e.target.checked ? 'Vai varrer todo dia às 8h.' : 'Varredura diária desligada.')).catch((err) => aviso(err.message, true));
+  $('#usar').onchange = (e) => api(`empresas/${id}/aprendizado`, { method: 'PUT', body: { usarNoPrompt: e.target.checked } }).then(() => aviso(e.target.checked ? 'A IA vai usar os aprendizados.' : 'A IA não vai usar os aprendizados.')).catch((err) => aviso(err.message, true));
+  $('#f-aprendizado').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api(`empresas/${id}/aprendizado`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('Aprendizados salvos.');
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#zerar').onclick = async () => {
+    if (!(await confirmar({ titulo: 'Apagar os aprendizados?', texto: 'A IA esquece o que aprendeu e lê todas as conversas de novo na próxima varredura.', botao: 'Apagar e recomeçar', perigo: true }))) return;
+    try {
+      await api(`empresas/${id}/aprendizado/zerar`, { method: 'POST' });
+      paginaAprendizado(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+  if (rodando) {
+    const aqui = location.hash;
+    atualizador = setInterval(async () => {
+      if (location.hash !== aqui) return void clearInterval(atualizador);
+      const novo = await api(`empresas/${id}/aprendizado`).catch(() => null);
+      if (!novo) return;
+      if (!novo.rodando) {
+        clearInterval(atualizador);
+        aviso(novo.historico[0]?.status === 'erro' ? `A varredura deu erro: ${novo.historico[0].erro}` : 'Varredura concluída!', novo.historico[0]?.status === 'erro');
+      }
+      paginaAprendizado(id);
+    }, 2500);
+  }
+}
+
 // ---------------------------------------------------------------- usuários (admin)
 
 async function paginaUsuarios() {
+  const hashDaPagina = location.hash;
   const [lista, empresas] = await Promise.all([api('usuarios'), api('empresas')]);
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Usuários</h1><p class="sub">Quem entra no painel</p></div><button class="primario" id="novo">+ Novo usuário</button></div>
     ${balao('Dê acesso ao dono da empresa', 'Crie um <b>usuário de empresa</b>: ele entra direto na empresa dele, só vê o que é dela e consegue configurar tudo sozinho (chave de IA, WhatsApp, mídias, disparos).')}
@@ -2776,6 +2955,7 @@ function modalUsuario(u, empresas) {
 // ---------------------------------------------------------------- configurações do sistema (admin)
 
 async function paginaConfiguracoes() {
+  const hashDaPagina = location.hash;
   const c = await api('config');
   const linha = (id, nome, campo, onde, dica) => `
     <div class="card">
@@ -2789,6 +2969,7 @@ async function paginaConfiguracoes() {
         </div>
       </form>
     </div>`;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Configurações do sistema</h1><p class="sub">Vale para todas as empresas</p></div></div>
     <form class="card" id="f-evolution">
@@ -2906,6 +3087,7 @@ async function rotear() {
         leads: () => paginaLeads(id, params),
         conversas: () => paginaConversas(id, params),
         faturamento: () => paginaFaturamento(id, params),
+        aprendizado: () => paginaAprendizado(id),
         automacoes: () => paginaAutomacoes(id),
         disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id)),
         ia: () => paginaCerebro(id),

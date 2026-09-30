@@ -639,3 +639,9 @@ html.dark .dica-grafico { background: #f1f5f9; color: #0f172a; }
 
 .valor-topo.fim { left: auto; right: 0; transform: none; }
 .valor-topo.inicio { left: 0; transform: none; }
+
+/* respostas rápidas com mídia e aprendizados */
+.rapida-pendente { font-size: 13px; padding: 6px 10px; margin-bottom: 6px; border-radius: 6px; background: var(--ok-fundo); color: var(--ok-texto); }
+.rapida select { width: 100%; }
+.varredura-andamento { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; border-color: #93c5fd; }
+.varredura-andamento .rotulo { flex-basis: 100%; }
