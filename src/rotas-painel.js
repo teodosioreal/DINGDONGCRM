@@ -1138,9 +1138,11 @@ router.get('/leads/:id', (req, res) => {
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   const bot = estado.bots.find((b) => b.id === c.botId);
+  leads.garantirIdsDasMensagens(c);
   const { whatsappJid, origemSite, ...resto } = c;
   res.json({
     ...resto,
+    mensagens: c.mensagens.map((m) => (whatsapp.podeApagarParaTodos(m) ? { ...m, apagaParaTodos: true } : m)),
     fotoUrl: fotosClientes.urlDaFoto(c),
     origemSite: origem.resumoOrigem(c, empresa),
     pedidos: automacoes.pedidosFeitos(c, empresa),
@@ -1322,6 +1324,19 @@ router.post('/leads/:id/lido', (req, res) => {
     salvar();
   }
   res.json({ ok: true });
+});
+
+// Apagar uma mensagem: só do CRM, ou para todos (some também do WhatsApp do cliente)
+router.delete('/leads/:id/mensagens/:msgId', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  try {
+    await whatsapp.apagarMensagem(empresa, c, req.params.msgId, { paraTodos: req.body?.paraTodos === true });
+    res.json(resumoLead(c));
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? err.status : 502).json({ erro: err.message });
+  }
 });
 
 // Foto de perfil do WhatsApp do cliente — só com login

@@ -1491,7 +1491,7 @@ async function paginaMidias(id) {
     ? `<img src="${esc(m.url)}" alt="" loading="lazy">`
     : m.tipo === 'video'
       ? (m.processando
-        ? '<span class="video-convertendo"><span class="girando">⏳</span><small>Convertendo para o WhatsApp…</small></span>'
+        ? '<span class="video-convertendo"><span class="girando-emoji">⏳</span><small>Convertendo para o WhatsApp…</small></span>'
         : `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted playsinline onerror="this.hidden=true"></video><span class="selo-video">▶</span>`)
       : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`);
   const duracaoTxt = (s) => (s ? ` · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
@@ -2212,6 +2212,7 @@ async function paginaLead(leadId) {
     </div>`;
   const tl = $('#linha-tempo');
   tl.scrollTop = tl.scrollHeight;
+  tl.addEventListener('mensagem-apagada', () => paginaLead(leadId));
   const atualizar = async (body, msg) => {
     try {
       await api(`leads/${leadId}`, { method: 'PUT', body });
@@ -2557,8 +2558,44 @@ function htmlMensagem(m, leadId, anterior) {
   // o texto do cliente com áudio/foto já foi trocado pela transcrição: mostra o arquivo e a transcrição
   const textoVisivel = m.anexo && /^\[(áudio|foto) do cliente\]:/.test(m.texto || '') ? '' : m.texto;
   const hora = new Date(m.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
+  // botão ⌄ no canto do balão (como no WhatsApp): apagar a mensagem
+  const menu = m.id ? `<button type="button" class="msg-menu" data-msg-menu="${esc(m.id)}" data-lead="${esc(leadId)}" data-todos="${m.apagaParaTodos ? '1' : ''}" data-cliente="${saida ? '' : '1'}" title="Apagar mensagem" aria-label="Opções da mensagem">⌄</button>` : '';
+  if (m.apagada) {
+    const quem = { cliente: 'O cliente apagou esta mensagem', celular: 'Apagada pelo celular da empresa', equipe: 'Você apagou esta mensagem' }[m.apagada.por] || 'Mensagem apagada';
+    return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
+  }
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
 }
+
+// Apagar mensagem: "para todos" (sai do WhatsApp do cliente) ou "só no CRM"
+document.addEventListener('click', (e) => {
+  const botao = e.target.closest?.('[data-msg-menu]');
+  if (!botao) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const { msgMenu: msgId, lead: leadId } = botao.dataset;
+  const paraTodos = botao.dataset.todos === '1';
+  const doCliente = botao.dataset.cliente === '1';
+  abrirModal(`
+    <h2>Apagar mensagem?</h2>
+    <div class="opcoes-apagar">
+      ${paraTodos ? '<button type="button" class="perigo" data-opcao="todos">🗑️ Apagar para todos<small>Some também do WhatsApp do cliente</small></button>' : ''}
+      <button type="button" data-opcao="crm">Apagar só aqui no CRM<small>${doCliente ? 'Mensagem do cliente: some do painel e a IA deixa de ler. No celular dele continua.' : paraTodos ? 'O cliente continua vendo no WhatsApp dele' : 'Sai do painel e a IA deixa de ler'}</small></button>
+      <button type="button" data-fechar>Cancelar</button>
+    </div>
+    ${!paraTodos && !doCliente ? '<p class="rotulo">"Apagar para todos" só aparece em mensagens enviadas pelo WhatsApp há menos de 2 dias (limite do WhatsApp).</p>' : ''}`, (modal, fechar) => {
+    $$('[data-opcao]', modal).forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await comEspera(b, () => api(`leads/${encodeURIComponent(leadId)}/mensagens/${encodeURIComponent(msgId)}`, { method: 'DELETE', body: { paraTodos: b.dataset.opcao === 'todos' } }));
+          fechar();
+          aviso(b.dataset.opcao === 'todos' ? 'Mensagem apagada para todos.' : 'Mensagem apagada do CRM.');
+          botao.dispatchEvent(new CustomEvent('mensagem-apagada', { bubbles: true }));
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+  });
+});
 
 // A conversa inteira, com o separador de dia do WhatsApp
 // "sáb. 03/10 às 09:00" — agendamentos sempre no horário de Brasília
@@ -2869,7 +2906,7 @@ async function paginaConversas(id, params) {
     desenharLista();
     history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
     leadAberto = await api(`leads/${leadId}`);
-    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}`;
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}`;
     if (rolar) desenharChat();
     if (leadAberto.naoLidas) {
       api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
@@ -2882,7 +2919,7 @@ async function paginaConversas(id, params) {
   async function recarregarAberto() {
     if (!abertoId) return;
     const l = await api(`leads/${abertoId}`);
-    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}`;
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}`;
     if (assinatura === assinaturaAberta) return;
     // não apaga o que a pessoa está digitando
     const rascunho = $('#chat-texto')?.value || '';
@@ -3109,6 +3146,12 @@ async function paginaConversas(id, params) {
   await carregarLista();
   if (abertoId) await abrir(abertoId);
   const aqui = rotaEmpresa(id, 'conversas');
+  // mensagem apagada no chat aberto: redesenha a conversa e a prévia da lista
+  $('#inbox-chat').addEventListener('mensagem-apagada', () => {
+    assinaturaAberta = '';
+    recarregarAberto().catch(() => {});
+    carregarLista().catch(() => {});
+  });
   atualizador = setInterval(() => {
     if (!location.hash.startsWith(aqui)) return void clearInterval(atualizador);
     carregarLista().catch(() => {});

@@ -73,8 +73,50 @@ function criarLead({ empresa, bot, canal, visitanteId, pagina, nome, telefone, w
   return lead;
 }
 
+// ---------------------------------------------------------------- id das mensagens
+// Cada mensagem ganha um id (para apagar pelo painel). As que saíram pelo
+// WhatsApp também guardam o id do WhatsApp (wids), para "apagar para todos".
+// O envio registra o id aqui e a mensagem salva logo depois pega esse id.
+const pendentesPorNumero = new Map(); // número → [{ id, em }]
+const chaveNumero = (s) => String(s || '').split('@')[0].replace(/\D/g, '');
+
+function registrarEnvioWhatsapp(destino, wid) {
+  const k = chaveNumero(destino);
+  if (!k || !wid) return;
+  const lista = (pendentesPorNumero.get(k) || []).filter((x) => Date.now() - x.em < 2 * 60 * 1000);
+  lista.push({ id: wid, em: Date.now() });
+  pendentesPorNumero.set(k, lista);
+  if (pendentesPorNumero.size > 2000) pendentesPorNumero.delete(pendentesPorNumero.keys().next().value);
+}
+
+function tirarEnviosPendentes(lead) {
+  const k = chaveNumero(lead.whatsappJid) || chaveNumero(lead.telefone);
+  if (!k) return [];
+  for (const [chave, lista] of pendentesPorNumero) {
+    const mesmo = chave === k || (chave.length >= 10 && k.length >= 10 && (chave.endsWith(k) || k.endsWith(chave)));
+    if (!mesmo) continue;
+    pendentesPorNumero.delete(chave);
+    return lista.filter((x) => Date.now() - x.em < 2 * 60 * 1000).map((x) => x.id);
+  }
+  return [];
+}
+
+// Mensagens antigas (sem id) ganham um na primeira vez que o painel abre a conversa
+function garantirIdsDasMensagens(lead) {
+  let mudou = false;
+  for (const m of lead.mensagens || []) {
+    if (!m.id) {
+      m.id = novoId('msg');
+      mudou = true;
+    }
+  }
+  if (mudou) salvar();
+}
+
 function adicionarMensagem(lead, msg) {
-  lead.mensagens.push({ em: agora(), ...msg });
+  const saiuPeloWhatsapp = msg.canal === 'whatsapp' && msg.papel !== 'visitante' && !msg.wid && !msg.wids;
+  const wids = saiuPeloWhatsapp ? tirarEnviosPendentes(lead) : [];
+  lead.mensagens.push({ id: novoId('msg'), em: agora(), ...msg, ...(wids.length ? { wids } : {}) });
   if (lead.mensagens.length > MAX_MENSAGENS_POR_LEAD) lead.mensagens.splice(0, lead.mensagens.length - MAX_MENSAGENS_POR_LEAD);
   lead.atualizadoEm = agora();
 }
@@ -164,6 +206,8 @@ module.exports = {
   acharEtapa,
   criarLead,
   adicionarMensagem,
+  registrarEnvioWhatsapp,
+  garantirIdsDasMensagens,
   moverEtapa,
   aoChegarNoWhatsapp,
   migrarLeads

@@ -20,6 +20,7 @@ const { estado, salvar, agora } = require('./db');
 const { hoje, soDigitos, numeroWhatsapp } = require('./util');
 const ia = require('./ia');
 const leads = require('./leads');
+const fs = require('fs');
 const midias = require('./midias');
 const comprovantes = require('./comprovantes');
 const origem = require('./origem');
@@ -229,7 +230,7 @@ function ehNossoWebhook(empresa, url) {
 }
 
 // Eventos que o CRM escuta: mensagens, conexão e conversa apagada no celular
-const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
 
 // Instâncias ligadas antes desta versão não mandam "conversa apagada":
 // se o webhook é do CRM e falta o evento, liga de novo (sem mexer em outros sistemas)
@@ -427,9 +428,10 @@ function destinoDoLead(lead) {
 
 // ids das mensagens que o próprio CRM enviou, para não confundir com a equipe
 const enviadosPeloCrm = new Map();
-function lembrarEnvio(resposta) {
+function lembrarEnvio(resposta, destino) {
   const id = resposta?.key?.id;
   if (id) enviadosPeloCrm.set(id, Date.now());
+  if (id && destino) leads.registrarEnvioWhatsapp(destino, id); // a mensagem salva em seguida guarda o id (para apagar depois)
   if (enviadosPeloCrm.size > 5000) {
     const corte = Date.now() - 60 * 60 * 1000;
     for (const [k, t] of enviadosPeloCrm) if (t < corte) enviadosPeloCrm.delete(k);
@@ -469,7 +471,7 @@ async function enviarTexto(empresa, destino, texto, { digitando = true } = {}) {
     text: texto,
     ...(digitando ? { delay: tempoDigitando(texto, empresa) } : {})
   });
-  lembrarEnvio(r);
+  lembrarEnvio(r, destino);
   return r;
 }
 
@@ -515,7 +517,7 @@ async function enviarMidia(empresa, destino, midia, legenda = '') {
       r = await mandar('document');
     }
   }
-  lembrarEnvio(r);
+  lembrarEnvio(r, destino);
   return r;
 }
 
@@ -671,6 +673,21 @@ async function receberWebhook(empresa, corpo) {
     salvar();
     return;
   }
+  // mensagem apagada "para todos" no WhatsApp (pelo cliente ou pelo celular da empresa)
+  if (eventoDe(corpo) === 'messages.delete') {
+    const itens = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];
+    for (const d of itens) {
+      // dois formatos: { remoteJid, fromMe, id } ou { id: <id interno>, key: { id, remoteJid } }
+      const wid = d?.key?.id || d?.id;
+      const jid = d?.key?.remoteJid || d?.remoteJid || '';
+      if (!wid) continue;
+      const lead = estado.conversas.find((c) => c.empresaId === empresa.id && (!jid || c.whatsappJid === jid) && (c.mensagens || []).some((m) => m.wid === wid || m.wids?.includes(wid)));
+      const m = lead?.mensagens.find((x) => x.wid === wid || x.wids?.includes(wid));
+      if (m && !m.apagada) marcarApagada(lead, m, m.papel === 'visitante' ? 'cliente' : 'celular');
+    }
+    salvar();
+    return;
+  }
   for (const msg of mensagensDoWebhook(corpo)) {
     const jid = msg?.key?.remoteJid || '';
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
@@ -693,7 +710,7 @@ async function receberWebhook(empresa, corpo) {
       const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
       const legenda = texto.replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '');
       const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
-      leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo });
+      leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo, wid: msg.key.id });
       lead.iaPausada = true;
       lead.iaPausadaMotivo = 'A equipe respondeu pelo WhatsApp';
       cancelarResposta(lead.id);
@@ -722,7 +739,7 @@ async function receberWebhook(empresa, corpo) {
     } catch (err) {
       console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
     }
-    leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined });
+    leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
     origem.aplicarAnuncio(empresa, lead);
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
@@ -842,7 +859,7 @@ async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda
           },
           { tempo }
         );
-  lembrarEnvio(r);
+  lembrarEnvio(r, destino);
   return { r, tipo };
 }
 
@@ -1051,6 +1068,56 @@ function whatsappDestino(lead) {
   return destinoDoLead(lead);
 }
 
+// ---------------------------------------------------------------- apagar mensagens
+// O WhatsApp só deixa "apagar para todos" mensagens que SAÍRAM da empresa e até
+// cerca de 2 dias depois do envio. Mensagem do cliente só dá para apagar do CRM.
+const LIMITE_APAGAR_PARA_TODOS_MS = 48 * 3600 * 1000;
+
+function podeApagarParaTodos(m) {
+  return Boolean(m.canal === 'whatsapp' && m.papel !== 'visitante' && (m.wid || m.wids?.length) && !m.apagada && Date.now() - new Date(m.em).getTime() < LIMITE_APAGAR_PARA_TODOS_MS);
+}
+
+// Some o conteúdo (texto e arquivo), fica o aviso "mensagem apagada" como no WhatsApp
+function apagarArquivoDoAnexo(lead, m) {
+  const caminho = m.anexo?.arquivo && midias.caminhoAnexo(lead.id, m.anexo.arquivo);
+  if (caminho) fs.rmSync(caminho, { force: true });
+}
+
+function marcarApagada(lead, m, por) {
+  apagarArquivoDoAnexo(lead, m);
+  m.apagada = { por, em: agora() };
+  m.texto = '';
+  if (m.anexo) m.anexoApagado = { tipo: m.anexo.tipo };
+  delete m.anexo;
+}
+
+async function apagarMensagem(empresa, lead, msgId, { paraTodos = false } = {}) {
+  const i = (lead.mensagens || []).findIndex((m) => m.id === msgId);
+  if (i < 0) throw erro('Mensagem não encontrada (atualize a conversa).', 404);
+  const m = lead.mensagens[i];
+  if (paraTodos) {
+    if (!podeApagarParaTodos(m)) {
+      throw erro(
+        m.papel === 'visitante'
+          ? 'Mensagem do cliente só pode ser apagada aqui no CRM (o WhatsApp não deixa apagar do celular dele).'
+          : 'O WhatsApp só deixa apagar para todos até ~2 dias depois do envio. Apague só do CRM.',
+        400
+      );
+    }
+    const jid = lead.whatsappJid || `${destinoDoLead(lead)}@s.whatsapp.net`;
+    for (const wid of m.wids || [m.wid]) {
+      await evolution(empresa, 'DELETE', '/chat/deleteMessageForEveryone/{instancia}', { id: wid, fromMe: true, remoteJid: jid });
+    }
+    marcarApagada(lead, m, 'equipe');
+  } else {
+    // só do CRM: sai da conversa do painel e do que a IA lê (o cliente continua vendo no celular dele)
+    apagarArquivoDoAnexo(lead, m);
+    lead.mensagens.splice(i, 1);
+  }
+  salvar();
+  return { ok: true };
+}
+
 // Mensagem escrita pela equipe no painel: vai pelo WhatsApp e a IA para no lead
 async function enviarPelaEquipe(empresa, lead, texto) {
   const destino = destinoDoLead(lead);
@@ -1142,6 +1209,8 @@ module.exports = {
   enviarMidia,
   destinoDoLead,
   enviarPelaEquipe,
+  apagarMensagem,
+  podeApagarParaTodos,
   agendarResposta,
   VELOCIDADES,
   revisarWebhook,

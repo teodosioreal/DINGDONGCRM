@@ -781,8 +781,17 @@ html.dark .ticket-chip.ag { background: #1e3a8a; color: #bfdbfe; }
 .midia-previa { position: relative; }
 .video-convertendo { display: grid; justify-items: center; gap: 6px; font-size: 30px; opacity: .85; }
 .video-convertendo small { font-size: 12px; }
-.girando { display: inline-block; animation: girar 1.6s linear infinite; }
-@keyframes girar { to { transform: rotate(360deg); } }
+.girando-emoji { display: inline-block; animation: girar 1.6s linear infinite; }
+/* apagar mensagem: botão ⌄ aparece ao passar o mouse (sempre visível no celular) */
+.msg { position: relative; }
+.msg-menu { position: absolute; top: 2px; right: 4px; border: 0; background: inherit; color: var(--texto-suave, #667781); font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px; cursor: pointer; opacity: 0; transition: opacity .15s; z-index: 2; }
+.msg:hover .msg-menu, .msg-menu:focus-visible { opacity: 1; }
+@media (hover: none) { .msg-menu { opacity: .6; } }
+.msg.apagada { opacity: .75; }
+.msg.apagada .msg-texto { color: var(--texto-suave, #667781); }
+.opcoes-apagar { display: grid; gap: 8px; margin: 12px 0; }
+.opcoes-apagar button { display: grid; text-align: left; gap: 2px; padding: 10px 14px; }
+.opcoes-apagar small { font-weight: 400; opacity: .8; font-size: 12px; }
 .selo-video { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); pointer-events: none; }
 .grande-previa { max-height: 220px; margin-bottom: 12px; border-radius: 8px; overflow: hidden; }
 .grande-previa img, .grande-previa video { width: 100%; max-height: 220px; object-fit: contain; background: #000; }

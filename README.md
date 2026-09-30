@@ -200,6 +200,17 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
   pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
 
+### Apagar mensagens
+
+- Em cada balão da conversa (Conversas e perfil do lead) há o botão **⌄** →
+  **Apagar para todos** (some também do WhatsApp do cliente — só mensagens que
+  saíram da empresa, até ~2 dias, limite do WhatsApp) ou **Apagar só no CRM**
+  (sai do painel e a IA deixa de ler; serve também para mensagens do cliente).
+- Se o cliente (ou o celular da empresa) apagar uma mensagem "para todos" no
+  WhatsApp, ela aparece como "🚫 O cliente apagou esta mensagem" e sai do que a IA lê.
+- Cada mensagem guarda o id do WhatsApp a partir desta versão; mensagens antigas
+  só podem ser apagadas do CRM.
+
 ### Foto de perfil dos clientes
 
 - A foto do WhatsApp de cada cliente aparece nas Conversas, no funil, na lista e
