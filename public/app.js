@@ -1490,8 +1490,20 @@ async function paginaMidias(id) {
   const previa = (m) => (m.tipo === 'image'
     ? `<img src="${esc(m.url)}" alt="" loading="lazy">`
     : m.tipo === 'video'
-      ? `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted></video><span class="selo-video">▶</span>`
+      ? (m.processando
+        ? '<span class="video-convertendo"><span class="girando">⏳</span><small>Convertendo para o WhatsApp…</small></span>'
+        : `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted playsinline onerror="this.hidden=true"></video><span class="selo-video">▶</span>`)
       : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`);
+  const duracaoTxt = (s) => (s ? ` · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
+  const statusVideo = (m) => {
+    if (m.tipo !== 'video') return '';
+    if (m.processando) return '<span class="rotulo">⏳ Convertendo para MP4 do WhatsApp — a IA usa assim que terminar.</span>';
+    if (m.erroVideo) return `<span class="rotulo aviso-texto">⚠️ ${esc(m.erroVideo.replace(/\.?$/, '.'))} Vai como arquivo.</span>`;
+    if (m.avisoVideo) return `<span class="rotulo aviso-texto">⚠️ ${esc(m.avisoVideo)}</span>`;
+    if (m.convertido) return `<span class="rotulo">✓ Convertido para o WhatsApp (${(m.convertido.tamanhoAntes / 1024 / 1024).toFixed(1)} MB → ${(m.tamanho / 1024 / 1024).toFixed(1)} MB)</span>`;
+    if (m.videoOk) return '<span class="rotulo">✓ Pronto para tocar no WhatsApp</span>';
+    return '';
+  };
   const chipEtapas = (etapas) => (etapas?.length ? etapas.map((e) => `<span class="etiqueta">${esc(e)}</span>`).join(' ') : '');
   const cartao = (m) => `
     <div class="card midia ${selecionadas.has(m.id) ? 'selecionada' : ''} ${m.pronta === false ? 'a-configurar' : ''}">
@@ -1501,7 +1513,8 @@ async function paginaMidias(id) {
       <span><button type="button" class="codigo-chip" data-copiar="#${esc(m.codigo)}" title="Copiar código">#${esc(m.codigo)}</button>${albumDe(m) ? ` <span class="etiqueta">🗂️ ${esc(albumDe(m).nome)}</span>` : ''}</span>
       <span class="rotulo">${semRegra(m) ? '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>' : `Quando: ${esc(m.descricao)}`}</span>
       ${m.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(m.etapas)}</span>` : ''}
-      <span class="rotulo">${(m.tamanho / 1024 / 1024).toFixed(1)} MB · ${m.pronta === false ? '<span class="etiqueta aviso">a configurar</span>' : '<span class="etiqueta ok">✓ pronta</span>'}</span>
+      ${statusVideo(m)}
+      <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)} · ${m.pronta === false ? '<span class="etiqueta aviso">a configurar</span>' : '<span class="etiqueta ok">✓ pronta</span>'}</span>
       <div class="acoes" style="margin-top:8px"><button class="pequeno ${m.pronta === false ? 'primario' : ''}" data-editar="${esc(m.id)}">${m.pronta === false ? 'Configurar' : 'Editar'}</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   const cartaoAlbum = (a) => {
@@ -1664,8 +1677,8 @@ async function paginaMidias(id) {
           barra.style.width = `${Math.round((feito / arq.size) * 100)}%`;
           st.textContent = `${Math.round((feito / arq.size) * 100)}%`;
         }
-        await api(`empresas/${id}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
-        st.textContent = '✓ enviado';
+        const nova = await api(`empresas/${id}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
+        st.textContent = nova.tipo === 'video' ? (nova.processando ? '✓ enviado · 🎬 convertendo para o WhatsApp…' : '✓ enviado · 🎬 em Vídeos') : '✓ enviado';
         linha.classList.add('ok');
         ok++;
       } catch (err) {
@@ -1688,6 +1701,15 @@ async function paginaMidias(id) {
   };
   zona.onclick = (e) => { e.preventDefault(); $('#mais-midias').click(); };
   desenharBiblioteca();
+  // vídeo convertendo: atualiza sozinho quando terminar (se a pessoa ainda estiver aqui)
+  if (lista.some((m) => m.processando)) {
+    const conferir = () => {
+      if (location.hash !== hashDaPagina || $('#fila-envio')?.children.length) return;
+      if (document.querySelector('.fundo-modal') || selecionadas.size) return setTimeout(conferir, 6000); // não atrapalha quem está editando
+      paginaMidias(id);
+    };
+    setTimeout(conferir, 6000);
+  }
 }
 
 // ---------------------------------------------------------------- empresa: etiquetas e etapas
@@ -2801,7 +2823,7 @@ async function paginaConversas(id, params) {
       <form class="chat-envio" id="chat-envio">
         <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
         <div class="chat-ferramentas">
-          <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
+          <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>

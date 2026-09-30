@@ -92,6 +92,14 @@ const servidor = app.listen(config.port, config.host, () => {
   automacoes.iniciar();
   require('./src/alertas').iniciar();
   require('./src/backup').iniciar();
+  // vídeos que ficaram no meio da conversão (ou ainda não conferidos) voltam para a fila
+  setTimeout(() => {
+    try {
+      require('./src/video').revisarPendentes();
+    } catch (err) {
+      console.error('[video]', err.message);
+    }
+  }, 8000).unref?.();
   // webhooks antigos: passam a avisar também quando uma conversa é apagada no celular
   setTimeout(async () => {
     const { estado } = require('./src/db');

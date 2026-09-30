@@ -18,8 +18,17 @@ const TIPOS = {
   'image/png': 'image',
   'image/webp': 'image',
   'image/gif': 'image',
+  'image/heic': 'image',
+  'image/heif': 'image',
   'video/mp4': 'video',
   'video/3gpp': 'video',
+  'video/quicktime': 'video',
+  'video/x-m4v': 'video',
+  'video/webm': 'video',
+  'video/x-matroska': 'video',
+  'video/x-msvideo': 'video',
+  'video/mpeg': 'video',
+  'video/mp2t': 'video',
   'audio/mpeg': 'audio',
   'audio/mp3': 'audio',
   'audio/ogg': 'audio',
@@ -36,6 +45,17 @@ const EXTENSOES = {
   '.gif': 'image/gif',
   '.mp4': 'video/mp4',
   '.3gp': 'video/3gpp',
+  '.mov': 'video/quicktime',
+  '.qt': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.mpg': 'video/mpeg',
+  '.mpeg': 'video/mpeg',
+  '.ts': 'video/mp2t',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
   '.opus': 'audio/ogg',
@@ -47,6 +67,32 @@ const EXTENSOES = {
   '.xls': 'application/vnd.ms-excel',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 };
+
+// Categoria pelo tipo do arquivo: qualquer video/* é Vídeo, image/* é Foto…
+function tipoDoMime(mime) {
+  const m = String(mime || '').toLowerCase();
+  if (TIPOS[m]) return TIPOS[m];
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+// Mídias antigas que entraram como "documento" sendo vídeo/foto (ex.: .mov do iPhone)
+function corrigirTipos(empresa) {
+  let mudou = false;
+  for (const m of empresa.midias || []) {
+    const mime = mimeDe(m.arquivo || '', m.mimetype);
+    const certo = tipoDoMime(mime);
+    if (m.tipo === 'document' && certo !== 'document') {
+      m.mimetype = mime;
+      m.tipo = certo;
+      mudou = true;
+      if (certo === 'video') setImmediate(() => require('./video').enfileirar(m));
+    }
+  }
+  if (mudou) salvar();
+}
 
 function garantirPasta() {
   fs.mkdirSync(config.midiasDir, { recursive: true });
@@ -69,10 +115,15 @@ function mimeDe(nomeArquivo, informado) {
   return 'application/octet-stream';
 }
 
+const tiposRevisados = new WeakSet();
 function midiasDa(empresa) {
   const lista = empresa.midias || [];
   // mídias antigas ganham código e ficam "prontas" (a IA já usava)
   if (lista.some((m) => !m.codigo) || albunsDa(empresa).some((a) => !a.codigo) || pastasDa(empresa).some((p) => !p.codigo)) garantirCodigos(empresa);
+  if (!tiposRevisados.has(empresa)) {
+    tiposRevisados.add(empresa);
+    corrigirTipos(empresa);
+  }
   return lista;
 }
 
@@ -152,7 +203,7 @@ function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeIn
     descricao: String(descricao || '').trim().slice(0, 300),
     arquivo,
     mimetype,
-    tipo: TIPOS[mimetype] || 'document',
+    tipo: tipoDoMime(mimetype),
     tamanho: buffer.length,
     criadoEm: agora(),
     codigo: extra.codigo ? validarCodigo(empresa, extra.codigo) : novoCodigo(empresa, extra.pastaId ? `${nomeFinal}` : nomeFinal),
@@ -161,6 +212,7 @@ function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeIn
   };
   empresa.midias.push(midia);
   salvar();
+  require('./video').enfileirar(midia); // vídeo: confere/converte para MP4 do WhatsApp
   return midia;
 }
 
@@ -237,7 +289,7 @@ function acharParaEnviar(empresa, ref) {
 function paraIa(empresa) {
   const todas = midiasDa(empresa);
   const avulsas = todas
-    .filter((m) => !m.pastaId && !m.albumId && m.pronta !== false)
+    .filter((m) => !m.pastaId && !m.albumId && m.pronta !== false && !m.processando)
     .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], tipo: m.tipo }));
   const albuns = albunsDa(empresa)
     .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
@@ -301,7 +353,7 @@ function concluirEnvio(empresa, envioId, dados = {}) {
     descricao: String(dados.descricao || '').trim().slice(0, 300),
     arquivo: e.arquivo,
     mimetype,
-    tipo: TIPOS[mimetype] || 'document',
+    tipo: tipoDoMime(mimetype),
     tamanho: e.tamanho,
     criadoEm: agora(),
     codigo: dados.codigo ? validarCodigo(empresa, dados.codigo) : novoCodigo(empresa, nome),
@@ -311,6 +363,7 @@ function concluirEnvio(empresa, envioId, dados = {}) {
   };
   empresa.midias.push(midia);
   salvar();
+  require('./video').enfileirar(midia);
   return midia;
 }
 
@@ -387,7 +440,7 @@ async function baixarDoDrive(arquivoId) {
   return { buffer, tipo: tipo.split(';')[0] };
 }
 
-const EXT_ACEITAS = /\.(jpe?g|png|webp|gif|mp4|3gp|mp3|ogg|opus|m4a|aac|pdf)$/i;
+const EXT_ACEITAS = /\.(jpe?g|png|webp|gif|mp4|3gp|mov|m4v|webm|mkv|avi|mp3|ogg|opus|m4a|aac|pdf)$/i;
 
 // Adiciona ou sincroniza uma pasta. Retorna o resumo do que mudou.
 async function sincronizarPasta(empresa, { link, nome, descricao, pastaExistente, chaveGoogle }) {
@@ -477,7 +530,7 @@ function salvarAnexo(leadId, buffer, mimetype, nomeOriginal) {
   const arquivo = `${crypto.randomBytes(10).toString('hex')}${ext}`;
   fs.mkdirSync(pastaAnexos(leadId), { recursive: true });
   fs.writeFileSync(path.join(pastaAnexos(leadId), arquivo), buffer);
-  return { arquivo, mimetype: mime, tipo: TIPOS[mime] || (mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : 'document'), nome: String(nomeOriginal || '').slice(0, 120), tamanho: buffer.length };
+  return { arquivo, mimetype: mime, tipo: tipoDoMime(mime), nome: String(nomeOriginal || '').slice(0, 120), tamanho: buffer.length };
 }
 
 function caminhoAnexo(leadId, arquivo) {
@@ -505,6 +558,7 @@ module.exports = {
   receberPedaco,
   concluirEnvio,
   TIPOS,
+  tipoDoMime,
   acharParaEnviar,
   paraIa,
   linksDa,

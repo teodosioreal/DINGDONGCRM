@@ -1347,9 +1347,9 @@ router.post('/leads/:id/arquivo', express.raw({ type: 'application/octet-stream'
   const mimetype = midias.mimeDe(nome, texto(req.query.tipo, 100));
   const legenda = texto(req.query.legenda, 1000);
   try {
-    const { tipo } = await whatsapp.enviarArquivo(empresa, destino, { buffer: req.body, mimetype, nome, legenda });
+    await whatsapp.enviarArquivo(empresa, destino, { buffer: req.body, mimetype, nome, legenda });
     const anexo = midias.salvarAnexo(c.id, req.body, mimetype, nome);
-    anexo.tipo = tipo;
+    const { tipo } = anexo;
     const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
     leads.adicionarMensagem(c, { papel: 'equipe', canal: 'whatsapp', texto: legenda || `[enviou ${NOME_TIPO[tipo]}]`, anexo });
     c.iaPausada = true;
@@ -1371,9 +1371,10 @@ router.post('/leads/:id/midia', async (req, res) => {
   if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
   const nome = texto(req.body?.nome, 120);
   if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
-  await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
+  const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
   salvar();
-  res.json(resumoLead(c));
+  if (r.falhas.length && !r.enviadas) return res.status(502).json({ erro: `Não foi enviada. ${r.falhas.join(' · ')}` });
+  res.json({ ...resumoLead(c), avisoEnvio: r.falhas.length ? `Algumas não foram: ${r.falhas.join(' · ')}` : '' });
 });
 
 // A IA sugere a próxima mensagem (a equipe revisa antes de enviar)

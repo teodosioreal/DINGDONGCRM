@@ -92,7 +92,7 @@ function erro(mensagem, status, extra = {}) {
 }
 
 // `c` = { evolutionUrl, instancia, apiKey } (permite testar antes de salvar)
-async function chamar(c, metodo, caminho, corpo) {
+async function chamar(c, metodo, caminho, corpo, { tempo = 30000 } = {}) {
   if (!c.evolutionUrl) throw erro('O endereço da Evolution API não está configurado (Configurações do sistema).', 400);
   if (!c.instancia || !c.apiKey) throw erro('WhatsApp não conectado: informe a Session ID e a API Key.', 400);
   let res;
@@ -101,10 +101,15 @@ async function chamar(c, metodo, caminho, corpo) {
       method: metodo,
       headers: { 'Content-Type': 'application/json', apikey: c.apiKey },
       body: corpo ? JSON.stringify(corpo) : undefined,
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(tempo)
     });
   } catch (err) {
-    throw erro(`Não consegui falar com o servidor do WhatsApp (${err.message}).`, 502);
+    const esgotou = err.name === 'TimeoutError' || err.name === 'AbortError';
+    throw erro(
+      esgotou ? `O servidor do WhatsApp demorou mais de ${Math.round(tempo / 1000)}s para responder.` : `Não consegui falar com o servidor do WhatsApp (${err.message}).`,
+      esgotou ? 504 : 502,
+      { semResposta: true }
+    );
   }
   const dados = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -116,8 +121,8 @@ async function chamar(c, metodo, caminho, corpo) {
   return dados;
 }
 
-function evolution(empresa, metodo, caminho, corpo) {
-  return chamar(configDa(empresa), metodo, caminho, corpo);
+function evolution(empresa, metodo, caminho, corpo, opcoes) {
+  return chamar(configDa(empresa), metodo, caminho, corpo, opcoes);
 }
 
 // Normaliza a instância como a Evolution devolve (v2 e o formato antigo da v1)
@@ -468,20 +473,48 @@ async function enviarTexto(empresa, destino, texto, { digitando = true } = {}) {
   return r;
 }
 
+// Vídeo pronto para tocar na conversa? (MP4 leve; o resto vai como arquivo para não falhar)
+function videoTocaNoWhatsapp(midia) {
+  return midia.mimetype === 'video/mp4' && midia.tamanho <= require('./video').LIMITE_WHATSAPP && midia.videoOk !== false;
+}
+
 async function enviarMidia(empresa, destino, midia, legenda = '') {
+  if (midia.processando) throw erro(`O vídeo "${midia.codigo || midia.nome}" ainda está sendo convertido para o WhatsApp. Tente de novo em instantes.`, 409);
   const url = midias.urlPublica(midia);
-  const r =
-    midia.tipo === 'audio'
-      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, delay: 1500 })
-      : await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', {
-          number: destinoDe(destino),
-          mediatype: midia.tipo,
-          mimetype: midia.mimetype,
-          media: url,
-          fileName: midia.arquivo,
-          caption: legenda || '',
-          delay: 1200
-        });
+  // o WhatsApp baixa o arquivo do CRM e sobe para os servidores dele: vídeo grande demora
+  const tempo = midia.tipo === 'image' ? 60000 : 180000;
+  const mandar = (mediatype) =>
+    evolution(
+      empresa,
+      'POST',
+      '/message/sendMedia/{instancia}',
+      {
+        number: destinoDe(destino),
+        mediatype,
+        mimetype: midia.mimetype,
+        media: url,
+        fileName: midia.arquivo,
+        caption: legenda || '',
+        delay: 1200
+      },
+      { tempo }
+    );
+  let r;
+  if (midia.tipo === 'audio') {
+    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, delay: 1500 }, { tempo });
+  } else if (midia.tipo === 'video' && !videoTocaNoWhatsapp(midia)) {
+    r = await mandar('document');
+  } else {
+    try {
+      r = await mandar(midia.tipo);
+    } catch (err) {
+      // o WhatsApp recusou o vídeo como vídeo: manda como arquivo para o cliente receber mesmo assim
+      // (se o servidor só demorou, não repete — poderia chegar duas vezes)
+      if (midia.tipo !== 'video' || err.semResposta) throw err;
+      console.error(`[whatsapp] vídeo ${midia.codigo} recusado como vídeo (${err.message}); enviando como arquivo`);
+      r = await mandar('document');
+    }
+  }
   lembrarEnvio(r);
   return r;
 }
@@ -786,19 +819,28 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
 
 // Arquivo mandado pela equipe no painel (vai em base64, sem precisar de link público)
 async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda = '' }) {
-  const tipo = midias.TIPOS[mimetype] || (String(mimetype).startsWith('image/') ? 'image' : String(mimetype).startsWith('audio/') ? 'audio' : String(mimetype).startsWith('video/') ? 'video' : 'document');
+  let tipo = midias.tipoDoMime(mimetype);
+  // vídeo que não é MP4 (ex.: .mov) ou pesado demais vai como arquivo, senão o WhatsApp recusa
+  if (tipo === 'video' && (mimetype !== 'video/mp4' || buffer.length > require('./video').LIMITE_WHATSAPP)) tipo = 'document';
   const base64 = buffer.toString('base64');
+  const tempo = tipo === 'image' ? 60000 : 180000;
   const r =
     tipo === 'audio'
-      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: base64 })
-      : await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', {
-          number: destinoDe(destino),
-          mediatype: tipo,
-          mimetype,
-          media: base64,
-          fileName: nome || `arquivo${tipo === 'image' ? '.jpg' : ''}`,
-          caption: legenda
-        });
+      ? await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: base64 }, { tempo })
+      : await evolution(
+          empresa,
+          'POST',
+          '/message/sendMedia/{instancia}',
+          {
+            number: destinoDe(destino),
+            mediatype: tipo,
+            mimetype,
+            media: base64,
+            fileName: nome || `arquivo${tipo === 'image' ? '.jpg' : ''}`,
+            caption: legenda
+          },
+          { tempo }
+        );
   lembrarEnvio(r);
   return { r, tipo };
 }
@@ -968,6 +1010,7 @@ async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
 
 // [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
 async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
+  const resultado = { enviadas: 0, falhas: [] };
   for (const nome of nomes || []) {
     const pedido = midias.resolverPedido(empresa, nome);
     const achadas = pedido.itens;
@@ -983,12 +1026,15 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
       try {
         await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia);
         leads.adicionarMensagem(lead, { papel, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${midia.codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
+        resultado.enviadas++;
       } catch (err) {
         console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);
-        require('./alertas').registrar(empresa, 'midia', `A mídia "${midia.codigo || midia.nome}" não foi enviada: ${err.message}`, { leadId: lead.id });
+        resultado.falhas.push(`${midia.codigo || midia.nome}: ${err.message}`);
+        if (err.status !== 409) require('./alertas').registrar(empresa, 'midia', `A mídia "${midia.codigo || midia.nome}" não foi enviada: ${err.message}`, { leadId: lead.id });
       }
     }
   }
+  return resultado;
 }
 
 function whatsappDestino(lead) {

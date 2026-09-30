@@ -53,7 +53,7 @@ Dentro de cada empresa:
   - **IA do WhatsApp** — **Gerar QR code**: o CRM cria a conexão na nossa
     Evolution API e o cliente só escaneia com o celular. Mostra foto, nome,
     número e se está online. Instruções da IA do WhatsApp e chat de teste.
-  - **Mídias** — fotos, vídeos, PDFs e áudios (até 16 MB) que a IA do WhatsApp
+  - **Mídias** — fotos, vídeos, PDFs e áudios (até 64 MB) que a IA do WhatsApp
     envia e que podem ir nos disparos.
   - **Etiquetas e etapas** — criar/renomear/colorir etiquetas; criar,
     renomear e reordenar as etapas do funil.
@@ -185,6 +185,20 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - Respostas rápidas guardam a mídia pelo código e têm "quando usar". As respostas
   rápidas nativas do WhatsApp Business ficam só no celular (nenhum sistema lê):
   recrie com o mesmo atalho.
+
+### Vídeos prontos para o WhatsApp
+
+- Qualquer vídeo (`.mp4`, `.mov` do iPhone, `.m4v`, `.webm`, `.mkv`, `.avi`…) entra
+  na aba **Vídeos** (vídeos antigos que tinham caído em "Documentos" são corrigidos
+  sozinhos ao abrir o painel).
+- Ao subir, o CRM confere o vídeo e, se não for MP4 H.264/AAC leve, **converte
+  sozinho** (em segundo plano, um por vez) para MP4 até 720p e ~15 MB, com início
+  rápido. Enquanto converte aparece "Convertendo…" e a IA ainda não usa o vídeo.
+- Usa o `ffmpeg` do sistema, `FFMPEG_PATH` ou o pacote opcional `ffmpeg-static`
+  (instalado pelo `npm ci`). Sem ffmpeg, o vídeo é enviado como está.
+- No envio: vídeo que não dá para tocar na conversa (ou que o WhatsApp recusar) vai
+  **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
+  pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
 
 ### Ritmo, avisos e blindagem
 
