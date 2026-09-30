@@ -286,10 +286,14 @@ function acharParaEnviar(empresa, ref) {
 
 // O que a IA vê: só mídias PRONTAS (as "a configurar" ficam de fora), cada
 // álbum e cada pasta do Drive como um item
+function prontaParaIa(m) {
+  return m.pronta !== false && !m.processando;
+}
+
 function paraIa(empresa) {
-  const todas = midiasDa(empresa);
+  const todas = midiasDa(empresa).filter(prontaParaIa);
   const avulsas = todas
-    .filter((m) => !m.pastaId && !m.albumId && m.pronta !== false && !m.processando)
+    .filter((m) => !m.pastaId && !m.albumId)
     .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], tipo: m.tipo }));
   const albuns = albunsDa(empresa)
     .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
@@ -559,6 +563,7 @@ module.exports = {
   concluirEnvio,
   TIPOS,
   tipoDoMime,
+  prontaParaIa,
   acharParaEnviar,
   paraIa,
   linksDa,

@@ -1013,7 +1013,16 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
   const resultado = { enviadas: 0, falhas: [] };
   for (const nome of nomes || []) {
     const pedido = midias.resolverPedido(empresa, nome);
-    const achadas = pedido.itens;
+    // a IA (e as automações) só mandam mídia PRONTA; a equipe manda qualquer uma
+    const naoProntas = papel === 'assistente' ? pedido.itens.filter((m) => !midias.prontaParaIa(m)) : [];
+    const achadas = pedido.itens.filter((m) => !naoProntas.includes(m));
+    if (naoProntas.length) {
+      console.error(`[whatsapp ${lead.id}] mídia ${nome}: ${naoProntas.length} não pronta(s), não enviei`);
+      if (!achadas.length) {
+        require('./alertas').registrar(empresa, 'midia', `A IA quis enviar "${nome}", mas a mídia ainda não está marcada como pronta. Nada foi enviado — configure em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+        continue;
+      }
+    }
     // mídia presa a uma etapa só sai quando o lead está nela (pedido da IA; a equipe manda sempre)
     if (papel === 'assistente' && pedido.etapas?.length && !pedido.etapas.some((e) => leads.acharEtapa(empresa, e) === lead.etapa)) {
       console.error(`[whatsapp ${lead.id}] mídia ${nome} é da etapa ${pedido.etapas.join('/')}, o lead está em ${lead.etapa}: não enviei`);
