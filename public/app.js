@@ -2157,6 +2157,7 @@ async function paginaLead(leadId) {
     <div class="lead-grade">
       <div>
         ${htmlPedidos(l)}
+        ${htmlProximos(l)}
         <div class="conversa" id="linha-tempo">
           ${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens ainda.</p>'}
         </div>
@@ -2200,6 +2201,7 @@ async function paginaLead(leadId) {
   $('#registrar-venda').onclick = () => modalVenda({ id: l.empresaId }, null, l.id, () => paginaLead(leadId), { cliente: l.nome });
   $('#marcar-agendamento').onclick = () => modalAgendamento(l.id, () => paginaLead(leadId));
   ligarPedidos(conteudo, l, () => paginaLead(leadId));
+  ligarProximos(conteudo, l.id, () => paginaLead(leadId));
   ligarCancelarAgendamento(conteudo, l.id, () => paginaLead(leadId));
   $$('[data-tag]').forEach((b) => {
     b.onclick = () => {
@@ -2582,6 +2584,60 @@ function htmlConversa(mensagens, leadId, tickets = []) {
   return html;
 }
 
+// ---------------------------------------------------------------- cronômetro dos próximos envios
+// "2d 03:12:45" / "03:12:45" / "enviando…". Um relógio só atualiza todos da tela.
+function textoContagem(iso, curto = false) {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'enviando…';
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const seg = s % 60;
+  const dois = (n) => String(n).padStart(2, '0');
+  if (curto) return d ? `${d}d ${h}h` : h ? `${h}h ${dois(m)}m` : `${m}m ${dois(seg)}s`;
+  return `${d ? `${d}d ` : ''}${dois(h)}:${dois(m)}:${dois(seg)}`;
+}
+
+let relogioContagem = null;
+function ligarRelogio() {
+  if (relogioContagem) return;
+  relogioContagem = setInterval(() => {
+    for (const el of document.querySelectorAll('[data-contagem]')) el.textContent = textoContagem(el.dataset.contagem, el.dataset.curto === '1');
+  }, 1000);
+}
+
+// Faixa na conversa: o que vai sair para o cliente e quando (com cronômetro)
+function htmlProximos(l) {
+  const lista = l.proximosEnvios || [];
+  if (!lista.length) return '';
+  return `<div class="proximos-envios">${lista.map((p) => `
+    <div class="proximo ${p.porIa ? 'por-ia' : ''}" title="${esc(new Date(p.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}">
+      <span class="relogio">⏳</span>
+      <b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b>
+      <span class="proximo-texto"><b>${esc(p.titulo)}</b>${p.detalhe ? ` · <span class="rotulo">${esc(p.detalhe.slice(0, 90))}</span>` : ''} <span class="rotulo">(${esc(new Date(p.quando).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))})</span></span>
+      <button type="button" class="link-botao" ${p.tipo === 'agendada' ? `data-cancelar="${esc(p.id)}"` : `data-pular-automacao="${esc(p.id)}"`}>${p.tipo === 'agendada' ? 'cancelar' : 'não enviar'}</button>
+    </div>`).join('')}</div>`;
+}
+
+function ligarProximos(raiz, leadId, depois) {
+  ligarRelogio();
+  $$('[data-cancelar]', raiz).forEach((b) => {
+    b.onclick = async () => {
+      await api(`leads/${leadId}/agendadas/${b.dataset.cancelar}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+      aviso('Envio cancelado.');
+      depois?.();
+    };
+  });
+  $$('[data-pular-automacao]', raiz).forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Não enviar para este cliente?', texto: 'Esta automação não vai mais mandar mensagem para este cliente. As outras continuam.', botao: 'Não enviar' }))) return;
+      await api(`leads/${leadId}/pular-automacao`, { method: 'POST', body: { regraId: b.dataset.pularAutomacao } }).catch((err) => aviso(err.message, true));
+      depois?.();
+    };
+  });
+}
+
 // Depois da venda: botões para pedir a avaliação do Google e o comentário no anúncio
 function htmlPedidos(l) {
   const vendeu = (l.tickets || []).some((t) => t.tipo === 'venda');
@@ -2708,11 +2764,12 @@ async function paginaConversas(id, params) {
           <span class="item-meio">
             <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
-            <span class="item-linha item-tags">${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
+            <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
         </button>`).join('')
       : `<p class="rotulo" style="padding:16px">${busca || filtro !== 'todas' ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
     $$('.item-conversa', el).forEach((b) => { b.onclick = () => abrir(b.dataset.lead); });
+    ligarRelogio();
   }
 
   async function carregarLista() {
@@ -2724,7 +2781,6 @@ async function paginaConversas(id, params) {
     const l = leadAberto;
     const area = $('#inbox-chat');
     if (!area || !l) return;
-    const pendentes = (l.agendadas || []).filter((a) => a.status === 'pendente');
     area.innerHTML = `
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
@@ -2740,7 +2796,7 @@ async function paginaConversas(id, params) {
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
-      ${pendentes.length ? `<div class="chat-agendadas">${pendentes.map((a) => `<span>🕒 ${esc(new Date(a.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}: ${esc(a.texto.slice(0, 60))} <button type="button" class="link-botao" data-cancelar="${esc(a.id)}">cancelar</button></span>`).join('')}</div>` : ''}
+      ${htmlProximos(l)}
       ${l.podeReceber ? `
       <form class="chat-envio" id="chat-envio">
         <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
@@ -2848,13 +2904,7 @@ async function paginaConversas(id, params) {
         carregarLista();
       } catch (err) { aviso(err.message, true); }
     });
-    $$('[data-cancelar]').forEach((b) => {
-      b.onclick = async () => {
-        await api(`leads/${abertoId}/agendadas/${b.dataset.cancelar}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
-        assinaturaAberta = '';
-        recarregarAberto();
-      };
-    });
+    ligarProximos($('#inbox-chat'), abertoId, () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); });
     const form = $('#chat-envio');
     if (!form) return;
     const campo = $('#chat-texto');

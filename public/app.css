@@ -842,3 +842,16 @@ html.dark .cartao-excluir:hover { background: #450a0a; }
 .tokens-tabela { margin-top: 20px; padding: 16px 20px; }
 .tokens-tabela .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tokens-tabela tfoot td { border-top: 2px solid var(--borda); }
+
+/* ---------- cronômetro dos próximos envios ---------- */
+.proximos-envios { display: flex; flex-direction: column; gap: 2px; padding: 6px 14px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; font-size: 13.5px; }
+.lead-grade .proximos-envios { border: 1px solid #bfdbfe; border-radius: var(--raio); margin-bottom: 10px; }
+.proximo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 3px 0; }
+.proximo .contagem { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: 14px; color: #1d4ed8; min-width: 72px; }
+.proximo.por-ia .contagem { color: #7c3aed; }
+.proximo-texto { flex: 1; min-width: 180px; }
+.contagem-chip { background: #dbeafe; color: #1e40af; font-variant-numeric: tabular-nums; }
+html.dark .proximos-envios { background: #0c1a33; border-color: #1e3a8a; }
+html.dark .proximo .contagem { color: #93c5fd; }
+html.dark .proximo.por-ia .contagem { color: #c4b5fd; }
+html.dark .contagem-chip { background: #1e3a8a; color: #bfdbfe; }

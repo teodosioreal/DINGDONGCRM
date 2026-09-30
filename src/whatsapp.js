@@ -690,6 +690,7 @@ async function receberWebhook(empresa, corpo) {
     }
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined });
     origem.aplicarAnuncio(empresa, lead);
+    require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
     leads.aoChegarNoWhatsapp(lead, empresa);
 
@@ -922,6 +923,8 @@ async function responderLead(empresaId, leadId) {
   } catch (err) {
     console.error(`[whatsapp ${lead.id}] venda/agendamento:`, err.message);
   }
+  // a IA combinou de retomar depois → follow-up agendado (com cronômetro no painel)
+  if (r.retomar) require('./automacoes').agendarFollowupDaIa(empresa, lead, r.retomar);
   for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
   if (r.humano) {
     lead.iaPausada = true;

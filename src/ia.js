@@ -254,6 +254,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     }
     partes.push(
       '',
+      'Follow-up (retomar a conversa depois):',
+      '- Quando o cliente pedir para falar depois ("me chama amanhã", "vou ver com minha esposa e te aviso", "semana que vem eu vejo") ou quando fizer sentido lembrar ele mais tarde, combine com naturalidade e escreva numa linha separada: [[RETOMAR: quando | sobre o quê]].',
+      '- "quando" pode ser: 2h, 30min, 1d, 3d ou dd/mm/aaaa hh:mm (horário de Brasília). Ex.: [[RETOMAR: 1d | perguntar se ele conversou com a esposa sobre o volante]].',
+      '- Na hora marcada você mesmo escreve a mensagem de retomada. Se o cliente responder antes, o follow-up é cancelado sozinho. Use no máximo um por vez.',
+      '',
       'Passar para uma pessoa da equipe:',
       '- Quando o cliente pedir para falar com uma pessoa, quando for fechar negócio/agendar e as instruções mandarem passar para a equipe, ou quando você não souber resolver, avise que vai chamar alguém da equipe e escreva numa linha separada: [[HUMANO]]. Depois disso você para de responder e a equipe assume.'
     );
@@ -640,6 +645,12 @@ function extrairAcoes(bruto) {
   const etiquetas = [];
   let venda = null;
   let agendamento = null;
+  let retomar = null;
+  texto = texto.replace(/\[\[\s*RETOMAR\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
+    const [quando, ...resto] = dentro.split('|');
+    retomar = { quando: (quando || '').trim(), assunto: resto.join('|').trim() };
+    return '';
+  });
   texto = texto.replace(/\[\[\s*VENDA\s*:?\s*([^\]]*?)\s*\]\]/gi, (_, dentro) => {
     const [valor, ...resto] = dentro.split('|');
     venda = { valor: (valor || '').trim(), descricao: resto.join('|').trim() };
@@ -673,7 +684,7 @@ function extrairAcoes(bruto) {
     texto = texto.slice(0, marcador.index);
   }
   texto = texto.replace(/\n{3,}/g, '\n\n').trim();
-  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento };
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar };
 }
 
 /**

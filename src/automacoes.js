@@ -252,6 +252,90 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   return null;
 }
 
+// ---------------------------------------------------------------- próximos envios (cronômetro no painel)
+
+// Desde quando a regra conta o tempo para este lead (sem olhar o resto)
+function inicioDaRegra(regra, lead, empresa) {
+  if (regra.gatilho.tipo === 'sem_resposta') {
+    const comTexto = lead.mensagens.filter((m) => m.texto || m.anexo);
+    const ultima = comTexto[comTexto.length - 1];
+    return ultima && ultima.papel !== 'visitante' ? ultima.em : null;
+  }
+  if (regra.gatilho.tipo === 'venda') return vendaDoLead(lead, empresa);
+  return entrouNaEtapaEm(lead, regra.gatilho.etapa);
+}
+
+// Horário comercial (8h–20h de Brasília): fora dele, o envio fica para as 8h
+function noHorarioComercial(ms) {
+  const sp = new Date(ms - 3 * HORA); // Brasília = UTC-3
+  const h = sp.getUTCHours();
+  if (h >= 8 && h < 20) return ms;
+  const base = Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate() + (h >= 20 ? 1 : 0), 8 + 3, 0, 0);
+  return base;
+}
+
+// O que ainda vai sair para este cliente, com a hora: follow-ups automáticos e agendados
+function proximosEnvios(lead, empresa) {
+  const agoraMs = Date.now();
+  const lista = [];
+  for (const a of (lead.agendadas || []).filter((x) => x.status === 'pendente')) {
+    lista.push({ tipo: 'agendada', id: a.id, quando: a.quando, titulo: a.criadoPor === 'IA' ? 'Follow-up que a IA agendou' : 'Mensagem agendada pela equipe', detalhe: a.modo === 'ia' ? a.instrucao : a.texto, porIa: a.criadoPor === 'IA' });
+  }
+  if (empresa.ativa !== false && whatsapp.configurado(empresa)) {
+    for (const regra of automacoesDa(empresa).filter((r) => r.ativa)) {
+      const motivo = motivoInelegivel(regra, lead, empresa, agoraMs);
+      let quandoMs = null;
+      if (motivo === null) quandoMs = agoraMs;
+      else if (motivo === 'ainda não deu o tempo') {
+        const desde = inicioDaRegra(regra, lead, empresa);
+        if (!desde) continue;
+        quandoMs = new Date(desde).getTime() + regra.gatilho.horas * HORA;
+        // nada mais impede quando chegar a hora?
+        if (motivoInelegivel(regra, lead, empresa, quandoMs + 60 * 1000) !== null) continue;
+      } else continue;
+      if (regra.horarioComercial) quandoMs = noHorarioComercial(quandoMs);
+      lista.push({ tipo: 'automacao', id: regra.id, quando: new Date(Math.max(quandoMs, agoraMs)).toISOString(), titulo: regra.nome, detalhe: regra.acao.modo === 'ia' ? 'a IA escreve na hora' : regra.acao.texto.slice(0, 120), porIa: regra.acao.modo === 'ia' });
+    }
+  }
+  return lista.sort((a, b) => (a.quando < b.quando ? -1 : 1));
+}
+
+// A IA marcou [[RETOMAR: 2h | sobre o quê]]: follow-up que ela mesma vai escrever na hora
+function quandoRetomar(texto) {
+  const t = String(texto || '').trim().toLowerCase();
+  const rel = t.match(/^(\d+(?:[.,]\d+)?)\s*(min|minutos?|h|horas?|d|dias?)\b/);
+  if (rel) {
+    const n = Number(rel[1].replace(',', '.'));
+    const mult = /^min/.test(rel[2]) ? 60 * 1000 : /^h/.test(rel[2]) ? HORA : 24 * HORA;
+    return new Date(Date.now() + n * mult).toISOString();
+  }
+  return require('./tickets').quandoDe(texto);
+}
+
+function agendarFollowupDaIa(empresa, lead, { quando, assunto }) {
+  const iso = quandoRetomar(quando);
+  if (!iso || new Date(iso).getTime() < Date.now() + 5 * 60 * 1000) return null; // precisa ser no futuro
+  if (new Date(iso).getTime() > Date.now() + 60 * 24 * HORA) return null; // no máximo 60 dias
+  lead.agendadas = (lead.agendadas || []).map((a) => (a.status === 'pendente' && a.criadoPor === 'IA' ? { ...a, status: 'cancelada', motivo: 'a IA remarcou' } : a));
+  const a = { id: novoId('agd'), modo: 'ia', instrucao: texto(assunto, 300) || 'retomar a conversa de onde parou', texto: '', quando: iso, status: 'pendente', criadoPor: 'IA', criadoEm: agora() };
+  lead.agendadas.push(a);
+  salvar();
+  return a;
+}
+
+// Cliente respondeu antes da hora: o follow-up que a IA agendou não faz mais sentido
+function cancelarFollowupsDaIa(lead, motivo = 'o cliente respondeu antes') {
+  let n = 0;
+  for (const a of lead.agendadas || []) {
+    if (a.status === 'pendente' && a.criadoPor === 'IA') {
+      a.status = 'cancelada';
+      a.motivo = motivo;
+      n++;
+    }
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- envio
 
 async function executar(regra, lead, empresa) {
@@ -301,8 +385,25 @@ async function enviarAgendadas(empresa) {
       try {
         const destino = whatsapp.destinoDoLead(lead);
         if (!destino) throw new Error('lead sem WhatsApp');
-        await whatsapp.enviarTexto(empresa, destino, a.texto);
-        leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: a.texto, agendadaId: a.id });
+        let textoEnvio = a.texto;
+        let midiasPedidas = [];
+        if (a.modo === 'ia') {
+          // follow-up agendado pela IA: ela escreve agora, com a conversa atualizada
+          const bot = whatsapp.botDoWhatsapp(empresa);
+          if (!bot) throw new Error('empresa sem assistente');
+          const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, `Chegou a hora do follow-up combinado com o cliente. Retome a conversa: ${a.instrucao}. Seja breve e natural, sem pressionar.`, {
+            etapas: leads.etapasDa(empresa),
+            etapaAtual: lead.etapa,
+            midias: midias.paraIa(empresa),
+            links: midias.linksDa(empresa)
+          });
+          textoEnvio = r.texto;
+          midiasPedidas = r.midias || [];
+          if (!textoEnvio) throw new Error('a IA não escreveu o follow-up');
+        }
+        await whatsapp.enviarTexto(empresa, destino, textoEnvio);
+        leads.adicionarMensagem(lead, { papel: a.modo === 'ia' ? 'assistente' : 'equipe', canal: 'whatsapp', texto: textoEnvio, agendadaId: a.id });
+        if (midiasPedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas);
         a.status = 'enviada';
         a.enviadaEm = agora();
       } catch (err) {
@@ -442,6 +543,10 @@ async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario
 }
 
 module.exports = {
+  proximosEnvios,
+  agendarFollowupDaIa,
+  cancelarFollowupsDaIa,
+  quandoRetomar,
   vendaDoLead,
   pedidosFeitos,
   enviarPedidoManual,

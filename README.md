@@ -201,6 +201,17 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - Dicas sem IA no Início ("Precisa de atenção") e **menu limpo**: as configurações
   ficam recolhidas com ✓ e só aparece o que precisa de atenção.
 
+### Follow-up com cronômetro
+
+- A IA do WhatsApp agenda o próprio follow-up quando o cliente pede para falar
+  depois: `[[RETOMAR: 1d | sobre o quê]]` (aceita 30min, 2h, 1d ou dd/mm/aaaa
+  hh:mm). Na hora, ela escreve a mensagem com a conversa atualizada. Se o cliente
+  responder antes, o follow-up é cancelado sozinho.
+- Na conversa (e na página do lead) aparece tudo o que vai sair para o cliente com
+  **cronômetro regressivo**: follow-ups da IA, mensagens agendadas pela equipe e
+  automações da Máquina de vendas (respeitando o horário comercial). Na lista de
+  conversas, o próximo envio aparece como ⏳. Botões: cancelar / não enviar.
+
 ### Vendas, avaliação e conversas
 
 - Venda entendida pela IA (sem comprovante) entra **em dinheiro** no valor

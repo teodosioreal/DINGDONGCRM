@@ -1144,6 +1144,7 @@ router.get('/leads/:id', (req, res) => {
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
     temLinkAnuncio: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAnuncio),
     tickets: tickets.ticketsDoLead(c),
+    proximosEnvios: automacoes.proximosEnvios(c, empresa),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     noWhatsapp: Boolean(whatsappJid),
@@ -1205,6 +1206,19 @@ router.post('/leads/:id/arquivar', async (req, res) => {
     console.error(`[arquivar ${c.id}]`, err.message);
   }
   res.json({ ok: true, arquivado: arquivar, noCelular });
+});
+
+// Não mandar esta automação para este cliente (botão no cronômetro)
+router.post('/leads/:id/pular-automacao', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const regra = automacoes.automacoesDa(empresa).find((r) => r.id === req.body?.regraId);
+  if (!regra) return res.status(404).json({ erro: 'Automação não encontrada.' });
+  const h = c.automacoes?.[regra.id] || { enviados: 0 };
+  c.automacoes = { ...(c.automacoes || {}), [regra.id]: { ...h, enviados: regra.maxPorLead, puladoEm: agora(), puladoPor: req.usuario.email } };
+  salvar();
+  res.json({ ok: true });
 });
 
 // Pedir avaliação do Google / comentário no anúncio à mão (botão na conversa)
@@ -1291,7 +1305,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
     .filter((c) => filtro !== 'equipe' || c.precisaHumano)
     .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
     .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.slice(-30).map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
-    .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm }))
+    .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm, proximoEnvio: automacoes.proximosEnvios(c, empresa)[0] || null }))
     .sort((a, b) => (a.ultimaEm < b.ultimaEm ? 1 : -1))
     .slice(0, 300);
   res.json(lista);
