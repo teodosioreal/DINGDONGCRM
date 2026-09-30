@@ -144,7 +144,8 @@ function dadosEmpresa(body) {
     whatsapp: numeroWhatsapp(body.whatsapp),
     responsavel: texto(body.responsavel, 120),
     observacoes: texto(body.observacoes, 2000),
-    ativa: body.ativa !== false
+    ativa: body.ativa !== false,
+    ...(body.usarChavePadrao !== undefined ? { usarChavePadrao: body.usarChavePadrao === true } : {})
   };
 }
 
@@ -157,7 +158,7 @@ function situacaoChavesEmpresa(e) {
   const saida = {};
   for (const provedor of Object.keys(ia.PROVEDORES)) {
     const propria = ia.chaveDaEmpresa(provedor, e);
-    const padrao = ia.chavePadrao(provedor);
+    const padrao = ia.podeUsarChavePadrao(e) ? ia.chavePadrao(provedor) : '';
     saida[provedor] = {
       propria: Boolean(propria),
       final: mascarar(propria),
@@ -258,6 +259,8 @@ function empresaComExtras(e, req) {
     ...resto,
     motores: resumoMotores(e),
     usoHoje: ia.usoDoDia(e),
+    uso7d: ia.usoDoPeriodo(e, 7),
+    uso30d: ia.usoDoPeriodo(e, 30),
     ...situacaoConfig(e, principal),
     midiasAConfigurar: midias.midiasDa(e).filter((m) => m.pronta === false).length,
     alertasNaoLidos: alertas.naoLidos(idsEmpresa),
@@ -786,7 +789,8 @@ function provedorPadrao(empresa) {
 router.post('/empresas', auth.exigirAdmin, (req, res) => {
   const dados = dadosEmpresa(req.body || {});
   if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
-  const empresa = { id: novoId('emp'), ...dados, chavesIa: {}, criadoEm: agora() };
+  // empresa nova: usa só as próprias chaves de IA (o admin pode liberar a padrão)
+  const empresa = { id: novoId('emp'), usarChavePadrao: false, ...dados, chavesIa: {}, criadoEm: agora() };
   estado.empresas.push(empresa);
 
   // Já cria o assistente principal, para o código da empresa funcionar de cara

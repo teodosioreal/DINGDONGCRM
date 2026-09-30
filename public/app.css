@@ -832,3 +832,13 @@ html.dark .marca-atencao { background: #3b2f0b; color: #fbbf24; }
 .lista-dicas li { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .lista-dicas li span { flex: 1; }
 .lista-dicas li.erro span { font-weight: 600; }
+
+/* ---------- excluir empresa e tokens por empresa ---------- */
+.cartao-empresa-caixa { position: relative; display: flex; }
+.cartao-empresa-caixa > .cartao-empresa { flex: 1; }
+.cartao-excluir { position: absolute; top: 10px; right: 10px; z-index: 1; width: 32px; height: 32px; padding: 0; border-radius: 8px; display: grid; place-items: center; font-size: 14px; opacity: .55; background: var(--superficie); }
+.cartao-excluir:hover, .cartao-excluir:focus-visible { opacity: 1; border-color: #dc2626; background: #fee2e2; }
+html.dark .cartao-excluir:hover { background: #450a0a; }
+.tokens-tabela { margin-top: 20px; padding: 16px 20px; }
+.tokens-tabela .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tokens-tabela tfoot td { border-top: 2px solid var(--borda); }

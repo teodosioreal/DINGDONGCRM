@@ -382,9 +382,12 @@ async function paginaInicio() {
       ${numeroCard('Esperando a equipe', r.aguardandoEquipe, r.aguardandoEquipe ? 'destaque' : '')}
     </div>
     <div class="cabecalho"><h2 style="margin:0">Empresas</h2><button class="primario" id="nova">+ Nova empresa</button></div>
-    ${gradeEmpresas(empresas)}`;
+    ${gradeEmpresas(empresas)}
+    ${tabelaTokens(empresas)}`;
   $('#nova').onclick = () => modalEmpresa();
   $('#nova-cartao')?.addEventListener('click', () => modalEmpresa());
+  ligarExcluirEmpresas(empresas, () => paginaInicio());
+  $$('[data-ir-empresa]').forEach((tr) => { tr.onclick = () => { location.hash = rotaEmpresa(tr.dataset.irEmpresa); }; });
 }
 
 function numeroCard(rotulo, valor, classe = '') {
@@ -422,9 +425,68 @@ async function paginaEmpresas() {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Empresas</h1><p class="sub">Cada empresa tem as próprias IAs, chave de IA, WhatsApp e leads.</p></div><button class="primario" id="nova">+ Nova empresa</button></div>
-    ${gradeEmpresas(lista)}`;
+    ${gradeEmpresas(lista)}
+    ${ehAdmin() ? tabelaTokens(lista) : ''}`;
   $('#nova').onclick = () => modalEmpresa();
   $('#nova-cartao')?.addEventListener('click', () => modalEmpresa());
+  ligarExcluirEmpresas(lista, () => paginaEmpresas());
+  $$('[data-ir-empresa]').forEach((tr) => { tr.onclick = () => { location.hash = rotaEmpresa(tr.dataset.irEmpresa); }; });
+}
+
+// Excluir empresa: pede para digitar o nome (não dá para desfazer pelo painel)
+function excluirEmpresa(emp, depois) {
+  abrirModal(`
+    <h2>🗑️ Excluir "${esc(emp.nome)}"?</h2>
+    <p>Apaga a empresa com <b>todos os leads, conversas, mídias, vendas, automações, disparos e usuários</b> dela. Não dá para desfazer pelo painel.</p>
+    <p class="rotulo">Se foi sem querer, o administrador ainda consegue voltar pelo backup automático do servidor (pasta <code>backups/</code>).</p>
+    <form id="f-excluir-emp">
+      <div class="campo"><label>Para confirmar, digite o nome da empresa: <b>${esc(emp.nome)}</b></label><input name="nome" autocomplete="off" required></div>
+      <div class="acoes"><button type="submit" class="perigo" disabled>Excluir para sempre</button><button type="button" data-fechar>Cancelar</button></div>
+    </form>`, (m, fechar) => {
+    const f = $('#f-excluir-emp', m);
+    const botao = $('button[type=submit]', f);
+    f.elements.nome.oninput = () => { botao.disabled = f.elements.nome.value.trim().toLowerCase() !== emp.nome.trim().toLowerCase(); };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (botao.disabled) return;
+      try {
+        await comEspera(botao, () => api(`empresas/${emp.id}`, { method: 'DELETE' }), 'Excluindo…');
+        fechar();
+        aviso(`Empresa "${emp.nome}" excluída.`);
+        if (empresaAtual?.id === emp.id) empresaAtual = null;
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
+function ligarExcluirEmpresas(lista, depois) {
+  $$('[data-excluir-empresa]').forEach((b) => {
+    b.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      excluirEmpresa(lista.find((x) => x.id === b.dataset.excluirEmpresa), depois);
+    };
+  });
+}
+
+// Tokens de IA gastos, separados por empresa (hoje, 7 e 30 dias)
+function tabelaTokens(lista) {
+  const linhas = [...lista].sort((a, b) => (b.uso30d?.total || 0) - (a.uso30d?.total || 0));
+  const total = (k) => linhas.reduce((n, e) => n + (e[k]?.total || 0), 0);
+  const porIa = (u) => Object.entries(u?.porIa || {}).map(([p, n]) => `${NOME_IA_CURTO[p] || p} ${numeroCurto(n)}`).join(' · ') || '—';
+  return `
+    <div class="card tabela-wrap tokens-tabela">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔢 Tokens de IA por empresa</h2><span class="rotulo">cada empresa tem a própria conta</span></div>
+      <table>
+        <thead><tr><th>Empresa</th><th class="num">Hoje</th><th class="num">7 dias</th><th class="num">30 dias</th><th class="esconde-mobile">Por IA (30 dias)</th><th class="esconde-mobile num">Chamadas (30 d)</th></tr></thead>
+        <tbody>
+          ${linhas.map((e) => `<tr class="clicavel" data-ir-empresa="${esc(e.id)}"><td><b>${esc(e.nome)}</b></td><td class="num">${numeroCurto(e.usoHoje?.total)}</td><td class="num">${numeroCurto(e.uso7d?.total)}</td><td class="num"><b>${numeroCurto(e.uso30d?.total)}</b></td><td class="esconde-mobile rotulo">${porIa(e.uso30d)}</td><td class="esconde-mobile num">${(e.uso30d?.chamadas || 0).toLocaleString('pt-BR')}</td></tr>`).join('') || '<tr><td colspan="6" class="rotulo">Nenhuma empresa.</td></tr>'}
+        </tbody>
+        ${linhas.length > 1 ? `<tfoot><tr><td><b>Total</b></td><td class="num">${numeroCurto(total('usoHoje'))}</td><td class="num">${numeroCurto(total('uso7d'))}</td><td class="num"><b>${numeroCurto(total('uso30d'))}</b></td><td class="esconde-mobile"></td><td class="esconde-mobile"></td></tr></tfoot>` : ''}
+      </table>
+      <p class="rotulo" style="margin:8px 0 0">Token ≈ 4 letras. Inclui respostas, fotos, áudios, comprovantes lidos pela IA e a varredura dos aprendizados. A parte que vem do cache custa ~10% do preço.</p>
+    </div>`;
 }
 
 function modalEmpresa(emp) {
@@ -440,6 +502,7 @@ function modalEmpresa(emp) {
         ${emp ? '' : `<div class="campo largo"><label>Site da empresa ${ajuda('O chat só aparece nos sites informados aqui. Pode preencher depois em IA do site.')}</label><input name="sites" placeholder="minhaloja.com.br"></div>`}
         <div class="campo largo"><label>Observações internas</label><textarea name="observacoes">${esc(emp?.observacoes)}</textarea></div>
         <div class="campo largo"><label class="linha-check"><input type="checkbox" name="ativa" ${emp?.ativa === false ? '' : 'checked'}> Empresa ativa (desmarque para pausar tudo dela)</label></div>
+        <div class="campo largo"><label class="linha-check"><input type="checkbox" name="usarChavePadrao" ${emp && emp.usarChavePadrao !== false ? 'checked' : ''}> Pode usar a chave de IA do administrador quando não tiver a própria ${ajuda('Desmarcado = a empresa usa só as chaves que ela mesma cadastrou em IAs e chaves (e paga os próprios tokens). Marcado = sem chave própria, usa a chave padrão das Configurações do sistema e o custo sai da sua conta.')}</label></div>
       </div>
       <div class="acoes">
         <button class="primario" type="submit">Salvar</button>
@@ -466,15 +529,9 @@ function modalEmpresa(emp) {
       rotear();
     });
     const excluir = $('#excluir', m);
-    if (excluir) excluir.onclick = async () => {
-      if (!(await confirmar({ titulo: `Excluir "${emp.nome}"?`, texto: 'Apaga também os leads, mídias, disparos e usuários dessa empresa. Não dá para desfazer.', botao: 'Excluir', perigo: true }))) return;
-      try {
-        await api(`empresas/${emp.id}`, { method: 'DELETE' });
-        fechar();
-        aviso('Empresa excluída.');
-        empresaAtual = null;
-        location.hash = '#/empresas';
-      } catch (err) { aviso(err.message, true); }
+    if (excluir) excluir.onclick = () => {
+      fechar();
+      excluirEmpresa(emp, () => { empresaAtual = null; location.hash = '#/empresas'; });
     };
   });
 }
@@ -1730,8 +1787,8 @@ async function paginaChave(id) {
     const situacao = c.propria
       ? `<span class="etiqueta ok">✓ Chave cadastrada</span> <span class="rotulo">termina em ${esc(c.final)}</span>`
       : c.usaPadrao
-        ? '<span class="etiqueta">Usando a chave do administrador</span>'
-        : '<span class="etiqueta off">Sem chave</span>';
+        ? '<span class="etiqueta aviso">Usando a chave do administrador (custo na conta dele)</span>'
+        : '<span class="etiqueta off">Sem chave — cadastre a da empresa</span>';
     return `
       <div class="card">
         <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${NOME_PROVEDOR[provedor]} ${extra}</h2>${situacao}</div>
@@ -1771,7 +1828,7 @@ async function paginaChave(id) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>IAs e chaves</h1><p class="sub">Qual IA responde seus clientes — e quem assume se ela falhar</p></div></div>
     ${balao('Como funciona', passos([
-      'Cadastre a chave de <b>pelo menos uma</b> IA (lá embaixo). Quanto mais chaves, mais seguro.',
+      'Cada empresa usa as <b>próprias chaves</b> de IA — os tokens gastos saem da conta da empresa e aparecem aqui embaixo. Cadastre a chave de <b>pelo menos uma</b> IA (lá embaixo). Quanto mais chaves, mais seguro.',
       'Escolha a ordem: a <b>1ª</b> responde sempre. Se ela falhar (acabou o crédito, chave errada, fora do ar), a <b>2ª</b> responde na hora, e depois a <b>3ª</b>. O cliente não percebe.',
       'Quando uma reserva precisar entrar, o CRM avisa você no sininho 🔔 (e no WhatsApp de avisos, se tiver).'
     ]))}
@@ -3253,6 +3310,8 @@ function gradeEmpresas(lista) {
   return `
     <div class="grade-empresas">
       ${lista.map((e) => `
+        <div class="cartao-empresa-caixa">
+        ${ehAdmin() ? `<button type="button" class="cartao-excluir" data-excluir-empresa="${esc(e.id)}" title="Excluir empresa" aria-label="Excluir ${esc(e.nome)}">🗑️</button>` : ''}
         <a class="cartao-empresa ${e.ativa === false ? 'pausada' : ''}" href="${rotaEmpresa(e.id)}">
           <div class="cartao-empresa-topo">${avatarEmpresa(e, 'grande')}<div class="cartao-empresa-nome"><strong>${esc(e.nome)}</strong><span class="rotulo">${esc(e.nicho || 'Sem ramo definido')}</span></div></div>
           <div class="cartao-empresa-numeros">
@@ -3267,7 +3326,8 @@ function gradeEmpresas(lista) {
             ${e.ativa === false ? '<span class="etiqueta off">Pausada</span>' : ''}
             ${(e.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="etiqueta off">⚠️ precisa de atenção</span>' : ''}${e.alertasNaoLidos ? `<span class="etiqueta aviso">🔔 ${e.alertasNaoLidos}</span>` : ''}
           </div>
-        </a>`).join('')}
+        </a>
+        </div>`).join('')}
       ${ehAdmin() ? '<button type="button" class="cartao-empresa nova-empresa" id="nova-cartao"><span class="mais">+</span><strong>Nova empresa</strong><span class="rotulo">Cadastre um cliente e configure em minutos</span></button>' : ''}
     </div>`;
 }

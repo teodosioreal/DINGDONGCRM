@@ -56,8 +56,14 @@ function chavePadrao(provedor) {
   return salvas[CAMPO_CHAVE[provedor]] || config[CAMPO_CHAVE[provedor]] || '';
 }
 
+// Cada empresa usa as PRÓPRIAS chaves. A chave padrão do administrador só entra
+// para empresas liberadas (as antigas já usavam; as novas começam sem).
+function podeUsarChavePadrao(empresa) {
+  return !empresa || empresa.usarChavePadrao !== false;
+}
+
 function chave(provedor, empresa) {
-  return chaveDaEmpresa(provedor, empresa) || chavePadrao(provedor);
+  return chaveDaEmpresa(provedor, empresa) || (podeUsarChavePadrao(empresa) ? chavePadrao(provedor) : '');
 }
 
 function provedoresConfigurados(empresa) {
@@ -65,7 +71,7 @@ function provedoresConfigurados(empresa) {
 }
 
 function erroSemChave(provedor) {
-  const erro = new Error(`A empresa ainda não cadastrou a chave do ${PROVEDORES[provedor].nome} (painel → empresa → Chave de IA).`);
+  const erro = new Error(`A empresa ainda não cadastrou a chave do ${PROVEDORES[provedor].nome} (painel → empresa → IAs e chaves).`);
   erro.status = 503;
   return erro;
 }
@@ -472,6 +478,24 @@ function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0 } =
   require('./db').salvar();
 }
 
+// Soma dos últimos N dias (1 = hoje), por empresa
+function usoDoPeriodo(empresa, dias) {
+  const saida = { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {}, total: 0 };
+  const hoje = new Date(`${hojeEmSp()}T12:00:00Z`);
+  for (let i = 0; i < dias; i++) {
+    const dia = new Date(hoje.getTime() - i * 864e5).toISOString().slice(0, 10);
+    const d = empresa?.usoIa?.dias?.[dia];
+    if (!d) continue;
+    saida.entrada += d.entrada;
+    saida.saida += d.saida;
+    saida.cache += d.cache;
+    saida.chamadas += d.chamadas;
+    for (const [p, n] of Object.entries(d.porIa || {})) saida.porIa[p] = (saida.porIa[p] || 0) + n;
+  }
+  saida.total = saida.entrada + saida.saida + saida.cache;
+  return saida;
+}
+
 function usoDoDia(empresa, dia = hojeEmSp()) {
   const d = empresa?.usoIa?.dias?.[dia];
   return d ? { ...d, total: d.entrada + d.saida + d.cache } : { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {}, total: 0 };
@@ -847,11 +871,13 @@ module.exports = {
   testarMotor,
   motoresDa,
   usoDoDia,
+  usoDoPeriodo,
   registrarUso,
   MODELOS_OPENAI_SUGERIDOS,
   chave,
   chaveDaEmpresa,
   chavePadrao,
+  podeUsarChavePadrao,
   CAMPO_CHAVE,
   provedoresConfigurados,
   normalizarProvedor,

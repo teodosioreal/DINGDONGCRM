@@ -155,6 +155,13 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
 ### IAs e chaves: principal + 2 reservas
 
+- **Cada empresa usa as próprias chaves de IA** (e paga os próprios tokens).
+  Empresas novas não usam a chave padrão do administrador; o admin pode liberar
+  em *Editar empresa* ("Pode usar a chave de IA do administrador"). Empresas
+  criadas antes continuam liberadas para não pararem.
+- Visão geral/Empresas: tabela **Tokens de IA por empresa** (hoje, 7 e 30 dias,
+  por IA e chamadas). Excluir empresa: 🗑️ no cartão, confirmando pelo nome.
+
 - Até **3 IAs em ordem** (Claude, **ChatGPT** ou Gemini), cada posição com a
   chave da empresa ou uma chave própria (ex.: 2 contas do Claude). Se a 1ª falhar
   (sem crédito, chave errada, fora do ar, limite), a 2ª responde na hora, depois a
