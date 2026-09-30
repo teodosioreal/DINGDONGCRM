@@ -209,7 +209,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   áudios e arquivos). Também há "Apagar de vez" e "Esvaziar lixeira".
 - "Apagar lead" (perfil e ações em massa) também vai para a Lixeira.
 - As vendas continuam no Faturamento. O WhatsApp do celular não é mexido (a Evolution
-  não apaga conversa do celular). Se o cliente escrever de novo, começa conversa nova.
+  não apaga conversa do celular). Se o cliente escrever de novo, começa conversa nova;
+  ao restaurar a antiga, as duas viram uma só (mensagens, etiquetas, vendas e anexos).
+- Comprovantes de Pix das vendas nunca se perdem: ao apagar de vez, vão para a pasta
+  de vendas da empresa e continuam abrindo no Faturamento.
 
 ### Apagar mensagens
 

@@ -1308,8 +1308,8 @@ router.get('/empresas/:id/lixeira', (req, res) => {
 router.post('/lixeira/:id/restaurar', (req, res) => {
   const c = acharNaLixeira(req, res);
   if (!c) return;
-  lixeira.restaurar(c);
-  res.json(resumoLead(c));
+  const r = lixeira.restaurar(c);
+  res.json({ ...resumoLead(c), juntou: Boolean(r?.juntou) });
 });
 
 router.delete('/lixeira/:id', (req, res) => {
@@ -1867,7 +1867,7 @@ function vendaPublica(v) {
     ...resto,
     cliente: v.cliente || lead?.nome || '',
     leadNome: lead ? lead.nome || (lead.telefone ? `+${lead.telefone}` : 'Lead') : '',
-    comprovanteUrl: v.anexo ? (v.anexo.leadId ? `api/leads/${v.anexo.leadId}/anexos/${v.anexo.arquivo}` : `api/empresas/${v.empresaId}/vendas/${v.id}/comprovante`) : ''
+    comprovanteUrl: v.anexo ? `api/empresas/${v.empresaId}/vendas/${v.id}/comprovante` : ''
   };
 }
 
@@ -1968,7 +1968,8 @@ router.post('/empresas/:id/vendas/comprovante', express.raw({ type: 'application
 router.get('/empresas/:id/vendas/:vendaId/comprovante', (req, res) => {
   const v = acharVenda(req, res);
   if (!v) return;
-  const caminho = v.anexo && !v.anexo.leadId ? midias.caminhoAnexo(`vendas-${v.empresaId}`, v.anexo.arquivo) : null;
+  // comprovante mandado no WhatsApp fica na pasta da conversa (mesmo com ela na lixeira)
+  const caminho = v.anexo ? midias.caminhoAnexo(v.anexo.leadId || `vendas-${v.empresaId}`, v.anexo.arquivo) : null;
   if (!caminho) return res.sendStatus(404);
   res.type(v.anexo.mimetype || 'application/octet-stream');
   res.sendFile(caminho, (err) => {

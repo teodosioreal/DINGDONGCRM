@@ -2850,8 +2850,8 @@ async function paginaConversas(id, params) {
     $$('[data-restaurar]', el).forEach((b) => {
       b.onclick = async () => {
         try {
-          await comEspera(b, () => api(`lixeira/${b.dataset.restaurar}/restaurar`, { method: 'POST', body: {} }));
-          aviso('Conversa restaurada.');
+          const r = await comEspera(b, () => api(`lixeira/${b.dataset.restaurar}/restaurar`, { method: 'POST', body: {} }));
+          aviso(r.juntou ? 'Conversa restaurada e juntada com a conversa nova desse cliente.' : 'Conversa restaurada.');
           carregarLista();
         } catch (err) { aviso(err.message, true); }
       };
@@ -2879,7 +2879,7 @@ async function paginaConversas(id, params) {
   // 🗑️ manda a conversa para a lixeira (com confirmação)
   async function apagarConversa(leadId) {
     const c = lista.find((x) => x.id === leadId) || leadAberto;
-    if (!(await confirmar({ titulo: 'Apagar esta conversa?', texto: `A conversa com ${nomeDoLead(c || {})} vai para a Lixeira (🗑️) e pode ser restaurada por 30 dias. Mensagens agendadas para ela são canceladas. O WhatsApp do celular não é mexido.`, botao: 'Apagar', perigo: true }))) return;
+    if (!(await confirmar({ titulo: 'Apagar esta conversa?', texto: `A conversa com <b>${esc(nomeDoLead(c || {}))}</b> vai para a Lixeira (🗑️) e pode ser restaurada por 30 dias. Mensagens agendadas para ela são canceladas. O WhatsApp do celular não é mexido.`, botao: 'Apagar', perigo: true }))) return;
     try {
       await api(`leads/${leadId}`, { method: 'DELETE', body: {} });
       aviso('Conversa na lixeira.');
