@@ -694,3 +694,8 @@ html.dark .chat-ia-status.erro { background: #3f1515; color: #fecaca; }
 html.dark ul.diagnostico li > span { background: #14532d; color: #bbf7d0; }
 html.dark ul.diagnostico li.ruim > span { background: #450a0a; color: #fecaca; }
 @media (max-width: 600px) { .conversa { padding: 10px 12px; } .conversa .msg { max-width: 85%; } }
+.faixa-pausada { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 16px;
+  border-radius: var(--raio); background: #fde2e1; color: #7f1d1d; border: 1px solid #fca5a5; font-size: 14px; }
+.faixa-pausada > div { flex: 1; min-width: 220px; }
+.faixa-pausada .botao, .faixa-pausada button { margin-left: auto; }
+html.dark .faixa-pausada { background: #3f1515; color: #fecaca; border-color: #7f1d1d; }

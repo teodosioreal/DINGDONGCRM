@@ -250,6 +250,22 @@ async function definirEmpresaAtual(id) {
   return dados;
 }
 
+// Faixa vermelha quando a empresa está pausada (a IA e as automações não respondem ninguém)
+function faixaPausada(emp) {
+  if (!emp || emp.ativa !== false) return '';
+  return `<div class="faixa-pausada">⏸️ <div><b>Esta empresa está pausada no CRM.</b> A IA do site, a do WhatsApp e as automações não respondem ninguém enquanto estiver pausada.</div>${ehAdmin() ? `<button type="button" class="primario pequeno" data-reativar="${esc(emp.id)}">Reativar a empresa</button>` : '<span class="rotulo">Peça ao administrador para reativar.</span>'}</div>`;
+}
+
+async function reativarEmpresa(empresaId, botao) {
+  try {
+    const r = await comEspera(botao, () => api(`empresas/${empresaId}/whatsapp/reativar-empresa`, { method: 'POST' }), 'Reativando…');
+    aviso(r.respondendo ? `Empresa reativada. A IA já está respondendo ${r.respondendo} ${r.respondendo === 1 ? 'cliente que ficou' : 'clientes que ficaram'} esperando.` : 'Empresa reativada. A IA volta a responder as próximas mensagens.');
+    rotear();
+  } catch (err) {
+    aviso(err.message, true);
+  }
+}
+
 async function principalDa(empresaId) {
   const bots = await api(`bots?empresaId=${encodeURIComponent(empresaId)}`);
   return bots.find((b) => b.principal) || bots[0] || null;
@@ -428,6 +444,7 @@ async function paginaEmpresa(id) {
       </ul>
     </div>`}
 
+    ${faixaPausada(emp)}
     ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <a href="${rotaEmpresa(id, 'whatsapp')}">Desligar o modo teste</a>`, 'aviso') : ''}
     <h2>Seus atendentes de IA</h2>
     ${balao('Duas IAs, um atendimento só', 'A <b>IA do site</b> tira as dúvidas no chat do site e, quando o cliente quer avançar, manda ele para o WhatsApp. Lá a <b>IA do WhatsApp</b> continua a mesma conversa, de onde parou. Pode usar as duas juntas ou só uma delas — é só ligar ou desligar aqui.')}
@@ -816,6 +833,7 @@ async function paginaWhatsapp(id) {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>IA do WhatsApp</h1><p class="sub">Responde no número da empresa, manda fotos e vídeos e passa para a equipe</p></div>${interruptor('ligar-zap', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
+    ${faixaPausada(emp)}
     ${ligado ? '' : balao('A IA do WhatsApp está desligada', 'As mensagens continuam chegando no CRM (você vê tudo em Leads), mas a IA não responde. Ligue no botão acima quando quiser.', 'aviso')}
     ${conexao}
     <div class="card" id="card-diagnostico">
@@ -965,6 +983,7 @@ async function paginaWhatsapp(id) {
       alvo.innerHTML = `
         <ul class="diagnostico">${d.itens.map((i) => `<li class="${i.ok ? 'ok' : 'ruim'}"><span>${i.ok ? '✓' : '✕'}</span><div><b>${esc(i.titulo)}</b>${i.detalhe ? `<div class="rotulo">${esc(i.detalhe)}</div>` : ''}</div></li>`).join('')}</ul>
         <div class="acoes">
+          ${d.itens.some((i) => i.titulo === 'Empresa ativa no CRM' && !i.ok) && ehAdmin() ? `<button type="button" class="primario pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}
           ${webhookRuim ? '<button type="button" class="primario pequeno" id="consertar-webhook">Consertar: ligar as mensagens no CRM</button>' : ''}
           ${pausadas && /^\d/.test(pausadas.detalhe) ? '<button type="button" class="pequeno" id="devolver-todas">Devolver todas as conversas para a IA</button>' : ''}
         </div>
@@ -2136,6 +2155,7 @@ async function paginaConversas(id, params) {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
+    ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <a href="${rotaEmpresa(id, 'whatsapp')}">desligar</a></p>` : ''}
     <div class="inbox ${abertoId ? 'com-chat' : ''}" id="inbox">
@@ -2189,7 +2209,7 @@ async function paginaConversas(id, params) {
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
       </header>
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
-      ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : ''}</div>` : ''}
+      ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${pendentes.length ? `<div class="chat-agendadas">${pendentes.map((a) => `<span>🕒 ${esc(new Date(a.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}: ${esc(a.texto.slice(0, 60))} <button type="button" class="link-botao" data-cancelar="${esc(a.id)}">cancelar</button></span>`).join('')}</div>` : ''}
       ${l.podeReceber ? `
@@ -3289,6 +3309,10 @@ async function iniciar() {
       e.preventDefault();
       alvo.classList.toggle('aberta');
     }
+  });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-reativar]');
+    if (b) reativarEmpresa(b.dataset.reativar, b);
   });
   window.addEventListener('hashchange', rotear);
   rotear();

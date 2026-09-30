@@ -328,6 +328,24 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
         salvar();
         return res.json({ ok: true, devolvidas: n });
       }
+      case 'reativar-empresa': {
+        // tira a pausa da empresa e responde quem ficou sem resposta por causa dela (últimas 24h)
+        if (!ehAdmin(req)) return res.status(403).json({ erro: 'Só o administrador pode reativar a empresa.' });
+        empresa.ativa = true;
+        empresa.atualizadoEm = agora();
+        const limite = Date.now() - 24 * 60 * 60 * 1000;
+        let n = 0;
+        for (const l of estado.conversas) {
+          const st = l.iaStatus;
+          const ultima = l.mensagens?.[l.mensagens.length - 1];
+          if (l.empresaId === empresa.id && st?.motivo === whatsapp.MOTIVO_EMPRESA_PAUSADA && new Date(st.em).getTime() > limite && ultima?.papel === 'visitante') {
+            whatsapp.agendarResposta(empresa, l);
+            n++;
+          }
+        }
+        salvar();
+        return res.json({ ok: true, respondendo: n });
+      }
       case 'diagnostico':
         return res.json(await whatsapp.diagnostico(empresa));
       case 'situacao':

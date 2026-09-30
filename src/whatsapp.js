@@ -765,6 +765,8 @@ function liberadoNoModoTeste(empresa, lead) {
 // Guarda o que a IA fez (ou por que NÃO respondeu) em cada lead e um histórico
 // curto por empresa, para o painel mostrar sem precisar olhar os logs.
 
+const MOTIVO_EMPRESA_PAUSADA = 'A empresa está pausada no CRM.';
+
 function registrarIa(empresa, lead, tipo, motivo) {
   const evento = { em: new Date().toISOString(), tipo, motivo: String(motivo || '').slice(0, 300), leadId: lead?.id || null, cliente: lead?.nome || (lead?.telefone ? `+${lead.telefone}` : '') };
   if (lead) lead.iaStatus = { em: evento.em, tipo, motivo: evento.motivo };
@@ -797,7 +799,7 @@ async function responderLead(empresaId, leadId) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   const lead = estado.conversas.find((c) => c.id === leadId);
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva) return;
-  if (empresa.ativa === false) return registrarIa(empresa, lead, 'ignorou', 'A empresa está pausada no CRM.');
+  if (empresa.ativa === false) return registrarIa(empresa, lead, 'ignorou', MOTIVO_EMPRESA_PAUSADA);
   if (!liberadoNoModoTeste(empresa, lead)) return;
   const bot = botDoWhatsapp(empresa);
   if (!bot) return registrarIa(empresa, lead, 'erro', 'A empresa não tem assistente de IA.');
@@ -909,6 +911,7 @@ async function diagnostico(empresa) {
   const c = configDa(empresa);
   const itens = [];
   const add = (ok, titulo, detalhe = '') => itens.push({ ok, titulo, detalhe });
+  add(empresa.ativa !== false, 'Empresa ativa no CRM', empresa.ativa === false ? 'A empresa está PAUSADA: a IA e as automações não respondem ninguém. Clique em "Reativar a empresa".' : '');
   add(/^https:\/\//.test(config.urlPublica), 'Endereço público do CRM', config.urlPublica ? config.urlPublica : 'PUBLIC_URL vazio no .env do servidor: o WhatsApp não consegue mandar as mensagens para o CRM.');
   add(configurado(empresa), 'WhatsApp conectado ao CRM', configurado(empresa) ? `sessão ${c.instancia}` : 'Conecte o WhatsApp na tela IA do WhatsApp.');
   if (configurado(empresa)) {
@@ -979,6 +982,7 @@ module.exports = {
   destinoDoLead,
   enviarPelaEquipe,
   agendarResposta,
+  MOTIVO_EMPRESA_PAUSADA,
   cancelarResposta,
   responderLead
 };
