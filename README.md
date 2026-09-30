@@ -128,6 +128,13 @@ precisa digitar Session ID nem API Key.
   pediu SAIR fica de fora, só age até 3 dias depois do critério (ligar uma
   automação não dispara para leads antigos) e, por padrão, só das 8h às 20h.
 
+### Modo teste
+
+Em *IA do WhatsApp → 🧪 Modo teste*: com ele ligado, a IA do WhatsApp e as
+automações **só respondem os números de teste** cadastrados (com ou sem o 9).
+As mensagens dos outros clientes continuam chegando no CRM, sem resposta
+automática. O Início, a aba Conversas e o menu mostram quando está ligado.
+
 ### Respostas rápidas com mídia (também no celular)
 
 - Atalhos como `/preco` e `/catalogo` que mandam **texto + foto, PDF ou álbum**

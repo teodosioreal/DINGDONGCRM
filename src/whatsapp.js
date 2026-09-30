@@ -732,8 +732,35 @@ function cancelarResposta(leadId) {
   agendadas.delete(leadId);
 }
 
+// ---------------------------------------------------------------- modo teste
+// Com o modo teste ligado, a IA (e as automações) só falam com os números de
+// teste. As mensagens dos outros clientes continuam chegando no CRM normalmente.
+
+function numerosDeTeste(empresa) {
+  const c = empresa.whatsappConfig || {};
+  if (!c.modoTeste) return null;
+  return String(c.numerosTeste || '')
+    .split(/[,;\n]+/)
+    .map((n) => numeroWhatsapp(n))
+    .filter((n) => n.length >= 10);
+}
+
+function numeroDoLead(lead) {
+  const doJid = /@s\.whatsapp\.net$/.test(lead.whatsappJid || '') ? lead.whatsappJid.split('@')[0] : '';
+  return doJid || numeroWhatsapp(lead.telefone);
+}
+
+// true = pode falar com este lead
+function liberadoNoModoTeste(empresa, lead) {
+  const lista = numerosDeTeste(empresa);
+  if (!lista) return true;
+  const numero = numeroDoLead(lead);
+  return Boolean(numero) && lista.some((n) => mesmoNumero(n, numero));
+}
+
 function agendarResposta(empresa, lead) {
   if (!configDa(empresa).iaAtiva || lead.iaPausada) return;
+  if (!liberadoNoModoTeste(empresa, lead)) return;
   cancelarResposta(lead.id);
   agendadas.set(
     lead.id,
@@ -748,6 +775,7 @@ async function responderLead(empresaId, leadId) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   const lead = estado.conversas.find((c) => c.id === leadId);
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva || empresa.ativa === false) return;
+  if (!liberadoNoModoTeste(empresa, lead)) return;
   const bot = botDoWhatsapp(empresa);
   if (!bot) return;
 
@@ -852,6 +880,8 @@ async function enviarPelaEquipe(empresa, lead, texto) {
 
 module.exports = {
   evolutionUrlGlobal,
+  liberadoNoModoTeste,
+  numerosDeTeste,
   evolucao: evolution,
   enviarRespostaRapida,
   respostaPorAtalho,

@@ -645,3 +645,9 @@ html.dark .dica-grafico { background: #f1f5f9; color: #0f172a; }
 .rapida select { width: 100%; }
 .varredura-andamento { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; border-color: #93c5fd; }
 .varredura-andamento .rotulo { flex-basis: 100%; }
+
+/* modo teste */
+.modo-teste.ligado { border-color: #fcd34d; }
+html.dark .modo-teste.ligado { border-color: #78350f; }
+.faixa-teste { margin: -4px 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--aviso-fundo); color: var(--aviso-texto); font-size: 13.5px; }
+.faixa-teste a { font-weight: 600; }

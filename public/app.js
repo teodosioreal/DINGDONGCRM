@@ -223,7 +223,7 @@ function montarMenu(ativo) {
     html += item(rotaEmpresa(id, 'ia'), 'cerebro', 'Sobre a empresa');
     html += item(rotaEmpresa(id, 'aprendizado'), 'livro', 'Aprendizados da IA');
     html += item(rotaEmpresa(id, 'site'), 'site', 'IA do site', ponto(d.canais?.site));
-    html += item(rotaEmpresa(id, 'whatsapp'), 'whatsapp', 'IA do WhatsApp', ponto(d.canais?.whatsapp && d.whatsapp?.configurado));
+    html += item(rotaEmpresa(id, 'whatsapp'), 'whatsapp', 'IA do WhatsApp', d.whatsapp?.modoTeste ? '<span class="etiqueta aviso" style="padding:0 6px">teste</span>' : ponto(d.canais?.whatsapp && d.whatsapp?.configurado));
     html += item(rotaEmpresa(id, 'midias'), 'midias', 'Mídias e links');
     html += item(rotaEmpresa(id, 'organizar'), 'etiquetas', 'Etiquetas e etapas');
     html += item(rotaEmpresa(id, 'chave'), 'chave', 'Chave de IA');
@@ -428,6 +428,7 @@ async function paginaEmpresa(id) {
       </ul>
     </div>`}
 
+    ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <a href="${rotaEmpresa(id, 'whatsapp')}">Desligar o modo teste</a>`, 'aviso') : ''}
     <h2>Seus atendentes de IA</h2>
     ${balao('Duas IAs, um atendimento só', 'A <b>IA do site</b> tira as dúvidas no chat do site e, quando o cliente quer avançar, manda ele para o WhatsApp. Lá a <b>IA do WhatsApp</b> continua a mesma conversa, de onde parou. Pode usar as duas juntas ou só uma delas — é só ligar ou desligar aqui.')}
     <div class="canais">${cartaoCanal('site')}${cartaoCanal('whatsapp')}</div>
@@ -817,6 +818,11 @@ async function paginaWhatsapp(id) {
     <div class="cabecalho"><div><h1>IA do WhatsApp</h1><p class="sub">Responde no número da empresa, manda fotos e vídeos e passa para a equipe</p></div>${interruptor('ligar-zap', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
     ${ligado ? '' : balao('A IA do WhatsApp está desligada', 'As mensagens continuam chegando no CRM (você vê tudo em Leads), mas a IA não responde. Ligue no botão acima quando quiser.', 'aviso')}
     ${conexao}
+    <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
+      ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
+      <form id="f-numeros-teste" class="linha-form"><input name="numerosTeste" value="${esc((w.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}" placeholder="Seu número com DDD — ex.: (21) 99999-9999 (separe vários por vírgula)"><button type="submit">Salvar números</button></form>
+    </div>
     ${bot ? `
     <div class="editor">
       <form id="f-bot" class="card">
@@ -943,6 +949,36 @@ async function paginaWhatsapp(id) {
       $('#chave-global-erro').innerHTML = `<p class="erro-caixa" style="margin-top:12px">${esc(/não conferem|Unauthorized|401/i.test(err.message) ? 'A Evolution recusou essa chave. Confira se é a chave GLOBAL do servidor (a mesma EVOLUTION_API_KEY do DingDong Tracking).' : err.message)}</p>`;
     }
   });
+
+  const salvarTeste = async (modoTeste) => {
+    const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
+    await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { modoTeste, numerosTeste } });
+  };
+  $('#modo-teste').onchange = async (e) => {
+    const ligar = e.target.checked;
+    if (ligar && !$('#f-numeros-teste').elements.numerosTeste.value.trim()) {
+      e.target.checked = false;
+      aviso('Coloque primeiro o número de teste e depois ligue.', true);
+      $('#f-numeros-teste').elements.numerosTeste.focus();
+      return;
+    }
+    try {
+      await salvarTeste(ligar);
+      aviso(ligar ? 'Modo teste ligado: a IA só responde os números de teste.' : 'Modo teste desligado: a IA responde todos os clientes.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !ligar;
+      aviso(err.message, true);
+    }
+  };
+  $('#f-numeros-teste').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await salvarTeste(w.modoTeste);
+      aviso('Números de teste salvos.');
+      recarregar();
+    } catch (err) { aviso(err.message, true); }
+  };
 
   $('#ligar-zap').onchange = async (e) => {
     try {
@@ -2017,6 +2053,7 @@ async function paginaConversas(id, params) {
   conteudo.innerHTML = `
     <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
+    ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <a href="${rotaEmpresa(id, 'whatsapp')}">desligar</a></p>` : ''}
     <div class="inbox ${abertoId ? 'com-chat' : ''}" id="inbox">
       <aside class="inbox-lista">
         <div class="inbox-busca"><input id="busca-conversa" placeholder="🔎 Buscar nome, telefone ou mensagem"></div>

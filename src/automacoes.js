@@ -170,6 +170,7 @@ function entrouNaEtapaEm(lead, etapa) {
 
 function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (!whatsapp.destinoDoLead(lead)) return 'sem WhatsApp';
+  if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return 'modo teste';
   if (lead.naoDisparar) return 'pediu para não receber';
   if (lead.precisaHumano) return 'esperando a equipe';
   if (lead.iaPausada && !regra.incluirPausados) return 'equipe atendendo';

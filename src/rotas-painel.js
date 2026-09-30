@@ -162,6 +162,8 @@ function situacaoWhatsapp(e, req) {
     configurado: whatsapp.configurado(e),
     perfil: c.perfil,
     criadaPeloCrm: c.criadaPeloCrm,
+    modoTeste: Boolean(e.whatsappConfig?.modoTeste),
+    numerosTeste: e.whatsappConfig?.numerosTeste || '',
     // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
     podeCriar: whatsapp.podeCriarInstancia(),
     // endereço da Evolution: só o admin vê/troca (a empresa só usa Session ID + API Key)
@@ -277,6 +279,12 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   const b = req.body || {};
   empresa.whatsappConfig = empresa.whatsappConfig || {};
   if (b.iaAtiva !== undefined) empresa.whatsappConfig.iaAtiva = b.iaAtiva !== false;
+  if (b.modoTeste !== undefined) empresa.whatsappConfig.modoTeste = b.modoTeste === true;
+  if (b.numerosTeste !== undefined) {
+    const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
+    if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
+    empresa.whatsappConfig.numerosTeste = [...new Set(lista)].slice(0, 20).join(', ');
+  }
   if (ehAdmin(req) && b.evolutionUrl !== undefined) {
     const url = texto(b.evolutionUrl, 300).replace(/\/+$/, '');
     if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ erro: 'O endereço da Evolution API precisa começar com https://' });
