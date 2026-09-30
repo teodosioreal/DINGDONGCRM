@@ -715,3 +715,10 @@ html.dark .faixa-pausada { background: #3f1515; color: #fecaca; border-color: #7
 .fonte-barra { height: 10px; border-radius: 999px; background: var(--hover); overflow: hidden; }
 .fonte-barra span { display: block; height: 100%; border-radius: 999px; background: #16a34a; }
 .fonte-linha b { text-align: right; font-variant-numeric: tabular-nums; }
+.atalhos-secao { margin: 0 0 16px; }
+.anuncio-item { border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px; margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.anuncio-topo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.anuncio-topo input { flex: 1; min-width: 180px; font-weight: 600; }
+.detectados { display: flex; flex-direction: column; gap: 8px; }
+.detectado { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; background: var(--hover); }
+.detectado > div { min-width: 0; }

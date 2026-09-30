@@ -265,26 +265,41 @@ const linkPagina = (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener
 
 // Linha curta (topo do chat): "📣 Anúncio Instagram · campanha verao · vendo: Volante em couro"
 function linhaOrigem(o) {
-  if (!o || (!o.fonte && !o.atual)) return '';
+  if (!o || (!o.fonte && !o.atual && !o.anuncio && !o.manual)) return '';
   const atual = o.atual || o.paginas?.[o.paginas.length - 1];
-  return `<div class="chat-origem">${ICONE_FONTE[o.tipo] || '🌐'} Veio ${o.fonte ? `de <b>${esc(o.fonte)}</b>` : 'do site'}${o.campanha ? ` · campanha <b>${esc(o.campanha)}</b>` : ''}${atual ? ` · estava vendo ${linkPagina(atual)}` : ''}</div>`;
+  const partes = [];
+  if (o.fonte || atual) partes.push(`${ICONE_FONTE[o.tipo] || '🌐'} Veio ${o.fonte ? `de <b>${esc(o.fonte)}</b>` : 'do site'}`);
+  if (o.anuncio) partes.push(`anúncio <b>${esc(o.anuncio.nome)}</b>`);
+  else if (o.campanha) partes.push(`campanha <b>${esc(o.campanha)}</b>`);
+  if (atual) partes.push(`estava vendo ${linkPagina(atual)}`);
+  if (o.manual) partes.push(`📝 ${esc(o.manual)}`);
+  return `<div class="chat-origem" title="${esc(partes.join(' · ').replace(/<[^>]+>/g, ''))}">${partes.join(' · ')}</div>`;
 }
 
-function cardOrigem(o) {
-  if (!o) return '';
+function cardOrigem(o, l) {
+  o = o || {};
   const atual = o.atual || o.paginas?.[o.paginas.length - 1];
+  const controles = l ? `
+      <div class="secao" style="margin-top:12px;padding-top:12px">
+        <div class="campo"><label>Anúncio / campanha ${ajuda('O CRM escolhe sozinho pelas palavras cadastradas em Aprendizados da IA → Anúncios. Se estiver errado, escolha aqui: a IA passa a usar as informações desse anúncio.')}</label><select id="origem-anuncio"><option value="">— nenhum —</option>${(l.anunciosEmpresa || []).map((a) => `<option value="${esc(a.id)}" ${o.anuncio?.id === a.id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>${(l.anunciosEmpresa || []).length ? '' : `<small><a href="${rotaEmpresa(l.empresaId, 'aprendizado')}">Cadastrar anúncios</a></small>`}</div>
+        <div class="campo" style="margin-top:10px"><label>Anotação sobre a origem ${ajuda('A IA lê isto. Ex.: indicação do João, veio da feira, cliente antigo.')}</label><input id="origem-manual" maxlength="300" value="${esc(o.manual || '')}" placeholder="Ex.: indicação do João"></div>
+        <div class="acoes" style="margin-top:10px"><button type="button" class="pequeno" id="salvar-origem">Salvar origem</button></div>
+      </div>` : '';
   const utm = Object.entries(o.utm || {}).map(([k, v]) => `<span class="etiqueta">${esc(k)}: ${esc(v)}</span>`).join(' ');
   const outras = (o.paginas || []).filter((p) => p.url !== atual?.url && p.url !== o.chegada?.url).slice(-6).reverse();
   return `
     <div class="card origem-card">
       <h2 style="margin:0 0 10px;font-size:16px">De onde veio ${ajuda('O chat do site anota como o cliente chegou (anúncio, Google, Instagram…) e as páginas que ele viu. As duas IAs usam isso para entender o interesse dele.')}</h2>
-      <div class="origem-fonte">${ICONE_FONTE[o.tipo] || '🌐'} <b>${esc(o.fonte || 'Site')}</b>${o.campanha ? `<span class="rotulo"> · campanha ${esc(o.campanha)}</span>` : ''}</div>
+      ${o.fonte || o.chegada ? `<div class="origem-fonte">${ICONE_FONTE[o.tipo] || '🌐'} <b>${esc(o.fonte || 'Site')}</b>${o.campanha ? `<span class="rotulo"> · campanha ${esc(o.campanha)}</span>` : ''}</div>` : '<p class="rotulo" style="margin:0">Sem informação automática (o cliente não passou pelo chat nem por um botão do site, nem por anúncio de clique para WhatsApp).</p>'}
+      ${o.anuncio ? `<div style="margin-top:8px">📣 Anúncio: <b>${esc(o.anuncio.nome)}</b> <span class="rotulo">(${o.anuncio.por === 'equipe' ? 'escolhido pela equipe' : 'reconhecido pelo CRM'})</span></div>` : ''}
+      ${o.anuncioMeta ? `<div class="rotulo" style="margin-top:6px">Anúncio do Meta: “${esc(o.anuncioMeta.titulo || o.anuncioMeta.url || o.anuncioMeta.id)}”${o.anuncioMeta.url ? ` · <a href="${esc(o.anuncioMeta.url)}" target="_blank" rel="noopener noreferrer">ver</a>` : ''}</div>` : ''}
       ${utm ? `<div class="chips" style="margin-top:8px">${utm}</div>` : ''}
       <dl class="origem-lista">
         ${o.chegada ? `<dt>Entrou por</dt><dd>${linkPagina(o.chegada)}${o.chegada.referrer ? `<span class="rotulo"> · vindo de ${esc(caminhoDe(o.chegada.referrer))}</span>` : ''}</dd>` : ''}
         ${atual ? `<dt>Estava vendo</dt><dd>${linkPagina(atual)}</dd>` : ''}
         ${outras.length ? `<dt>Também viu</dt><dd>${outras.map(linkPagina).join('<br>')}</dd>` : ''}
       </dl>
+      ${controles}
     </div>`;
 }
 
@@ -1827,7 +1842,7 @@ async function paginaLead(leadId) {
           <div class="campo" style="margin-top:14px"><label>Anotações da equipe</label><textarea id="anotacoes" style="min-height:80px">${esc(l.anotacoes || '')}</textarea></div>
           <div class="acoes"><button class="primario" type="button" id="salvar-lead">Salvar</button><button type="button" class="perigo" id="apagar-lead" style="margin-left:auto">Apagar lead</button></div>
         </div>
-        ${cardOrigem(l.origemSite)}
+        ${cardOrigem(l.origemSite, l)}
         ${l.etapaHistorico?.length ? `<div class="card"><h2>Histórico de etapas</h2><ul class="historico">${l.etapaHistorico.slice().reverse().map((h) => `<li><span class="rotulo">${data(h.em)}</span> ${esc(h.de || '—')} → <strong>${esc(h.para)}</strong> <span class="rotulo">(${esc({ 'ia-site': 'IA do site', 'ia-whatsapp': 'IA do WhatsApp', equipe: 'equipe', sistema: 'automático' }[h.por] || h.por)})</span></li>`).join('')}</ul></div>` : ''}
       </div>
     </div>`;
@@ -1850,6 +1865,11 @@ async function paginaLead(leadId) {
     };
   });
   $('#nao-disparar').onchange = (e) => atualizar({ naoDisparar: e.target.checked }, e.target.checked ? 'Este lead não recebe mais disparos.' : 'Este lead volta a receber disparos.');
+  $('#salvar-origem')?.addEventListener('click', () => {
+    const escolhido = $('#origem-anuncio').value;
+    const mudouAnuncio = escolhido !== (l.origemSite?.anuncio?.id || '');
+    atualizar({ origemManual: $('#origem-manual').value, ...(mudouAnuncio ? { anuncioId: escolhido } : {}) }, 'Origem salva. A IA já usa na próxima resposta.');
+  });
   $('#salvar-lead').onclick = () => atualizar({ nome: $('#nome').value, anotacoes: $('#anotacoes').value, ...($('#telefone') ? { telefone: $('#telefone').value } : {}) }, 'Lead salvo.');
   $('#alternar-ia').onclick = () => atualizar({ iaPausada: !l.iaPausada }, l.iaPausada ? 'A IA voltou a responder este lead.' : 'IA pausada neste lead.');
   $('#apagar-lead').onclick = async () => {
@@ -3015,9 +3035,18 @@ async function paginaAprendizado(id) {
   const rodando = a.rodando;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Aprendizados da IA</h1><p class="sub">A IA lê as conversas do seu WhatsApp e aprende o seu jeito de atender e vender</p></div>
+    <div class="cabecalho"><div><h1>Aprendizados da IA</h1><p class="sub">A IA aprende com o seu site, com os seus anúncios e com as conversas do seu WhatsApp</p></div>
       <div class="barra"><a class="botao" href="api/empresas/${esc(id)}/aprendizado/arquivo">⬇️ Baixar arquivo</a><button type="button" class="primario" id="varrer" ${rodando || !emp.whatsapp?.configurado ? 'disabled' : ''}>🔍 Varrer agora</button></div>
     </div>
+    <div class="chips atalhos-secao">
+      <button type="button" class="chip-filtro" data-ir="ap-site">🌐 Seu site</button>
+      <button type="button" class="chip-filtro" data-ir="ap-anuncios">📣 Anúncios e campanhas</button>
+      <button type="button" class="chip-filtro" data-ir="ap-conversas">💬 Conversas do WhatsApp</button>
+    </div>
+    <div id="area-site"></div>
+    <div id="area-anuncios"></div>
+
+    <h2 id="ap-conversas" style="margin-top:28px">💬 Conversas do WhatsApp</h2>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${balao('Como funciona', `${passos([
       'Todo dia às <b>8h</b> (ou quando você clicar em <b>Varrer agora</b>) a IA lê as conversas do WhatsApp.',
@@ -3061,6 +3090,9 @@ async function paginaAprendizado(id) {
       <button type="button" class="perigo" id="zerar">Apagar aprendizados e recomeçar</button>
     </details>`;
 
+  $$('[data-ir]').forEach((b) => { b.onclick = () => document.getElementById(b.dataset.ir)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  montarSiteDaEmpresa(id, $('#area-site'));
+  montarAnuncios(id, $('#area-anuncios'));
   $('#varrer')?.addEventListener('click', async (e) => {
     try {
       await comEspera(e.target, () => api(`empresas/${id}/aprendizado/varrer`, { method: 'POST' }), 'Começando…');
@@ -3093,8 +3125,12 @@ async function paginaAprendizado(id) {
       if (!novo.rodando) {
         clearInterval(atualizador);
         aviso(novo.historico[0]?.status === 'erro' ? `A varredura deu erro: ${novo.historico[0].erro}` : 'Varredura concluída!', novo.historico[0]?.status === 'erro');
+        return void paginaAprendizado(id);
       }
-      paginaAprendizado(id);
+      // só o quadro do andamento muda (não apaga o que a pessoa está digitando)
+      const r = novo.rodando;
+      const quadro = $('.varredura-andamento');
+      if (quadro) quadro.innerHTML = `<span class="girando"></span> <b>${esc(r.etapa)}</b><div class="rotulo">${r.lidas} de ${r.conversas} conversas verificadas · ${r.mensagens} mensagens novas · ${r.lotes} ${r.lotes === 1 ? 'parte estudada' : 'partes estudadas'}</div>`;
     }, 2500);
   }
 }
@@ -3170,6 +3206,159 @@ function modalUsuario(u, empresas) {
       } catch (err) { aviso(err.message, true); }
     };
   });
+}
+
+// ---------------------------------------------------------------- aprendizados: o site da empresa
+
+async function montarSiteDaEmpresa(id, alvo) {
+  if (!alvo) return;
+  const aqui = location.hash;
+  let s;
+  try {
+    s = await api(`empresas/${id}/site`);
+  } catch (err) {
+    alvo.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+    return;
+  }
+  if (location.hash !== aqui || !alvo.isConnected) return;
+  const tudoPouco = s.paginas.length > 0 && s.paginas.every((p) => p.poucoTexto);
+  alvo.innerHTML = `
+    <div class="card" id="ap-site">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🌐 Seu site</h2>${interruptor('site-usar', s.usar, 'A IA usa o site')}</div>
+      <p class="rotulo" style="margin:0 0 12px">Cole o link do seu site: o CRM lê as páginas (produtos, serviços, preços, a copy de vendas) e as duas IAs passam a conhecer tudo e a vender com as mesmas palavras. Se preferir, cole o texto do site no campo de baixo. O site é lido de novo sozinho toda semana.</p>
+      <form id="f-site">
+        <div class="campo"><label>Links do seu site ${ajuda('Um por linha. Comece pela página inicial; com a opção de baixo marcada, o CRM também abre as páginas que ela liga (produtos, serviços, sobre…), até 20.')}</label><textarea name="links" rows="3" placeholder="https://minhaloja.com.br&#10;https://minhaloja.com.br/produtos">${esc(s.links.join('\n'))}</textarea></div>
+        <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="seguirLinks" ${s.seguirLinks ? 'checked' : ''}> Ler também as páginas ligadas (até 20 páginas)</label>
+        <div class="campo" style="margin-top:12px"><label>Copy do site (opcional) ${ajuda('Cole aqui textos que você quer que a IA use: a página de vendas, o catálogo, descrições de produtos, perguntas frequentes. Útil quando o site mostra pouco texto para o CRM.')}</label><textarea name="copia" class="grande" style="min-height:140px" maxlength="${s.maxCopia}" placeholder="Cole aqui o texto do seu site, da página de vendas ou do catálogo…">${esc(s.copia)}</textarea><small id="site-contador">${s.copia.length.toLocaleString('pt-BR')} de ${s.maxCopia.toLocaleString('pt-BR')} caracteres</small></div>
+        <div class="acoes"><button class="primario" type="submit" ${s.lendo ? 'disabled' : ''}>${s.links.length ? 'Salvar e ler o site' : 'Salvar'}</button>${s.links.length && !s.lendo ? '<button type="button" id="site-reler">Ler de novo agora</button>' : ''}</div>
+      </form>
+      ${s.lendo ? `<div class="varredura-andamento" style="margin-top:12px"><span class="girando"></span> <b>Lendo o site…</b><div class="rotulo">${s.lendo.lidas} de ${s.lendo.total} páginas</div></div>` : ''}
+      ${s.erro ? `<p class="erro-caixa" style="margin-top:12px">${esc(s.erro)}</p>` : ''}
+      ${tudoPouco ? balao('O CRM achou pouco texto no seu site', 'Alguns sites (os feitos no Lovable, por exemplo) só montam o texto dentro do navegador, e o CRM enxerga só o título. <b>Cole a copy do site no campo acima</b> para a IA conhecer tudo.', 'aviso') : ''}
+      ${s.paginas.length ? `
+      <div class="tabela-wrap" style="margin-top:12px"><table>
+        <thead><tr><th>Página lida</th><th style="width:130px">Texto</th></tr></thead>
+        <tbody>${s.paginas.map((p) => `<tr><td><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.titulo || caminhoDe(p.url))}</a><div class="rotulo" style="font-size:12px">${esc(caminhoDe(p.url))}</div></td><td>${p.poucoTexto ? `<span class="etiqueta aviso">pouco texto</span>` : `${p.caracteres.toLocaleString('pt-BR')} caracteres`}</td></tr>`).join('')}</tbody>
+      </table></div>` : ''}
+      <p class="rotulo" style="margin:10px 0 0">${s.lidoEm ? `Lido em ${data(s.lidoEm)} · ` : ''}${s.caracteresNaIa ? `a IA recebe ${s.caracteresNaIa.toLocaleString('pt-BR')} caracteres do site${s.usar ? '' : ' (desligado)'}` : 'a IA ainda não recebe nada do site'}</p>
+    </div>`;
+  const form = $('#f-site', alvo);
+  form.elements.copia.oninput = (e) => { $('#site-contador', alvo).textContent = `${e.target.value.length.toLocaleString('pt-BR')} de ${s.maxCopia.toLocaleString('pt-BR')} caracteres`; };
+  const ler = async (botao) => {
+    await comEspera(botao, () => api(`empresas/${id}/site/ler`, { method: 'POST' }), 'Lendo…');
+    aviso('Lendo o site. Pode continuar usando o painel.');
+  };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const botao = e.submitter || $('button[type=submit]', form);
+    try {
+      const salvo = await comEspera(botao, () => api(`empresas/${id}/site`, { method: 'PUT', body: { links: form.elements.links.value.split(/\s+/).filter(Boolean), seguirLinks: form.elements.seguirLinks.checked, copia: form.elements.copia.value } }), 'Salvando…');
+      if (salvo.links.length) await ler(botao);
+      else aviso('Salvo.');
+      montarSiteDaEmpresa(id, alvo);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#site-reler', alvo)?.addEventListener('click', async (e) => {
+    try { await ler(e.target); montarSiteDaEmpresa(id, alvo); } catch (err) { aviso(err.message, true); }
+  });
+  $('#site-usar', alvo).onchange = (e) => api(`empresas/${id}/site`, { method: 'PUT', body: { usar: e.target.checked } }).then(() => aviso(e.target.checked ? 'A IA vai usar o site.' : 'A IA não vai usar o site.')).catch((err) => aviso(err.message, true));
+  if (s.lendo) setTimeout(() => { if (location.hash === aqui && alvo.isConnected) montarSiteDaEmpresa(id, alvo); }, 2000);
+}
+
+// ---------------------------------------------------------------- aprendizados: anúncios e campanhas
+
+async function montarAnuncios(id, alvo) {
+  if (!alvo) return;
+  const aqui = location.hash;
+  let d;
+  try {
+    d = await api(`empresas/${id}/anuncios`);
+  } catch (err) {
+    alvo.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+    return;
+  }
+  if (location.hash !== aqui || !alvo.isConnected) return;
+  let lista = d.anuncios.map((a) => ({ ...a, palavras: a.palavras.join(', ') }));
+  let alterado = false;
+
+  const itemHtml = (a, i) => `
+    <div class="anuncio-item" data-i="${i}">
+      <div class="anuncio-topo">
+        <input data-campo="nome" value="${esc(a.nome)}" placeholder="Nome do anúncio (ex.: Promoção volante de couro)" aria-label="Nome do anúncio">
+        ${a.id ? `<span class="rotulo" style="white-space:nowrap">${a.leads30d || 0} ${a.leads30d === 1 ? 'lead' : 'leads'} em 30 dias</span>` : '<span class="etiqueta">novo</span>'}
+        <button type="button" class="pequeno perigo" data-remover="${i}" aria-label="Remover anúncio">Remover</button>
+      </div>
+      <div class="campo"><label>Palavras para reconhecer ${ajuda('O CRM liga o cliente a este anúncio quando alguma destas palavras aparece: no título do anúncio do Instagram/Facebook, no utm_campaign do link, no endereço da página ou na mensagem pronta do anúncio. Separe por vírgula.')}</label><input data-campo="palavras" value="${esc(a.palavras)}" placeholder="Ex.: promo-volante, volante em promoção"></div>
+      <div class="campo"><label>O que a IA precisa saber sobre este anúncio ${ajuda('A oferta, o preço anunciado, a condição, para quem é e como a IA deve puxar a conversa. Ex.: “Anúncio do volante de couro por R$ 299 em 3x só este mês. Pergunte o modelo do carro e ofereça horário.”')}</label><textarea data-campo="info" rows="3" placeholder="Ex.: Oferta do volante de couro por R$ 299 em 3x até o fim do mês. Pergunte o modelo do carro e ofereça um horário para instalar.">${esc(a.info)}</textarea></div>
+    </div>`;
+
+  const desenhar = () => {
+    alvo.innerHTML = `
+      <div class="card" id="ap-anuncios">
+        <h2 style="margin:0 0 6px">📣 Anúncios e campanhas</h2>
+        <p class="rotulo" style="margin:0 0 10px">Cadastre cada anúncio e explique para a IA o que ele oferece. Quando um cliente chega por esse anúncio, a IA do site e a do WhatsApp já sabem do que ele está falando — e você vê quantos leads cada anúncio trouxe.</p>
+        <details ${lista.length ? '' : 'open'}><summary>Como o CRM sabe de qual anúncio o cliente veio?</summary>${passos([
+          '<b>Anúncio de clique para WhatsApp</b> (Instagram/Facebook): o CRM lê o título do anúncio sozinho. Ele aparece abaixo em “Anúncios que chegaram” — é só clicar em <b>Cadastrar</b>.',
+          '<b>Anúncio que leva para o site</b>: no link do anúncio, coloque <code>?utm_campaign=nome-da-campanha</code> e use esse nome nas palavras. O Google Ads e o Facebook Ads já são reconhecidos como anúncio sozinhos.',
+          '<b>Mensagem pronta do anúncio</b> (ex.: “Quero o volante em promoção”): use um pedaço dela nas palavras.',
+          'Errou? No lead, em <b>De onde veio</b>, a equipe escolhe o anúncio certo à mão.'
+        ])}</details>
+        <div id="lista-anuncios">${lista.map(itemHtml).join('') || '<p class="rotulo" style="margin:12px 0 0">Nenhum anúncio cadastrado ainda.</p>'}</div>
+        <div class="acoes"><button type="button" id="add-anuncio">+ Adicionar anúncio</button><button type="button" class="primario" id="salvar-anuncios">Salvar anúncios</button></div>
+        ${d.detectados.length || d.campanhas.length ? `
+        <div class="secao" style="margin-top:16px;padding-top:14px">
+          <h3 style="margin:0 0 8px;font-size:15px">Anúncios que chegaram e ainda não estão cadastrados</h3>
+          <div class="detectados">
+            ${d.detectados.map((ad, i) => `<div class="detectado"><div><b>${esc(ad.titulo || ad.url || `Anúncio ${ad.id}`)}</b>${ad.texto ? `<div class="rotulo">${esc(ad.texto.slice(0, 140))}</div>` : ''}<div class="rotulo">📣 clique para WhatsApp · ${ad.leads} ${ad.leads === 1 ? 'lead' : 'leads'}</div></div><button type="button" class="pequeno" data-cadastrar-ad="${i}">Cadastrar</button></div>`).join('')}
+            ${d.campanhas.map((c, i) => `<div class="detectado"><div><b>${esc(c.nome)}</b><div class="rotulo">🔗 campanha (utm_campaign) · ${c.leads} ${c.leads === 1 ? 'lead' : 'leads'}</div></div><button type="button" class="pequeno" data-cadastrar-camp="${i}">Cadastrar</button></div>`).join('')}
+          </div>
+        </div>` : ''}
+      </div>`;
+    $$('[data-campo]', alvo).forEach((el) => {
+      el.oninput = () => {
+        lista[Number(el.closest('[data-i]').dataset.i)][el.dataset.campo] = el.value;
+        alterado = true;
+      };
+    });
+    $$('[data-remover]', alvo).forEach((b) => { b.onclick = () => { lista.splice(Number(b.dataset.remover), 1); alterado = true; desenhar(); }; });
+    $('#add-anuncio', alvo).onclick = () => {
+      lista.push({ nome: '', palavras: '', info: '' });
+      desenhar();
+      $$('[data-campo="nome"]', alvo).pop()?.focus();
+    };
+    const adicionar = (nome, palavras) => {
+      lista.push({ nome: nome.slice(0, 80), palavras, info: '' });
+      alterado = true;
+      desenhar();
+      const ultimo = $$('.anuncio-item', alvo).pop();
+      ultimo?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('[data-campo="info"]', ultimo)?.focus();
+      aviso('Agora escreva o que a IA precisa saber sobre este anúncio e salve.');
+    };
+    $$('[data-cadastrar-ad]', alvo).forEach((b) => {
+      b.onclick = () => {
+        const ad = d.detectados[Number(b.dataset.cadastrarAd)];
+        adicionar(ad.titulo || 'Anúncio do Instagram/Facebook', [ad.titulo, ad.id].filter(Boolean).join(', '));
+      };
+    });
+    $$('[data-cadastrar-camp]', alvo).forEach((b) => {
+      b.onclick = () => {
+        const c = d.campanhas[Number(b.dataset.cadastrarCamp)];
+        adicionar(c.nome, c.nome);
+      };
+    });
+    $('#salvar-anuncios', alvo).onclick = async (e) => {
+      try {
+        d = await comEspera(e.target, () => api(`empresas/${id}/anuncios`, { method: 'PUT', body: { anuncios: lista } }), 'Salvando…');
+        lista = d.anuncios.map((a) => ({ ...a, palavras: a.palavras.join(', ') }));
+        alterado = false;
+        aviso('Anúncios salvos. A IA já usa nas próximas conversas.');
+        desenhar();
+      } catch (err) { aviso(err.message, true); }
+    };
+  };
+  desenhar();
+  window.addEventListener('beforeunload', (e) => { if (alterado && location.hash === aqui) e.preventDefault(); }, { once: true });
 }
 
 // ---------------------------------------------------------------- configurações do sistema (admin)

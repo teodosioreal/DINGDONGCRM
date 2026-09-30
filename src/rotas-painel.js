@@ -11,6 +11,7 @@ const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const origem = require('./origem');
+const siteEmpresa = require('./site');
 const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
@@ -904,7 +905,8 @@ router.get('/leads/:id', (req, res) => {
   const { whatsappJid, origemSite, ...resto } = c;
   res.json({
     ...resto,
-    origemSite: origem.resumoOrigem(c),
+    origemSite: origem.resumoOrigem(c, empresa),
+    anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
@@ -931,6 +933,12 @@ router.put('/leads/:id', (req, res) => {
     c.etiquetas = [...new Set(b.etiquetas.map(String))].filter((id) => validas.has(id));
   }
   if (b.naoDisparar !== undefined) c.naoDisparar = b.naoDisparar === true;
+  if (b.origemManual !== undefined) c.origemManual = texto(b.origemManual, 300);
+  if (b.anuncioId !== undefined) {
+    const a = origem.anunciosDa(empresa).find((x) => x.id === b.anuncioId);
+    c.anuncioId = a ? a.id : null;
+    c.anuncioPor = 'equipe'; // escolhido à mão: o CRM não troca mais sozinho
+  }
   if (b.iaPausada !== undefined) {
     c.iaPausada = b.iaPausada === true;
     c.iaPausadaMotivo = c.iaPausada ? 'Pausada pela equipe no painel' : '';
@@ -1075,7 +1083,7 @@ router.post('/leads/:id/sugerir', async (req, res) => {
       empresa,
       c.mensagens,
       `Sugira a melhor próxima mensagem para a equipe mandar a este cliente agora, com foco em avançar a venda (tirar a objeção, propor o próximo passo ou fechar).${pedido ? ` Pedido da equipe: ${pedido}` : ''}`,
-      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa), origem: await origem.contextoParaIa(c, bot, 'whatsapp') }
+      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa), origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa) }
     );
     res.json({ texto: r.texto });
   } catch (err) {
@@ -1122,6 +1130,96 @@ router.post('/leads/:id/resposta-rapida', async (req, res) => {
     res.json(resumoLead(c));
   } catch (err) {
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+// ---------------------------------------------------------------- site da empresa (conhecimento da IA)
+
+router.get('/empresas/:id/site', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(siteEmpresa.resumo(empresa));
+});
+
+router.put('/empresas/:id/site', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const b = req.body || {};
+    siteEmpresa.guardar(empresa, { links: b.links, seguirLinks: b.seguirLinks, copia: b.copia, usar: b.usar });
+    res.json(siteEmpresa.resumo(empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+// Lê o site agora (em segundo plano; o painel acompanha pelo GET)
+router.post('/empresas/:id/site/ler', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!siteEmpresa.siteDa(empresa).links.length) return res.status(400).json({ erro: 'Cole pelo menos um link do seu site e salve.' });
+  siteEmpresa.lerSite(empresa, { motivo: `manual (${req.usuario.email})` }).catch((err) => console.error(`[site ${empresa.id}]`, err.message));
+  setTimeout(() => res.status(202).json(siteEmpresa.resumo(empresa)), 50);
+});
+
+// ---------------------------------------------------------------- anúncios e campanhas
+
+function resumoAnuncios(empresa) {
+  const trinta = new Date(Date.now() - 30 * 864e5).toISOString();
+  const daEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
+  const lista = origem.anunciosDa(empresa).map((a) => ({
+    ...a,
+    leads30d: daEmpresa.filter((c) => c.anuncioId === a.id && c.criadoEm >= trinta).length
+  }));
+  // anúncios de clique para WhatsApp que chegaram e ainda não estão cadastrados
+  const conhecidos = new Set();
+  const detectados = [];
+  for (const c of [...daEmpresa].sort((x, y) => (x.criadoEm < y.criadoEm ? 1 : -1))) {
+    const ad = c.origemSite?.anuncioMeta;
+    if (!ad || c.anuncioId) continue;
+    const chave = ad.id || ad.titulo || ad.url;
+    if (!chave || conhecidos.has(chave)) continue;
+    conhecidos.add(chave);
+    detectados.push({ titulo: ad.titulo, texto: ad.texto, url: ad.url, id: ad.id, leads: daEmpresa.filter((x) => (x.origemSite?.anuncioMeta?.id || x.origemSite?.anuncioMeta?.titulo || x.origemSite?.anuncioMeta?.url) === chave).length });
+    if (detectados.length >= 10) break;
+  }
+  // campanhas UTM que chegaram e ainda não estão cadastradas
+  const campanhas = {};
+  for (const c of daEmpresa) {
+    const nome = c.origemSite?.chegada?.utm?.campaign;
+    if (nome && !c.anuncioId) campanhas[nome] = (campanhas[nome] || 0) + 1;
+  }
+  return {
+    anuncios: lista,
+    detectados,
+    campanhas: Object.entries(campanhas).map(([nome, leads]) => ({ nome, leads })).sort((a, b) => b.leads - a.leads).slice(0, 10)
+  };
+}
+
+router.get('/empresas/:id/anuncios', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(resumoAnuncios(empresa));
+});
+
+router.put('/empresas/:id/anuncios', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    empresa.anuncios = origem.normalizarAnuncios(req.body?.anuncios, origem.anunciosDa(empresa));
+    const ids = new Set(empresa.anuncios.map((a) => a.id));
+    // leads recentes sem anúncio são conferidos de novo com as palavras novas
+    const trinta = new Date(Date.now() - 30 * 864e5).toISOString();
+    for (const c of estado.conversas) {
+      if (c.empresaId !== empresa.id) continue;
+      if (c.anuncioId && !ids.has(c.anuncioId)) {
+        c.anuncioId = null;
+        c.anuncioPor = null;
+      }
+      if (!c.anuncioId && c.criadoEm >= trinta) origem.aplicarAnuncio(empresa, c);
+    }
+    salvar();
+    res.json(resumoAnuncios(empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
   }
 });
 

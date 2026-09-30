@@ -206,7 +206,11 @@ function ipPrivado(ip) {
   return v === '::' || v === '::1' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe8') || v.startsWith('fe9') || v.startsWith('fea') || v.startsWith('feb') || v.startsWith('ff');
 }
 
+// Só para testes locais: hosts liberados mesmo sendo endereços internos
+const HOSTS_LIBERADOS = new Set(String(process.env.ORIGEM_HOSTS_LIBERADOS_TESTE || '').split(',').map((h) => h.trim()).filter(Boolean));
+
 function lookupSeguro(host, opcoes, cb) {
+  if (HOSTS_LIBERADOS.has(host)) return dns.lookup(host, opcoes, cb);
   dns.lookup(host, { ...opcoes, all: true }, (err, enderecos) => {
     if (err) return cb(err);
     if (!enderecos.length || enderecos.some((e) => ipPrivado(e.address))) return cb(new Error('endereço interno bloqueado'));
@@ -223,8 +227,8 @@ function baixarHtml(url, redirecionamentos = 3) {
     } catch {
       return reject(new Error('URL inválida'));
     }
-    if (!/^https?:$/.test(u.protocol) || (u.port && !['80', '443'].includes(u.port))) return reject(new Error('URL não permitida'));
-    if (net.isIP(u.hostname.replace(/^\[|\]$/g, ''))) return reject(new Error('IP direto não permitido'));
+    if (!/^https?:$/.test(u.protocol) || (u.port && !['80', '443'].includes(u.port) && !HOSTS_LIBERADOS.has(u.hostname))) return reject(new Error('URL não permitida'));
+    if (net.isIP(u.hostname.replace(/^\[|\]$/g, '')) && !HOSTS_LIBERADOS.has(u.hostname)) return reject(new Error('IP direto não permitido'));
     const lib = u.protocol === 'https:' ? https : http;
     const req = lib.get(
       u,
@@ -273,7 +277,7 @@ function meta(html, nome) {
 }
 
 // Extrai o essencial da página: título, descrição, títulos (h1/h2) e o texto
-function extrairTexto(html) {
+function extrairTexto(html, maxTexto = 2500) {
   const titulo = decodificar((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').replace(/\s+/g, ' ').trim();
   const descricao = meta(html, 'description') || meta(html, 'og:description');
   const semLixo = html
@@ -294,7 +298,7 @@ function extrairTexto(html) {
     .filter((l) => l.length > 2)
     .filter((l, i, a) => a.indexOf(l) === i)
     .join('\n');
-  return { titulo, descricao, cabecalhos, texto: corpo.slice(0, 2500) };
+  return { titulo, descricao, cabecalhos, texto: corpo.slice(0, maxTexto) };
 }
 
 // A página só é lida se for do site da empresa (domínios do assistente) ou,
@@ -322,6 +326,103 @@ async function lerPagina(url, bot, siteDoChat) {
   return dados;
 }
 
+// ---------------------------------------------------------------- anúncios e campanhas
+// Em "Aprendizados da IA" a empresa cadastra cada anúncio/campanha: um nome,
+// palavras para o CRM reconhecer e o que a IA precisa saber (oferta, preço,
+// público). O CRM liga o lead ao anúncio sozinho (UTM, link do anúncio,
+// anúncio de clique para WhatsApp do Meta, mensagem pronta do anúncio) e a
+// equipe pode corrigir no lead.
+
+const semAcento = (v) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+function anunciosDa(empresa) {
+  return Array.isArray(empresa?.anuncios) ? empresa.anuncios : [];
+}
+
+function normalizarAnuncios(lista, existentes = []) {
+  const saida = [];
+  for (const a of (Array.isArray(lista) ? lista : []).slice(0, 50)) {
+    const nome = txt(a?.nome, 80);
+    const info = String(a?.info ?? '').trim().slice(0, 3000);
+    const palavras = (Array.isArray(a?.palavras) ? a.palavras : String(a?.palavras || '').split(','))
+      .map((p) => txt(p, 120))
+      .filter((p) => p.length >= 3)
+      .slice(0, 12);
+    if (!nome && !info && !palavras.length) continue;
+    if (!nome) throw Object.assign(new Error('Dê um nome para cada anúncio.'), { status: 400 });
+    const antigo = existentes.find((x) => x.id === a?.id);
+    saida.push({ id: antigo?.id || `anc_${require('crypto').randomBytes(5).toString('hex')}`, nome, palavras, info, ativo: a?.ativo !== false, criadoEm: antigo?.criadoEm || agora() });
+  }
+  return saida;
+}
+
+// Anúncio de "clique para WhatsApp" do Meta: a primeira mensagem traz os dados
+function anuncioDoWhatsapp(msg) {
+  const m = msg?.message || {};
+  const candidatos = [msg?.contextInfo, m.contextInfo, ...Object.values(m).map((v) => v && typeof v === 'object' ? v.contextInfo : null)];
+  for (const c of candidatos) {
+    const ad = c?.externalAdReply;
+    if (!ad || typeof ad !== 'object') continue;
+    const dados = {
+      titulo: txt(ad.title, 200),
+      texto: txt(ad.body, 600),
+      url: urlLimpa(ad.sourceUrl),
+      id: txt(ad.sourceId, 60),
+      tipo: txt(ad.sourceType, 20),
+      em: agora()
+    };
+    if (dados.titulo || dados.texto || dados.url || dados.id) return dados;
+  }
+  return null;
+}
+
+function registrarAnuncioWhatsapp(lead, ad) {
+  if (!lead || !ad) return;
+  const o = lead.origemSite || {};
+  if (!o.anuncioMeta) o.anuncioMeta = ad;
+  if (!o.classificacao || o.classificacao.tipo !== 'anuncio') {
+    o.classificacao = { fonte: 'Anúncio Meta (clique para WhatsApp)', tipo: 'anuncio', campanha: ad.titulo || '' };
+  }
+  lead.origemSite = o;
+}
+
+// Onde procurar as palavras do anúncio
+function textoDeReconhecimento(lead) {
+  const o = lead.origemSite || {};
+  const primeira = (lead.mensagens || []).find((m) => m.papel === 'visitante');
+  return semAcento(
+    [
+      ...Object.values(o.chegada?.utm || {}),
+      o.chegada?.url,
+      o.anuncioMeta?.titulo,
+      o.anuncioMeta?.texto,
+      o.anuncioMeta?.url,
+      o.anuncioMeta?.id,
+      String(primeira?.texto || '').slice(0, 300)
+    ]
+      .filter(Boolean)
+      .join(' \n ')
+  );
+}
+
+function acharAnuncio(empresa, lead) {
+  const alvo = textoDeReconhecimento(lead);
+  if (!alvo) return null;
+  return anunciosDa(empresa).find((a) => a.ativo !== false && a.palavras.some((p) => alvo.includes(semAcento(p)))) || null;
+}
+
+// Liga o lead ao anúncio (sem mexer no que a equipe escolheu à mão)
+function aplicarAnuncio(empresa, lead) {
+  if (!lead || lead.anuncioPor === 'equipe') return null;
+  if (lead.anuncioId && anunciosDa(empresa).some((a) => a.id === lead.anuncioId)) return lead.anuncioId;
+  const a = acharAnuncio(empresa, lead);
+  if (a) {
+    lead.anuncioId = a.id;
+    lead.anuncioPor = 'automatico';
+  }
+  return a?.id || null;
+}
+
 // ---------------------------------------------------------------- texto para o prompt da IA
 
 function caminho(url) {
@@ -336,12 +437,23 @@ function caminho(url) {
 const descreverPagina = (p) => (p.titulo ? `"${p.titulo}" (${caminho(p.url)})` : caminho(p.url));
 
 // `canal`: 'site' (o cliente está no site agora) ou 'whatsapp' (veio do site antes)
-async function contextoParaIa(lead, bot, canal) {
-  const o = lead?.origemSite;
-  if (!o || (!o.chegada && !o.atual && !o.paginas?.length)) return '';
+async function contextoParaIa(lead, bot, canal, empresa = null) {
+  const o = lead?.origemSite || {};
   const linhas = [];
+  if (empresa) aplicarAnuncio(empresa, lead);
+  const anuncio = empresa && lead?.anuncioId ? anunciosDa(empresa).find((a) => a.id === lead.anuncioId) : null;
+  if (lead?.origemManual) linhas.push(`- A equipe anotou sobre a origem deste cliente: ${lead.origemManual}.`);
+  if (anuncio) {
+    linhas.push(`- Veio do anúncio/campanha "${anuncio.nome}".${anuncio.info ? ' O que a empresa quer que você saiba sobre esse anúncio (siga isto):' : ''}`);
+    if (anuncio.info) linhas.push('<anuncio>', anuncio.info, '</anuncio>');
+  }
+  if (o.anuncioMeta) {
+    const ad = o.anuncioMeta;
+    linhas.push(`- Chegou clicando num anúncio do Instagram/Facebook que abre o WhatsApp${ad.titulo ? `: "${ad.titulo}"` : ''}${ad.texto ? ` — texto do anúncio: "${ad.texto}"` : ''}.`);
+  }
+  if (!o.chegada && !o.atual && !o.paginas?.length) return linhas.join('\n');
   const c = o.classificacao;
-  if (c) {
+  if (c && !(o.anuncioMeta && c.fonte.startsWith('Anúncio Meta'))) {
     const tipo = { anuncio: 'clicou num anúncio', busca: 'pesquisou no Google/buscador', rede: 'veio de uma rede social ou link', direto: 'entrou direto no site (digitou o endereço ou tinha salvo)', site: 'veio de um link em outro site' }[c.tipo] || '';
     linhas.push(`- Como chegou ao site: ${c.fonte}${tipo ? ` — ${tipo}` : ''}${c.campanha ? `; campanha "${c.campanha}"` : ''}${o.chegada?.utm?.term ? `; termo "${o.chegada.utm.term}"` : ''}.`);
   }
@@ -365,10 +477,14 @@ async function contextoParaIa(lead, bot, canal) {
 }
 
 // Resumo para o painel
-function resumoOrigem(lead) {
-  const o = lead.origemSite;
-  if (!o) return null;
+function resumoOrigem(lead, empresa = null) {
+  const o = lead.origemSite || {};
+  const anuncio = empresa && lead.anuncioId ? anunciosDa(empresa).find((a) => a.id === lead.anuncioId) : null;
+  if (!lead.origemSite && !anuncio && !lead.origemManual) return null;
   return {
+    anuncio: anuncio ? { id: anuncio.id, nome: anuncio.nome, por: lead.anuncioPor || 'automatico' } : null,
+    anuncioMeta: o.anuncioMeta || null,
+    manual: lead.origemManual || '',
     fonte: o.classificacao?.fonte || '',
     tipo: o.classificacao?.tipo || '',
     campanha: o.classificacao?.campanha || '',
@@ -387,7 +503,14 @@ module.exports = {
   tirarVisita,
   lerPagina,
   extrairTexto,
+  baixarHtml,
   contextoParaIa,
   resumoOrigem,
+  anunciosDa,
+  normalizarAnuncios,
+  anuncioDoWhatsapp,
+  registrarAnuncioWhatsapp,
+  acharAnuncio,
+  aplicarAnuncio,
   ipPrivado
 };

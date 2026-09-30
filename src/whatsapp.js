@@ -614,6 +614,9 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
+    // veio de um anúncio de clique para WhatsApp (Meta)? guarda qual
+    const anuncioMeta = origem.anuncioDoWhatsapp(msg);
+    if (anuncioMeta) origem.registrarAnuncioWhatsapp(lead, anuncioMeta);
     // áudio vira texto (Gemini) e foto vira descrição, para a IA entender
     let anexo = null;
     try {
@@ -626,6 +629,7 @@ async function receberWebhook(empresa, corpo) {
       console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
     }
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined });
+    origem.aplicarAnuncio(empresa, lead);
     lead.naoLidas = (lead.naoLidas || 0) + 1;
     leads.aoChegarNoWhatsapp(lead, empresa);
 
@@ -824,7 +828,7 @@ async function responderLead(empresaId, leadId) {
   try {
     r = await ia.responder(bot, empresa, lead.mensagens, {
       canal: 'whatsapp',
-      origem: await origem.contextoParaIa(lead, bot, 'whatsapp'),
+      origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),

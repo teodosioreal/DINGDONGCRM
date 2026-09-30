@@ -132,6 +132,7 @@ router.post('/chat', async (req, res) => {
 
   origem.registrarNoLead(conversa, rastro);
   leads.adicionarMensagem(conversa, { papel: 'visitante', canal: 'site', texto: mensagem });
+  origem.aplicarAnuncio(empresa, conversa);
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;
   salvar();
@@ -139,7 +140,7 @@ router.post('/chat', async (req, res) => {
   try {
     const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
       canal: 'site',
-      origem: await origem.contextoParaIa(conversa, bot, 'site'),
+      origem: await origem.contextoParaIa(conversa, bot, 'site', empresa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: conversa.etapa,
       etiquetas: leads.etiquetasDa(empresa)

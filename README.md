@@ -153,6 +153,25 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Aprendizados da IA: seu site e seus anúncios
+
+- **🌐 Seu site:** cole os links do site (um por linha). O CRM lê a página e,
+  se marcado, as páginas ligadas a ela (até 20, só do mesmo site), e as duas
+  IAs usam o texto (produtos, preços, copy) no atendimento. Dá para colar a
+  copy inteira (até 30 mil caracteres) — útil em sites que montam o texto só
+  no navegador (Lovable/React), que o CRM marca como "pouco texto". Relido
+  sozinho toda semana. Mesma proteção de endereços internos da leitura de páginas.
+- **📣 Anúncios e campanhas:** cadastre cada anúncio com nome, palavras para
+  reconhecer e o que a IA precisa saber (oferta, preço, abordagem). O CRM liga
+  o lead ao anúncio sozinho pelas palavras (UTM, endereço da página, título do
+  anúncio de clique para WhatsApp do Meta, mensagem pronta) e mostra quantos
+  leads cada um trouxe. Anúncios de clique para WhatsApp e campanhas UTM que
+  chegaram sem cadastro aparecem com o botão *Cadastrar*.
+- **No lead:** em *De onde veio*, a equipe escolhe o anúncio certo à mão e
+  escreve uma anotação de origem (ex.: "indicação do João"); a IA lê as duas.
+- Só para testes locais: `ORIGEM_HOSTS_LIBERADOS_TESTE=127.0.0.1` deixa o
+  leitor abrir esse host. Não use em produção.
+
 ### Comentário no anúncio do Meta
 
 Receita *Pedir comentário no anúncio (Instagram/Facebook)* na Máquina de

@@ -282,6 +282,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
+  const doSite = require('./site').textoParaIa(empresa || {});
+  if (doSite) {
+    partes.push(
+      '',
+      'Conteúdo do site da empresa (produtos, serviços, preços e a forma como a empresa apresenta cada um — use para responder e para vender com as mesmas palavras; se algo conflitar com "Sobre a empresa", vale "Sobre a empresa"):',
+      '<site_da_empresa>',
+      doSite,
+      '</site_da_empresa>'
+    );
+  }
+
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
   return partes.filter((l) => l !== null).join('\n');

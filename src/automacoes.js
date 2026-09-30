@@ -231,7 +231,7 @@ async function executar(regra, lead, empresa) {
   } else {
     if (!bot) throw new Error('empresa sem assistente');
     const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, regra.acao.instrucao, {
-      origem: await require('./origem').contextoParaIa(lead, bot, 'whatsapp'),
+      origem: await require('./origem').contextoParaIa(lead, bot, 'whatsapp', empresa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),
@@ -319,7 +319,9 @@ async function cicloDaEmpresa(empresa) {
 
 async function ciclo() {
   for (const empresa of estado.empresas) {
-    if (empresa.ativa === false || !whatsapp.configurado(empresa)) continue;
+    if (empresa.ativa === false) continue;
+    require('./site').verificarAgenda(empresa); // relê o site da empresa uma vez por semana
+    if (!whatsapp.configurado(empresa)) continue;
     await cicloDaEmpresa(empresa).catch((err) => console.error(`[automações ${empresa.id}]`, err.message));
     require('./aprendizado').verificarAgenda(empresa);
   }
