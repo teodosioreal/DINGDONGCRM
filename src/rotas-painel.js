@@ -13,6 +13,8 @@ const whatsapp = require('./whatsapp');
 const origem = require('./origem');
 const siteEmpresa = require('./site');
 const tickets = require('./tickets');
+const alertas = require('./alertas');
+const backup = require('./backup');
 const midias = require('./midias');
 const disparos = require('./disparos');
 const automacoes = require('./automacoes');
@@ -28,7 +30,7 @@ const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  const upload = req.method === 'POST' && /\/(midias|arquivo|logo|comprovante)$/.test(req.path) && req.is('application/octet-stream');
+  const upload = req.method === 'POST' && /\/(midias|arquivo|logo|comprovante|parte)$/.test(req.path) && req.is('application/octet-stream');
   if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
@@ -178,11 +180,67 @@ function situacaoWhatsapp(e, req) {
     criadaPeloCrm: c.criadaPeloCrm,
     modoTeste: Boolean(e.whatsappConfig?.modoTeste),
     numerosTeste: e.whatsappConfig?.numerosTeste || '',
+    velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
+    esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
+    whatsappAvisos: e.whatsappAvisos || '',
     // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
     podeCriar: whatsapp.podeCriarInstancia(),
     // endereço da Evolution: só o admin vê/troca (a empresa só usa Session ID + API Key)
     ...(req && ehAdmin(req) ? { evolutionUrl: c.evolutionUrl, evolutionUrlPropria: e.whatsappConfig?.evolutionUrl || '' } : {})
   };
+}
+
+// O que precisa de atenção (sem IA: só regras) + ✓ de cada configuração do menu.
+// status: 'ok' (configurado), 'atencao' (falta algo) ou 'off' (desligado de propósito)
+function situacaoConfig(e, principal) {
+  const temChave = Object.keys(ia.PROVEDORES).some((p) => ia.chave(p, e));
+  const motores = ia.motoresDa(e, principal);
+  const zap = whatsapp.configDa(e);
+  const conectado = whatsapp.configurado(e);
+  const desconectado = conectado && zap.perfil?.estado && zap.perfil.estado !== 'open';
+  const conhecimento = String(principal?.conhecimento || '');
+  const sobreIncompleto = conhecimento.trim().length < 200 || /\.\.\./.test(conhecimento);
+  const aConfigurar = midias.midiasDa(e).filter((m) => m.pronta === false).length;
+  const regras = automacoes.automacoesDa(e).filter((r) => r.ativa);
+  const site = siteEmpresa.resumo(e);
+  const siteIlegivel = site.links.length && site.paginas.length && site.paginas.every((p) => p.poucoTexto) && !site.copia;
+  const dicas = [];
+  const add = (nivel, texto, sub) => dicas.push({ nivel, texto, sub });
+  if (e.ativa === false) add('erro', 'A empresa está pausada: a IA e as automações não respondem ninguém.', '');
+  if (!temChave) add('erro', 'Nenhuma IA tem chave. Cadastre pelo menos uma em IAs e chaves.', 'chave');
+  else if (motores.length < 2) add('dica', 'Cadastre uma 2ª IA de reserva: se a principal ficar sem crédito, a reserva responde na hora.', 'chave');
+  if (zap.iaAtiva && !conectado) add('aviso', 'Conecte o WhatsApp para a IA atender por lá.', 'whatsapp');
+  if (desconectado) add('erro', 'O WhatsApp está desconectado. Gere o QR code e conecte de novo.', 'whatsapp');
+  if (e.whatsappConfig?.modoTeste) add('aviso', 'Modo teste ligado: a IA só responde os números de teste.', 'whatsapp');
+  if (sobreIncompleto) add('aviso', 'Complete "Sobre a empresa" (preços, serviços, horários): quanto mais informação, melhor a IA vende.', 'ia');
+  if (aConfigurar) add('aviso', `${aConfigurar} mídia(s) esperando configuração — a IA ainda não usa.`, 'midias');
+  if (regras.some((r) => r.receita === 'avaliacao') && !principal?.linkAvaliacao) add('erro', 'A automação de avaliação está ligada, mas falta o link do Google.', 'automacoes');
+  if (regras.some((r) => r.receita === 'comentario') && !principal?.linkAnuncio) add('erro', 'A automação de comentário no anúncio está ligada, mas falta o link do anúncio.', 'automacoes');
+  if (siteIlegivel) add('aviso', 'O CRM não conseguiu ler o texto do seu site só com o link: cole a copy em Aprendizados → Seu site.', 'aprendizado');
+  if (conectado && !e.whatsappAvisos) add('dica', 'Cadastre um WhatsApp para receber avisos quando algo der errado.', 'whatsapp');
+  const status = {
+    ia: sobreIncompleto ? 'atencao' : 'ok',
+    aprendizado: siteIlegivel ? 'atencao' : e.aprendizado?.texto || site.caracteresNaIa || (e.anuncios || []).length ? 'ok' : 'off',
+    site: principal && principal.ativo !== false ? 'ok' : 'off',
+    whatsapp: !zap.iaAtiva ? 'off' : !conectado || desconectado ? 'atencao' : 'ok',
+    midias: aConfigurar ? 'atencao' : midias.midiasDa(e).length ? 'ok' : 'off',
+    organizar: 'ok',
+    chave: temChave ? 'ok' : 'atencao'
+  };
+  return { dicas, status };
+}
+
+// As 3 IAs em ordem (sem devolver as chaves)
+function resumoMotores(e) {
+  const lista = Array.isArray(e.motoresIa) ? e.motoresIa : [];
+  return lista.map((m, i) => ({
+    ordem: i + 1,
+    provedor: ia.normalizarProvedor(m.provedor),
+    modelo: ia.normalizarModelo(ia.normalizarProvedor(m.provedor), m.modelo),
+    chavePropria: Boolean(m.chave),
+    chaveFinal: mascarar(m.chave),
+    temChave: Boolean(m.chave || ia.chave(ia.normalizarProvedor(m.provedor), e))
+  }));
 }
 
 function principalDa(e) {
@@ -194,9 +252,15 @@ function principalDa(e) {
 function empresaComExtras(e, req) {
   const bots = estado.bots.filter((b) => b.empresaId === e.id);
   const principal = principalDa(e);
-  const { chavesIa, whatsappConfig, conversoes, midias: _m, ...resto } = e;
+  const { chavesIa, whatsappConfig, conversoes, midias: _m, motoresIa, usoIa, ...resto } = e;
+  const idsEmpresa = new Set([e.id]);
   return {
     ...resto,
+    motores: resumoMotores(e),
+    usoHoje: ia.usoDoDia(e),
+    ...situacaoConfig(e, principal),
+    midiasAConfigurar: midias.midiasDa(e).filter((m) => m.pronta === false).length,
+    alertasNaoLidos: alertas.naoLidos(idsEmpresa),
     etapas: leads.etapasDa(e),
     etiquetas: leads.etiquetasDa(e),
     links: midias.linksDa(e),
@@ -252,6 +316,45 @@ router.put('/empresas/:id/chaves', (req, res) => {
   res.json(empresaComExtras(empresa, req));
 });
 
+// Ordem das IAs: principal + até 2 reservas. Cada uma pode ter a própria
+// chave (ex.: duas contas do Claude) ou usar a chave da empresa para aquela IA.
+router.put('/empresas/:id/motores', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const antigos = Array.isArray(empresa.motoresIa) ? empresa.motoresIa : [];
+  const lista = [];
+  for (const [i, m] of (Array.isArray(req.body?.motores) ? req.body.motores : []).slice(0, 3).entries()) {
+    if (!m || !m.provedor) continue;
+    const provedor = ia.normalizarProvedor(m.provedor);
+    const novo = { provedor, modelo: ia.normalizarModelo(provedor, m.modelo) };
+    const chaveNova = texto(m.chave, 300);
+    // chave vazia = mantém a chave própria que já estava nesta posição (se for a mesma IA)
+    if (chaveNova) novo.chave = chaveNova;
+    else if (!m.removerChave && antigos[i]?.chave && ia.normalizarProvedor(antigos[i].provedor) === provedor) novo.chave = antigos[i].chave;
+    lista.push(novo);
+  }
+  empresa.motoresIa = lista;
+  // o assistente acompanha a IA principal (o que a tela do assistente mostra)
+  if (lista[0]) for (const b of estado.bots.filter((x) => x.empresaId === empresa.id)) Object.assign(b, { provedor: lista[0].provedor, modelo: lista[0].modelo });
+  salvar();
+  res.json(empresaComExtras(empresa, req));
+});
+
+// Testa uma posição de verdade (um pedido bem curto no modelo escolhido)
+router.post('/empresas/:id/motores/testar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const m = (empresa.motoresIa || [])[Number(req.body?.indice) || 0];
+  if (!m) return res.status(400).json({ erro: 'Escolha a IA desta posição e salve antes de testar.' });
+  const motor = { provedor: ia.normalizarProvedor(m.provedor), modelo: ia.normalizarModelo(ia.normalizarProvedor(m.provedor), m.modelo), chave: m.chave || '' };
+  try {
+    await ia.testarMotor(empresa, motor);
+    res.json({ ok: true, mensagem: `${ia.PROVEDORES[motor.provedor].nome} · ${motor.modelo} respondeu. Funcionando!` });
+  } catch (err) {
+    res.status(400).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
 router.post('/empresas/:id/chaves/testar', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
@@ -298,6 +401,13 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
     empresa.whatsappConfig.numerosTeste = [...new Set(lista)].slice(0, 20).join(', ');
+  }
+  if (b.velocidade !== undefined && whatsapp.VELOCIDADES[b.velocidade]) empresa.whatsappConfig.velocidade = b.velocidade;
+  if (b.esperaPrimeiraSeg !== undefined) empresa.whatsappConfig.esperaPrimeiraSeg = inteiro(b.esperaPrimeiraSeg, 0, 0, 3600);
+  if (b.whatsappAvisos !== undefined) {
+    const n = numeroWhatsapp(b.whatsappAvisos);
+    if (b.whatsappAvisos && n.length < 10) return res.status(400).json({ erro: 'Número para avisos inválido (use DDD).' });
+    empresa.whatsappAvisos = n;
   }
   if (ehAdmin(req) && b.evolutionUrl !== undefined) {
     const url = texto(b.evolutionUrl, 300).replace(/\/+$/, '');
@@ -534,15 +644,131 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
   if (!empresa) return;
   const midia = midias.midiasDa(empresa).find((m) => m.id === req.params.midiaId);
   if (!midia) return res.status(404).json({ erro: 'Mídia não encontrada.' });
-  const nome = texto(req.body?.nome, 80);
-  if (!nome) return res.status(400).json({ erro: 'Dê um nome para a mídia.' });
-  if (midias.midiasDa(empresa).some((m) => m.id !== midia.id && m.nome.toLowerCase() === nome.toLowerCase())) {
-    return res.status(400).json({ erro: `Já existe uma mídia chamada "${nome}".` });
+  const b = req.body || {};
+  try {
+    if (b.nome !== undefined) {
+      const nome = texto(b.nome, 80);
+      if (!nome) return res.status(400).json({ erro: 'Dê um nome para a mídia.' });
+      midia.nome = nome;
+    }
+    if (b.codigo !== undefined && midias.slugCodigo(b.codigo) !== midia.codigo) midia.codigo = midias.validarCodigo(empresa, b.codigo, midia.id);
+    if (b.descricao !== undefined) midia.descricao = texto(b.descricao, 300);
+    if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
+    if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
+    if (b.pronta !== undefined) midia.pronta = b.pronta === true;
+  } catch (err) {
+    return res.status(err.status || 400).json({ erro: err.message });
   }
-  midia.nome = nome;
-  midia.descricao = texto(req.body?.descricao, 300);
   salvar();
   res.json({ ...midia, url: midias.urlPublica(midia) });
+});
+
+// Várias de uma vez: marcar prontas / a configurar, pôr num álbum, apagar
+router.post('/empresas/:id/midias/lote', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const ids = new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String));
+  const alvo = midias.midiasDa(empresa).filter((m) => ids.has(m.id));
+  if (!alvo.length) return res.status(400).json({ erro: 'Selecione pelo menos uma mídia.' });
+  const acao = String(req.body?.acao || '');
+  if (acao === 'apagar') for (const m of alvo) midias.apagarMidia(empresa, m.id);
+  else if (acao === 'pronta' || acao === 'aConfigurar') for (const m of alvo) m.pronta = acao === 'pronta';
+  else if (acao === 'album') {
+    const albumId = midias.albunsDa(empresa).some((a) => a.id === req.body?.albumId) ? req.body.albumId : null;
+    for (const m of alvo) m.albumId = albumId;
+  } else if (acao === 'etapas') for (const m of alvo) m.etapas = midias.listaEtapas(req.body?.etapas);
+  else return res.status(400).json({ erro: 'Ação inválida.' });
+  salvar();
+  res.json({ ok: true, alteradas: alvo.length });
+});
+
+// Envio em pedaços (arquivos grandes, vários de uma vez)
+router.post('/empresas/:id/midias/envio', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(midias.iniciarEnvio(empresa, { arquivo: texto(req.body?.arquivo, 200), tamanho: req.body?.tamanho, tipo: texto(req.body?.tipo, 100) }));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.post('/empresas/:id/midias/envio/:envioId/parte', express.raw({ type: 'application/octet-stream', limit: 1024 * 1024 }), (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(midias.receberPedaco(empresa, req.params.envioId, req.query.pos, req.body || Buffer.alloc(0)));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.post('/empresas/:id/midias/envio/:envioId/concluir', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const b = req.body || {};
+    const m = midias.concluirEnvio(empresa, req.params.envioId, { nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), codigo: b.codigo ? texto(b.codigo, 40) : '', pronta: b.pronta === true, etapas: b.etapas });
+    res.status(201).json({ ...m, url: midias.urlPublica(m) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+// ---------------------------------------------------------------- álbuns (mídias enviadas juntas)
+
+router.get('/empresas/:id/albuns', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const todas = midias.midiasDa(empresa);
+  res.json(midias.albunsDa(empresa).map((a) => ({ ...a, quantidade: todas.filter((m) => m.albumId === a.id).length })));
+});
+
+function dadosAlbum(empresa, b, atual = null) {
+  const nome = texto(b.nome, 80);
+  if (!nome) throw Object.assign(new Error('Dê um nome para o álbum.'), { status: 400 });
+  const codigo = b.codigo ? (atual && midias.slugCodigo(b.codigo) === atual.codigo ? atual.codigo : midias.validarCodigo(empresa, b.codigo, atual?.id)) : atual?.codigo || midias.novoCodigo(empresa, nome);
+  return { nome, codigo, descricao: texto(b.descricao, 300), etapas: midias.listaEtapas(b.etapas) };
+}
+
+router.post('/empresas/:id/albuns', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const album = { id: novoId('alb'), ...dadosAlbum(empresa, req.body || {}), criadoEm: agora() };
+    empresa.albuns = [...midias.albunsDa(empresa), album];
+    for (const id of Array.isArray(req.body?.midias) ? req.body.midias : []) {
+      const m = midias.midiasDa(empresa).find((x) => x.id === id);
+      if (m) m.albumId = album.id;
+    }
+    salvar();
+    res.status(201).json(album);
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.put('/empresas/:id/albuns/:albumId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const album = midias.albunsDa(empresa).find((a) => a.id === req.params.albumId);
+  if (!album) return res.status(404).json({ erro: 'Álbum não encontrado.' });
+  try {
+    Object.assign(album, dadosAlbum(empresa, req.body || {}, album));
+    salvar();
+    res.json(album);
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/empresas/:id/albuns/:albumId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  empresa.albuns = midias.albunsDa(empresa).filter((a) => a.id !== req.params.albumId);
+  for (const m of midias.midiasDa(empresa)) if (m.albumId === req.params.albumId) m.albumId = null; // as mídias continuam
+  salvar();
+  res.json({ ok: true });
 });
 
 router.delete('/empresas/:id/midias/:midiaId', (req, res) => {
@@ -802,6 +1028,8 @@ function resumoLead(c) {
     etiquetas: c.etiquetas || [],
     naoDisparar: Boolean(c.naoDisparar),
     iaStatus: c.iaStatus || null,
+    arquivado: Boolean(c.arquivado),
+    arquivadoPor: c.arquivadoPor || '',
     fonte: c.origemSite?.classificacao?.fonte || '',
     destaque: tickets.destaqueDoLead(c),
     iaPausada: Boolean(c.iaPausada),
@@ -908,6 +1136,9 @@ router.get('/leads/:id', (req, res) => {
   res.json({
     ...resto,
     origemSite: origem.resumoOrigem(c, empresa),
+    pedidos: automacoes.pedidosFeitos(c, empresa),
+    temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
+    temLinkAnuncio: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAnuncio),
     tickets: tickets.ticketsDoLead(c),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
@@ -951,6 +1182,38 @@ router.put('/leads/:id', (req, res) => {
   c.atualizadoEm = agora();
   salvar();
   res.json(resumoLead(c));
+});
+
+// Arquivar a conversa (no CRM e no WhatsApp do celular)
+router.post('/leads/:id/arquivar', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const arquivar = req.body?.arquivar !== false;
+  c.arquivado = arquivar;
+  c.arquivadoPor = arquivar ? `arquivada no CRM (${req.usuario.email})` : '';
+  c.arquivadoEm = arquivar ? agora() : null;
+  salvar();
+  let noCelular = false;
+  try {
+    noCelular = await whatsapp.arquivarNoWhatsapp(empresa, c, arquivar);
+  } catch (err) {
+    console.error(`[arquivar ${c.id}]`, err.message);
+  }
+  res.json({ ok: true, arquivado: arquivar, noCelular });
+});
+
+// Pedir avaliação do Google / comentário no anúncio à mão (botão na conversa)
+router.post('/leads/:id/pedido', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  try {
+    const r = await automacoes.enviarPedidoManual(empresa, c, String(req.body?.tipo || ''), { forcar: req.body?.forcar === true, usuario: req.usuario.email });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.message, jaEnviadoEm: err.jaEnviadoEm });
+  }
 });
 
 // Agendamento marcado pela equipe (aparece como aviso na conversa)
@@ -1012,8 +1275,14 @@ router.get('/empresas/:id/conversas', (req, res) => {
   if (!empresa) return;
   const busca = String(req.query.busca || '').trim().toLowerCase();
   const filtro = String(req.query.filtro || 'todas');
+  // venda concluída (comprovante, IA ou equipe) ou lead em "Fechado": vai para "Vendas concluídas"
+  const comVenda = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status !== 'cancelada' && v.leadId).map((v) => v.leadId));
+  const fechado = (c) => comVenda.has(c.id) || /fechad|ganh|vendid/i.test(c.etapa || '');
   const lista = estado.conversas
     .filter((c) => c.empresaId === empresa.id && c.mensagens.length)
+    .filter((c) => (filtro === 'arquivadas' ? c.arquivado : !c.arquivado))
+    .filter((c) => filtro !== 'todas' || !fechado(c))
+    .filter((c) => filtro !== 'vendas' || fechado(c))
     .filter((c) => filtro !== 'naoLidas' || c.naoLidas > 0)
     .filter((c) => filtro !== 'equipe' || c.precisaHumano)
     .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
@@ -1258,6 +1527,7 @@ router.put('/empresas/:id/aprendizado', (req, res) => {
   if (b.texto !== undefined) mudancas.texto = texto(b.texto, 20000);
   if (b.diario !== undefined) mudancas.diario = b.diario === true;
   if (b.usarNoPrompt !== undefined) mudancas.usarNoPrompt = b.usarNoPrompt === true;
+  if (b.somenteVendas !== undefined) mudancas.somenteVendas = b.somenteVendas === true;
   aprendizado.guardar(empresa, mudancas);
   res.json(aprendizado.resumo(empresa));
 });
@@ -1301,9 +1571,14 @@ router.put('/empresas/:id/respostas', (req, res) => {
       id: texto(r?.id, 40) || novoId('rr'),
       atalho: texto(r?.atalho, 30).replace(/^\/+/, '').replace(/\s+/g, '-').toLowerCase(),
       texto: texto(r?.texto, 2000),
-      midia: texto(r?.midia, 120)
+      midia: texto(r?.midia, 120),
+      quando: texto(r?.quando, 200)
     }))
-    .map((r) => ({ ...r, midia: r.midia && midias.acharParaEnviar(empresa, r.midia).length ? r.midia : '' }))
+    // guarda a mídia pelo CÓDIGO (se renomear a mídia, a resposta continua certa)
+    .map((r) => {
+      const achado = r.midia ? midias.resolverPedido(empresa, r.midia) : null;
+      return { ...r, midia: achado?.itens.length ? achado.alvo.codigo || r.midia : '' };
+    })
     .filter((r) => r.atalho && (r.texto || r.midia))
     .slice(0, 100);
   const repetido = lista.find((r, i) => lista.findIndex((x) => x.atalho === r.atalho) !== i);
@@ -1368,8 +1643,14 @@ router.put('/empresas/:id/drive/:pastaId', (req, res) => {
   if (!pasta) return res.status(404).json({ erro: 'Pasta não encontrada.' });
   const nome = texto(req.body?.nome, 80);
   if (!nome) return res.status(400).json({ erro: 'Dê um nome para o álbum.' });
+  try {
+    if (req.body?.codigo !== undefined && midias.slugCodigo(req.body.codigo) !== pasta.codigo) pasta.codigo = midias.validarCodigo(empresa, req.body.codigo, pasta.id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ erro: err.message });
+  }
   pasta.nome = nome;
   pasta.descricao = texto(req.body?.descricao, 300);
+  if (req.body?.etapas !== undefined) pasta.etapas = midias.listaEtapas(req.body.etapas);
   salvar();
   res.json(pasta);
 });
@@ -1607,6 +1888,7 @@ router.put('/empresas/:id/vendas/:vendaId', (req, res) => {
       if (b.descricao !== undefined) v.descricao = texto(b.descricao, 300);
     }
     if (['confirmada', 'conferir', 'cancelada'].includes(b.status) && b.status !== v.status) {
+      if (b.status === 'confirmada' && v.status !== 'confirmada') v.confirmadaEm = agora();
       v.status = b.status;
       v.statusPor = req.usuario.email;
       const lead = v.leadId && estado.conversas.find((c) => c.id === v.leadId);
@@ -1643,6 +1925,7 @@ function situacaoChaves() {
   return {
     anthropic: item('anthropicApiKey', 'anthropicApiKey'),
     gemini: item('geminiApiKey', 'geminiApiKey'),
+    openai: item('openaiApiKey', 'openaiApiKey'),
     evolutionUrl: whatsapp.evolutionUrlGlobal(),
     evolutionUrlDoPainel: Boolean(salvas.evolutionUrl),
     evolutionChave: item('evolutionApiKey', 'evolutionApiKey')
@@ -1653,7 +1936,7 @@ router.get('/config', auth.exigirAdmin, (req, res) => res.json(situacaoChaves())
 
 router.put('/config', auth.exigirAdmin, async (req, res) => {
   estado.config = estado.config || {};
-  const campos = { anthropic: 'anthropicApiKey', gemini: 'geminiApiKey' };
+  const campos = ia.CAMPO_CHAVE;
   for (const [provedor, campo] of Object.entries(campos)) {
     const valor = texto(req.body?.[campo], 300);
     if (valor) estado.config[campo] = valor;
@@ -1693,6 +1976,43 @@ router.get('/ia/modelos', async (req, res) => {
   const empresaId = String(req.query.empresaId || '');
   const empresa = empresaId && podeVerEmpresa(req, empresaId) ? estado.empresas.find((e) => e.id === empresaId) : null;
   res.json(await ia.listarModelos(ia.normalizarProvedor(req.query.provedor), empresa));
+});
+
+// ---------------------------------------------------------------- alertas (o CRM avisa quando algo dá errado)
+
+function idsVisiveis(req) {
+  return new Set(estado.empresas.filter((e) => podeVerEmpresa(req, e.id)).map((e) => e.id));
+}
+
+router.get('/alertas', (req, res) => {
+  const ids = idsVisiveis(req);
+  const soEmpresa = String(req.query.empresaId || '');
+  const filtro = soEmpresa && ids.has(soEmpresa) ? new Set([soEmpresa]) : ids;
+  const lista = alertas.listar(filtro, { todos: ehAdmin(req) && !soEmpresa }).map((a) => ({ ...a, empresaNome: estado.empresas.find((e) => e.id === a.empresaId)?.nome || 'Sistema' }));
+  res.json({ alertas: lista, naoLidos: alertas.naoLidos(filtro, { todos: ehAdmin(req) && !soEmpresa }), backup: ehAdmin(req) ? backup.resumo() : null });
+});
+
+router.post('/alertas/lidos', (req, res) => {
+  alertas.marcarLidos(idsVisiveis(req), { todos: ehAdmin(req) });
+  res.json({ ok: true });
+});
+
+router.post('/alertas/:alertaId/resolver', (req, res) => {
+  const a = (estado.alertas || []).find((x) => x.id === req.params.alertaId);
+  if (!a || (a.empresaId ? !podeVerEmpresa(req, a.empresaId) : !ehAdmin(req))) return res.status(404).json({ erro: 'Alerta não encontrado.' });
+  alertas.resolver(a.id);
+  res.json({ ok: true });
+});
+
+// Backup na hora (admin) — além dos automáticos
+router.post('/backup', auth.exigirAdmin, (req, res) => {
+  try {
+    const arquivo = backup.backupDoBanco('manual');
+    backup.fotoDasMidias();
+    res.json({ ok: true, arquivo: require('path').basename(arquivo || ''), ...backup.resumo() });
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
 });
 
 // ---------------------------------------------------------------- usuários (só admin)

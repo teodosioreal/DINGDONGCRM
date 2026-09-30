@@ -9,7 +9,9 @@ const crypto = require('crypto');
 const config = require('./config');
 const { estado, salvar, agora } = require('./db');
 
-const TAMANHO_MAXIMO = 16 * 1024 * 1024; // limite do WhatsApp para a maioria das mídias
+// Fotos e vídeos grandes: até 64 MB (o painel manda em pedaços, então o limite
+// do Nginx não atrapalha). Acima de ~16 MB o WhatsApp pode entregar o vídeo como documento.
+const TAMANHO_MAXIMO = 64 * 1024 * 1024;
 
 const TIPOS = {
   'image/jpeg': 'image',
@@ -68,29 +70,95 @@ function mimeDe(nomeArquivo, informado) {
 }
 
 function midiasDa(empresa) {
-  return empresa.midias || [];
+  const lista = empresa.midias || [];
+  // mídias antigas ganham código e ficam "prontas" (a IA já usava)
+  if (lista.some((m) => !m.codigo) || albunsDa(empresa).some((a) => !a.codigo) || pastasDa(empresa).some((p) => !p.codigo)) garantirCodigos(empresa);
+  return lista;
 }
+
+// ---------------------------------------------------------------- códigos
+// Cada mídia, álbum e pasta do Drive tem um CÓDIGO curto e único (ex.: FOTO-VOLANTE).
+// A IA pede a mídia pelo código ([[MIDIA: FOTO-VOLANTE]]), então nunca manda a errada.
+
+function slugCodigo(v) {
+  return String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/^#/, '')
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24);
+}
+
+function codigosEmUso(empresa, excetoId = null) {
+  const usados = new Set();
+  for (const m of empresa.midias || []) if (m.codigo && m.id !== excetoId) usados.add(m.codigo);
+  for (const a of empresa.albuns || []) if (a.codigo && a.id !== excetoId) usados.add(a.codigo);
+  for (const p of empresa.drivePastas || []) if (p.codigo && p.id !== excetoId) usados.add(p.codigo);
+  return usados;
+}
+
+function novoCodigo(empresa, base, excetoId = null) {
+  const usados = codigosEmUso(empresa, excetoId);
+  const raiz = slugCodigo(base) || 'MIDIA';
+  if (!usados.has(raiz)) return raiz;
+  for (let i = 2; i < 1000; i++) {
+    const c = `${raiz.slice(0, 20)}-${i}`;
+    if (!usados.has(c)) return c;
+  }
+  return `${raiz.slice(0, 16)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+// Código escolhido pela pessoa: limpa e confere se já existe
+function validarCodigo(empresa, codigo, excetoId) {
+  const c = slugCodigo(codigo);
+  if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números (ex.: TABELA, FOTO-VOLANTE).'), { status: 400 });
+  if (codigosEmUso(empresa, excetoId).has(c)) throw Object.assign(new Error(`O código ${c} já está em uso. Escolha outro.`), { status: 400 });
+  return c;
+}
+
+function garantirCodigos(empresa) {
+  for (const m of empresa.midias || []) {
+    if (!m.codigo) m.codigo = novoCodigo(empresa, m.nome, m.id);
+    if (m.pronta === undefined) m.pronta = true;
+  }
+  for (const a of empresa.albuns || []) if (!a.codigo) a.codigo = novoCodigo(empresa, a.nome, a.id);
+  for (const p of empresa.drivePastas || []) if (!p.codigo) p.codigo = novoCodigo(empresa, p.nome, p.id);
+  salvar();
+}
+
+// ---------------------------------------------------------------- álbuns (grupos de mídias enviados juntos)
+
+function albunsDa(empresa) {
+  return Array.isArray(empresa.albuns) ? empresa.albuns : [];
+}
+
+const listaEtapas = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 10);
 
 function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeInformado, extra = {} }) {
   if (!buffer?.length) throw Object.assign(new Error('Arquivo vazio.'), { status: 400 });
-  if (buffer.length > TAMANHO_MAXIMO) throw Object.assign(new Error('Arquivo maior que 16 MB (limite do WhatsApp).'), { status: 413 });
+  if (buffer.length > TAMANHO_MAXIMO) throw Object.assign(new Error('Arquivo maior que 64 MB. Diminua o vídeo (ex.: exporte em 720p) e envie de novo.'), { status: 413 });
   const arquivo = nomeArquivoSeguro(nomeArquivo);
   const mimetype = mimeDe(arquivo, mimetypeInformado);
   const id = crypto.randomBytes(12).toString('hex');
   garantirPasta();
   fs.writeFileSync(path.join(config.midiasDir, `${id}${path.extname(arquivo).toLowerCase()}`), buffer);
+  const nomeFinal = String(nome || path.parse(arquivo).name).trim().slice(0, 80);
+  empresa.midias = midiasDa(empresa);
   const midia = {
     id,
-    nome: String(nome || path.parse(arquivo).name).trim().slice(0, 80),
+    nome: nomeFinal,
     descricao: String(descricao || '').trim().slice(0, 300),
     arquivo,
     mimetype,
     tipo: TIPOS[mimetype] || 'document',
     tamanho: buffer.length,
     criadoEm: agora(),
-    ...extra
+    codigo: extra.codigo ? validarCodigo(empresa, extra.codigo) : novoCodigo(empresa, extra.pastaId ? `${nomeFinal}` : nomeFinal),
+    pronta: extra.pronta !== false,
+    ...Object.fromEntries(Object.entries(extra).filter(([k]) => !['codigo', 'pronta'].includes(k)))
   };
-  empresa.midias = midiasDa(empresa);
   empresa.midias.push(midia);
   salvar();
   return midia;
@@ -136,34 +204,114 @@ function acharPorId(id) {
   return null;
 }
 
-const limpar = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+const limpar = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
-// A IA escreve [[MIDIA: nome]]; acha pelo nome sem ligar para maiúsculas/acentos
+// A IA escreve [[MIDIA: CÓDIGO]] (ou o nome, nas mídias antigas)
 function acharPorNome(empresa, nome) {
   const alvo = limpar(nome);
   return midiasDa(empresa).find((m) => !m.pastaId && limpar(m.nome) === alvo) || null;
 }
 
-// Nome de uma mídia OU de um álbum (pasta do Google Drive) → lista de arquivos
+// Código (ou nome) → o que enviar: { itens: [mídias], etapas: [...], alvo }
 const MAX_POR_ALBUM = 10;
-function acharParaEnviar(empresa, nome) {
-  const avulsa = acharPorNome(empresa, nome);
-  if (avulsa) return [avulsa];
-  const alvo = limpar(nome);
-  const pasta = pastasDa(empresa).find((p) => limpar(p.nome) === alvo);
-  if (!pasta) return [];
-  return midiasDa(empresa).filter((m) => m.pastaId === pasta.id).slice(0, MAX_POR_ALBUM);
+function resolverPedido(empresa, ref) {
+  const codigo = slugCodigo(ref);
+  const todas = midiasDa(empresa);
+  const porCodigo = todas.find((m) => m.codigo === codigo);
+  if (porCodigo) return { itens: [porCodigo], etapas: porCodigo.etapas || [], alvo: porCodigo };
+  const album = albunsDa(empresa).find((a) => a.codigo === codigo) || albunsDa(empresa).find((a) => limpar(a.nome) === limpar(ref));
+  if (album) return { itens: todas.filter((m) => m.albumId === album.id).slice(0, MAX_POR_ALBUM), etapas: album.etapas || [], alvo: album };
+  const pasta = pastasDa(empresa).find((p) => p.codigo === codigo) || pastasDa(empresa).find((p) => limpar(p.nome) === limpar(ref));
+  if (pasta) return { itens: todas.filter((m) => m.pastaId === pasta.id).slice(0, MAX_POR_ALBUM), etapas: pasta.etapas || [], alvo: pasta };
+  const avulsa = acharPorNome(empresa, ref);
+  if (avulsa) return { itens: [avulsa], etapas: avulsa.etapas || [], alvo: avulsa };
+  return { itens: [], etapas: [], alvo: null };
 }
 
-// O que a IA vê: mídias avulsas + cada pasta do Drive como um álbum
+function acharParaEnviar(empresa, ref) {
+  return resolverPedido(empresa, ref).itens;
+}
+
+// O que a IA vê: só mídias PRONTAS (as "a configurar" ficam de fora), cada
+// álbum e cada pasta do Drive como um item
 function paraIa(empresa) {
-  const avulsas = midiasDa(empresa)
-    .filter((m) => !m.pastaId)
-    .map((m) => ({ nome: m.nome, descricao: m.descricao }));
-  const albuns = pastasDa(empresa)
-    .map((p) => ({ nome: p.nome, descricao: p.descricao, album: true, quantidade: midiasDa(empresa).filter((m) => m.pastaId === p.id).length }))
+  const todas = midiasDa(empresa);
+  const avulsas = todas
+    .filter((m) => !m.pastaId && !m.albumId && m.pronta !== false)
+    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], tipo: m.tipo }));
+  const albuns = albunsDa(empresa)
+    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
     .filter((a) => a.quantidade > 0);
-  return [...avulsas, ...albuns];
+  const pastas = pastasDa(empresa)
+    .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length }))
+    .filter((a) => a.quantidade > 0);
+  return [...avulsas, ...albuns, ...pastas];
+}
+
+// ---------------------------------------------------------------- envio em pedaços (arquivos grandes)
+// O painel manda o arquivo em pedaços de até 900 KB; aqui eles são juntados.
+
+const envios = new Map(); // envioId → { empresaId, arquivo, tipo, tamanho, recebido, caminho, em }
+const PASTA_ENVIOS = () => path.join(config.midiasDir, '.envios');
+
+function iniciarEnvio(empresa, { arquivo, tamanho, tipo }) {
+  const t = Number(tamanho) || 0;
+  if (t <= 0) throw Object.assign(new Error('Arquivo vazio.'), { status: 400 });
+  if (t > TAMANHO_MAXIMO) throw Object.assign(new Error(`"${arquivo}" tem ${(t / 1024 / 1024).toFixed(0)} MB. O máximo é 64 MB — diminua o vídeo (ex.: exporte em 720p).`), { status: 413 });
+  // limpa envios abandonados (mais de 2 horas)
+  for (const [id, e] of envios) {
+    if (Date.now() - e.em > 2 * 3600 * 1000) {
+      fs.rmSync(e.caminho, { force: true });
+      envios.delete(id);
+    }
+  }
+  fs.mkdirSync(PASTA_ENVIOS(), { recursive: true });
+  const id = crypto.randomBytes(12).toString('hex');
+  const caminho = path.join(PASTA_ENVIOS(), `${id}.part`);
+  fs.writeFileSync(caminho, Buffer.alloc(0));
+  envios.set(id, { empresaId: empresa.id, arquivo: nomeArquivoSeguro(arquivo), tipo: String(tipo || ''), tamanho: t, recebido: 0, caminho, em: Date.now() });
+  return { envioId: id, pedaco: 900 * 1024 };
+}
+
+function receberPedaco(empresa, envioId, posicao, buffer) {
+  const e = envios.get(envioId);
+  if (!e || e.empresaId !== empresa.id) throw Object.assign(new Error('Envio não encontrado (começe de novo).'), { status: 404 });
+  if (Number(posicao) !== e.recebido) return { recebido: e.recebido }; // pedaço repetido: ignora
+  if (e.recebido + buffer.length > e.tamanho) throw Object.assign(new Error('O arquivo veio maior que o combinado.'), { status: 400 });
+  fs.appendFileSync(e.caminho, buffer);
+  e.recebido += buffer.length;
+  e.em = Date.now();
+  return { recebido: e.recebido };
+}
+
+function concluirEnvio(empresa, envioId, dados = {}) {
+  const e = envios.get(envioId);
+  if (!e || e.empresaId !== empresa.id) throw Object.assign(new Error('Envio não encontrado (começe de novo).'), { status: 404 });
+  if (e.recebido !== e.tamanho) throw Object.assign(new Error('O arquivo não chegou inteiro. Tente de novo.'), { status: 400 });
+  const mimetype = mimeDe(e.arquivo, e.tipo);
+  const id = crypto.randomBytes(12).toString('hex');
+  garantirPasta();
+  fs.renameSync(e.caminho, path.join(config.midiasDir, `${id}${path.extname(e.arquivo).toLowerCase()}`));
+  envios.delete(envioId);
+  const nome = String(dados.nome || path.parse(e.arquivo).name.replace(/[-_]+/g, ' ')).trim().slice(0, 80);
+  empresa.midias = midiasDa(empresa);
+  const midia = {
+    id,
+    nome,
+    descricao: String(dados.descricao || '').trim().slice(0, 300),
+    arquivo: e.arquivo,
+    mimetype,
+    tipo: TIPOS[mimetype] || 'document',
+    tamanho: e.tamanho,
+    criadoEm: agora(),
+    codigo: dados.codigo ? validarCodigo(empresa, dados.codigo) : novoCodigo(empresa, nome),
+    // enviada em massa: fica "a configurar" (a IA só usa depois que você marcar como pronta)
+    pronta: dados.pronta === true,
+    etapas: listaEtapas(dados.etapas)
+  };
+  empresa.midias.push(midia);
+  salvar();
+  return midia;
 }
 
 // ---------------------------------------------------------------- links
@@ -347,6 +495,15 @@ function apagarAnexosDoLead(leadId) {
 
 module.exports = {
   TAMANHO_MAXIMO,
+  albunsDa,
+  novoCodigo,
+  validarCodigo,
+  slugCodigo,
+  listaEtapas,
+  resolverPedido,
+  iniciarEnvio,
+  receberPedaco,
+  concluirEnvio,
   TIPOS,
   acharParaEnviar,
   paraIa,

@@ -607,7 +607,7 @@ html.dark .automacao.ligada { border-color: #166534; }
 .cartao-empresa-topo { display: flex; gap: 14px; align-items: center; }
 .cartao-empresa-nome { display: flex; flex-direction: column; min-width: 0; }
 .cartao-empresa-nome strong { font-size: 18px; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cartao-empresa-numeros { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; padding: 12px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
+.cartao-empresa-numeros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
 .cartao-empresa-numeros div { display: flex; flex-direction: column; gap: 2px; }
 .cartao-empresa-numeros .rotulo { font-size: 11.5px; }
 .cartao-empresa-numeros b { font-size: 16px; }
@@ -749,3 +749,86 @@ html.dark .ticket-corpo small { color: #8696a0; }
 html.dark .ticket-conferir { color: #fbbf24; }
 html.dark .ticket-chip.venda { background: #14532d; color: #bbf7d0; }
 html.dark .ticket-chip.ag { background: #1e3a8a; color: #bfdbfe; }
+
+/* ---------- IAs e chaves: 3 posições ---------- */
+.motor { border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px; margin-top: 10px; }
+.motor:first-child { border-left: 4px solid #16a34a; }
+.motor-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.chave-posicao { margin-top: 8px; font-size: 13.5px; }
+.chave-posicao input { margin-top: 4px; }
+
+/* ---------- biblioteca de mídias ---------- */
+.abas-midia { margin: 14px 0 10px; }
+.abas-midia .chip-filtro b { margin-left: 4px; font-variant-numeric: tabular-nums; }
+.barra-selecao { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 10px; border-radius: 8px; background: var(--hover); position: sticky; top: 0; z-index: 2; }
+.barra-selecao select { width: auto; padding: 5px 8px; }
+.card.midia { position: relative; }
+.card.midia.selecionada { outline: 2px solid #16a34a; }
+.card.midia.a-configurar { border-color: #f59e0b; }
+.midia-check { position: absolute; top: 8px; left: 8px; z-index: 1; background: var(--superficie); border-radius: 6px; padding: 2px 4px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.midia-previa video { width: 100%; height: 100%; object-fit: cover; }
+.midia-previa { position: relative; }
+.selo-video { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); pointer-events: none; }
+.grande-previa { max-height: 220px; margin-bottom: 12px; border-radius: 8px; overflow: hidden; }
+.grande-previa img, .grande-previa video { width: 100%; max-height: 220px; object-fit: contain; background: #000; }
+.codigo-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 2px 7px; border-radius: 6px; border: 1px dashed #16a34a; background: #f0fdf4; color: #166534; cursor: pointer; }
+html.dark .codigo-chip { background: #052e16; color: #86efac; }
+.aviso-texto { color: #b45309; font-weight: 600; }
+html.dark .aviso-texto { color: #fbbf24; }
+.envio-item { display: grid; grid-template-columns: minmax(0, 1fr) 160px 110px; gap: 10px; align-items: center; font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--borda); }
+.envio-item > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barra-envio { height: 8px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+.barra-envio span { display: block; height: 100%; background: #16a34a; transition: width .2s; }
+.envio-item.erro [data-st] { color: #b91c1c; }
+.envio-item.ok [data-st] { color: #15803d; }
+@media (max-width: 600px) { .envio-item { grid-template-columns: 1fr 80px; } .envio-item [data-st] { grid-column: span 2; } }
+.opcoes-ritmo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.opcao-ritmo { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--borda); border-radius: var(--raio); cursor: pointer; }
+.opcao-ritmo:has(input:checked) { border-color: #16a34a; box-shadow: inset 0 0 0 1px #16a34a; }
+.opcao-ritmo input { width: auto; margin-top: 3px; }
+.opcao-ritmo span { display: flex; flex-direction: column; gap: 2px; }
+.opcao-ritmo small { color: var(--suave); }
+.linha-antigos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; font-size: 13.5px; }
+.linha-antigos select { width: auto; padding: 4px 8px; }
+.chat-pedidos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px; font-size: 13.5px; background: #f0fdf4; color: #14532d; border-bottom: 1px solid #bbf7d0; }
+#linha-tempo + *, .chat-pedidos + .conversa { margin-top: 0; }
+.lead-grade .chat-pedidos { border-radius: var(--raio) var(--raio) 0 0; border: 1px solid #bbf7d0; }
+html.dark .chat-pedidos { background: #052e16; color: #bbf7d0; border-color: #14532d; }
+
+/* ---------- leitura do site e UTMs ---------- */
+.status-leitura { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 0 0 12px; border-radius: 8px; background: var(--hover); font-size: 14px; }
+.status-leitura.bom { background: #dcfce7; color: #14532d; }
+.status-leitura.ruim { background: #fef3c7; color: #78350f; }
+html.dark .status-leitura.bom { background: #052e16; color: #bbf7d0; }
+html.dark .status-leitura.ruim { background: #3b2f0b; color: #fde68a; }
+.utm-card { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); }
+.utm-card summary { cursor: pointer; font-weight: 600; }
+.utm-card h4 { margin: 14px 0 6px; font-size: 14px; }
+.utm-linha { margin: 6px 0 10px; }
+.utm-onde { font-size: 13.5px; margin-bottom: 4px; }
+.utm-valor { display: flex; gap: 8px; align-items: center; }
+.utm-valor code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 6px 8px; border-radius: 6px; background: var(--hover); font-size: 12.5px; }
+
+/* ---------- menu limpo, sininho e dicas ---------- */
+.empresa-menu-nome { display: flex; flex-direction: column; min-width: 0; }
+.empresa-menu-nome > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tokens-hoje { font-size: 11.5px; font-weight: 500; color: var(--suave); }
+.grupo-config { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; cursor: pointer; text-align: left; padding-left: 12px; padding-right: 12px; }
+.grupo-config .seta { margin-left: auto; }
+.marca-ok, .marca-atencao, .marca-off { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; display: inline-grid; place-items: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.grupo-config .marca-ok, .grupo-config .marca-atencao { margin-left: 4px; }
+.marca-ok { background: #dcfce7; color: #15803d; }
+.marca-atencao { background: #fef3c7; color: #b45309; }
+.marca-off { color: var(--suave); }
+html.dark .marca-ok { background: #14532d; color: #bbf7d0; }
+html.dark .marca-atencao { background: #3b2f0b; color: #fbbf24; }
+.sino { position: relative; font-size: 15px; }
+.sino .contador-sino:not(:empty) { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.lista-alertas { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.alerta-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 8px; font-size: 14px; }
+.alerta-item.novo { border-left: 4px solid #dc2626; }
+.alerta-topo { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.lista-dicas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lista-dicas li { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.lista-dicas li span { flex: 1; }
+.lista-dicas li.erro span { font-weight: 600; }

@@ -223,6 +223,28 @@ function ehNossoWebhook(empresa, url) {
   return Boolean(url) && url.startsWith(`${config.urlPublica}/api/public/whatsapp/${empresa.id}/`);
 }
 
+// Eventos que o CRM escuta: mensagens, conexão e conversa apagada no celular
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
+
+// Instâncias ligadas antes desta versão não mandam "conversa apagada":
+// se o webhook é do CRM e falta o evento, liga de novo (sem mexer em outros sistemas)
+async function revisarWebhook(empresa) {
+  const r = await evolution(empresa, 'GET', '/webhook/find/{instancia}');
+  const w = r?.webhook || r || {};
+  if (!ehNossoWebhook(empresa, w.url) || w.enabled === false) return false;
+  const eventos = (w.events || []).map((e) => String(e).toUpperCase());
+  if (EVENTOS_WEBHOOK.every((e) => eventos.includes(e))) return false;
+  await configurarWebhook(empresa);
+  return true;
+}
+
+// Arquivar (ou desarquivar) a conversa no WhatsApp do celular também
+async function arquivarNoWhatsapp(empresa, lead, arquivar) {
+  if (!lead.whatsappJid || !configurado(empresa)) return false;
+  await evolution(empresa, 'POST', '/chat/archiveChat/{instancia}', { chat: lead.whatsappJid, archive: arquivar });
+  return true;
+}
+
 // Aponta o webhook da instância para o CRM.
 // Se a instância já manda mensagens para OUTRO sistema, não substitui sem
 // confirmação: trocar o webhook desliga o outro sistema.
@@ -236,7 +258,7 @@ async function configurarWebhook(empresa, { forcar = false } = {}) {
       { webhookAtual: atual }
     );
   }
-  const eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
+  const eventos = EVENTOS_WEBHOOK;
   try {
     await evolution(empresa, 'POST', '/webhook/set/{instancia}', {
       webhook: { enabled: true, url, byEvents: false, base64: false, events: eventos }
@@ -332,7 +354,7 @@ async function criarInstancia(empresa) {
     throw erro('Falta a chave global da Evolution API (Configurações do sistema) para criar conexões automaticamente.', 400);
   }
   const nome = nomeInstancia(empresa);
-  const webhook = { url: urlWebhook(empresa), byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] };
+  const webhook = { url: urlWebhook(empresa), byEvents: false, base64: false, events: EVENTOS_WEBHOOK };
   const admin = { evolutionUrl: url, instancia: nome, apiKey: global };
   let token = '';
   let qrDoCreate = null;
@@ -410,15 +432,37 @@ function lembrarEnvio(resposta) {
 }
 
 // "digitando…" proporcional ao tamanho, como uma pessoa (máx. 5 s)
-function tempoDigitando(texto) {
-  return Math.min(5000, 800 + String(texto || '').length * 25);
+// Ritmo da IA no WhatsApp. "espera": quanto tempo ela espera o cliente parar
+// de mandar mensagens antes de responder; "digitando": quanto tempo aparece
+// "digitando…" antes de cada mensagem (maior para textos maiores).
+const VELOCIDADES = {
+  rapido: { nome: 'Rápido', espera: 3000, base: 600, porLetra: 12, max: 3000 },
+  humanizado: { nome: 'Humanizado', espera: 8000, base: 1500, porLetra: 35, max: 10000 },
+  lento: { nome: 'Mais lento', espera: 25000, base: 4000, porLetra: 60, max: 20000 }
+};
+
+function ritmoDa(empresa) {
+  return VELOCIDADES[empresa?.whatsappConfig?.velocidade] || VELOCIDADES.humanizado;
+}
+
+function tempoDigitando(texto, empresa) {
+  const v = ritmoDa(empresa);
+  return Math.min(v.max, v.base + String(texto || '').length * v.porLetra);
+}
+
+// Quanto esperar antes de responder (a 1ª mensagem de um lead novo pode esperar mais)
+function esperaParaResponder(empresa, lead) {
+  const base = process.env.WHATSAPP_ESPERA_MS ? config.whatsappEsperaMs : ritmoDa(empresa).espera;
+  const jaRespondido = (lead.mensagens || []).some((m) => m.papel === 'assistente' || m.papel === 'equipe');
+  const primeira = Math.max(0, Math.min(3600, Number(empresa?.whatsappConfig?.esperaPrimeiraSeg) || 0)) * 1000;
+  return base + (jaRespondido ? 0 : primeira);
 }
 
 async function enviarTexto(empresa, destino, texto, { digitando = true } = {}) {
   const r = await evolution(empresa, 'POST', '/message/sendText/{instancia}', {
     number: destinoDe(destino),
     text: texto,
-    ...(digitando ? { delay: tempoDigitando(texto) } : {})
+    ...(digitando ? { delay: tempoDigitando(texto, empresa) } : {})
   });
   lembrarEnvio(r);
   return r;
@@ -583,6 +627,17 @@ async function receberWebhook(empresa, corpo) {
     }
     return;
   }
+  // conversa apagada no WhatsApp do celular: sai da lista do CRM (vai para "Arquivadas")
+  if (eventoDe(corpo) === 'chats.delete') {
+    const jids = (Array.isArray(corpo?.data) ? corpo.data : [corpo?.data]).map((x) => (typeof x === 'string' ? x : x?.remoteJid || x?.id)).filter(Boolean);
+    for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id && jids.includes(c.whatsappJid))) {
+      lead.arquivado = true;
+      lead.arquivadoPor = 'apagada no WhatsApp';
+      lead.arquivadoEm = agora();
+    }
+    salvar();
+    return;
+  }
   for (const msg of mensagensDoWebhook(corpo)) {
     const jid = msg?.key?.remoteJid || '';
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
@@ -614,6 +669,11 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
+    // cliente mandou mensagem de novo: a conversa volta para a lista
+    if (lead.arquivado) {
+      lead.arquivado = false;
+      lead.arquivadoPor = '';
+    }
     // veio de um anúncio de clique para WhatsApp (Meta)? guarda qual
     const anuncioMeta = origem.anuncioDoWhatsapp(msg);
     if (anuncioMeta) origem.registrarAnuncioWhatsapp(lead, anuncioMeta);
@@ -790,7 +850,10 @@ function registrarIa(empresa, lead, tipo, motivo) {
     empresa.whatsappConfig.eventos = [evento, ...(empresa.whatsappConfig.eventos || [])].slice(0, 40);
   }
   salvar();
-  if (tipo === 'erro') console.error(`[whatsapp ${empresa?.id} ${lead?.id}] ${evento.motivo}`);
+  if (tipo === 'erro') {
+    console.error(`[whatsapp ${empresa?.id} ${lead?.id}] ${evento.motivo}`);
+    require('./alertas').registrar(empresa, /WhatsApp não enviou/.test(evento.motivo) ? 'whatsapp-envio' : 'ia-erro', `${evento.cliente ? `Cliente ${evento.cliente}: ` : ''}${evento.motivo}`, { leadId: lead?.id });
+  }
 }
 
 function agendarResposta(empresa, lead) {
@@ -806,7 +869,7 @@ function agendarResposta(empresa, lead) {
     setTimeout(() => {
       agendadas.delete(lead.id);
       responderLead(empresa.id, lead.id).catch((err) => console.error(`[whatsapp ${lead.id}]`, err.message));
-    }, config.whatsappEsperaMs)
+    }, esperaParaResponder(empresa, lead))
   );
 }
 
@@ -829,6 +892,7 @@ async function responderLead(empresaId, leadId) {
     r = await ia.responder(bot, empresa, lead.mensagens, {
       canal: 'whatsapp',
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
+      midiasEnviadas: [...new Set(lead.mensagens.filter((m) => m.midiaCodigo).map((m) => m.midiaCodigo))],
       tickets: require('./tickets').paraIa(lead),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
@@ -902,12 +966,23 @@ async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
 // [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
 async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
   for (const nome of nomes || []) {
-    for (const midia of midias.acharParaEnviar(empresa, nome)) {
+    const pedido = midias.resolverPedido(empresa, nome);
+    const achadas = pedido.itens;
+    // mídia presa a uma etapa só sai quando o lead está nela (pedido da IA; a equipe manda sempre)
+    if (papel === 'assistente' && pedido.etapas?.length && !pedido.etapas.some((e) => leads.acharEtapa(empresa, e) === lead.etapa)) {
+      console.error(`[whatsapp ${lead.id}] mídia ${nome} é da etapa ${pedido.etapas.join('/')}, o lead está em ${lead.etapa}: não enviei`);
+      continue;
+    }
+    if (!achadas.length) {
+      require('./alertas').registrar(empresa, 'midia', `A IA pediu a mídia "${nome}", mas não existe mídia com esse código. Confira os códigos em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+    }
+    for (const midia of achadas) {
       try {
         await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia);
-        leads.adicionarMensagem(lead, { papel, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.nome}]`, midiaId: midia.id });
+        leads.adicionarMensagem(lead, { papel, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${midia.codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
       } catch (err) {
         console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);
+        require('./alertas').registrar(empresa, 'midia', `A mídia "${midia.codigo || midia.nome}" não foi enviada: ${err.message}`, { leadId: lead.id });
       }
     }
   }
@@ -956,15 +1031,18 @@ async function diagnostico(empresa) {
   add(c.iaAtiva, 'IA do WhatsApp ligada', c.iaAtiva ? '' : 'Ligue na tela IA do WhatsApp.');
   const bot = botDoWhatsapp(empresa);
   if (bot) {
-    const provedor = ia.normalizarProvedor(bot.provedor);
-    try {
-      // Um pedido de verdade (bem curto) com o mesmo modelo que responde os clientes:
-      // assim pega chave errada, modelo sem acesso e falta de crédito.
-      await ia.gerarTexto(bot, empresa, 'Responda só: ok', 'teste', 5);
-      add(true, 'Chave de IA funcionando', `${provedor === 'gemini' ? 'Gemini' : 'Claude'} · modelo ${bot.modelo}`);
-    } catch (err) {
-      add(false, 'Chave de IA funcionando', ia.descreverErroIa(err));
+    const motores = ia.motoresDa(empresa, bot);
+    if (!motores.length) add(false, 'IA com chave', 'Nenhuma IA tem chave. Cadastre em IAs e chaves.');
+    // testa cada IA da ordem com um pedido bem curto (pega chave errada, modelo sem acesso e falta de crédito)
+    for (const [i, m] of motores.entries()) {
+      try {
+        await ia.testarMotor(empresa, m);
+        add(true, `${i + 1}ª IA ${i ? '(reserva)' : '(principal)'} funcionando`, `${ia.PROVEDORES[m.provedor].nome} · ${m.modelo}`);
+      } catch (err) {
+        add(false, `${i + 1}ª IA ${i ? '(reserva)' : '(principal)'} funcionando`, `${ia.PROVEDORES[m.provedor].nome} · ${m.modelo}: ${ia.descreverErroIa(err)}`);
+      }
     }
+    if (motores.length === 1) add(true, 'IA reserva', 'nenhuma — cadastre uma 2ª IA em IAs e chaves para nunca ficar sem resposta');
   } else add(false, 'Assistente de IA', 'A empresa não tem assistente.');
   const teste = numerosDeTeste(empresa);
   add(!teste, 'Modo teste', teste ? `ligado — a IA só responde: ${teste.map((n) => `+${n}`).join(', ')}` : 'desligado (a IA responde todos)');
@@ -1005,6 +1083,9 @@ module.exports = {
   destinoDoLead,
   enviarPelaEquipe,
   agendarResposta,
+  VELOCIDADES,
+  revisarWebhook,
+  arquivarNoWhatsapp,
   MOTIVO_EMPRESA_PAUSADA,
   cancelarResposta,
   responderLead

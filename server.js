@@ -1,6 +1,8 @@
 const path = require('path');
 const express = require('express');
 const config = require('./src/config');
+// blindagem: se o banco sumiu, volta o backup mais novo ANTES de o app ler
+require('./src/backup').restaurarSeSumiu();
 const { garantirAdmin } = require('./src/auth');
 const { salvarAgora } = require('./src/db');
 const rotasPublicas = require('./src/rotas-publicas');
@@ -78,6 +80,7 @@ if (config.basePath) {
 
 app.use((err, req, res, next) => {
   console.error(err);
+  if (!err.status || err.status >= 500) require('./src/alertas').registrar(null, 'sistema', `Erro interno em ${req.method} ${req.path}: ${err.message}`);
   if (res.headersSent) return next(err);
   const status = err.status || err.statusCode || 500;
   res.status(status).json({ erro: status === 500 ? 'Erro interno.' : err.message });
@@ -87,6 +90,17 @@ const servidor = app.listen(config.port, config.host, () => {
   console.log(`CRM rodando em http://${config.host}:${config.port}${config.basePath}/`);
   disparos.retomarAoIniciar();
   automacoes.iniciar();
+  require('./src/alertas').iniciar();
+  require('./src/backup').iniciar();
+  // webhooks antigos: passam a avisar também quando uma conversa é apagada no celular
+  setTimeout(async () => {
+    const { estado } = require('./src/db');
+    const whatsapp = require('./src/whatsapp');
+    for (const e of estado.empresas) {
+      if (!whatsapp.configurado(e)) continue;
+      await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
+    }
+  }, 15000).unref();
   // pastas do Google Drive: sincroniza sozinho a cada 6 horas
   setInterval(async () => {
     const { estado } = require('./src/db');
@@ -108,3 +122,9 @@ function desligar() {
 }
 process.on('SIGINT', desligar);
 process.on('SIGTERM', desligar);
+
+// erro não tratado: registra no painel em vez de derrubar o app em silêncio
+process.on('unhandledRejection', (motivo) => {
+  console.error('[sistema] promessa sem tratamento:', motivo);
+  require('./src/alertas').registrar(null, 'sistema', `Erro não tratado: ${motivo?.message || motivo}`);
+});

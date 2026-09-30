@@ -19,6 +19,7 @@ module.exports = {
   // Chaves das IAs. Também dá para cadastrar pelo painel (Configurações), que tem prioridade.
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
   // WhatsApp (Evolution API) onde ficam as instâncias das empresas. A empresa
   // só informa a Session ID (nome da instância) e a API Key dela. O admin pode
   // trocar este endereço pelo painel (Configurações do sistema).

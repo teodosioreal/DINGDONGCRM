@@ -19,7 +19,7 @@ const MAX_LOTES_POR_VARREDURA = 10; // o que sobrar fica para a próxima
 const MAX_MENSAGENS_PRIMEIRA_LEITURA = 120; // por conversa
 const MAX_CONVERSAS_LISTADAS = 1000;
 
-const SISTEMA = `Você é um analista de vendas e atendimento. Você recebe conversas reais de WhatsApp de uma empresa com os clientes dela e o documento de aprendizados atual. Sua tarefa é ATUALIZAR o documento para que a IA de atendimento da empresa atenda cada vez mais parecido com o dono/equipe e venda mais.
+const SISTEMA = `Você é um analista de vendas e atendimento. Você recebe conversas reais de WhatsApp de uma empresa com os clientes dela — TODAS terminaram em VENDA — e o documento de aprendizados atual. Sua tarefa é ATUALIZAR o documento para que a IA de atendimento da empresa atenda cada vez mais parecido com o dono/equipe e venda mais, repetindo o que funcionou nessas vendas (como abordou, o que perguntou, como apresentou o preço, como respondeu objeções e como fechou).
 
 Regras:
 - Aprenda principalmente com as mensagens do "Atendente" (pessoa da empresa). Mensagens marcadas "IA (automático)" foram escritas pelo robô: use só como contexto, não como exemplo de estilo.
@@ -42,6 +42,8 @@ function configDa(empresa) {
   return {
     texto: a.texto || '',
     diario: a.diario !== false,
+    // só aprende com conversas que deram venda (as que não venderam ficam de fora)
+    somenteVendas: a.somenteVendas !== false,
     usarNoPrompt: a.usarNoPrompt !== false,
     ultimaVarredura: a.ultimaVarredura || null,
     ultimoDiaAutomatico: a.ultimoDiaAutomatico || '',
@@ -103,6 +105,12 @@ function leadDoJid(empresa, jid) {
   return estado.conversas.find((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || (c.telefone && c.telefone === numero)));
 }
 
+// Conversa de antes do CRM (sem lead): sinais de venda no texto, sem gastar IA
+const SINAIS_DE_VENDA = /comprovante|paguei|pago\b|pagamento (feito|realizado|enviado)|pix (feito|enviado|realizado)|transferi|fechad[oa]|pode (agendar|marcar)|agendad[oa]|confirmad[oa]|obrigad[oa] pela (compra|prefer[eê]ncia)/i;
+function temSinalDeVenda(mensagens) {
+  return mensagens.some((m) => SINAIS_DE_VENDA.test(String(textoDaMensagem(m) || '')));
+}
+
 function vendaConcluida(empresa, lead) {
   if (!lead) return false;
   if (/fechad|ganh|vendid|conclu/i.test(String(lead.etapa || '').normalize('NFD').replace(/[̀-ͯ]/g, ''))) return true;
@@ -140,7 +148,7 @@ async function varrer(empresa, { motivo = 'manual' } = {}) {
   if (!bot) throw Object.assign(new Error('A empresa não tem assistente.'), { status: 400 });
   const prog = { etapa: 'Listando as conversas…', conversas: 0, lidas: 0, mensagens: 0, lotes: 0, inicio: agora() };
   rodando.set(empresa.id, prog);
-  const registro = { em: agora(), motivo, conversas: 0, mensagens: 0, concluidasIgnoradas: 0, status: 'ok', erro: '' };
+  const registro = { em: agora(), motivo, conversas: 0, mensagens: 0, concluidasIgnoradas: 0, semVenda: 0, status: 'ok', erro: '' };
   try {
     const cfg = configDa(empresa);
     const checkpoints = { ...cfg.checkpoints };
@@ -180,6 +188,13 @@ async function varrer(empresa, { motivo = 'manual' } = {}) {
         continue;
       }
       prog.etapa = `Lendo conversa ${prog.lidas + 1} de ${conversas.length}…`;
+      const lead = leadDoJid(empresa, c.jid);
+      let acabou = vendaConcluida(empresa, lead);
+      // conversa sem venda: não estuda (e não marca como lida — se virar venda, lê tudo depois)
+      if (cfg.somenteVendas && lead && !acabou) {
+        registro.semVenda++;
+        continue;
+      }
       let novas;
       try {
         novas = await mensagensNovas(empresa, c.jid, desde);
@@ -188,9 +203,14 @@ async function varrer(empresa, { motivo = 'manual' } = {}) {
         continue;
       }
       prog.lidas++;
+      if (cfg.somenteVendas && !lead) {
+        if (!temSinalDeVenda(novas)) {
+          registro.semVenda++;
+          continue;
+        }
+        acabou = true;
+      }
       const ultimaTs = Math.max(desde, ...novas.map((m) => Number(m.messageTimestamp) || 0));
-      const lead = leadDoJid(empresa, c.jid);
-      const acabou = vendaConcluida(empresa, lead);
       const bloco = transcrever(empresa, c.jid, novas, registro.conversas + 1);
       if (bloco) {
         if (tamanho + bloco.length > LIMITE_CARACTERES_POR_LOTE) await enviarLote();

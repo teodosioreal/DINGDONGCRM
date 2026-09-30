@@ -153,6 +153,63 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### IAs e chaves: principal + 2 reservas
+
+- Até **3 IAs em ordem** (Claude, **ChatGPT** ou Gemini), cada posição com a
+  chave da empresa ou uma chave própria (ex.: 2 contas do Claude). Se a 1ª falhar
+  (sem crédito, chave errada, fora do ar, limite), a 2ª responde na hora, depois a
+  3ª — e o CRM avisa no sininho. O diagnóstico testa cada IA.
+- **Economia de tokens:** a parte fixa do prompt vai para o cache (a parte que muda
+  — data, etapa, origem, o que já foi registrado — fica no fim); comprovantes são
+  lidos por OCR antes da IA; foto e comprovante usam o modelo mais barato de cada
+  IA. **Tokens gastos no dia** aparecem ao lado da empresa, nos cartões e em IAs e chaves.
+- Áudio: Gemini ou ChatGPT (transcrição).
+- `OPENAI_API_KEY` no `.env` vira a chave padrão do ChatGPT (opcional).
+
+### Mídias com código
+
+- Envio **em massa**, em pedaços (até **64 MB** por arquivo, sem depender do
+  limite do Nginx). Entram em **"A configurar"** e a IA só usa depois de marcadas
+  como **prontas**. Abas: a configurar, fotos, vídeos, documentos/áudios, álbuns.
+- Cada mídia, álbum e pasta do Drive tem um **código** único (ex.: `#TABELA`). A IA
+  pede `[[MIDIA: TABELA]]`; o código pode ir nas instruções da IA. Campos: quando
+  enviar e **etapas** (a mídia só sai quando o lead está nessa etapa). A IA sabe o
+  que já mandou; código inexistente gera alerta.
+- Respostas rápidas guardam a mídia pelo código e têm "quando usar". As respostas
+  rápidas nativas do WhatsApp Business ficam só no celular (nenhum sistema lê):
+  recrie com o mesmo atalho.
+
+### Ritmo, avisos e blindagem
+
+- Ritmo da IA no WhatsApp: **rápido / humanizado / mais lento** e espera extra na
+  1ª mensagem de um cliente novo.
+- **Alertas** (sininho 🔔): IA com erro ou usando reserva, WhatsApp desconectado
+  (vigia a cada 15 min), envio/mídia/automação com erro, backup. Cada alerta traz a
+  dica do que fazer. "WhatsApp para avisos" manda os erros no seu número (1 por
+  tipo a cada 30 min).
+- **Backups:** banco compactado ao ligar e a cada 6 h (30 dias), foto diária das
+  mídias com links físicos (14 dias), cópia antes de cada deploy e restauração
+  automática se o banco sumir. Pasta `backups/` (ou `BACKUP_DIR`). O deploy nunca
+  apaga banco nem mídias (ficam fora do git).
+- Dicas sem IA no Início ("Precisa de atenção") e **menu limpo**: as configurações
+  ficam recolhidas com ✓ e só aparece o que precisa de atenção.
+
+### Vendas, avaliação e conversas
+
+- Venda entendida pela IA (sem comprovante) entra **em dinheiro** no valor
+  combinado; se o comprovante do Pix chegar depois, a mesma venda vira Pix.
+- Avaliação no Google / comentário no anúncio / pós-venda / recompra disparam
+  **depois da venda confirmada** (Pix, IA, equipe ou lead em "Fechado"), com opção
+  de incluir quem **já comprou** (30/90/365 dias). Botões na conversa para pedir à
+  mão, avisando se já foi pedido.
+- Conversas: **Todas / Não lidas / Vendas concluídas** (vendeu, sai de "Todas") e
+  arquivadas. Conversa **apagada** no celular sai da lista (evento `CHATS_DELETE`,
+  webhooks antigos são atualizados sozinhos). Arquivar no CRM arquiva no celular.
+  A Evolution não informa quando uma conversa é só arquivada no celular.
+- Aprendizados: só com **conversas que deram venda** (conversas de antes do CRM:
+  sinais de venda no texto); aviso claro se o site foi lido só com o link; UTMs
+  prontas para Google Ads, Meta Ads, bio do Instagram e Google Meu Negócio.
+
 ### Avisos na conversa: VENDA CONCLUÍDA e AGENDADO
 
 - A IA (site e WhatsApp) marca `[[VENDA: valor | o que comprou]]` quando o

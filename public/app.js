@@ -120,7 +120,16 @@ function codigoEmpresa(empresaId) {
   return `<script src="${sessao.urlPublica}/chat.js" data-empresa="${empresaId}" async></script>`;
 }
 
-const NOME_PROVEDOR = { anthropic: 'Claude (Anthropic)', gemini: 'Gemini (Google)' };
+const NOME_PROVEDOR = { anthropic: 'Claude (Anthropic)', openai: 'ChatGPT (OpenAI)', gemini: 'Gemini (Google)' };
+const NOME_IA_CURTO = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini' };
+
+// "12,3 mil" / "1,2 mi" — para mostrar tokens gastos
+function numeroCurto(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return `${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`;
+  if (n >= 1e3) return `${(n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
+  return n.toLocaleString('pt-BR');
+}
 const rotaEmpresa = (id, sub = '') => `#/empresas/${id}${sub ? `/${sub}` : ''}`;
 
 // ---------------------------------------------------------------- componentes de ajuda
@@ -212,21 +221,37 @@ function montarMenu(ativo) {
     const id = empresaAtual.id;
     const d = empresaAtual.dados || {};
     const ponto = (ligado) => `<span class="ponto ${ligado ? 'on' : 'off'}" title="${ligado ? 'Ligada' : 'Desligada'}"></span>`;
-    html += `<a class="empresa-menu" href="${rotaEmpresa(id)}">${avatarEmpresa(d)}<span>${esc(empresaAtual.nome)}</span></a>`;
-    html += item(rotaEmpresa(id), 'inicio', 'Início');
-    html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
+    const u = d.usoHoje || {};
+    html += `<a class="empresa-menu" href="${rotaEmpresa(id)}">${avatarEmpresa(d)}<span class="empresa-menu-nome"><span>${esc(empresaAtual.nome)}</span><small class="tokens-hoje" title="Tokens de IA gastos hoje (${(u.chamadas || 0).toLocaleString('pt-BR')} chamadas)">🔢 ${numeroCurto(u.total)} tokens hoje</small></span></a>`;
+    // o dia a dia primeiro: conversas e máquina de vendas
+    html += item(rotaEmpresa(id), 'inicio', 'Início', (d.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="ponto off" title="Algo precisa de atenção"></span>' : '');
     html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
-    html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
     html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
+    html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
+    html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
     html += item(rotaEmpresa(id, 'disparos'), 'disparos', 'Disparos em massa');
-    html += '<p class="titulo-grupo">Configurar</p>';
-    html += item(rotaEmpresa(id, 'ia'), 'cerebro', 'Sobre a empresa');
-    html += item(rotaEmpresa(id, 'aprendizado'), 'livro', 'Aprendizados da IA');
-    html += item(rotaEmpresa(id, 'site'), 'site', 'IA do site', ponto(d.canais?.site));
-    html += item(rotaEmpresa(id, 'whatsapp'), 'whatsapp', 'IA do WhatsApp', d.whatsapp?.modoTeste ? '<span class="etiqueta aviso" style="padding:0 6px">teste</span>' : ponto(d.canais?.whatsapp && d.whatsapp?.configurado));
-    html += item(rotaEmpresa(id, 'midias'), 'midias', 'Mídias e links');
-    html += item(rotaEmpresa(id, 'organizar'), 'etiquetas', 'Etiquetas e etapas');
-    html += item(rotaEmpresa(id, 'chave'), 'chave', 'Chave de IA');
+    // configurações: com ✓ quando prontas; recolhidas mostram só o que precisa de atenção
+    const st = d.status || {};
+    const marca = (k) => (st[k] === 'ok' ? '<span class="marca-ok" title="Configurado">✓</span>' : st[k] === 'atencao' ? '<span class="marca-atencao" title="Precisa de atenção">!</span>' : '<span class="marca-off" title="Desligado">–</span>');
+    const configs = [
+      ['ia', 'cerebro', 'Sobre a empresa'],
+      ['aprendizado', 'livro', 'Aprendizados da IA'],
+      ['site', 'site', 'IA do site'],
+      ['whatsapp', 'whatsapp', 'IA do WhatsApp'],
+      ['midias', 'midias', 'Mídias e respostas'],
+      ['organizar', 'etiquetas', 'Etiquetas e etapas'],
+      ['chave', 'chave', 'IAs e chaves']
+    ];
+    const pendentes = configs.filter(([k]) => st[k] === 'atencao').length;
+    let aberto = false;
+    try { aberto = localStorage.getItem('dingdong_menu_config') === 'aberto'; } catch { /* ok */ }
+    const naConfig = configs.some(([k]) => rotaEmpresa(id, k) === ativo);
+    const mostrar = aberto || naConfig;
+    html += `<button type="button" class="titulo-grupo grupo-config" id="alternar-config" aria-expanded="${mostrar}">⚙️ Configurar <span class="${pendentes ? 'marca-atencao' : 'marca-ok'}">${pendentes ? `${pendentes} !` : '✓'}</span><span class="seta">${mostrar ? '▾' : '▸'}</span></button>`;
+    for (const [k, icone, rotulo] of configs) {
+      if (!mostrar && st[k] !== 'atencao') continue;
+      html += item(rotaEmpresa(id, k), icone, rotulo, k === 'whatsapp' && d.whatsapp?.modoTeste ? '<span class="etiqueta aviso" style="padding:0 6px">teste</span>' : marca(k));
+    }
   }
   if (ehAdmin()) {
     html += '<p class="titulo-grupo">Administração</p>';
@@ -234,6 +259,14 @@ function montarMenu(ativo) {
     html += item('#/configuracoes', 'config', 'Configurações do sistema');
   }
   $('#menu').innerHTML = html;
+  $('#alternar-config')?.addEventListener('click', () => {
+    let aberto = false;
+    try {
+      aberto = localStorage.getItem('dingdong_menu_config') === 'aberto';
+      localStorage.setItem('dingdong_menu_config', aberto ? 'fechado' : 'aberto');
+    } catch { /* ok */ }
+    montarMenu(ativo);
+  });
   $$('.lateral a').forEach((a) => {
     if (a.classList.contains('item-menu') && a.closest('.rodape-menu')) a.classList.toggle('ativo', a.getAttribute('href') === ativo);
     a.onclick = fecharMenu;
@@ -301,6 +334,16 @@ function cardOrigem(o, l) {
       </dl>
       ${controles}
     </div>`;
+}
+
+// "Precisa de atenção": dicas geradas por regras (sem IA) para configurar e resolver
+function htmlDicas(emp, id) {
+  const lista = (emp.dicas || []).filter((d) => !/pausada|Modo teste/.test(d.texto));
+  if (!lista.length) return '';
+  const ICONE = { erro: '🔴', aviso: '🟡', dica: '💡' };
+  const ordem = { erro: 0, aviso: 1, dica: 2 };
+  return `<div class="card dicas-card"><h2 style="margin:0 0 8px">${lista.some((d) => d.nivel === 'erro') ? '⚠️ Precisa de atenção' : '💡 Dicas para vender mais'}</h2>
+    <ul class="lista-dicas">${lista.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]).map((d) => `<li class="${d.nivel}">${ICONE[d.nivel] || '💡'} <span>${esc(d.texto)}</span>${d.sub !== undefined ? `<a class="botao pequeno" href="${rotaEmpresa(id, d.sub)}">Resolver</a>` : ''}</li>`).join('')}</ul></div>`;
 }
 
 // Faixa vermelha quando a empresa está pausada (a IA e as automações não respondem ninguém)
@@ -498,6 +541,7 @@ async function paginaEmpresa(id) {
     </div>`}
 
     ${faixaPausada(emp)}
+    ${htmlDicas(emp, id)}
     ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <a href="${rotaEmpresa(id, 'whatsapp')}">Desligar o modo teste</a>`, 'aviso') : ''}
     <h2>Seus atendentes de IA</h2>
     ${balao('Duas IAs, um atendimento só', 'A <b>IA do site</b> tira as dúvidas no chat do site e, quando o cliente quer avançar, manda ele para o WhatsApp. Lá a <b>IA do WhatsApp</b> continua a mesma conversa, de onde parou. Pode usar as duas juntas ou só uma delas — é só ligar ou desligar aqui.')}
@@ -667,13 +711,7 @@ async function paginaCerebro(id) {
             <small>Dica: troque os "..." do modelo pelas informações reais. Quanto mais completo, melhor a IA atende.</small>
           </div>
         </div>
-        <details class="secao-avancada">
-          <summary>Qual inteligência artificial usar (avançado)</summary>
-          <div class="campos" style="margin-top:12px">
-            <div class="campo"><label>IA</label><select name="provedor">${['gemini', 'anthropic'].map((p) => `<option value="${p}" ${p === (bot.provedor || 'anthropic') ? 'selected' : ''}>${NOME_PROVEDOR[p]}${emp.chaves?.[p]?.funciona ? '' : ' — sem chave'}</option>`).join('')}</select></div>
-            <div class="campo"><label>Modelo ${ajuda('Pode deixar o que já vem escolhido. Modelos "flash"/"haiku" são mais rápidos e baratos.')}</label><select name="modelo"><option value="${esc(bot.modelo)}">${esc(bot.modelo)}</option></select><small id="aviso-modelo"></small></div>
-          </div>
-        </details>
+        <p class="rotulo" style="margin:14px 0 0">🧠 A IA que responde (e as reservas, se ela falhar) fica em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
         <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
       </form>
       <div>
@@ -700,9 +738,8 @@ async function paginaCerebro(id) {
   montarTeste('site');
 }
 
-function ligarSeletorModelo(form, empresaId) {
-  const selProvedor = form.elements.provedor;
-  const selModelo = form.elements.modelo;
+function ligarSeletorModelo(form, empresaId, selProvedor = form.elements.provedor, selModelo = form.elements.modelo, avisoEl = $('#aviso-modelo')) {
+  if (!selProvedor || !selModelo) return;
   async function carregar(manterAtual) {
     const atual = manterAtual ? selModelo.value : '';
     selModelo.innerHTML = '<option>carregando…</option>';
@@ -711,9 +748,9 @@ function ligarSeletorModelo(form, empresaId) {
       const lista = r.modelos.slice();
       if (atual && !lista.some((m) => m.id === atual)) lista.unshift({ id: atual, nome: `${atual} (atual)` });
       selModelo.innerHTML = lista.map((m) => `<option value="${esc(m.id)}">${esc(m.id === m.nome ? m.id : `${m.nome} — ${m.id}`)}</option>`).join('');
-      const preferido = atual || (selProvedor.value === 'gemini' ? lista.find((m) => /flash/.test(m.id) && !/lite|preview|exp/.test(m.id))?.id : lista[0]?.id);
+      const preferido = atual || (selProvedor.value === 'gemini' ? lista.find((m) => /flash/.test(m.id) && !/lite|preview|exp/.test(m.id))?.id : selProvedor.value === 'openai' ? (lista.find((m) => m.id === 'gpt-5-mini') || lista[0])?.id : lista[0]?.id);
       if (preferido) selModelo.value = preferido;
-      if ($('#aviso-modelo')) $('#aviso-modelo').textContent = r.aviso ? `Não consegui listar os modelos da chave (${r.aviso}). Mostrando sugestões.` : '';
+      if (avisoEl) avisoEl.textContent = r.aviso ? `Não consegui listar os modelos da chave (${r.aviso}). Mostrando sugestões.` : '';
     } catch (err) {
       aviso(err.message, true);
     }
@@ -905,6 +942,19 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0">O CRM confere tudo: conexão do celular, se as mensagens estão chegando, chave de IA, modo teste e conversas pausadas — e mostra o que a IA fez com as últimas mensagens.</p>
       <div id="resultado-diagnostico"></div>
     </div>
+    <form class="card" id="f-ritmo">
+      <h2 style="margin:0 0 6px">⏱️ Ritmo das respostas</h2>
+      <p class="rotulo" style="margin:0 0 12px">Quanto a IA espera e quanto tempo fica "digitando…" antes de responder. Mais lento parece mais humano.</p>
+      <div class="opcoes-ritmo">
+        ${[['rapido', '⚡ Rápido', 'responde em ~3 s'], ['humanizado', '🙂 Humanizado', 'espera ~8 s e digita no ritmo de uma pessoa'], ['lento', '🐢 Mais lento', 'espera ~25 s, bem calmo']].map(([v, n, d]) => `<label class="opcao-ritmo"><input type="radio" name="velocidade" value="${v}" ${(w.velocidade || 'humanizado') === v ? 'checked' : ''}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}
+      </div>
+      <div class="campos" style="margin-top:12px">
+        <div class="campo"><label>Responder a 1ª mensagem de um cliente novo depois de ${ajuda('Só para quem chama pela primeira vez. Ex.: 2 minutos, para não parecer robô. As próximas seguem o ritmo acima.')}</label>
+          <select name="esperaPrimeiraSeg">${[[0, 'na hora (só o ritmo acima)'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']].map(([v, n]) => `<option value="${v}" ${Number(w.esperaPrimeiraSeg || 0) === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+        <div class="campo"><label>WhatsApp para avisos de erro ${ajuda('Se algo der errado (IA sem crédito, WhatsApp desconectado, mídia que não saiu), o CRM manda um aviso para este número. No máximo 1 aviso do mesmo tipo a cada 30 minutos.')}</label><input name="whatsappAvisos" value="${esc(telefoneBonito(w.whatsappAvisos || ''))}" placeholder="Seu número pessoal com DDD (opcional)"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
+    </form>
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -1074,6 +1124,14 @@ async function paginaWhatsapp(id) {
   }
   $('#rodar-diagnostico').onclick = (e) => rodarDiagnostico(e.currentTarget);
 
+  $('#f-ritmo').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { velocidade: f.elements.velocidade.value, esperaPrimeiraSeg: Number(f.elements.esperaPrimeiraSeg.value), whatsappAvisos: f.elements.whatsappAvisos.value } }));
+      aviso('Ritmo salvo.');
+    } catch (err) { aviso(err.message, true); }
+  };
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
     await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { modoTeste, numerosTeste } });
@@ -1208,7 +1266,7 @@ const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '
 async function paginaMidias(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  const todas = await api(`empresas/${id}/midias`);
+  const [todas, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`)]);
   const lista = todas.filter((m) => !m.pastaId);
   const pastas = emp.drivePastas || [];
   let links = (emp.links || []).map((l) => ({ ...l }));
@@ -1216,7 +1274,21 @@ async function paginaMidias(id) {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
-    ${balao('Mostrar o trabalho vende', 'A IA manda as fotos e links certos na hora certa. Ela escolhe pelo <b>nome</b> e pelo <b>"quando mandar"</b> — ex.: álbum <i>"Volantes em couro"</i>, quando <i>"o cliente pedir fotos ou perguntar do acabamento"</i>. Tudo aqui também pode ir nos disparos, nas automações e na aba Conversas.')}
+    ${balao('Como fazer a IA mandar a foto certa na hora certa', passos([
+      '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 64 MB cada). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
+      'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Proposta").',
+      'Marque <b>Pronta</b>. Pronto: a IA manda sozinha na hora certa.',
+      'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
+    ]))}
+
+    <div class="card" id="biblioteca">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🖼️ Suas fotos, vídeos e arquivos</h2><label class="botao primario">📤 Adicionar (vários de uma vez)<input type="file" id="mais-midias" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label></div>
+      <label class="soltar" id="soltar"><span class="soltar-texto">📁 Arraste vários arquivos aqui — fotos, vídeos (até 64 MB cada), PDFs e áudios</span></label>
+      <div id="fila-envio"></div>
+      <div class="chips abas-midia" id="abas-midia"></div>
+      <div class="barra-selecao" id="barra-selecao" hidden></div>
+      <div id="grade-biblioteca"></div>
+    </div>
 
     <div class="card">
       <h2>📁 Fotos do Google Drive</h2>
@@ -1238,7 +1310,7 @@ async function paginaMidias(id) {
           return `
           <div class="pasta">
             <div class="pasta-fotos">${fotos.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>📁</span>'}</div>
-            <div class="pasta-info"><strong>${esc(p.nome)}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
+            <div class="pasta-info"><strong>${esc(p.nome)} ${p.codigo ? `<span class="codigo-chip">#${esc(p.codigo)}</span>` : ''}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
             <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-sinc="${esc(p.id)}">🔄 Sincronizar</button><button type="button" class="pequeno" data-editar-pasta="${esc(p.id)}">Editar</button><button type="button" class="pequeno perigo" data-tirar-pasta="${esc(p.id)}">Remover</button></div>
           </div>`;
         }).join('')}
@@ -1248,7 +1320,7 @@ async function paginaMidias(id) {
     <div class="card">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">⚡ Respostas rápidas com mídia</h2><button type="button" class="primario pequeno" id="abrir-rapidas">Gerenciar</button></div>
       <p class="rotulo" style="margin:0 0 10px">Atalhos como <b>/preco</b> e <b>/catalogo</b> que mandam texto + foto, PDF ou álbum de uma vez — na aba Conversas${emp.atalhosNoCelular !== false ? ' e digitando no WhatsApp do celular' : ''}.</p>
-      <div class="chips">${(emp.respostasRapidas || []).map((r) => `<span class="etiqueta">/${esc(r.atalho)}${r.midia ? ` · 📎 ${esc(r.midia)}` : ''}</span>`).join('') || '<span class="rotulo">Nenhuma ainda.</span>'}</div>
+      ${(emp.respostasRapidas || []).length ? `<div class="tabela-wrap"><table><thead><tr><th>Atalho</th><th>Manda</th><th class="esconde-mobile">Quando usar</th></tr></thead><tbody>${emp.respostasRapidas.map((r) => `<tr><td><b>/${esc(r.atalho)}</b></td><td>${esc((r.texto || '').slice(0, 70))}${(r.texto || '').length > 70 ? '…' : ''}${r.midia ? ` <span class="codigo-chip">#${esc(r.midia)}</span>` : ''}</td><td class="esconde-mobile rotulo">${esc(r.quando || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<span class="rotulo">Nenhuma ainda.</span>'}
     </div>
 
     <div class="card">
@@ -1257,29 +1329,7 @@ async function paginaMidias(id) {
       <div id="lista-links" class="lista-editavel"></div>
       <div class="acoes"><button type="button" id="add-link">+ Novo link</button><button type="button" class="primario" id="salvar-links">Salvar links</button></div>
     </div>
-
-    <form class="card" id="f-midia">
-      <h2>📤 Enviar arquivo do computador</h2>
-      <label class="soltar" id="soltar">
-        <input type="file" name="arquivo" required accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx">
-        <span class="soltar-texto">📁 <b>Clique para escolher</b> ou arraste o arquivo aqui<br><span class="rotulo">Até 16 MB — foto, vídeo MP4, áudio ou PDF</span></span>
-      </label>
-      <div class="campos" style="margin-top:12px">
-        <div class="campo"><label>Nome *</label><input name="nome" required placeholder="Ex.: Tabela de preços"></div>
-        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando o cliente pedir os preços"></div>
-      </div>
-      <div class="acoes"><button class="primario" type="submit">Enviar arquivo</button></div>
-    </form>
-    <div class="grade-midias">
-      ${lista.map((m) => `
-        <div class="card midia">
-          <a class="midia-previa" href="${esc(m.url)}" target="_blank" rel="noopener">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`}</a>
-          <strong>${esc(m.nome)}</strong>
-          <span class="rotulo">${esc(m.descricao) || 'sem instrução de quando mandar'}</span>
-          <span class="rotulo">${esc(m.arquivo)} · ${(m.tamanho / 1024 / 1024).toFixed(1)} MB</span>
-          <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
-        </div>`).join('')}
-    </div>`;
+`;
 
   $('#abrir-rapidas').onclick = () => modalRespostasRapidas(emp, null).then(() => {
     // redesenha a lista resumida quando o modal fechar (se ainda estiver nesta página)
@@ -1324,13 +1374,16 @@ async function paginaMidias(id) {
         <h2>Editar álbum</h2>
         <form id="f-ed-pasta">
           <div class="campo"><label>Nome do álbum</label><input name="nome" required value="${esc(p.nome)}"></div>
+          <div class="campo" style="margin-top:12px"><label>Código</label><input name="codigo" value="${esc(p.codigo || '')}" style="text-transform:uppercase"></div>
           <div class="campo" style="margin-top:12px"><label>Quando a IA deve mandar</label><input name="descricao" value="${esc(p.descricao || '')}"></div>
+          ${(emp.etapas || []).length ? `<div class="campo" style="margin-top:12px"><label>Só enviar nestas etapas (opcional)</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}" ${(p.etapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
           <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
         </form>`, (m, fechar) => {
         $('#f-ed-pasta', m).onsubmit = async (e) => {
           e.preventDefault();
           try {
-            await api(`empresas/${id}/drive/${p.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
+            const f = e.target;
+            await api(`empresas/${id}/drive/${p.id}`, { method: 'PUT', body: { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: [...f.querySelectorAll('input[name=etapa]:checked')].map((c) => c.value) } });
             fechar();
             paginaMidias(id);
           } catch (err) { aviso(err.message, true); }
@@ -1363,69 +1416,221 @@ async function paginaMidias(id) {
     } catch (err) { aviso(err.message, true); }
   };
 
-  // ---------- arquivos
-  const f = $('#f-midia');
-  const entrada = f.elements.arquivo;
-  entrada.onchange = () => {
-    const a = entrada.files[0];
-    if (!a) return;
-    $('.soltar-texto').innerHTML = `✅ <b>${esc(a.name)}</b><br><span class="rotulo">${(a.size / 1024 / 1024).toFixed(1)} MB — clique para trocar</span>`;
-    if (!f.elements.nome.value) f.elements.nome.value = a.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  // ---------- biblioteca (abas, seleção, envio em massa)
+  const ETAPAS = emp.etapas || [];
+  const semRegra = (m) => !m.descricao?.trim();
+  const grupos = {
+    configurar: { nome: '⚠️ A configurar', filtro: (m) => m.pronta === false },
+    fotos: { nome: '📷 Fotos', filtro: (m) => m.pronta !== false && m.tipo === 'image' },
+    videos: { nome: '🎬 Vídeos', filtro: (m) => m.pronta !== false && m.tipo === 'video' },
+    docs: { nome: '📄 Documentos e áudios', filtro: (m) => m.pronta !== false && !['image', 'video'].includes(m.tipo) },
+    albuns: { nome: '🗂️ Álbuns', filtro: () => false }
   };
+  let aba = lista.some((m) => m.pronta === false) ? 'configurar' : 'fotos';
+  try { aba = sessionStorage.getItem(`midias_aba_${id}`) || aba; } catch { /* ok */ }
+  const selecionadas = new Set();
+  const albumDe = (m) => albuns.find((a) => a.id === m.albumId);
+  const previa = (m) => (m.tipo === 'image'
+    ? `<img src="${esc(m.url)}" alt="" loading="lazy">`
+    : m.tipo === 'video'
+      ? `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted></video><span class="selo-video">▶</span>`
+      : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`);
+  const chipEtapas = (etapas) => (etapas?.length ? etapas.map((e) => `<span class="etiqueta">${esc(e)}</span>`).join(' ') : '');
+  const cartao = (m) => `
+    <div class="card midia ${selecionadas.has(m.id) ? 'selecionada' : ''} ${m.pronta === false ? 'a-configurar' : ''}">
+      <label class="midia-check" title="Selecionar"><input type="checkbox" data-sel="${esc(m.id)}" ${selecionadas.has(m.id) ? 'checked' : ''}></label>
+      <a class="midia-previa" href="${esc(m.url)}" target="_blank" rel="noopener">${previa(m)}</a>
+      <strong>${esc(m.nome)}</strong>
+      <span><button type="button" class="codigo-chip" data-copiar="#${esc(m.codigo)}" title="Copiar código">#${esc(m.codigo)}</button>${albumDe(m) ? ` <span class="etiqueta">🗂️ ${esc(albumDe(m).nome)}</span>` : ''}</span>
+      <span class="rotulo">${semRegra(m) ? '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>' : `Quando: ${esc(m.descricao)}`}</span>
+      ${m.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(m.etapas)}</span>` : ''}
+      <span class="rotulo">${(m.tamanho / 1024 / 1024).toFixed(1)} MB · ${m.pronta === false ? '<span class="etiqueta aviso">a configurar</span>' : '<span class="etiqueta ok">✓ pronta</span>'}</span>
+      <div class="acoes" style="margin-top:8px"><button class="pequeno ${m.pronta === false ? 'primario' : ''}" data-editar="${esc(m.id)}">${m.pronta === false ? 'Configurar' : 'Editar'}</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
+    </div>`;
+  const cartaoAlbum = (a) => {
+    const itens = lista.filter((m) => m.albumId === a.id);
+    return `
+    <div class="pasta">
+      <div class="pasta-fotos">${itens.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>🗂️</span>'}</div>
+      <div class="pasta-info"><strong>${esc(a.nome)} <button type="button" class="codigo-chip" data-copiar="#${esc(a.codigo)}">#${esc(a.codigo)}</button></strong><span class="rotulo">${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'} · ${a.descricao ? `quando: ${esc(a.descricao)}` : '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>'}</span>${a.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(a.etapas)}</span>` : ''}</div>
+      <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-editar-album="${esc(a.id)}">Editar</button><button type="button" class="pequeno perigo" data-apagar-album="${esc(a.id)}">Apagar álbum</button></div>
+    </div>`;
+  };
+  function desenharBiblioteca() {
+    $('#abas-midia').innerHTML = Object.entries(grupos).map(([k, g]) => {
+      const n = k === 'albuns' ? albuns.length : lista.filter(g.filtro).length;
+      return `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-aba="${k}">${g.nome} <b>${n}</b></button>`;
+    }).join('');
+    $$('[data-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.aba; try { sessionStorage.setItem(`midias_aba_${id}`, aba); } catch { /* ok */ } selecionadas.clear(); desenharBiblioteca(); }; });
+    const grade = $('#grade-biblioteca');
+    if (aba === 'albuns') {
+      grade.innerHTML = `<p class="rotulo" style="margin:4px 0 12px">Álbum = várias mídias que a IA manda juntas (até 10). Selecione as mídias nas outras abas e use <b>Pôr no álbum</b>, ou crie aqui.</p>
+        <div class="acoes" style="margin:0 0 12px"><button type="button" class="primario pequeno" id="novo-album">+ Novo álbum</button></div>
+        <div class="lista-pastas">${albuns.map(cartaoAlbum).join('') || '<p class="rotulo">Nenhum álbum ainda.</p>'}</div>`;
+    } else {
+      const itens = lista.filter(grupos[aba].filtro);
+      grade.innerHTML = itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : 'Nenhuma aqui ainda.'}</p>`;
+    }
+    const barra = $('#barra-selecao');
+    barra.hidden = !selecionadas.size;
+    barra.innerHTML = `<b>${selecionadas.size} selecionada${selecionadas.size === 1 ? '' : 's'}</b>
+      <button type="button" class="pequeno primario" data-lote="pronta">✓ Marcar como prontas</button>
+      <button type="button" class="pequeno" data-lote="aConfigurar">Voltar para "a configurar"</button>
+      <select id="lote-album"><option value="">🗂️ Pôr no álbum…</option>${albuns.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('')}<option value="__novo">+ Novo álbum com elas</option><option value="__sem">Tirar do álbum</option></select>
+      <button type="button" class="pequeno perigo" data-lote="apagar">Apagar</button>
+      <button type="button" class="pequeno" id="limpar-sel">Desmarcar</button>`;
+    ligarBiblioteca();
+  }
+  async function lote(acao, extra = {}) {
+    if (acao === 'apagar' && !(await confirmar({ titulo: `Apagar ${selecionadas.size} mídia(s)?`, texto: 'A IA não vai mais conseguir enviá-las.', botao: 'Apagar', perigo: true }))) return;
+    try {
+      await api(`empresas/${id}/midias/lote`, { method: 'POST', body: { ids: [...selecionadas], acao, ...extra } });
+      aviso('Pronto.');
+      paginaMidias(id);
+    } catch (err) { aviso(err.message, true); }
+  }
+  function ligarBiblioteca() {
+    $$('[data-sel]').forEach((c) => { c.onchange = () => { if (c.checked) selecionadas.add(c.dataset.sel); else selecionadas.delete(c.dataset.sel); desenharBiblioteca(); }; });
+    $$('[data-lote]').forEach((b) => { b.onclick = () => lote(b.dataset.lote); });
+    $('#limpar-sel')?.addEventListener('click', () => { selecionadas.clear(); desenharBiblioteca(); });
+    $('#lote-album')?.addEventListener('change', (e) => {
+      const v = e.target.value;
+      if (!v) return;
+      if (v === '__novo') return modalAlbum(null, [...selecionadas]);
+      lote('album', { albumId: v === '__sem' ? '' : v });
+    });
+    $$('[data-copiar]').forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso(`Código ${b.dataset.copiar} copiado.`)).catch(() => aviso(b.dataset.copiar)); }; });
+    $$('[data-apagar]').forEach((b) => {
+      b.onclick = async () => {
+        if (!(await confirmar({ titulo: 'Apagar esta mídia?', texto: 'A IA não vai mais conseguir enviá-la.', botao: 'Apagar', perigo: true }))) return;
+        try {
+          await api(`empresas/${id}/midias/${b.dataset.apagar}`, { method: 'DELETE' });
+          paginaMidias(id);
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-editar]').forEach((b) => { b.onclick = () => modalMidia(lista.find((x) => x.id === b.dataset.editar)); });
+    $('#novo-album')?.addEventListener('click', () => modalAlbum(null, []));
+    $$('[data-editar-album]').forEach((b) => { b.onclick = () => modalAlbum(albuns.find((a) => a.id === b.dataset.editarAlbum), null); });
+    $$('[data-apagar-album]').forEach((b) => {
+      b.onclick = async () => {
+        if (!(await confirmar({ titulo: 'Apagar este álbum?', texto: 'As mídias dele continuam na biblioteca.', botao: 'Apagar álbum', perigo: true }))) return;
+        await api(`empresas/${id}/albuns/${b.dataset.apagarAlbum}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
+        paginaMidias(id);
+      };
+    });
+  }
+  // campos iguais para mídia e álbum: quando enviar + etapas
+  const camposQuando = (item) => `
+    <div class="campo" style="margin-top:12px"><label>Quando a IA deve enviar ${ajuda('Escreva como falaria para um funcionário. A IA segue isto à risca.')}</label><textarea name="descricao" rows="2" placeholder="Ex.: quando o cliente perguntar do volante de couro ou pedir fotos do acabamento">${esc(item?.descricao || '')}</textarea>
+      <small>Exemplos: <i>quando pedir o preço</i> · <i>logo depois de mandar o orçamento</i> · <i>quando perguntar onde fica a loja</i></small></div>
+    ${ETAPAS.length ? `<div class="campo" style="margin-top:12px"><label>Só enviar nestas etapas (opcional) ${ajuda('Nenhuma marcada = qualquer etapa. Marcada = a IA só manda quando o cliente estiver nessa etapa do funil.')}</label><div class="chips">${ETAPAS.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}" ${(item?.etapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}`;
+  const lerEtapas = (form) => [...form.querySelectorAll('input[name=etapa]:checked')].map((c) => c.value);
+  function modalMidia(m) {
+    abrirModal(`
+      <h2>${m.pronta === false ? 'Configurar mídia' : 'Editar mídia'}</h2>
+      <div class="midia-previa grande-previa">${previa(m)}</div>
+      <form id="f-ed-midia">
+        <div class="campos">
+          <div class="campo"><label>Nome</label><input name="nome" required value="${esc(m.nome)}"></div>
+          <div class="campo"><label>Código ${ajuda('É assim que a IA pede esta mídia, sem risco de mandar outra. Você também pode usar nas instruções da IA: "envie #CÓDIGO quando…".')}</label><input name="codigo" required value="${esc(m.codigo)}" style="text-transform:uppercase"></div>
+        </div>
+        ${camposQuando(m)}
+        <div class="campo" style="margin-top:12px"><label>Álbum</label><select name="albumId"><option value="">— nenhum —</option>${albuns.map((a) => `<option value="${esc(a.id)}" ${a.id === m.albumId ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
+        <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pronta" ${m.pronta === false ? '' : 'checked'}> <b>Pronta</b> — a IA já pode enviar</label>
+        <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+      </form>`, (modal, fechar) => {
+      $('#f-ed-midia', modal).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        if (f.elements.pronta.checked && !f.elements.descricao.value.trim() && !f.elements.albumId.value) {
+          if (!(await confirmar({ titulo: 'Sem "quando enviar"?', texto: 'Sem essa regra a IA decide sozinha quando mandar. Quer salvar assim mesmo?', botao: 'Salvar assim' }))) return;
+        }
+        try {
+          await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: lerEtapas(f), albumId: f.elements.albumId.value, pronta: f.elements.pronta.checked } });
+          fechar();
+          aviso('Mídia salva.');
+          paginaMidias(id);
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+  }
+  function modalAlbum(a, novasMidias) {
+    abrirModal(`
+      <h2>${a ? 'Editar álbum' : 'Novo álbum'}</h2>
+      <form id="f-album">
+        <div class="campos">
+          <div class="campo"><label>Nome do álbum</label><input name="nome" required value="${esc(a?.nome || '')}" placeholder="Ex.: Volantes em couro"></div>
+          <div class="campo"><label>Código ${ajuda('Vazio = o CRM cria a partir do nome.')}</label><input name="codigo" value="${esc(a?.codigo || '')}" placeholder="VOLANTES-COURO" style="text-transform:uppercase"></div>
+        </div>
+        ${camposQuando(a)}
+        ${novasMidias?.length ? `<p class="rotulo" style="margin-top:10px">${novasMidias.length} mídia(s) selecionada(s) entram neste álbum.</p>` : ''}
+        <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+      </form>`, (modal, fechar) => {
+      $('#f-album', modal).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const corpo = { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: lerEtapas(f), midias: novasMidias || [] };
+        try {
+          await api(a ? `empresas/${id}/albuns/${a.id}` : `empresas/${id}/albuns`, { method: a ? 'PUT' : 'POST', body: corpo });
+          fechar();
+          aviso('Álbum salvo.');
+          paginaMidias(id);
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+  }
+
+  // envio em massa: cada arquivo vai em pedaços (aceita vídeos grandes) e entra em "a configurar"
+  async function enviarArquivos(arquivos) {
+    const fila = $('#fila-envio');
+    const lista_ = [...arquivos];
+    fila.innerHTML = lista_.map((a, i) => `<div class="envio-item" id="envio-${i}"><span>${esc(a.name)}</span><span class="barra-envio"><span style="width:0%"></span></span><span class="rotulo" data-st>na fila</span></div>`).join('');
+    let ok = 0;
+    for (const [i, arq] of lista_.entries()) {
+      const linha = $(`#envio-${i}`);
+      const st = $('[data-st]', linha);
+      const barra = $('.barra-envio span', linha);
+      try {
+        if (arq.size > 64 * 1024 * 1024) throw new Error('maior que 64 MB');
+        const ini = await api(`empresas/${id}/midias/envio`, { method: 'POST', body: { arquivo: arq.name, tamanho: arq.size, tipo: arq.type || '' } });
+        for (let pos = 0; pos < arq.size; pos += ini.pedaco) {
+          const parte = arq.slice(pos, pos + ini.pedaco);
+          let tentativa = 0;
+          for (;;) {
+            const r = await fetch(`api/empresas/${id}/midias/envio/${ini.envioId}/parte?pos=${pos}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: parte }).catch((err) => ({ ok: false, erro: err }));
+            if (r.ok) break;
+            if (++tentativa >= 3) throw new Error(r.status === 413 ? 'o servidor recusou o pedaço (limite do Nginx)' : 'a conexão caiu');
+            await new Promise((ok_) => setTimeout(ok_, 1000 * tentativa));
+          }
+          const feito = Math.min(arq.size, pos + ini.pedaco);
+          barra.style.width = `${Math.round((feito / arq.size) * 100)}%`;
+          st.textContent = `${Math.round((feito / arq.size) * 100)}%`;
+        }
+        await api(`empresas/${id}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
+        st.textContent = '✓ enviado';
+        linha.classList.add('ok');
+        ok++;
+      } catch (err) {
+        st.textContent = `✕ ${err.message}`;
+        linha.classList.add('erro');
+      }
+    }
+    aviso(`${ok} de ${lista_.length} arquivo(s) enviados. Agora configure em "A configurar".`, ok < lista_.length);
+    try { sessionStorage.setItem(`midias_aba_${id}`, 'configurar'); } catch { /* ok */ }
+    setTimeout(() => { if (location.hash === hashDaPagina) paginaMidias(id); }, ok < lista_.length ? 4000 : 800);
+  }
+  $('#mais-midias').onchange = (e) => { if (e.target.files.length) enviarArquivos(e.target.files); };
   const zona = $('#soltar');
   zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('arrastando'); };
   zona.ondragleave = () => zona.classList.remove('arrastando');
   zona.ondrop = (e) => {
     e.preventDefault();
     zona.classList.remove('arrastando');
-    if (e.dataTransfer.files[0]) { entrada.files = e.dataTransfer.files; entrada.onchange(); }
+    if (e.dataTransfer.files.length) enviarArquivos(e.dataTransfer.files);
   };
-  f.onsubmit = async (e) => {
-    e.preventDefault();
-    const arquivo = entrada.files[0];
-    if (!arquivo) return;
-    if (arquivo.size > 16 * 1024 * 1024) return aviso('Arquivo maior que 16 MB (limite do WhatsApp).', true);
-    try {
-      await comEspera(f.querySelector('button[type=submit]'), async () => {
-        const qs = new URLSearchParams({ arquivo: arquivo.name, nome: f.elements.nome.value, descricao: f.elements.descricao.value, tipo: arquivo.type || '' });
-        const r = await fetch(`api/empresas/${id}/midias?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arquivo });
-        const dados = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(dados.erro || (r.status === 413 ? 'Arquivo grande demais para o servidor.' : `Erro ${r.status}`));
-      }, 'Enviando…');
-      aviso('Mídia adicionada.');
-      paginaMidias(id);
-    } catch (err) { aviso(err.message, true); }
-  };
-  $$('[data-apagar]').forEach((b) => {
-    b.onclick = async () => {
-      if (!(await confirmar({ titulo: 'Apagar esta mídia?', texto: 'A IA não vai mais conseguir enviá-la.', botao: 'Apagar', perigo: true }))) return;
-      try {
-        await api(`empresas/${id}/midias/${b.dataset.apagar}`, { method: 'DELETE' });
-        paginaMidias(id);
-      } catch (err) { aviso(err.message, true); }
-    };
-  });
-  $$('[data-editar]').forEach((b) => {
-    b.onclick = () => {
-      const m = lista.find((x) => x.id === b.dataset.editar);
-      abrirModal(`
-        <h2>Editar mídia</h2>
-        <form id="f-ed-midia">
-          <div class="campo"><label>Nome</label><input name="nome" required value="${esc(m.nome)}"></div>
-          <div class="campo" style="margin-top:12px"><label>Quando a IA deve mandar</label><input name="descricao" value="${esc(m.descricao)}"></div>
-          <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
-        </form>`, (modal, fechar) => {
-        $('#f-ed-midia', modal).onsubmit = async (e) => {
-          e.preventDefault();
-          try {
-            await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: formParaObjeto(e.target) });
-            fechar();
-            paginaMidias(id);
-          } catch (err) { aviso(err.message, true); }
-        };
-      });
-    };
-  });
+  zona.onclick = (e) => { e.preventDefault(); $('#mais-midias').click(); };
+  desenharBiblioteca();
 }
 
 // ---------------------------------------------------------------- empresa: etiquetas e etapas
@@ -1519,8 +1724,8 @@ async function paginaOrganizar(id) {
 
 async function paginaChave(id) {
   const hashDaPagina = location.hash;
-  const emp = await definirEmpresaAtual(id);
-  const bloco = (provedor, campo, onde, dica, passosCriar, recomendado) => {
+  const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
+  const bloco = (provedor, campo, dica, passosCriar, extra = '') => {
     const c = emp.chaves[provedor];
     const situacao = c.propria
       ? `<span class="etiqueta ok">✓ Chave cadastrada</span> <span class="rotulo">termina em ${esc(c.final)}</span>`
@@ -1529,7 +1734,7 @@ async function paginaChave(id) {
         : '<span class="etiqueta off">Sem chave</span>';
     return `
       <div class="card">
-        <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${NOME_PROVEDOR[provedor]} ${recomendado ? '<span class="etiqueta ok">mais fácil</span>' : ''}</h2>${situacao}</div>
+        <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${NOME_PROVEDOR[provedor]} ${extra}</h2>${situacao}</div>
         <details ${c.propria ? '' : 'open'}><summary>Como conseguir a chave</summary>${passos(passosCriar)}</details>
         <form data-provedor="${provedor}" style="margin-top:12px">
           <div class="campo"><label>${c.propria ? 'Trocar chave' : 'Cole a chave aqui'}</label><input name="${campo}" type="password" autocomplete="off" placeholder="${esc(dica)}"></div>
@@ -1541,20 +1746,99 @@ async function paginaChave(id) {
         </form>
       </div>`;
   };
+  // posições atuais (sem ordem salva: começa pela IA do assistente)
+  const motores = emp.motores?.length ? emp.motores : bot ? [{ ordem: 1, provedor: bot.provedor || 'anthropic', modelo: bot.modelo, chavePropria: false }] : [];
+  const ROTULO_POS = ['1ª IA — principal', '2ª IA — reserva', '3ª IA — reserva'];
+  const linhaMotor = (i) => {
+    const m = motores[i] || {};
+    return `
+      <div class="motor" data-i="${i}">
+        <div class="motor-topo"><b>${ROTULO_POS[i]}</b>${m.provedor ? `<button type="button" class="pequeno" data-testar-motor="${i}" ${emp.motores?.[i] ? '' : 'disabled title="Salve primeiro"'}>Testar</button>` : ''}</div>
+        <div class="campos">
+          <div class="campo"><label>IA</label><select data-prov>${i ? '<option value="">— nenhuma —</option>' : ''}${['anthropic', 'openai', 'gemini'].map((p) => `<option value="${p}" ${p === m.provedor ? 'selected' : ''}>${NOME_PROVEDOR[p]}${emp.chaves?.[p]?.funciona ? '' : ' — sem chave'}</option>`).join('')}</select></div>
+          <div class="campo"><label>Modelo</label><select data-mod><option value="${esc(m.modelo || '')}">${esc(m.modelo || '—')}</option></select><small data-aviso></small></div>
+        </div>
+        <details class="chave-posicao" ${m.chavePropria ? 'open' : ''}><summary>Usar outra chave nesta posição (opcional)</summary>
+          <p class="rotulo" style="margin:6px 0">Ex.: uma 2ª conta do Claude como reserva. Vazio = usa a chave da empresa para esta IA (cadastrada abaixo).</p>
+          <input type="password" data-chave autocomplete="off" placeholder="${m.chavePropria ? `salva — termina em ${esc(m.chaveFinal)} (deixe vazio para manter)` : 'cole a chave desta posição'}">
+          ${m.chavePropria ? '<label class="linha-check" style="margin-top:6px"><input type="checkbox" data-remover-chave> Tirar a chave própria desta posição</label>' : ''}
+        </details>
+      </div>`;
+  };
+  const u = emp.usoHoje || {};
+  const reserva = emp.iaReserva;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Chave de IA</h1><p class="sub">O "motor" das suas IAs</p></div></div>
-    ${balao('Basta uma chave', 'Cadastre a do <b>Gemini</b> <u>ou</u> a do <b>Claude</b>. O custo das conversas fica na conta da sua empresa (o Gemini tem uma faixa gratuita para começar). A chave fica guardada só no servidor e nunca aparece no site.')}
-    ${bloco('gemini', 'geminiApiKey', 'https://aistudio.google.com/apikey', 'AIza…', [
+    <div class="cabecalho"><div><h1>IAs e chaves</h1><p class="sub">Qual IA responde seus clientes — e quem assume se ela falhar</p></div></div>
+    ${balao('Como funciona', passos([
+      'Cadastre a chave de <b>pelo menos uma</b> IA (lá embaixo). Quanto mais chaves, mais seguro.',
+      'Escolha a ordem: a <b>1ª</b> responde sempre. Se ela falhar (acabou o crédito, chave errada, fora do ar), a <b>2ª</b> responde na hora, e depois a <b>3ª</b>. O cliente não percebe.',
+      'Quando uma reserva precisar entrar, o CRM avisa você no sininho 🔔 (e no WhatsApp de avisos, se tiver).'
+    ]))}
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧠 Ordem das IAs</h2>${emp.motores?.length ? `<span class="etiqueta ok">${emp.motores.length} ${emp.motores.length === 1 ? 'IA' : 'IAs'} em ordem</span>` : '<span class="etiqueta aviso">escolha e salve</span>'}</div>
+      <div id="motores">${[0, 1, 2].map(linhaMotor).join('')}</div>
+      <div class="acoes"><button type="button" class="primario" id="salvar-motores">Salvar ordem</button></div>
+      ${reserva ? `<p class="rotulo" style="margin:10px 0 0">Última vez que a reserva entrou: ${data(reserva.em)} — respondeu a ${esc(reserva.usou)}. Motivo: ${esc((reserva.falhas || []).join('; '))}</p>` : ''}
+    </div>
+    <div class="card">
+      <h2 style="margin:0 0 8px">📊 Gasto de hoje</h2>
+      <div class="grade-resumo" style="margin:0">
+        ${numeroCard('Tokens hoje', numeroCurto(u.total))}
+        ${numeroCard('Chamadas à IA', (u.chamadas || 0).toLocaleString('pt-BR'))}
+        ${numeroCard('Vindos do cache (≈90% mais barato)', numeroCurto(u.cache))}
+      </div>
+      <p class="rotulo" style="margin:10px 0 0">${Object.entries(u.porIa || {}).map(([p, n]) => `${NOME_IA_CURTO[p] || p}: ${numeroCurto(n)}`).join(' · ') || 'Nenhuma chamada hoje ainda.'} ${ajuda('Token é a unidade que as IAs cobram (≈ 4 letras). O CRM já economiza: a parte fixa das instruções fica em cache, comprovantes são lidos sem IA e fotos/comprovantes usam o modelo mais barato.')}</p>
+    </div>
+    <h2 style="margin-top:24px">🔑 Chaves das IAs</h2>
+    ${bloco('gemini', 'geminiApiKey', 'AIza…', [
       'Entre em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> com a sua conta Google.',
       'Clique em <b>Create API key</b> (Criar chave de API).',
       'Copie a chave (começa com <code>AIza</code>) e cole aqui embaixo.'
-    ], true)}
-    ${bloco('anthropic', 'anthropicApiKey', 'https://console.anthropic.com', 'sk-ant-…', [
+    ], '<span class="etiqueta ok">tem faixa grátis · ouve áudio</span>')}
+    ${bloco('anthropic', 'anthropicApiKey', 'sk-ant-…', [
       'Entre em <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> e crie a conta.',
       'Em <b>Billing</b>, adicione créditos. Em <b>API Keys</b>, clique em <b>Create Key</b>.',
       'Copie a chave (começa com <code>sk-ant-</code>) e cole aqui embaixo.'
-    ], false)}`;
+    ])}
+    ${bloco('openai', 'openaiApiKey', 'sk-…', [
+      'Entre em <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> e crie a conta.',
+      'Em <b>Billing</b>, adicione créditos. Depois clique em <b>Create new secret key</b>.',
+      'Copie a chave (começa com <code>sk-</code>) e cole aqui embaixo.'
+    ], '<span class="etiqueta">ouve áudio</span>')}`;
+
+  // posições: modelo depende da IA escolhida
+  $$('.motor').forEach((el) => {
+    const prov = $('[data-prov]', el);
+    const mod = $('[data-mod]', el);
+    const mostrar = () => { mod.closest('.campo').hidden = !prov.value; };
+    if (prov.value) ligarSeletorModelo(null, id, prov, mod, $('[data-aviso]', el));
+    prov.addEventListener('change', () => { mostrar(); if (prov.value && !prov.dataset.ligado) { prov.dataset.ligado = '1'; ligarSeletorModelo(null, id, prov, mod, $('[data-aviso]', el)); } });
+    if (prov.value) prov.dataset.ligado = '1';
+    mostrar();
+  });
+  $('#salvar-motores').onclick = async (e) => {
+    const lista = $$('.motor').map((el) => ({
+      provedor: $('[data-prov]', el).value,
+      modelo: $('[data-mod]', el).value,
+      chave: $('[data-chave]', el).value.trim(),
+      removerChave: $('[data-remover-chave]', el)?.checked || false
+    })).filter((m) => m.provedor);
+    if (!lista.length) return aviso('Escolha pelo menos a 1ª IA.', true);
+    try {
+      await comEspera(e.target, () => api(`empresas/${id}/motores`, { method: 'PUT', body: { motores: lista } }), 'Salvando…');
+      aviso('Ordem das IAs salva.');
+      paginaChave(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-testar-motor]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        const r = await comEspera(b, () => api(`empresas/${id}/motores/testar`, { method: 'POST', body: { indice: Number(b.dataset.testarMotor) } }), 'Testando…');
+        aviso(r.mensagem);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
 
   $$('form[data-provedor]').forEach((f) => {
     const provedor = f.dataset.provedor;
@@ -1572,10 +1856,9 @@ async function paginaChave(id) {
       try {
         await comEspera(f.querySelector('button[type=submit]'), async () => {
           await api(`empresas/${id}/chaves`, { method: 'PUT', body: dados });
-          // se o assistente usa a outra IA e ela não tem chave, troca para esta
-          const bot = await principalDa(id);
-          if (bot && !emp.chaves[bot.provedor]?.funciona && bot.provedor !== provedor) {
-            await api(`bots/${bot.id}`, { method: 'PUT', body: { provedor } });
+          // primeira chave da empresa: esta IA vira a principal
+          if (!emp.motores?.length && bot && !emp.chaves[bot.provedor]?.funciona) {
+            await api(`empresas/${id}/motores`, { method: 'PUT', body: { motores: [{ provedor }] } });
           }
           await testar();
         }, 'Testando…');
@@ -1584,7 +1867,7 @@ async function paginaChave(id) {
     };
     $('[data-testar]', f)?.addEventListener('click', testar);
     $('[data-remover]', f)?.addEventListener('click', async () => {
-      if (!(await confirmar({ titulo: 'Remover a chave?', texto: 'Se a IA usar esta chave, ela para de responder.', botao: 'Remover', perigo: true }))) return;
+      if (!(await confirmar({ titulo: 'Remover a chave?', texto: 'Se a IA usar esta chave, ela para de responder (a reserva assume, se tiver).', botao: 'Remover', perigo: true }))) return;
       try {
         await api(`empresas/${id}/chaves`, { method: 'PUT', body: { remover: [provedor] } });
         recarregar();
@@ -1816,6 +2099,7 @@ async function paginaLead(leadId) {
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
+        ${htmlPedidos(l)}
         <div class="conversa" id="linha-tempo">
           ${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens ainda.</p>'}
         </div>
@@ -1858,6 +2142,7 @@ async function paginaLead(leadId) {
   $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
   $('#registrar-venda').onclick = () => modalVenda({ id: l.empresaId }, null, l.id, () => paginaLead(leadId), { cliente: l.nome });
   $('#marcar-agendamento').onclick = () => modalAgendamento(l.id, () => paginaLead(leadId));
+  ligarPedidos(conteudo, l, () => paginaLead(leadId));
   ligarCancelarAgendamento(conteudo, l.id, () => paginaLead(leadId));
   $$('[data-tag]').forEach((b) => {
     b.onclick = () => {
@@ -2194,7 +2479,7 @@ function htmlTicket(t) {
   const quando = (iso) => quandoBrasilia(iso);
   const hora = new Date(t.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   if (t.tipo === 'venda') {
-    const quem = t.origem === 'ia' ? 'entendida pela IA' : t.origem === 'comprovante' ? `comprovante ${esc(t.forma || 'Pix')}` : 'registrada pela equipe';
+    const quem = t.origem === 'ia' ? `entendida pela IA${t.forma === 'Dinheiro' ? ' · recebida em dinheiro' : ''}` : t.origem === 'comprovante' ? `comprovante ${esc(t.forma || 'Pix')}` : `registrada pela equipe${t.forma ? ` · ${esc(t.forma)}` : ''}`;
     return `<div class="wa-ticket venda${t.status === 'conferir' ? ' conferir' : ''}" role="note">
       <span class="ticket-icone" aria-hidden="true">✅</span>
       <div class="ticket-corpo"><b>VENDA CONCLUÍDA</b><span class="ticket-info">${t.valor ? brl(t.valor) : 'valor a informar'}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
@@ -2238,6 +2523,38 @@ function htmlConversa(mensagens, leadId, tickets = []) {
   }
   avisosAte(null);
   return html;
+}
+
+// Depois da venda: botões para pedir a avaliação do Google e o comentário no anúncio
+function htmlPedidos(l) {
+  const vendeu = (l.tickets || []).some((t) => t.tipo === 'venda');
+  if (!vendeu || !l.podeReceber) return '';
+  const botao = (tipo, rotulo, temLink) => {
+    const ja = l.pedidos?.[tipo];
+    return `<button type="button" class="pequeno ${ja ? '' : 'primario'}" data-pedido="${tipo}" ${temLink ? '' : 'title="Salve o link na Máquina de vendas"'}>${rotulo}</button>${ja ? `<span class="rotulo">✓ já pedido ${esc(data(ja))}</span>` : ''}`;
+  };
+  return `<div class="chat-pedidos">✅ <b>Venda concluída.</b> ${botao('avaliacao', '⭐ Pedir avaliação no Google', l.temLinkAvaliacao)} ${botao('comentario', '💬 Pedir comentário no anúncio', l.temLinkAnuncio)}</div>`;
+}
+
+function ligarPedidos(raiz, l, depois) {
+  $$('[data-pedido]', raiz).forEach((b) => {
+    b.onclick = async () => {
+      const tipo = b.dataset.pedido;
+      const nome = tipo === 'avaliacao' ? 'a avaliação no Google' : 'o comentário no anúncio';
+      let forcar = false;
+      if (l.pedidos?.[tipo]) {
+        if (!(await confirmar({ titulo: 'Já foi pedido', texto: `Este cliente já recebeu o pedido d${tipo === 'avaliacao' ? 'a avaliação' : 'o comentário'} em ${data(l.pedidos[tipo])}. Mandar de novo?`, botao: 'Mandar de novo' }))) return;
+        forcar = true;
+      }
+      try {
+        await comEspera(b, () => api(`leads/${l.id}/pedido`, { method: 'POST', body: { tipo, forcar } }), 'Enviando…');
+        aviso(`Pedido d${tipo === 'avaliacao' ? 'a avaliação' : 'o comentário'} enviado.`);
+        depois?.();
+      } catch (err) {
+        aviso(err.status === 409 ? `Já foi pedido ${nome}.` : err.message, true);
+      }
+    };
+  });
 }
 
 // Marcar agendamento pela equipe
@@ -2314,7 +2631,8 @@ async function paginaConversas(id, params) {
         <div class="inbox-filtros">
           <button type="button" class="chip-filtro ativo" data-filtro="todas">Todas</button>
           <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
-          <button type="button" class="chip-filtro" data-filtro="equipe">Esperando você</button>
+          <button type="button" class="chip-filtro" data-filtro="vendas">✅ Vendas concluídas</button>
+          <button type="button" class="chip-filtro" data-filtro="arquivadas" title="Arquivadas ou apagadas no WhatsApp">🗄️</button>
         </div>
         <div id="lista-conversas" class="lista-conversas"><p class="rotulo" style="padding:16px">Carregando…</p></div>
       </aside>
@@ -2357,8 +2675,11 @@ async function paginaConversas(id, params) {
         <div class="chat-quem"><strong>${esc(nomeDoLead(l))}</strong><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'} · <a href="#/leads/${esc(l.id)}">ver lead</a></span></div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
+        <button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
       </header>
+      ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
+      ${htmlPedidos(l)}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
@@ -2429,6 +2750,17 @@ async function paginaConversas(id, params) {
   }
 
   function ligarChat() {
+    $('#chat-arquivar')?.addEventListener('click', async (e) => {
+      const arquivar = !leadAberto.arquivado;
+      try {
+        const r = await comEspera(e.target, () => api(`leads/${abertoId}/arquivar`, { method: 'POST', body: { arquivar } }));
+        aviso(arquivar ? `Conversa arquivada${r.noCelular ? ' (no WhatsApp também)' : ''}.` : 'Conversa de volta na lista.');
+        assinaturaAberta = '';
+        await recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
+    ligarPedidos($('#inbox-chat'), leadAberto, () => { assinaturaAberta = ''; recarregarAberto(); });
     ligarCancelarAgendamento($('#inbox-chat'), abertoId, () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); });
     $('#voltar-lista')?.addEventListener('click', () => {
       abertoId = '';
@@ -2637,14 +2969,18 @@ async function paginaConversas(id, params) {
 
 async function modalRespostasRapidas(emp, aoEscolher) {
   let lista = (emp.respostasRapidas || []).map((r) => ({ ...r }));
-  const todas = await api(`empresas/${emp.id}/midias`).catch(() => []);
+  const [todas, albunsRr] = await Promise.all([api(`empresas/${emp.id}/midias`).catch(() => []), api(`empresas/${emp.id}/albuns`).catch(() => [])]);
+  // a mídia é escolhida pelo CÓDIGO (nunca manda a errada, mesmo se renomear)
   const opcoesMidia = [
-    ...(emp.drivePastas || []).filter((p) => p.total).map((p) => ({ nome: p.nome, rotulo: `📁 ${p.nome} (álbum)` })),
-    ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.nome, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome}` }))
+    ...albunsRr.filter((a) => a.quantidade).map((a) => ({ nome: a.codigo, rotulo: `🗂️ ${a.nome} (álbum) · #${a.codigo}` })),
+    ...(emp.drivePastas || []).filter((p) => p.total).map((p) => ({ nome: p.codigo || p.nome, rotulo: `📁 ${p.nome} (Drive) · #${p.codigo || ''}` })),
+    ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.codigo, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome} · #${m.codigo}` }))
   ];
+  const casa = (o, r) => o.nome === r.midia || o.rotulo.includes(` ${r.midia} `);
   abrirModal(`
     <h2>Respostas rápidas</h2>
     ${balao('Texto + foto/catálogo com um atalho', `Ex.: <b>/preco</b> manda a tabela de preços, <b>/catalogo</b> manda o álbum de fotos. Use aqui na aba Conversas${emp.atalhosNoCelular !== false ? ' <b>e também no WhatsApp do celular</b>: digite <b>/preco</b> na conversa do cliente e o CRM troca pelo texto + mídia' : ''}.`)}
+    ${balao('E as respostas rápidas que já estão no WhatsApp Business?', 'Elas ficam guardadas só no celular — o WhatsApp não deixa nenhum sistema ler (nem o CRM, nem a Evolution). Recrie aqui <b>com o mesmo atalho</b>: aí elas funcionam no celular e no CRM, e ainda mandam foto/vídeo pelo código. Pode apagar as antigas do WhatsApp Business para não duplicar.', 'aviso')}
     <label class="linha-check" style="margin-bottom:12px"><input type="checkbox" id="atalhos-celular" ${emp.atalhosNoCelular !== false ? 'checked' : ''}> Funcionar também quando eu digitar o atalho no WhatsApp do celular ${ajuda('Você digita só "/preco" na conversa do cliente, no seu celular. O CRM apaga esse "/preco" e manda no lugar o texto e a mídia cadastrados.')}</label>
     <div id="lista-rapidas" class="lista-editavel"></div>
     <div class="acoes"><button type="button" id="add-rapida">+ Nova resposta</button><button type="button" class="primario" id="salvar-rapidas">Salvar</button><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
@@ -2653,8 +2989,10 @@ async function modalRespostasRapidas(emp, aoEscolher) {
         <div class="rapida">
           <div class="linha-editavel"><span class="rotulo">/</span><input value="${esc(r.atalho)}" data-atalho="${i}" placeholder="atalho (ex.: preco)" maxlength="30">${aoEscolher ? `<button type="button" class="pequeno" data-usar="${i}">Usar</button>` : ''}<button type="button" class="pequeno perigo" data-tirar="${i}">✕</button></div>
           <textarea data-texto="${i}" placeholder="Texto (opcional se tiver mídia)">${esc(r.texto || '')}</textarea>
-          <select data-midia="${i}"><option value="">Sem mídia</option>${opcoesMidia.map((o) => `<option value="${esc(o.nome)}" ${o.nome === r.midia ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select>
+          <select data-midia="${i}"><option value="">Sem mídia</option>${opcoesMidia.map((o) => `<option value="${esc(o.nome)}" ${casa(o, r) ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select>
+          <input data-quando="${i}" value="${esc(r.quando || '')}" placeholder="Quando usar (lembrete para a equipe — ex.: quando pedirem o preço)" maxlength="200">
         </div>`).join('') || '<p class="rotulo">Nenhuma resposta rápida ainda.</p>';
+      $$('[data-quando]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.quando].quando = el.value; }; });
       $$('[data-atalho]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.atalho].atalho = el.value; }; });
       $$('[data-texto]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.texto].texto = el.value; }; });
       $$('[data-midia]', m).forEach((el) => { el.onchange = () => { lista[el.dataset.midia].midia = el.value; }; });
@@ -2689,6 +3027,7 @@ async function modalRespostasRapidas(emp, aoEscolher) {
 function descreverGatilho(r) {
   const h = r.gatilho.horas;
   const tempo = h % 24 === 0 ? `${h / 24} ${h / 24 === 1 ? 'dia' : 'dias'}` : `${h} ${h === 1 ? 'hora' : 'horas'}`;
+  if (r.gatilho.tipo === 'venda') return `${tempo} depois da venda confirmada (Pix, IA ou equipe)`;
   return r.gatilho.tipo === 'sem_resposta'
     ? `Quando o cliente não responde há ${tempo}`
     : `${tempo} depois de o lead entrar em "${r.gatilho.etapa}"`;
@@ -2731,6 +3070,7 @@ async function paginaAutomacoes(id) {
             ${interruptor(`regra-${r.id}`, r.ativa)}
           </div>
           ${r.explicacao ? `<p class="rotulo" style="margin:8px 0 0">${esc(r.explicacao)}</p>` : ''}
+          ${r.gatilho.tipo === 'venda' ? `<label class="linha-antigos">Mandar também para quem já comprou antes de ligar: <select data-antigos="${esc(r.id)}">${[[0, 'não, só vendas novas'], [30, 'sim, vendas dos últimos 30 dias'], [90, 'sim, últimos 90 dias'], [365, 'sim, último ano']].map(([v, n]) => `<option value="${v}" ${Number(r.incluirAntigosDias || 0) === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
           <div class="automacao-numeros">
             <span><b>${r.numeros.leadsAtingidos}</b> clientes receberam</span>
             <span><b>${r.numeros.responderam}</b> responderam</span>
@@ -2793,6 +3133,15 @@ async function paginaAutomacoes(id) {
     };
   });
   $$('[data-editar]').forEach((b) => { b.onclick = () => modalAutomacao(emp, d.regras.find((r) => r.id === b.dataset.editar), () => paginaAutomacoes(id)); });
+  $$('[data-antigos]').forEach((sel) => {
+    sel.onchange = async () => {
+      try {
+        await api(`empresas/${id}/automacoes/${sel.dataset.antigos}`, { method: 'PUT', body: { incluirAntigosDias: Number(sel.value) } });
+        aviso(Number(sel.value) ? 'Quem já comprou entra na fila (aos poucos, no horário comercial).' : 'Só vendas novas.');
+        paginaAutomacoes(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
   $('#nova-regra').onclick = () => modalAutomacao(emp, null, () => paginaAutomacoes(id));
 }
 
@@ -2805,7 +3154,7 @@ async function modalAutomacao(emp, r, depois) {
     <form id="f-regra">
       <div class="campo"><label>Nome</label><input name="nome" required value="${esc(r?.nome || '')}" placeholder="Ex.: Lembrar orçamento enviado"></div>
       <div class="campo" style="margin-top:12px"><label>Quando enviar</label>
-        <select name="tipo"><option value="sem_resposta" ${r?.gatilho.tipo !== 'etapa' ? 'selected' : ''}>Quando o cliente não responde há…</option><option value="etapa" ${r?.gatilho.tipo === 'etapa' ? 'selected' : ''}>Depois que o lead entra numa etapa…</option></select>
+        <select name="tipo"><option value="sem_resposta" ${!r || r.gatilho.tipo === 'sem_resposta' ? 'selected' : ''}>Quando o cliente não responde há…</option><option value="venda" ${r?.gatilho.tipo === 'venda' ? 'selected' : ''}>Depois da venda confirmada (comprovante, IA ou equipe)…</option><option value="etapa" ${r?.gatilho.tipo === 'etapa' ? 'selected' : ''}>Depois que o lead entra numa etapa…</option></select>
       </div>
       <div class="campos" style="margin-top:12px">
         <div class="campo"><label>Tempo</label><div class="linha-form"><input type="number" name="quantidade" min="1" value="${emDias ? horas / 24 : horas}"><select name="unidade" style="width:auto"><option value="h" ${emDias ? '' : 'selected'}>horas</option><option value="d" ${emDias ? 'selected' : ''}>dias</option></select></div></div>
@@ -2910,11 +3259,13 @@ function gradeEmpresas(lista) {
             <div><span class="rotulo">Faturamento no mês</span><b>${brl(e.faturamentoMes)}</b></div>
             <div><span class="rotulo">Leads (7 dias)</span><b>${e.leads7d || 0}</b></div>
             <div><span class="rotulo">Não lidas</span><b>${e.naoLidas || 0}</b></div>
+            <div><span class="rotulo">Tokens de IA hoje</span><b>${numeroCurto(e.usoHoje?.total)}</b></div>
           </div>
           <div class="cartao-empresa-rodape">
             <span class="etiqueta ${e.canais?.site ? 'ok' : ''}">🌐 Site ${e.canais?.site ? 'ligado' : 'desligado'}</span>
             <span class="etiqueta ${e.canais?.whatsapp && e.whatsapp?.configurado ? 'ok' : ''}">🟢 WhatsApp ${e.whatsapp?.configurado ? (e.canais?.whatsapp ? 'ligado' : 'desligado') : 'não conectado'}</span>
             ${e.ativa === false ? '<span class="etiqueta off">Pausada</span>' : ''}
+            ${(e.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="etiqueta off">⚠️ precisa de atenção</span>' : ''}${e.alertasNaoLidos ? `<span class="etiqueta aviso">🔔 ${e.alertasNaoLidos}</span>` : ''}
           </div>
         </a>`).join('')}
       ${ehAdmin() ? '<button type="button" class="cartao-empresa nova-empresa" id="nova-cartao"><span class="mais">+</span><strong>Nova empresa</strong><span class="rotulo">Cadastre um cliente e configure em minutos</span></button>' : ''}
@@ -3137,7 +3488,7 @@ async function paginaAprendizado(id) {
     ${balao('Como funciona', `${passos([
       'Todo dia às <b>8h</b> (ou quando você clicar em <b>Varrer agora</b>) a IA lê as conversas do WhatsApp.',
       'Da primeira vez ela lê o histórico; depois, <b>só as mensagens novas</b>. Conversa com <b>venda concluída</b> é lida uma última vez e depois não é mais lida.',
-      'Ela anota como <b>você</b> atende: jeito de falar, perguntas, preços que você passa, como responde objeções e como fecha — sem guardar dados pessoais dos clientes.',
+      'Ela estuda <b>só as conversas que deram venda</b> (comprovante, venda marcada ou lead em "Fechado") e anota o que funcionou: jeito de falar, perguntas, preços, como respondeu objeções e como fechou — sem guardar dados pessoais. Conversa que não vendeu fica de fora.',
       'A IA do WhatsApp e a do site usam esse arquivo para atender cada vez mais parecido com você. Você pode ler, corrigir ou desligar.'
     ])}`)}
 
@@ -3154,6 +3505,8 @@ async function paginaAprendizado(id) {
       ${interruptor('diario', a.diario, 'Varrer sozinho todo dia às 8h')}
       <div style="height:10px"></div>
       ${interruptor('usar', a.usarNoPrompt, 'A IA usa estes aprendizados para atender')}
+      <div style="height:10px"></div>
+      ${interruptor('somente-vendas', a.somenteVendas !== false, 'Aprender só com conversas que deram venda (recomendado)')}
     </div>
 
     <form class="card" id="f-aprendizado">
@@ -3167,7 +3520,7 @@ async function paginaAprendizado(id) {
     <div class="card tabela-wrap">
       <table>
         <thead><tr><th>Quando</th><th>Como</th><th>Conversas lidas</th><th class="esconde-mobile">Mensagens</th><th>Situação</th></tr></thead>
-        <tbody>${a.historico.map((h) => `<tr><td>${data(h.em)}</td><td class="rotulo">${esc(h.motivo)}</td><td>${h.conversas}${h.concluidasIgnoradas ? ` <span class="rotulo">(+${h.concluidasIgnoradas} concluídas puladas)</span>` : ''}</td><td class="esconde-mobile">${h.mensagens}</td><td>${h.status === 'ok' ? '<span class="etiqueta ok">✓ ok</span>' : `<span class="etiqueta off">erro</span> <span class="rotulo">${esc(h.erro)}</span>`}${h.pendentes ? ` <span class="rotulo">· ${h.pendentes} para a próxima</span>` : ''}</td></tr>`).join('')}</tbody>
+        <tbody>${a.historico.map((h) => `<tr><td>${data(h.em)}</td><td class="rotulo">${esc(h.motivo)}</td><td>${h.conversas}${h.concluidasIgnoradas ? ` <span class="rotulo">(+${h.concluidasIgnoradas} já estudadas)</span>` : ''}${h.semVenda ? ` <span class="rotulo">· ${h.semVenda} sem venda ignoradas</span>` : ''}</td><td class="esconde-mobile">${h.mensagens}</td><td>${h.status === 'ok' ? '<span class="etiqueta ok">✓ ok</span>' : `<span class="etiqueta off">erro</span> <span class="rotulo">${esc(h.erro)}</span>`}${h.pendentes ? ` <span class="rotulo">· ${h.pendentes} para a próxima</span>` : ''}</td></tr>`).join('')}</tbody>
       </table>
     </div>` : ''}
 
@@ -3188,6 +3541,7 @@ async function paginaAprendizado(id) {
   });
   $('#diario').onchange = (e) => api(`empresas/${id}/aprendizado`, { method: 'PUT', body: { diario: e.target.checked } }).then(() => aviso(e.target.checked ? 'Vai varrer todo dia às 8h.' : 'Varredura diária desligada.')).catch((err) => aviso(err.message, true));
   $('#usar').onchange = (e) => api(`empresas/${id}/aprendizado`, { method: 'PUT', body: { usarNoPrompt: e.target.checked } }).then(() => aviso(e.target.checked ? 'A IA vai usar os aprendizados.' : 'A IA não vai usar os aprendizados.')).catch((err) => aviso(err.message, true));
+  $('#somente-vendas').onchange = (e) => api(`empresas/${id}/aprendizado`, { method: 'PUT', body: { somenteVendas: e.target.checked } }).then(() => aviso(e.target.checked ? 'Só conversas com venda.' : 'Todas as conversas.')).catch((err) => aviso(err.message, true));
   $('#f-aprendizado').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -3308,9 +3662,22 @@ async function montarSiteDaEmpresa(id, alvo) {
   }
   if (location.hash !== aqui || !alvo.isConnected) return;
   const tudoPouco = s.paginas.length > 0 && s.paginas.every((p) => p.poucoTexto);
+  const algumasPoucas = s.paginas.filter((p) => p.poucoTexto).length;
+  const comTexto = s.paginas.length - algumasPoucas;
+  // resposta clara: deu para ler o site só com o link?
+  const statusLeitura = s.lendo || !s.links.length
+    ? ''
+    : s.erro && !s.paginas.length
+      ? `<div class="status-leitura ruim">✕ <div><b>Não consegui ler o site só com o link.</b> ${esc(s.erro)} Confira o endereço ou <b>cole a copy do site</b> no campo abaixo.</div></div>`
+      : !s.paginas.length
+        ? '<div class="status-leitura">ℹ️ <div>Ainda não li o site. Clique em <b>Salvar e ler o site</b>.</div></div>'
+        : tudoPouco
+          ? `<div class="status-leitura ruim">⚠️ <div><b>Não consegui ler o conteúdo do site só com o link.</b> Abri ${s.paginas.length} página(s), mas o site monta o texto no navegador (comum em sites feitos no Lovable/React) e o CRM só enxerga o título. <b>Cole a copy do site no campo abaixo</b> para a IA conhecer tudo.</div></div>`
+          : `<div class="status-leitura bom">✓ <div><b>Consegui ler o site só com o link:</b> ${comTexto} página(s) com texto${algumasPoucas ? ` (${algumasPoucas} com pouco texto — se forem importantes, cole a copy delas abaixo)` : ''}. A IA já usa esse conteúdo.</div></div>`;
   alvo.innerHTML = `
     <div class="card" id="ap-site">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🌐 Seu site</h2>${interruptor('site-usar', s.usar, 'A IA usa o site')}</div>
+      ${statusLeitura}
       <p class="rotulo" style="margin:0 0 12px">Cole o link do seu site: o CRM lê as páginas (produtos, serviços, preços, a copy de vendas) e as duas IAs passam a conhecer tudo e a vender com as mesmas palavras. Se preferir, cole o texto do site no campo de baixo. O site é lido de novo sozinho toda semana.</p>
       <form id="f-site">
         <div class="campo"><label>Links do seu site ${ajuda('Um por linha. Comece pela página inicial; com a opção de baixo marcada, o CRM também abre as páginas que ela liga (produtos, serviços, sobre…), até 20.')}</label><textarea name="links" rows="3" placeholder="https://minhaloja.com.br&#10;https://minhaloja.com.br/produtos">${esc(s.links.join('\n'))}</textarea></div>
@@ -3320,7 +3687,7 @@ async function montarSiteDaEmpresa(id, alvo) {
       </form>
       ${s.lendo ? `<div class="varredura-andamento" style="margin-top:12px"><span class="girando"></span> <b>Lendo o site…</b><div class="rotulo">${s.lendo.lidas} de ${s.lendo.total} páginas</div></div>` : ''}
       ${s.erro ? `<p class="erro-caixa" style="margin-top:12px">${esc(s.erro)}</p>` : ''}
-      ${tudoPouco ? balao('O CRM achou pouco texto no seu site', 'Alguns sites (os feitos no Lovable, por exemplo) só montam o texto dentro do navegador, e o CRM enxerga só o título. <b>Cole a copy do site no campo acima</b> para a IA conhecer tudo.', 'aviso') : ''}
+
       ${s.paginas.length ? `
       <div class="tabela-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Página lida</th><th style="width:130px">Texto</th></tr></thead>
@@ -3349,6 +3716,26 @@ async function montarSiteDaEmpresa(id, alvo) {
   });
   $('#site-usar', alvo).onchange = (e) => api(`empresas/${id}/site`, { method: 'PUT', body: { usar: e.target.checked } }).then(() => aviso(e.target.checked ? 'A IA vai usar o site.' : 'A IA não vai usar o site.')).catch((err) => aviso(err.message, true));
   if (s.lendo) setTimeout(() => { if (location.hash === aqui && alvo.isConnected) montarSiteDaEmpresa(id, alvo); }, 2000);
+}
+
+// ---------------------------------------------------------------- UTM prontas para os anúncios da empresa
+function htmlSugestoesUtm() {
+  const nome = String(empresaAtual?.dados?.nome || empresaAtual?.nome || 'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'empresa';
+  const linha = (onde, valor, dica) => `<div class="utm-linha"><div class="utm-onde">${onde}</div><div class="utm-valor"><code>${esc(valor)}</code><button type="button" class="pequeno" data-copiar-utm>Copiar</button></div>${dica ? `<small class="rotulo">${dica}</small>` : ''}</div>`;
+  return `
+    <details class="utm-card"><summary>🎯 UTMs prontas para saber de onde vem cada lead (Google Ads e Meta Ads)</summary>
+      <p class="rotulo" style="margin:8px 0 12px">Coloque uma vez em cada plataforma. Depois disso o CRM mostra, em cada lead, qual anúncio/campanha trouxe o cliente — e a IA já sabe o que ele viu.</p>
+      <h4>Google Ads</h4>
+      ${linha('Conta → Configurações da conta → <b>Modelo de acompanhamento</b> (ou em cada campanha → Opções de URL da campanha)', '{lpurl}?utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_content={creative}&utm_term={keyword}', 'O Google troca {campaignid}, {keyword} etc. sozinho. O gclid também é reconhecido automaticamente.')}
+      <h4>Meta Ads (Facebook e Instagram)</h4>
+      ${linha('Gerenciador de Anúncios → no <b>anúncio</b> → Rastreamento → <b>Parâmetros de URL</b>', 'utm_source={{site_source_name}}&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}', 'O Meta preenche o nome da campanha e do anúncio. {{site_source_name}} vira fb ou ig.')}
+      ${linha('Anúncio de <b>clique para WhatsApp</b>: nada para configurar', '(o CRM lê o título do anúncio sozinho na 1ª mensagem)', 'Dica: na mensagem pronta do anúncio, use algo único, ex.: "Oi! Vi o anúncio do volante" — e cadastre "anúncio do volante" nas palavras abaixo.')}
+      <h4>Links que não são anúncio</h4>
+      ${linha('Link da <b>bio do Instagram</b>', `?utm_source=instagram&utm_medium=bio&utm_campaign=${nome}`, 'Coloque depois do endereço do site. Ex.: https://seusite.com.br/?utm_source=instagram…')}
+      ${linha('Botão do <b>Google Meu Negócio</b> (site)', `?utm_source=google&utm_medium=perfil-empresa&utm_campaign=${nome}`, '')}
+      ${linha('Link enviado em <b>disparos/WhatsApp</b>', `?utm_source=whatsapp&utm_medium=disparo&utm_campaign=${nome}-promo`, 'Troque "promo" pelo nome da campanha.')}
+      <p class="rotulo" style="margin:10px 0 0">Depois, cadastre cada campanha abaixo usando o nome do <code>utm_campaign</code> nas palavras — e escreva o que a IA precisa saber sobre ela.</p>
+    </details>`;
 }
 
 // ---------------------------------------------------------------- aprendizados: anúncios e campanhas
@@ -3389,6 +3776,7 @@ async function montarAnuncios(id, alvo) {
           '<b>Mensagem pronta do anúncio</b> (ex.: “Quero o volante em promoção”): use um pedaço dela nas palavras.',
           'Errou? No lead, em <b>De onde veio</b>, a equipe escolhe o anúncio certo à mão.'
         ])}</details>
+        ${htmlSugestoesUtm()}
         <div id="lista-anuncios">${lista.map(itemHtml).join('') || '<p class="rotulo" style="margin:12px 0 0">Nenhum anúncio cadastrado ainda.</p>'}</div>
         <div class="acoes"><button type="button" id="add-anuncio">+ Adicionar anúncio</button><button type="button" class="primario" id="salvar-anuncios">Salvar anúncios</button></div>
         ${d.detectados.length || d.campanhas.length ? `
@@ -3444,6 +3832,12 @@ async function montarAnuncios(id, alvo) {
     };
   };
   desenhar();
+  alvo.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-copiar-utm]');
+    if (!b) return;
+    const texto = b.previousElementSibling?.textContent || '';
+    navigator.clipboard?.writeText(texto).then(() => aviso('Copiado. Cole no lugar indicado.')).catch(() => aviso(texto));
+  });
   window.addEventListener('beforeunload', (e) => { if (alterado && location.hash === aqui) e.preventDefault(); }, { once: true });
 }
 
@@ -3477,9 +3871,10 @@ async function paginaConfiguracoes() {
       <div class="acoes"><button class="primario" type="submit">Salvar</button>${c.evolutionChave.origem === 'painel' ? '<button type="button" class="perigo" id="remover-evo">Remover chave</button>' : ''}</div>
     </form>
     <h2 style="margin-top:24px">Chave de IA padrão (opcional)</h2>
-    ${balao('Normalmente fica vazia', 'Cada empresa cadastra a própria chave em <b>Chave de IA</b>. A chave padrão só é usada por empresas sem chave — por exemplo, se você quiser pagar a IA de um cliente.')}
+    ${balao('Normalmente fica vazia', 'Cada empresa cadastra a própria chave em <b>IAs e chaves</b>. A chave padrão só é usada por empresas sem chave — por exemplo, se você quiser pagar a IA de um cliente.')}
     ${linha('gemini', 'Gemini (Google)', 'geminiApiKey', 'https://aistudio.google.com/apikey', 'AIza…')}
-    ${linha('anthropic', 'Claude (Anthropic)', 'anthropicApiKey', 'https://console.anthropic.com', 'sk-ant-…')}`;
+    ${linha('anthropic', 'Claude (Anthropic)', 'anthropicApiKey', 'https://console.anthropic.com', 'sk-ant-…')}
+    ${linha('openai', 'ChatGPT (OpenAI)', 'openaiApiKey', 'https://platform.openai.com/api-keys', 'sk-…')}`;
 
   $('#f-evolution').onsubmit = async (e) => {
     e.preventDefault();
@@ -3556,6 +3951,50 @@ function paginaConta() {
 
 // endereços antigos do painel continuam funcionando
 const ROTAS_ANTIGAS = { assistentes: 'site', instalar: 'site' };
+
+// ---------------------------------------------------------------- sininho: avisos do sistema (erros de IA, WhatsApp, mídia…)
+async function atualizarSino() {
+  if (!sessao) return null;
+  const empresaId = empresaAtual?.id || '';
+  const r = await fetch(`api/alertas${empresaId ? `?empresaId=${encodeURIComponent(empresaId)}` : ''}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  const b = $('#sino');
+  if (!r || !b) return null;
+  b.hidden = false;
+  $('.contador-sino', b).textContent = r.naoLidos ? (r.naoLidos > 99 ? '99+' : r.naoLidos) : '';
+  b.classList.toggle('com-alerta', r.naoLidos > 0);
+  return r;
+}
+
+async function abrirAlertas() {
+  const r = await atualizarSino();
+  if (!r) return;
+  const NIVEL = { erro: '🔴', aviso: '🟡' };
+  abrirModal(`
+    <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔔 Avisos do sistema</h2>${r.alertas.length ? '<button type="button" class="pequeno" id="alertas-lidos">Marcar todos como lidos</button>' : ''}</div>
+    <p class="rotulo" style="margin:0 0 12px">O CRM vigia a IA, o WhatsApp, as mídias e as automações e avisa aqui quando algo dá errado — com a dica do que fazer.</p>
+    ${r.backup ? `<p class="rotulo" style="margin:0 0 12px">🛡️ Backup: ${r.backup.copiasBanco} cópias do banco (última: ${esc(r.backup.ultimoBanco || 'nenhuma ainda')}) · ${r.backup.fotosMidias} cópias das mídias.</p>` : ''}
+    <div class="lista-alertas">${r.alertas.filter((a) => !a.resolvido).map((a) => `
+      <div class="alerta-item ${a.lido ? '' : 'novo'}">
+        <div class="alerta-topo"><span>${NIVEL[a.nivel] || '🟡'} <b>${esc(a.empresaNome)}</b> · <span class="rotulo">${esc(data(a.ultimoEm))}${a.vezes > 1 ? ` · ${a.vezes}x` : ''}</span></span><button type="button" class="pequeno" data-resolver="${esc(a.id)}">Resolvido</button></div>
+        <div>${esc(a.mensagem)}</div>
+        ${a.dica ? `<div class="rotulo">💡 ${esc(a.dica)}</div>` : ''}
+        ${a.leadId ? `<a class="rotulo" href="#/leads/${esc(a.leadId)}" data-fechar>ver o cliente</a>` : ''}
+      </div>`).join('') || '<p class="rotulo">Nenhum aviso. Tudo funcionando. ✅</p>'}</div>
+    <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+    $('#alertas-lidos', m)?.addEventListener('click', async () => {
+      await api('alertas/lidos', { method: 'POST' }).catch(() => {});
+      fechar();
+      atualizarSino();
+    });
+    $$('[data-resolver]', m).forEach((b) => {
+      b.onclick = async () => {
+        await api(`alertas/${b.dataset.resolver}/resolver`, { method: 'POST' }).catch((err) => aviso(err.message, true));
+        b.closest('.alerta-item').remove();
+        atualizarSino();
+      };
+    });
+  });
+}
 
 async function rotear() {
   clearInterval(atualizador);
@@ -3659,7 +4098,10 @@ async function iniciar() {
     if (b) reativarEmpresa(b.dataset.reativar, b);
   });
   window.addEventListener('hashchange', rotear);
-  rotear();
+  $('#sino').onclick = abrirAlertas;
+  window.addEventListener('hashchange', () => setTimeout(atualizarSino, 800));
+  setInterval(atualizarSino, 60 * 1000);
+  rotear().then(() => atualizarSino());
 }
 
 iniciar();

@@ -204,6 +204,32 @@ function registrar(empresa, lead, dados, extra = {}) {
     (v) => v.status !== 'cancelada' && ((dados.idTransacao && v.idTransacao === dados.idTransacao) || (hash && v.hash === hash))
   );
   if (repetida) return { venda: repetida, repetida: true };
+  // a IA já tinha registrado esta venda "em dinheiro" pela conversa: o comprovante
+  // chegou depois, então ela vira Pix (com o valor do comprovante) em vez de duplicar
+  if (lead && extra.origem === 'comprovante') {
+    const daIa = vendasDa(empresa)
+      .filter((v) => v.leadId === lead.id && v.origem === 'ia' && v.status !== 'cancelada' && Date.now() - new Date(v.criadoEm).getTime() < 7 * 24 * 3600 * 1000)
+      .pop();
+    if (daIa) {
+      Object.assign(daIa, {
+        valor: dados.valor || daIa.valor,
+        forma: dados.forma || 'Pix',
+        pagador: dados.pagador || daIa.pagador,
+        recebedor: dados.recebedor || '',
+        banco: dados.banco || '',
+        idTransacao: dados.idTransacao || '',
+        origem: 'comprovante',
+        lidoPor: extra.lidoPor || 'texto',
+        anexo: extra.anexo || null,
+        hash,
+        status: 'confirmada',
+        confirmadaEm: daIa.confirmadaEm || agora(),
+        motivoConferir: ''
+      });
+      salvar();
+      return { venda: daIa, repetida: false, convertida: true };
+    }
+  }
   const confere = recebedorConfere(empresa, extra.textoCompleto || '', dados.recebedor);
   if (confere === false) motivos.push('o recebedor do comprovante não é a empresa');
   if (dados.data && Date.now() - new Date(dados.data).getTime() > 3 * 24 * 3600 * 1000) motivos.push('comprovante com data antiga');
@@ -229,6 +255,7 @@ function registrar(empresa, lead, dados, extra = {}) {
     hash,
     criadoEm: agora()
   };
+  if (venda.status === 'confirmada') venda.confirmadaEm = venda.criadoEm;
   estado.vendas.push(venda);
   if (lead && venda.status === 'confirmada') aoVender(empresa, lead);
   salvar();

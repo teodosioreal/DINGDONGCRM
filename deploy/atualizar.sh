@@ -43,6 +43,15 @@ PASTA_DO_PROCESSO="$(pm2 jlist 2>/dev/null | node -e '
 cd "$PASTA"
 ANTES="$(git rev-parse HEAD)"
 
+# blindagem: cópia do banco antes de qualquer mudança (as mídias e o banco
+# ficam fora do git: a atualização nunca apaga nem sobrescreve esses arquivos)
+if [ -f data.json ]; then
+  mkdir -p backups/banco && chmod 700 backups
+  gzip -c data.json > "backups/banco/data-$(date -u +%Y-%m-%dT%H-%M-%S)-antes-do-deploy.json.gz"
+  chmod 600 backups/banco/*.json.gz 2>/dev/null || true
+  echo "==> Backup do banco feito antes de atualizar"
+fi
+
 echo "==> Baixando a versão nova (branch $BRANCH)"
 git "${GIT_AUTH[@]}" fetch -q "${REPO_URL:-origin}" "$BRANCH"
 NOVA="$(git rev-parse FETCH_HEAD)"

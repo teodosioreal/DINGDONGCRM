@@ -54,8 +54,8 @@ const RECEITAS = {
   }),
   avaliacao: (empresa) => ({
     nome: 'Pedir avaliação no Google',
-    explicacao: 'Dois dias depois de fechar, agradece e manda o link de avaliação do Google Meu Negócio. Mais avaliações = mais clientes novos.',
-    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'fechad', 'ganh', 'vendid') || leads.etapasDa(empresa).slice(-2)[0], horas: 48 },
+    explicacao: 'Dois dias depois da venda confirmada (comprovante de Pix, venda marcada pela IA ou pela equipe), agradece e manda o link de avaliação do Google Meu Negócio. Mais avaliações = mais clientes novos.',
+    gatilho: { tipo: 'venda', horas: 48 },
     filtro: { etapas: [], etiquetas: [] },
     acao: {
       modo: 'texto',
@@ -69,7 +69,7 @@ const RECEITAS = {
   comentario: (empresa) => ({
     nome: 'Pedir comentário no anúncio (Instagram/Facebook)',
     explicacao: 'Quatro dias depois de fechar, agradece e manda o link do seu anúncio para o cliente comentar como foi. Comentários de clientes reais no anúncio passam confiança para quem vê o anúncio.',
-    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'fechad', 'ganh', 'vendid') || leads.etapasDa(empresa).slice(-2)[0], horas: 96 },
+    gatilho: { tipo: 'venda', horas: 96 },
     filtro: { etapas: [], etiquetas: [] },
     acao: {
       modo: 'texto',
@@ -97,7 +97,7 @@ const RECEITAS = {
   posvenda: (empresa) => ({
     nome: 'Pós-venda: está tudo certo?',
     explicacao: '7 dias depois de fechar, pergunta se está tudo certo. Cliente bem atendido volta e indica.',
-    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'fechad', 'ganh', 'vendid') || leads.etapasDa(empresa).slice(-2)[0], horas: 7 * 24 },
+    gatilho: { tipo: 'venda', horas: 7 * 24 },
     filtro: { etapas: [], etiquetas: [] },
     acao: {
       modo: 'ia',
@@ -111,7 +111,7 @@ const RECEITAS = {
   recompra: (empresa) => ({
     nome: 'Chamar para comprar de novo',
     explicacao: '60 dias depois de fechar, a IA lembra o cliente e oferece o serviço/produto de novo (manutenção, reposição, novidade).',
-    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'fechad', 'ganh', 'vendid') || leads.etapasDa(empresa).slice(-2)[0], horas: 60 * 24 },
+    gatilho: { tipo: 'venda', horas: 60 * 24 },
     filtro: { etapas: [], etiquetas: [] },
     acao: {
       modo: 'ia',
@@ -124,8 +124,31 @@ const RECEITAS = {
   })
 };
 
+const RECEITAS_DE_VENDA = new Set(['avaliacao', 'comentario', 'posvenda', 'recompra']);
+
 function automacoesDa(empresa) {
-  return Array.isArray(empresa.automacoes) ? empresa.automacoes : [];
+  const lista = Array.isArray(empresa.automacoes) ? empresa.automacoes : [];
+  // regras antigas de pós-venda disparavam pela etapa "Fechado": agora é pela venda confirmada
+  let mudou = false;
+  for (const r of lista) {
+    if (RECEITAS_DE_VENDA.has(r.receita) && r.gatilho?.tipo === 'etapa' && !r.migradoParaVenda) {
+      r.gatilho = { tipo: 'venda', horas: r.gatilho.horas };
+      r.migradoParaVenda = true;
+      mudou = true;
+    }
+  }
+  if (mudou) salvar();
+  return lista;
+}
+
+// Quando o lead comprou: a venda confirmada mais recente (comprovante de Pix,
+// venda da IA ou da equipe) ou, sem venda registrada, a entrada em "Fechado"
+function vendaDoLead(lead, empresa) {
+  const vendas = (estado.vendas || []).filter((v) => v.leadId === lead.id && v.status === 'confirmada');
+  const ultima = vendas.map((v) => v.confirmadaEm || v.criadoEm).sort().pop();
+  if (ultima) return ultima;
+  const fechado = etapaParecida(empresa, 'fechad', 'ganh', 'vendid');
+  return fechado ? entrouNaEtapaEm(lead, fechado) : null;
 }
 
 // ---------------------------------------------------------------- validação
@@ -134,7 +157,7 @@ function normalizarRegra(empresa, b, atual = {}) {
   const etapas = leads.etapasDa(empresa);
   const idsEtiquetas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
   const gat = b.gatilho || atual.gatilho || {};
-  const tipo = gat.tipo === 'etapa' ? 'etapa' : 'sem_resposta';
+  const tipo = ['etapa', 'venda'].includes(gat.tipo) ? gat.tipo : 'sem_resposta';
   const horas = Math.min(24 * 365, Math.max(1, Number(gat.horas) || 24));
   const etapa = tipo === 'etapa' ? leads.acharEtapa(empresa, gat.etapa) : '';
   if (tipo === 'etapa' && !etapa) throw Object.assign(new Error('Escolha a etapa que dispara a automação.'), { status: 400 });
@@ -158,7 +181,9 @@ function normalizarRegra(empresa, b, atual = {}) {
     },
     maxPorLead: Math.min(5, Math.max(1, Number(b.maxPorLead ?? atual.maxPorLead) || 1)),
     incluirPausados: (b.incluirPausados ?? atual.incluirPausados) === true,
-    horarioComercial: (b.horarioComercial ?? atual.horarioComercial) !== false
+    horarioComercial: (b.horarioComercial ?? atual.horarioComercial) !== false,
+    // também para quem comprou ANTES de ligar a regra (0 = só vendas novas)
+    incluirAntigosDias: Math.min(365, Math.max(0, Number(b.incluirAntigosDias ?? atual.incluirAntigosDias) || 0))
   };
   if (modo === 'texto' && !regra.acao.texto) throw Object.assign(new Error('Escreva a mensagem.'), { status: 400 });
   if (modo === 'ia' && !regra.acao.instrucao) throw Object.assign(new Error('Diga para a IA o que ela deve escrever.'), { status: 400 });
@@ -200,6 +225,10 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
     if (!ultima || ultima.papel === 'visitante') return 'cliente falou por último';
     if (!comTexto.some((m) => m.papel === 'visitante')) return 'cliente nunca respondeu';
     desde = ultima.em;
+  } else if (regra.gatilho.tipo === 'venda') {
+    desde = vendaDoLead(lead, empresa);
+    if (!desde) return 'ainda não comprou';
+    if (hist.ultimoEm && hist.ultimoEm >= desde) return 'já recebeu';
   } else {
     desde = entrouNaEtapaEm(lead, regra.gatilho.etapa);
     if (!desde) return 'fora da etapa';
@@ -207,7 +236,11 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   }
   const passou = (agoraMs - new Date(desde).getTime()) / HORA;
   if (passou < horas) return 'ainda não deu o tempo';
-  if (passou > horas + JANELA_HORAS) return 'antigo demais';
+  // quem comprou antes de ligar a regra: só entra se a regra incluir os antigos
+  const janela = regra.gatilho.tipo === 'venda' && regra.incluirAntigosDias ? Math.max(JANELA_HORAS, regra.incluirAntigosDias * 24) : JANELA_HORAS;
+  if (passou > horas + janela) return 'antigo demais';
+  // já recebeu o mesmo pedido à mão (botão na conversa)
+  if (regra.receita && (lead.pedidosManuais || {})[regra.receita]) return 'já recebeu';
   if (regra.acao.modo === 'texto' && /\{link_avaliacao\}/i.test(regra.acao.texto)) {
     const bot = whatsapp.botDoWhatsapp(empresa);
     if (!bot?.linkAvaliacao) return 'falta o link de avaliação';
@@ -303,6 +336,7 @@ async function cicloDaEmpresa(empresa) {
           enviadas++;
         } catch (err) {
           console.error(`[automação ${regra.id} ${lead.id}]`, err.message);
+          require('./alertas').registrar(empresa, 'automacao', `A automação "${regra.nome}" deu erro com ${lead.nome || 'um cliente'}: ${err.message}`, { leadId: lead.id });
           // não tenta de novo sem parar: conta como tentativa
           lead.automacoes = lead.automacoes || {};
           const hist = lead.automacoes[regra.id] || { enviados: 0 };
@@ -366,7 +400,52 @@ function agendarMensagem(lead, { texto: t, quando }, usuario) {
   return a;
 }
 
+// Quando cada pedido (avaliação / comentário) já foi feito a este cliente —
+// pela automação ou à mão pela equipe
+function pedidosFeitos(lead, empresa) {
+  const saida = {};
+  for (const tipo of ['avaliacao', 'comentario']) {
+    const manual = (lead.pedidosManuais || {})[tipo] || null;
+    const regras = automacoesDa(empresa).filter((r) => r.receita === tipo);
+    const auto = regras.map((r) => lead.automacoes?.[r.id]).filter((h) => h?.ultimoEm && !h.erro).map((h) => h.ultimoEm).sort().pop() || null;
+    saida[tipo] = [manual, auto].filter(Boolean).sort().pop() || null;
+  }
+  return saida;
+}
+
+// Mensagem do pedido: a da automação da empresa (se ela editou) ou a da receita
+function mensagemDoPedido(empresa, tipo) {
+  const regra = automacoesDa(empresa).find((r) => r.receita === tipo && r.acao?.modo === 'texto' && r.acao.texto);
+  return regra ? regra.acao.texto : RECEITAS[tipo](empresa).acao.texto;
+}
+
+async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario = '' } = {}) {
+  if (!['avaliacao', 'comentario'].includes(tipo)) throw Object.assign(new Error('Pedido inválido.'), { status: 400 });
+  const destino = whatsapp.destinoDoLead(lead);
+  if (!destino) throw Object.assign(new Error('Este cliente não tem WhatsApp.'), { status: 400 });
+  const bot = whatsapp.botDoWhatsapp(empresa);
+  if (tipo === 'avaliacao' && !bot?.linkAvaliacao) throw Object.assign(new Error('Salve antes o link de avaliação do Google (Máquina de vendas).'), { status: 400 });
+  if (tipo === 'comentario' && !bot?.linkAnuncio) throw Object.assign(new Error('Salve antes o link do anúncio (Máquina de vendas).'), { status: 400 });
+  const ja = pedidosFeitos(lead, empresa)[tipo];
+  if (ja && !forcar) throw Object.assign(new Error('Este cliente já recebeu este pedido.'), { status: 409, jaEnviadoEm: ja });
+  const texto = disparos.montarMensagem(mensagemDoPedido(empresa, tipo), lead, empresa);
+  await whatsapp.enviarTexto(empresa, destino, texto);
+  leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto, pedido: tipo });
+  lead.pedidosManuais = { ...(lead.pedidosManuais || {}), [tipo]: agora() };
+  // a automação do mesmo pedido não manda de novo para este cliente
+  for (const r of automacoesDa(empresa).filter((x) => x.receita === tipo)) {
+    const h = lead.automacoes?.[r.id] || { enviados: 0 };
+    lead.automacoes = { ...(lead.automacoes || {}), [r.id]: { ...h, enviados: Math.max(h.enviados, r.maxPorLead), ultimoEm: agora(), manualPor: usuario } };
+  }
+  salvar();
+  return { texto };
+}
+
 module.exports = {
+  vendaDoLead,
+  pedidosFeitos,
+  enviarPedidoManual,
+  RECEITAS_DE_VENDA,
   RECEITAS,
   automacoesDa,
   normalizarRegra,

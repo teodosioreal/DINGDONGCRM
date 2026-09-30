@@ -3,8 +3,9 @@
 // A IA (site e WhatsApp) marca na resposta [[VENDA: ...]] quando o cliente
 // confirma a compra e [[AGENDAMENTO: ...]] quando confirma dia e horário. A
 // equipe também marca pelo painel, e comprovante de Pix vira venda sozinho.
-// A venda vai para o Faturamento (a da IA fica "a conferir", porque o valor
-// veio da conversa e não de um comprovante). O agendamento fica no lead.
+// A venda vai para o Faturamento. A que a IA entendeu pela conversa (sem
+// comprovante) entra como recebida em DINHEIRO, no valor combinado; se depois
+// chegar o comprovante do Pix, ela vira Pix (não duplica). O agendamento fica no lead.
 
 const { estado, salvar, novoId, agora } = require('./db');
 const leads = require('./leads');
@@ -64,12 +65,14 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia' }) {
   const { venda } = comprovantes.registrar(
     empresa,
     lead,
-    { valor: v || 0, forma: 'Combinado na conversa', pagador: lead.nome || '' },
+    { valor: v || 0, forma: 'Dinheiro', pagador: lead.nome || '' },
     { origem: por === 'ia' ? 'ia' : 'manual', lidoPor: por === 'ia' ? 'ia-conversa' : 'manual', descricao: desc }
   );
   if (por === 'ia') {
-    venda.status = 'conferir';
-    venda.motivoConferir = v ? 'a IA entendeu a venda pela conversa — confira o valor' : 'a IA entendeu a venda pela conversa — coloque o valor';
+    // sem valor combinado: fica "a conferir" até alguém colocar o valor
+    venda.status = v ? 'confirmada' : 'conferir';
+    venda.confirmadaEm = v ? agora() : undefined;
+    venda.motivoConferir = v ? '' : 'a IA entendeu a venda pela conversa — coloque o valor';
   }
   comprovantes.aoVender(empresa, lead); // vai para "Fechado" e ganha a etiqueta "Cliente"
   lead.atualizadoEm = agora();

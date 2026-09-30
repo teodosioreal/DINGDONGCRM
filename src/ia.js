@@ -1,4 +1,5 @@
-// ia.js — conversa com a IA escolhida em cada assistente (Claude ou Gemini).
+// ia.js — conversa com as IAs da empresa (Claude, GPT ou Gemini), com até
+// 3 IAs em ordem: se a principal falhar, as reservas respondem.
 
 const Anthropic = require('@anthropic-ai/sdk').default;
 const config = require('./config');
@@ -7,6 +8,7 @@ const { numeroDoAtendimento } = require('./util');
 
 const PROVEDORES = {
   anthropic: { nome: 'Claude (Anthropic)' },
+  openai: { nome: 'ChatGPT (OpenAI)' },
   gemini: { nome: 'Gemini (Google)' }
 };
 
@@ -25,14 +27,23 @@ const MODELOS_GEMINI_SUGERIDOS = [
   { id: 'gemini-2.5-pro', nome: 'gemini-2.5-pro' },
   { id: 'gemini-2.5-flash-lite', nome: 'gemini-2.5-flash-lite' }
 ];
-const MODELO_PADRAO = { anthropic: 'claude-opus-5-5', gemini: 'gemini-2.5-flash' };
+// Sugestões usadas só se não der para consultar a lista real da chave da OpenAI
+const MODELOS_OPENAI_SUGERIDOS = [
+  { id: 'gpt-5', nome: 'gpt-5' },
+  { id: 'gpt-5-mini', nome: 'gpt-5-mini (mais barato)' },
+  { id: 'gpt-4.1', nome: 'gpt-4.1' },
+  { id: 'gpt-4.1-mini', nome: 'gpt-4.1-mini' },
+  { id: 'gpt-4o-mini', nome: 'gpt-4o-mini' }
+];
+const MODELO_PADRAO = { anthropic: 'claude-opus-5-5', openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash' };
 
 const GEMINI_BASE = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
+const OPENAI_BASE = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 const MARCADOR_WHATSAPP = /\[\[WHATSAPP\]\]\s*([\s\S]*)$/;
 
 // ---------------------------------------------------------------- chaves
 
-const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', gemini: 'geminiApiKey' };
+const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', openai: 'openaiApiKey', gemini: 'geminiApiKey' };
 
 // Chave usada para uma empresa: a que a própria empresa cadastrou; se ela não
 // tiver, usa a chave padrão opcional (Configurações do administrador ou .env).
@@ -61,30 +72,35 @@ function erroSemChave(provedor) {
 
 // um cliente por chave (cada empresa pode ter a sua)
 const clientesAnthropic = new Map();
-function obterClienteAnthropic(empresa) {
-  const k = chave('anthropic', empresa);
-  if (!k) throw erroSemChave('anthropic');
+function clienteAnthropicPorChave(k) {
   if (!clientesAnthropic.has(k)) {
     if (clientesAnthropic.size > 200) clientesAnthropic.clear();
-    clientesAnthropic.set(k, new Anthropic({ apiKey: k, maxRetries: 2 }));
+    // 1 nova tentativa só: se falhar, a IA reserva entra (mais rápido para o cliente)
+    clientesAnthropic.set(k, new Anthropic({ apiKey: k, maxRetries: 1 }));
   }
   return clientesAnthropic.get(k);
+}
+function obterClienteAnthropic(empresa, chaveExplicita = '') {
+  const k = chaveExplicita || chave('anthropic', empresa);
+  if (!k) throw erroSemChave('anthropic');
+  return clienteAnthropicPorChave(k);
 }
 
 // ---------------------------------------------------------------- modelos
 
 function normalizarProvedor(p) {
-  return p === 'gemini' ? 'gemini' : 'anthropic';
+  return p === 'gemini' || p === 'openai' ? p : 'anthropic';
 }
 
 function normalizarModelo(provedor, modelo) {
   const m = String(modelo || '').trim().replace(/^models\//, '');
   if (provedor === 'anthropic') return MODELOS_CLAUDE.some((x) => x.id === m) ? m : MODELO_PADRAO.anthropic;
+  if (provedor === 'openai') return /^[a-z0-9][a-z0-9.\-:_]{1,80}$/i.test(m) ? m : MODELO_PADRAO.openai;
   return /^[a-z0-9][a-z0-9.\-]{1,80}$/i.test(m) ? m : MODELO_PADRAO.gemini;
 }
 
-async function chamarGemini(empresa, caminho, opcoes = {}) {
-  const k = chave('gemini', empresa);
+async function chamarGemini(empresa, caminho, opcoes = {}, chaveExplicita = '') {
+  const k = chaveExplicita || chave('gemini', empresa);
   if (!k) throw erroSemChave('gemini');
   let res;
   try {
@@ -111,11 +127,11 @@ async function chamarGemini(empresa, caminho, opcoes = {}) {
 
 // Modelos de texto que a chave do Google pode usar (cache de 10 minutos por chave)
 const cacheGemini = new Map();
-async function listarModelosGemini(empresa, forcar) {
-  const k = chave('gemini', empresa);
+async function listarModelosGemini(empresa, forcar, chaveExplicita = '') {
+  const k = chaveExplicita || chave('gemini', empresa);
   const guardado = cacheGemini.get(k);
   if (!forcar && guardado && Date.now() - guardado.em < 10 * 60 * 1000) return guardado.lista;
-  const dados = await chamarGemini(empresa, 'models?pageSize=1000');
+  const dados = await chamarGemini(empresa, 'models?pageSize=1000', {}, k);
   const lista = (dados.models || [])
     .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
     .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), nome: m.displayName || m.name }))
@@ -126,7 +142,27 @@ async function listarModelosGemini(empresa, forcar) {
   return lista;
 }
 
+// Modelos de chat que a chave da OpenAI pode usar
+async function listarModelosOpenai(chaveOpenai) {
+  const dados = await chamarOpenai(chaveOpenai, 'models', null, { metodo: 'GET', timeout: 20000 });
+  return (dados.data || [])
+    .map((m) => String(m.id || ''))
+    .filter((id) => /^(gpt-|o\d|chatgpt)/i.test(id) && !/(audio|realtime|tts|image|embedding|transcribe|search|instruct|moderation|codex|computer)/i.test(id))
+    .sort()
+    .map((id) => ({ id, nome: id }));
+}
+
 async function listarModelos(provedor, empresa) {
+  if (provedor === 'openai') {
+    const k = chave('openai', empresa);
+    if (!k) return { modelos: MODELOS_OPENAI_SUGERIDOS, daChave: false };
+    try {
+      const lista = await listarModelosOpenai(k);
+      return { modelos: lista.length ? lista : MODELOS_OPENAI_SUGERIDOS, daChave: lista.length > 0 };
+    } catch (err) {
+      return { modelos: MODELOS_OPENAI_SUGERIDOS, daChave: false, aviso: descreverErroIa(err) };
+    }
+  }
   if (provedor === 'gemini') {
     try {
       const lista = await listarModelosGemini(empresa);
@@ -140,13 +176,25 @@ async function listarModelos(provedor, empresa) {
 
 // Confere se a chave funciona sem gastar créditos (só lista modelos).
 // `empresa` pode ser null para testar a chave padrão.
-async function testarChave(provedor, empresa) {
+async function testarChave(provedor, empresa, chaveExplicita = '') {
   if (provedor === 'gemini') {
-    const lista = await listarModelosGemini(empresa, true);
+    const lista = await listarModelosGemini(empresa, true, chaveExplicita);
     return `Chave do Gemini funcionando (${lista.length} modelos de texto disponíveis).`;
   }
-  await obterClienteAnthropic(empresa).models.list({ limit: 1 });
+  if (provedor === 'openai') {
+    const k = chaveExplicita || chave('openai', empresa);
+    if (!k) throw erroSemChave('openai');
+    const lista = await listarModelosOpenai(k);
+    return `Chave do ChatGPT funcionando (${lista.length} modelos disponíveis).`;
+  }
+  await obterClienteAnthropic(empresa, chaveExplicita).models.list({ limit: 1 });
   return 'Chave do Claude funcionando.';
+}
+
+// Testa um motor de verdade (um pedido bem curto no modelo escolhido)
+async function testarMotor(empresa, m) {
+  const r = await chamarMotor(empresa, m, { turnos: [{ role: 'user', content: 'Responda só: ok' }], maxTokens: 16, temperatura: 0 });
+  return r.texto;
 }
 
 // ---------------------------------------------------------------- prompt
@@ -189,9 +237,13 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     if (midias.length) {
       partes.push(
         '',
-        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda várias fotos de uma vez):',
-        ...midias.map((m) => `- ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? `: ${m.descricao}` : ''}`),
-        '- Para enviar uma delas, escreva numa linha separada: [[MIDIA: nome exato]]. Pode enviar mais de uma (uma por linha). Só use nomes desta lista e só quando ajudar o cliente. Mostrar fotos do trabalho vende muito: ofereça quando o cliente demonstrar interesse.'
+        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda vários arquivos de uma vez). Cada uma tem um CÓDIGO:',
+        ...midias.map(
+          (m) =>
+            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}`
+        ),
+        '- Para enviar, escreva numa linha separada: [[MIDIA: CÓDIGO]] (ex.: [[MIDIA: ' + midias[0].codigo + ']]). Pode enviar mais de uma, uma por linha. Use só códigos desta lista.',
+        '- Siga o "QUANDO ENVIAR" de cada mídia e a etapa, se tiver. Não mande a mesma mídia duas vezes na conversa, a não ser que o cliente peça. Sem regra: mande quando ajudar o cliente (mostrar o trabalho vende muito).'
       );
     }
     partes.push(
@@ -242,7 +294,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '',
       'Etapas do funil de atendimento (onde o lead está):',
       ...etapas.map((e) => `- ${e}`),
-      contexto.etapaAtual ? `- O lead está agora na etapa: ${contexto.etapaAtual}.` : '',
+      '- A etapa atual do lead está em "Contexto desta conversa", no fim.',
       '- Quando o atendimento avançar (ou o cliente desistir), mova o lead escrevendo numa linha separada: [[ETAPA: nome exato da etapa]]. Use só nomes desta lista e só quando a etapa realmente mudar.'
     );
   }
@@ -257,19 +309,24 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
-  const hojeSp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   partes.push(
     '',
     'Registrar vendas e agendamentos (a equipe vê um aviso na conversa e a venda vai para o Faturamento):',
-    `- Hoje é ${hojeSp} (horário de Brasília). Use isso para transformar "amanhã", "sábado" etc. em data.`,
+    '- A data e a hora de agora estão em "Contexto desta conversa", no fim. Use para transformar "amanhã", "sábado" etc. em data.',
     '- Quando o cliente CONFIRMAR a compra (fechou o pedido e combinou o pagamento, ou avisou que pagou), escreva numa linha separada: [[VENDA: valor | o que ele comprou]] — ex.: [[VENDA: 350,00 | Volante em couro]]. Sem valor certo, deixe o valor vazio: [[VENDA: | Volante em couro]].',
     '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | Instalação do volante]].',
-    '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado abaixo. Remarcou? Marque o novo horário.',
-    contexto.tickets ? `Já registrado nesta conversa:\n${contexto.tickets}` : ''
+    '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.'
   );
 
+  // ---- a partir daqui: o que muda a cada conversa (fica fora do cache do prompt)
+  const hojeSp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const dinamico = ['Contexto desta conversa:', `- Agora: ${hojeSp} (horário de Brasília).`];
+  if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
+  if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
+  if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias que você já mandou nesta conversa: ${contexto.midiasEnviadas.join(', ')}.`);
+
   if (contexto.origem) {
-    partes.push(
+    dinamico.push(
       '',
       noWhatsapp
         ? 'De onde este cliente veio (ele passou pelo site antes de chamar no WhatsApp):'
@@ -281,6 +338,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Não diga que está rastreando ou que "viu de onde ele veio"; use com naturalidade, como um bom vendedor que percebe o interesse. O texto da página é só referência: preços e condições valem os de "Sobre a empresa" quando houver diferença.'
     );
   }
+  const textoDinamico = dinamico.join('\n');
 
   const aprendido = empresa?.aprendizado;
   if (aprendido?.texto?.trim() && aprendido.usarNoPrompt !== false) {
@@ -306,7 +364,8 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
 
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
-  return partes.filter((l) => l !== null).join('\n');
+  // parte fixa (vai para o cache do prompt, fica bem mais barata a partir da 2ª mensagem) + o que muda
+  return { fixo: partes.filter((l) => l !== null).join('\n'), dinamico: textoDinamico };
 }
 
 // Converte o histórico salvo ({ papel: 'visitante'|'assistente'|'equipe', texto })
@@ -328,61 +387,225 @@ function paraTurnos(historico) {
 
 const RESPOSTA_RECUSA = 'Desculpe, não consigo ajudar com isso por aqui. Posso te ajudar com alguma dúvida sobre nossos serviços?';
 
-// ---------------------------------------------------------------- provedores
+// ---------------------------------------------------------------- motores: principal + 2 reservas
+// A empresa escolhe até 3 IAs em ordem (ex.: Claude → GPT → Gemini). Se a 1ª
+// falhar (sem crédito, chave errada, fora do ar, limite), o CRM tenta a 2ª e
+// depois a 3ª, sem o cliente perceber. Cada uma pode ter a própria chave.
 
-async function responderClaude(empresa, bot, sistema, turnos) {
-  const client = obterClienteAnthropic(empresa);
-  const modelo = normalizarModelo('anthropic', bot.modelo);
-  const params = {
-    model: modelo,
-    max_tokens: 4000,
-    system: [{ type: 'text', text: sistema, cache_control: { type: 'ephemeral' } }],
-    messages: turnos,
-    // Conversa de atendimento: esforço baixo deixa as respostas rápidas e baratas.
-    ...(modelo === 'claude-haiku-4-5' ? {} : { output_config: { effort: 'low' } })
-  };
-
-  const resposta =
-    COM_FALLBACK.has(modelo)
-      ? // Se o modelo recusar por segurança, a própria API tenta de novo num modelo reserva.
-        await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-      : await client.messages.create(params);
-
-  if (resposta.stop_reason === 'refusal') return { texto: RESPOSTA_RECUSA, recusado: true };
-  const texto = resposta.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
-  return { texto };
+function chaveDoMotor(m, empresa) {
+  return m.chave || chave(m.provedor, empresa);
 }
 
-async function responderGemini(empresa, bot, sistema, turnos) {
-  const modelo = normalizarModelo('gemini', bot.modelo);
-  const dados = await chamarGemini(empresa, `models/${encodeURIComponent(modelo)}:generateContent`, {
-    method: 'POST',
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: sistema }] },
-      contents: turnos.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
-      generationConfig: { maxOutputTokens: 4000, temperature: 0.6 }
-    })
+function motoresDa(empresa, bot) {
+  const lista = [];
+  const cfg = Array.isArray(empresa?.motoresIa) ? empresa.motoresIa : [];
+  if (cfg.length) {
+    for (const m of cfg.slice(0, 3)) {
+      const provedor = normalizarProvedor(m?.provedor);
+      const motor = { provedor, modelo: normalizarModelo(provedor, m?.modelo), chave: m?.chave || '' };
+      if (chaveDoMotor(motor, empresa)) lista.push(motor);
+    }
+  } else {
+    // sem ordem escolhida: a IA do assistente e, de reserva, as outras que tiverem chave
+    const principal = normalizarProvedor(bot?.provedor);
+    if (chave(principal, empresa)) lista.push({ provedor: principal, modelo: normalizarModelo(principal, bot?.modelo), chave: '' });
+    for (const p of Object.keys(PROVEDORES)) {
+      if (p !== principal && chave(p, empresa)) lista.push({ provedor: p, modelo: MODELO_PADRAO[p], chave: '' });
+    }
+  }
+  const vistos = new Set();
+  return lista.filter((m) => {
+    const k = `${m.provedor}|${m.modelo}|${chaveDoMotor(m, empresa)}`;
+    if (vistos.has(k)) return false;
+    vistos.add(k);
+    return true;
   });
+}
 
+const NOME_CURTO = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini' };
+
+// Roda `fn(motor)` no 1º motor; se der erro, tenta o próximo
+async function comReserva(empresa, bot, fn, { tarefa = 'resposta' } = {}) {
+  const motores = motoresDa(empresa, bot);
+  if (!motores.length) throw erroSemChave(normalizarProvedor(bot?.provedor));
+  const falhas = [];
+  for (let i = 0; i < motores.length; i++) {
+    const m = motores[i];
+    try {
+      const r = await fn(m);
+      if (falhas.length && empresa) {
+        empresa.iaReserva = { em: new Date().toISOString(), tarefa, usou: `${NOME_CURTO[m.provedor]} (${i + 1}ª)`, falhas: falhas.map((f) => `${f.nome}: ${f.motivo}`) };
+        require('./alertas').registrar(empresa, 'ia-reserva', `A 1ª IA falhou e a ${i + 1}ª (${NOME_CURTO[m.provedor]}) respondeu. Motivo: ${falhas.map((f) => `${f.nome}: ${f.motivo}`).join('; ')}`, { nivel: 'aviso' });
+      }
+      return r;
+    } catch (err) {
+      if (err.naoTentarOutra) throw err;
+      falhas.push({ nome: `${i + 1}ª ${NOME_CURTO[m.provedor]}`, motivo: descreverErroIa(err), err });
+      console.error(`[ia ${empresa?.id || '-'}] ${tarefa}: ${i + 1}ª IA (${m.provedor}/${m.modelo}) falhou: ${descreverErroIa(err)}`);
+    }
+  }
+  if (falhas.length === 1) throw falhas[0].err;
+  const erro = new Error(`Nenhuma das ${falhas.length} IAs respondeu — ${falhas.map((f) => `${f.nome}: ${f.motivo}`).join(' | ')}`);
+  erro.todas = true;
+  throw erro;
+}
+
+// ---------------------------------------------------------------- tokens gastos (por empresa, por dia)
+
+function hojeEmSp() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); // AAAA-MM-DD
+}
+
+function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0 } = {}) {
+  if (!empresa || !empresa.id) return;
+  const dia = hojeEmSp();
+  const u = (empresa.usoIa = empresa.usoIa || { dias: {} });
+  u.dias = u.dias || {};
+  const d = (u.dias[dia] = u.dias[dia] || { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {} });
+  d.entrada += entrada || 0;
+  d.saida += saida || 0;
+  d.cache += cache || 0;
+  d.chamadas += 1;
+  d.porIa[provedor] = (d.porIa[provedor] || 0) + (entrada || 0) + (saida || 0) + (cache || 0);
+  const dias = Object.keys(u.dias).sort();
+  for (const antigo of dias.slice(0, Math.max(0, dias.length - 31))) delete u.dias[antigo];
+  require('./db').salvar();
+}
+
+function usoDoDia(empresa, dia = hojeEmSp()) {
+  const d = empresa?.usoIa?.dias?.[dia];
+  return d ? { ...d, total: d.entrada + d.saida + d.cache } : { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {}, total: 0 };
+}
+
+// ---------------------------------------------------------------- chamada a um motor
+
+// OpenAI (GPT) pela API oficial de chat
+async function chamarOpenai(chaveOpenai, caminho, corpo, { metodo = 'POST', timeout = 90000 } = {}) {
+  let res;
+  try {
+    res = await fetch(`${OPENAI_BASE}/${caminho}`, {
+      method: metodo,
+      headers: { Authorization: `Bearer ${chaveOpenai}`, ...(corpo instanceof FormData || !corpo ? {} : { 'Content-Type': 'application/json' }) },
+      body: corpo ? (corpo instanceof FormData ? corpo : JSON.stringify(corpo)) : undefined,
+      signal: AbortSignal.timeout(timeout)
+    });
+  } catch (err) {
+    const erro = new Error(`Falha de rede ao chamar o GPT: ${err.message}`);
+    erro.provedor = 'openai';
+    throw erro;
+  }
+  const dados = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const erro = new Error(dados?.error?.message || `HTTP ${res.status}`);
+    erro.status = res.status;
+    erro.provedor = 'openai';
+    erro.codigo = dados?.error?.code || dados?.error?.type || '';
+    throw erro;
+  }
+  return dados;
+}
+
+// modelos "de raciocínio" da OpenAI não aceitam temperature
+const openaiSemTemperatura = (modelo) => /^(gpt-5|o\d)/i.test(modelo);
+
+/**
+ * Chama um motor (IA + modelo + chave). `sistema` = { fixo, dinamico } ou texto.
+ * `anexo` = { base64, mime } (foto ou PDF) vai junto da última mensagem do cliente.
+ * @returns {{ texto: string, recusado?: boolean }}
+ */
+async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true }) {
+  const fixo = typeof sistema === 'string' ? sistema : sistema.fixo || '';
+  const dinamico = typeof sistema === 'string' ? '' : sistema.dinamico || '';
+  const k = chaveDoMotor(m, empresa);
+  if (!k) throw erroSemChave(m.provedor);
+  const ultimo = turnos.length - 1;
+
+  if (m.provedor === 'anthropic') {
+    const client = clienteAnthropicPorChave(k);
+    const mensagens = turnos.map((t, i) => {
+      if (i !== ultimo || !anexo) return { role: t.role, content: t.content };
+      const bloco = /pdf/i.test(anexo.mime)
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: anexo.base64 } }
+        : { type: 'image', source: { type: 'base64', media_type: anexo.mime, data: anexo.base64 } };
+      return { role: t.role, content: [bloco, { type: 'text', text: t.content }] };
+    });
+    const system = [];
+    // a parte fixa vai para o cache: da 2ª mensagem em diante custa ~10% do preço
+    if (fixo) system.push({ type: 'text', text: fixo, cache_control: { type: 'ephemeral' } });
+    if (dinamico) system.push({ type: 'text', text: dinamico });
+    const params = {
+      model: m.modelo,
+      max_tokens: maxTokens,
+      ...(system.length ? { system } : {}),
+      messages: mensagens,
+      ...(m.modelo === 'claude-haiku-4-5' || !esforcoBaixo ? {} : { output_config: { effort: 'low' } })
+    };
+    const r = COM_FALLBACK.has(m.modelo)
+      ? // se o modelo recusar por segurança, a própria API tenta de novo num modelo reserva
+        await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
+      : await client.messages.create(params);
+    const u = r.usage || {};
+    registrarUso(empresa, 'anthropic', { entrada: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, cache: u.cache_read_input_tokens || 0 });
+    if (r.stop_reason === 'refusal') return { texto: RESPOSTA_RECUSA, recusado: true };
+    return { texto: r.content.filter((b) => b.type === 'text').map((b) => b.text).join('') };
+  }
+
+  if (m.provedor === 'openai') {
+    const mensagens = [];
+    const sis = [fixo, dinamico].filter(Boolean).join('\n\n');
+    if (sis) mensagens.push({ role: 'system', content: sis });
+    turnos.forEach((t, i) => {
+      if (i !== ultimo || !anexo) return mensagens.push({ role: t.role, content: t.content });
+      const parte = /pdf/i.test(anexo.mime)
+        ? { type: 'file', file: { filename: 'arquivo.pdf', file_data: `data:application/pdf;base64,${anexo.base64}` } }
+        : { type: 'image_url', image_url: { url: `data:${anexo.mime};base64,${anexo.base64}` } };
+      mensagens.push({ role: t.role, content: [parte, { type: 'text', text: t.content }] });
+    });
+    const dados = await chamarOpenai(k, 'chat/completions', {
+      model: m.modelo,
+      messages: mensagens,
+      max_completion_tokens: maxTokens,
+      ...(openaiSemTemperatura(m.modelo) ? { reasoning_effort: 'low' } : { temperature: temperatura })
+    });
+    const u = dados.usage || {};
+    const emCache = u.prompt_tokens_details?.cached_tokens || 0;
+    registrarUso(empresa, 'openai', { entrada: (u.prompt_tokens || 0) - emCache, saida: u.completion_tokens || 0, cache: emCache });
+    const msg = dados.choices?.[0]?.message || {};
+    if (msg.refusal) return { texto: RESPOSTA_RECUSA, recusado: true };
+    return { texto: typeof msg.content === 'string' ? msg.content : '' };
+  }
+
+  // Gemini
+  const contents = turnos.map((t, i) => ({
+    role: t.role === 'assistant' ? 'model' : 'user',
+    parts: i === ultimo && anexo ? [{ inline_data: { mime_type: anexo.mime, data: anexo.base64 } }, { text: t.content }] : [{ text: t.content }]
+  }));
+  const sis = [fixo, dinamico].filter(Boolean).join('\n\n');
+  const dados = await chamarGemini(
+    empresa,
+    `models/${encodeURIComponent(m.modelo)}:generateContent`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(sis ? { systemInstruction: { parts: [{ text: sis }] } } : {}),
+        contents,
+        generationConfig: { maxOutputTokens: maxTokens, temperature: temperatura }
+      })
+    },
+    k
+  );
+  const u = dados.usageMetadata || {};
+  const emCache = u.cachedContentTokenCount || 0;
+  registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache });
   const candidato = dados.candidates?.[0];
   if (!candidato || dados.promptFeedback?.blockReason) return { texto: RESPOSTA_RECUSA, recusado: true };
-  const texto = (candidato.content?.parts || [])
-    .filter((p) => typeof p.text === 'string' && !p.thought)
-    .map((p) => p.text)
-    .join('');
+  const texto = (candidato.content?.parts || []).filter((p) => typeof p.text === 'string' && !p.thought).map((p) => p.text).join('');
   if (!texto.trim() && ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'].includes(candidato.finishReason)) {
     return { texto: RESPOSTA_RECUSA, recusado: true };
   }
   return { texto };
 }
 
-/**
- * Gera a resposta do assistente.
- * @returns {{ texto: string, mensagemWhatsapp: string|null }}
- */
 // Tira da resposta as "ações" que a IA pediu ([[ETAPA: …]], [[MIDIA: …]],
 // [[HUMANO]], [[WHATSAPP]] …) e devolve o texto limpo + as ações.
 function extrairAcoes(bruto) {
@@ -438,9 +661,7 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   const turnos = paraTurnos(historico.slice(-40));
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
-  const provedor = normalizarProvedor(bot.provedor);
-
-  const bruto = provedor === 'gemini' ? await responderGemini(empresa, bot, sistema, turnos) : await responderClaude(empresa, bot, sistema, turnos);
+  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos }), { tarefa: 'resposta' });
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
   const r = extrairAcoes(bruto.texto);
@@ -452,11 +673,14 @@ async function responder(bot, empresa, historico, opcoes = {}) {
 // ---------------------------------------------------------------- áudio e fotos do cliente
 
 const MODELO_OUVIR = process.env.GEMINI_MODELO_AUDIO || 'gemini-2.5-flash';
+const MODELO_TRANSCREVER_OPENAI = process.env.OPENAI_MODELO_AUDIO || 'gpt-4o-mini-transcribe';
+// tarefas simples (descrever foto, ler comprovante): sempre o modelo mais barato de cada IA
+const MODELO_BARATO = { anthropic: 'claude-haiku-4-5', gemini: MODELO_OUVIR, openai: 'gpt-5-mini' };
 
-// A IA do Claude não ouve áudio; o Gemini ouve. Com a chave do Gemini da
-// empresa (ou a padrão), o áudio do cliente vira texto e a IA responde a ele.
+// O Claude não ouve áudio; o Gemini e o GPT ouvem. Com a chave de um deles,
+// o áudio do cliente vira texto e a IA responde a ele.
 function podeOuvirAudio(empresa) {
-  return Boolean(chave('gemini', empresa));
+  return Boolean(chave('gemini', empresa) || chave('openai', empresa));
 }
 
 function textoGemini(dados) {
@@ -467,60 +691,65 @@ function textoGemini(dados) {
     .trim();
 }
 
+const PEDIDO_AUDIO = 'Transcreva este áudio de WhatsApp exatamente como foi falado, em português do Brasil. Responda só com a transcrição, sem comentários. Se não houver fala, responda: (sem fala)';
+
 async function transcreverAudio(empresa, base64, mimetype) {
-  if (!podeOuvirAudio(empresa)) return null;
-  const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
-    method: 'POST',
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inline_data: { mime_type: String(mimetype || 'audio/ogg').split(';')[0], data: base64 } },
-            { text: 'Transcreva este áudio de WhatsApp exatamente como foi falado, em português do Brasil. Responda só com a transcrição, sem comentários. Se não houver fala, responda: (sem fala)' }
-          ]
-        }
-      ],
-      generationConfig: { maxOutputTokens: 2000, temperature: 0 }
-    })
-  });
-  return textoGemini(dados) || null;
+  const mime = String(mimetype || 'audio/ogg').split(';')[0];
+  const tentativas = [];
+  if (chave('gemini', empresa)) {
+    tentativas.push(async () => {
+      const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
+        method: 'POST',
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_AUDIO }] }],
+          generationConfig: { maxOutputTokens: 2000, temperature: 0 }
+        })
+      });
+      const u = dados.usageMetadata || {};
+      registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: u.candidatesTokenCount || 0 });
+      return textoGemini(dados);
+    });
+  }
+  if (chave('openai', empresa)) {
+    tentativas.push(async () => {
+      const form = new FormData();
+      const ext = (mime.split('/')[1] || 'ogg').replace('mpeg', 'mp3');
+      form.append('file', new Blob([Buffer.from(base64, 'base64')], { type: mime }), `audio.${ext}`);
+      form.append('model', MODELO_TRANSCREVER_OPENAI);
+      form.append('language', 'pt');
+      const dados = await chamarOpenai(chave('openai', empresa), 'audio/transcriptions', form);
+      registrarUso(empresa, 'openai', { entrada: dados.usage?.input_tokens || 0, saida: dados.usage?.output_tokens || 0 });
+      return String(dados.text || '').trim();
+    });
+  }
+  let ultimoErro = null;
+  for (const t of tentativas) {
+    try {
+      const texto = await t();
+      if (texto) return texto;
+    } catch (err) {
+      ultimoErro = err;
+      console.error(`[ia ${empresa?.id}] áudio:`, descreverErroIa(err));
+    }
+  }
+  if (ultimoErro) throw ultimoErro;
+  return null;
 }
 
 const PEDIDO_FOTO = 'Descreva em 1 ou 2 frases, em português, o que aparece nesta foto que um cliente mandou pelo WhatsApp para uma empresa (objeto, estado, detalhes úteis para um orçamento e qualquer texto visível). Responda só com a descrição.';
 
-// Descreve a foto do cliente com a IA da empresa (Claude ou Gemini veem imagens)
+// Descreve a foto do cliente (qualquer uma das IAs vê imagens), no modelo mais barato
 async function descreverImagem(bot, empresa, base64, mimetype) {
   const mime = String(mimetype || 'image/jpeg').split(';')[0];
   if (!/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
-  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
-  if (!provedor) return null;
-  if (provedor === 'gemini') {
-    const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
-      method: 'POST',
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_FOTO }] }],
-        generationConfig: { maxOutputTokens: 400, temperature: 0.2 }
-      })
-    });
-    return textoGemini(dados) || null;
-  }
-  const client = obterClienteAnthropic(empresa);
-  const r = await client.messages.create({
-    model: 'claude-haiku-4-5',
-    max_tokens: 400,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
-          { type: 'text', text: PEDIDO_FOTO }
-        ]
-      }
-    ]
-  });
-  if (r.stop_reason === 'refusal') return null;
-  return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim() || null;
+  if (!motoresDa(empresa, bot).length) return null;
+  const r = await comReserva(
+    empresa,
+    bot,
+    (m) => chamarMotor(empresa, { ...m, modelo: MODELO_BARATO[m.provedor] }, { turnos: [{ role: 'user', content: PEDIDO_FOTO }], anexo: { base64, mime }, maxTokens: 400, temperatura: 0.2, esforcoBaixo: false }),
+    { tarefa: 'foto' }
+  );
+  return r.recusado ? null : r.texto.trim() || null;
 }
 
 // Plano B do comprovante (quando o OCR/texto do PDF não deu conta): a IA lê
@@ -532,38 +761,15 @@ async function lerComprovante(bot, empresa, base64, mimetype) {
   const mime = String(mimetype || '').split(';')[0];
   const ehPdf = /pdf/i.test(mime);
   if (!ehPdf && !/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
-  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
-  if (!provedor) return null;
-  let bruto = '';
-  if (provedor === 'gemini') {
-    const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
-      method: 'POST',
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_COMPROVANTE }] }],
-        generationConfig: { maxOutputTokens: 500, temperature: 0 }
-      })
-    });
-    bruto = textoGemini(dados);
-  } else {
-    const r = await obterClienteAnthropic(empresa).messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 500,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            ehPdf
-              ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
-              : { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
-            { type: 'text', text: PEDIDO_COMPROVANTE }
-          ]
-        }
-      ]
-    });
-    if (r.stop_reason === 'refusal') return null;
-    bruto = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-  }
-  const json = (bruto.match(/\{[\s\S]*\}/) || [])[0];
+  if (!motoresDa(empresa, bot).length) return null;
+  const r = await comReserva(
+    empresa,
+    bot,
+    (m) => chamarMotor(empresa, { ...m, modelo: MODELO_BARATO[m.provedor] }, { turnos: [{ role: 'user', content: PEDIDO_COMPROVANTE }], anexo: { base64, mime: ehPdf ? 'application/pdf' : mime }, maxTokens: 500, temperatura: 0, esforcoBaixo: false }),
+    { tarefa: 'comprovante' }
+  );
+  if (r.recusado) return null;
+  const json = (r.texto.match(/\{[\s\S]*\}/) || [])[0];
   if (!json) return null;
   try {
     return JSON.parse(json);
@@ -572,39 +778,12 @@ async function lerComprovante(bot, empresa, base64, mimetype) {
   }
 }
 
-// Chamada simples (um pedido, uma resposta) com a IA da empresa — usada na
-// varredura das conversas. Respeita o provedor/modelo escolhido pela empresa.
+// Chamada simples (um pedido, uma resposta) com as IAs da empresa, na ordem —
+// usada na varredura das conversas e no diagnóstico.
 async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000) {
-  const provedor = chave(normalizarProvedor(bot?.provedor), empresa) ? normalizarProvedor(bot?.provedor) : provedoresConfigurados(empresa)[0];
-  if (!provedor) throw erroSemChave(normalizarProvedor(bot?.provedor));
-  const turnos = [{ role: 'user', content: pedido }];
-  const falso = { ...bot, provedor, modelo: provedor === normalizarProvedor(bot?.provedor) ? bot.modelo : MODELO_PADRAO[provedor] };
-  if (provedor === 'gemini') {
-    const modelo = normalizarModelo('gemini', falso.modelo);
-    const dados = await chamarGemini(empresa, `models/${encodeURIComponent(modelo)}:generateContent`, {
-      method: 'POST',
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: sistema }] },
-        contents: [{ role: 'user', parts: [{ text: pedido }] }],
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 }
-      })
-    });
-    return textoGemini(dados);
-  }
-  const client = obterClienteAnthropic(empresa);
-  const modelo = normalizarModelo('anthropic', falso.modelo);
-  const params = {
-    model: modelo,
-    max_tokens: maxTokens,
-    system: sistema,
-    messages: turnos,
-    ...(modelo === 'claude-haiku-4-5' ? {} : { output_config: { effort: 'low' } })
-  };
-  const r = COM_FALLBACK.has(modelo)
-    ? await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-    : await client.messages.create(params);
-  if (r.stop_reason === 'refusal') throw new Error('A IA recusou o pedido.');
-  return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos: [{ role: 'user', content: pedido }], maxTokens, temperatura: 0.3 }), { tarefa: 'texto' });
+  if (r.recusado) throw new Error('A IA recusou o pedido.');
+  return r.texto.trim();
 }
 
 // ---------------------------------------------------------------- mensagens escritas pela IA para a equipe
@@ -621,6 +800,15 @@ async function escreverMensagem(bot, empresa, historico, instrucao, opcoes = {})
 }
 
 function descreverErroIa(err) {
+  if (err?.todas) return err.message;
+  if (err?.provedor === 'openai') {
+    if (err.status === 401) return 'Chave do ChatGPT inválida. Confira a chave de IA da empresa.';
+    if (err.status === 429 && /quota|billing|insufficient/i.test(`${err.codigo} ${err.message}`)) return 'A chave do ChatGPT está sem crédito. Recarregue em platform.openai.com.';
+    if (err.status === 429) return 'Limite do ChatGPT atingido agora. Tente de novo em instantes.';
+    if (err.status === 404) return 'Modelo do ChatGPT não encontrado para esta chave. Escolha outro em Chaves de IA.';
+    if (err.status === 403) return 'A chave do ChatGPT não tem permissão para este modelo.';
+    return `Erro no ChatGPT: ${err.message}`;
+  }
   if (err instanceof Anthropic.AuthenticationError) return 'Chave do Claude inválida. Confira a chave de IA da empresa.';
   if (err instanceof Anthropic.RateLimitError) return 'O Claude está recebendo muitas mensagens agora. Tente de novo em instantes.';
   if (err instanceof Anthropic.NotFoundError) return 'Modelo do Claude não encontrado para esta chave.';
@@ -656,6 +844,11 @@ module.exports = {
   montarPromptSistema,
   listarModelos,
   testarChave,
+  testarMotor,
+  motoresDa,
+  usoDoDia,
+  registrarUso,
+  MODELOS_OPENAI_SUGERIDOS,
   chave,
   chaveDaEmpresa,
   chavePadrao,
