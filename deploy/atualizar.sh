@@ -51,6 +51,9 @@ if [ -f data.json ]; then
   chmod 600 backups/banco/*.json.gz 2>/dev/null || true
   echo "==> Backup do banco feito antes de atualizar"
 fi
+# segredos e banco legíveis só pelo dono do processo
+[ -f .env ] && chmod 600 .env
+[ -f data.json ] && chmod 600 data.json
 
 echo "==> Baixando a versão nova (branch $BRANCH)"
 git "${GIT_AUTH[@]}" fetch -q "${REPO_URL:-origin}" "$BRANCH"

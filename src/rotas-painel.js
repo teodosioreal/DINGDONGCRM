@@ -25,10 +25,14 @@ const comprovantes = require('./comprovantes');
 const aprendizado = require('./aprendizado');
 const fs = require('fs');
 const path = require('path');
-const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador } = require('./util');
+const { linkWhatsapp, numeroDoAtendimento, listaDominios, numeroWhatsapp, texto, inteiro, hoje, criarLimitador, tipoDeArquivoSeguro } = require('./util');
 
 const router = express.Router();
 const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
+// por e-mail, contando só senha errada: segura quem troca de IP para adivinhar a senha
+const falhasLogin = new Map();
+const JANELA_FALHAS = 15 * 60 * 1000;
+const falhasRecentes = (email) => (falhasLogin.get(email) || []).filter((t) => Date.now() - t < JANELA_FALHAS);
 
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
@@ -47,11 +51,17 @@ router.post('/auth/login', (req, res) => {
     return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' });
   }
   const email = texto(req.body?.email, 200).toLowerCase();
-  const senha = String(req.body?.senha || '');
+  const senha = String(req.body?.senha || '').slice(0, 500); // senha gigante não trava o servidor no scrypt
+  if (falhasRecentes(email).length >= 8) {
+    return res.status(429).json({ erro: 'Muitas senhas erradas nesta conta. Espere 15 minutos e tente de novo.' });
+  }
   const usuario = estado.usuarios.find((u) => u.email === email && u.ativo !== false);
   if (!usuario || !auth.conferirSenha(senha, usuario.senhaHash)) {
+    if (falhasLogin.size > 5000) falhasLogin.clear(); // não cresce sem fim
+    falhasLogin.set(email, [...falhasRecentes(email), Date.now()]);
     return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
   }
+  falhasLogin.delete(email);
   auth.criarSessao(res, usuario);
   res.json({ usuario: auth.usuarioPublico(usuario) });
 });
@@ -1621,7 +1631,7 @@ router.get('/leads/:id/anexos/:arquivo', (req, res) => {
   const caminho = midias.caminhoAnexo(c.id, req.params.arquivo);
   const msg = c.mensagens.find((m) => m.anexo?.arquivo === req.params.arquivo);
   if (!caminho || !msg) return res.sendStatus(404);
-  res.type(msg.anexo.mimetype || 'application/octet-stream');
+  tipoDeArquivoSeguro(res, msg.anexo.mimetype, msg.anexo.nome || msg.anexo.arquivo);
   res.setHeader('Cache-Control', 'private, max-age=86400');
   res.sendFile(caminho, (err) => {
     if (err && !res.headersSent) res.sendStatus(404);
@@ -2252,7 +2262,7 @@ router.get('/empresas/:id/vendas/:vendaId/comprovante', (req, res) => {
   // comprovante mandado no WhatsApp fica na pasta da conversa (mesmo com ela na lixeira)
   const caminho = v.anexo ? midias.caminhoAnexo(v.anexo.leadId || `vendas-${v.empresaId}`, v.anexo.arquivo) : null;
   if (!caminho) return res.sendStatus(404);
-  res.type(v.anexo.mimetype || 'application/octet-stream');
+  tipoDeArquivoSeguro(res, v.anexo.mimetype, v.anexo.nome || v.anexo.arquivo);
   res.sendFile(caminho, (err) => {
     if (err && !res.headersSent) res.sendStatus(404);
   });

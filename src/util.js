@@ -67,6 +67,21 @@ function hoje() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Arquivo enviado por alguém (cliente no WhatsApp, Drive, upload): tipos que o
+// navegador EXECUTA (HTML, SVG, XML, JS) vão como download, nunca abertos no
+// endereço do painel — senão um arquivo malicioso rodaria código logado.
+const TIPO_ATIVO = /html|svg|xml|javascript|ecmascript|x-sh|x-httpd|wasm/i;
+function tipoDeArquivoSeguro(res, mimetype, nome = 'arquivo') {
+  const tipo = String(mimetype || 'application/octet-stream');
+  if (TIPO_ATIVO.test(tipo)) {
+    res.attachment(String(nome || 'arquivo').replace(/[^\w.\- ]+/g, '_').slice(0, 120)); // (attachment põe o tipo pela extensão…)
+    res.type('application/octet-stream'); // …então o tipo vem depois
+  } else {
+    res.type(tipo);
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+}
+
 // Limitador simples em memória: no máximo `limite` eventos por `janelaMs` por chave.
 function criarLimitador(limite, janelaMs) {
   const mapa = new Map();
@@ -102,5 +117,6 @@ module.exports = {
   texto,
   inteiro,
   hoje,
-  criarLimitador
+  criarLimitador,
+  tipoDeArquivoSeguro
 };

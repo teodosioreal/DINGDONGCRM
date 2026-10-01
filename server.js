@@ -9,6 +9,7 @@ const rotasPublicas = require('./src/rotas-publicas');
 const rotasPainel = require('./src/rotas-painel');
 const { migrarLeads } = require('./src/leads');
 const midias = require('./src/midias');
+const { tipoDeArquivoSeguro } = require('./src/util');
 const disparos = require('./src/disparos');
 const automacoes = require('./src/automacoes');
 
@@ -19,6 +20,17 @@ const app = express();
 app.disable('x-powered-by');
 // Atrás do Nginx: usa o IP real do visitante (X-Forwarded-For) e o protocolo https
 app.set('trust proxy', 'loopback');
+
+// Cabeçalhos de segurança em tudo (o widget do site é um <script>, não usa iframe)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // ninguém coloca o painel dentro de outro site (clickjacking)
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), usb=(), microphone=(self)');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000'); // só HTTPS por 180 dias
+  next();
+});
 
 const base = express.Router();
 const pastaPublica = path.join(__dirname, 'public');
@@ -39,7 +51,7 @@ base.get('/midia/:id/:arquivo', (req, res) => {
   const midia = midias.acharPorId(req.params.id);
   if (!midia) return res.sendStatus(404);
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.type(midia.mimetype);
+  tipoDeArquivoSeguro(res, midia.mimetype, midia.arquivo);
   res.sendFile(midias.caminhoDoArquivo(midia), (err) => {
     if (err && !res.headersSent) res.sendStatus(404);
   });
@@ -50,7 +62,7 @@ base.get('/anexo/:token/:nome', (req, res) => {
   const a = midias.arquivoDoLink(req.params.token);
   if (!a) return res.sendStatus(404);
   res.setHeader('Cache-Control', 'private, no-store');
-  res.type(a.mimetype || 'application/octet-stream');
+  tipoDeArquivoSeguro(res, a.mimetype, req.params.nome);
   res.sendFile(a.caminho, (err) => {
     if (err && !res.headersSent) res.sendStatus(404);
   });
@@ -62,7 +74,7 @@ base.get('/logo/:empresaId', (req, res) => {
   const empresa = estado.empresas.find((e) => e.id === req.params.empresaId);
   if (!empresa?.logo) return res.sendStatus(404);
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.type(empresa.logo.mimetype);
+  tipoDeArquivoSeguro(res, empresa.logo.mimetype, empresa.logo.arquivo);
   res.sendFile(path.join(config.midiasDir, 'logos', empresa.logo.arquivo), (err) => {
     if (err && !res.headersSent) res.sendStatus(404);
   });
