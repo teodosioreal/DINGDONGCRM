@@ -58,16 +58,25 @@ done
 PG="$(docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null | grep -i evolution | grep -i postgres | head -1 | cut -d'|' -f1)"
 if [ -n "$PG" ]; then
   echo "    banco ($PG), só leitura:"
-  docker exec "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -At -F " | " -c "
-    SELECT i.name, i.\"connectionStatus\", CASE WHEN i.\"businessId\" IS NULL THEN '"'"'sem businessId'"'"' ELSE '"'"'business'"'"' END,
-      (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
-      (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id) AS conversas,
-      (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id AND c.labels IS NOT NULL AND jsonb_array_length(c.labels) > 0) AS conversas_com_etiqueta
-    FROM \"Instance\" i ORDER BY i.name;"' 2>&1 | sed 's/^/       instância: /' | head -20
+  # acha o banco/esquema que tem a tabela "Label" (o nome do banco vem da configuração da Evolution)
+  for BD in $(docker exec "$PG" sh -c 'psql -U "$POSTGRES_USER" -d postgres -At -c "SELECT datname FROM pg_database WHERE NOT datistemplate"' 2>/dev/null); do
+    ESQ=$(docker exec -e BD="$BD" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "SELECT table_schema FROM information_schema.tables WHERE table_name = '"'"'Label'"'"' LIMIT 1"' 2>/dev/null)
+    [ -n "$ESQ" ] || continue
+    echo "       banco=$BD esquema=$ESQ"
+    docker exec -e BD="$BD" -e ESQ="$ESQ" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -F " | " -c "
+      SET search_path TO \"$ESQ\";
+      SELECT i.name, i.\"connectionStatus\", CASE WHEN i.\"businessId\" IS NULL THEN '"'"'sem businessId'"'"' ELSE '"'"'business'"'"' END,
+        (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
+        (SELECT string_agg(l.name, '"'"', '"'"') FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS nomes,
+        (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id) AS conversas,
+        (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id AND c.labels IS NOT NULL AND jsonb_typeof(c.labels) = '"'"'array'"'"' AND jsonb_array_length(c.labels) > 0) AS conversas_com_etiqueta
+      FROM \"Instance\" i ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed -E 's/[0-9]{8,}/[núm]/g; s/^/       instância: /' | head -20
+  done
 fi
 if [ -n "$CONTAINER" ]; then
   for c in $CONTAINER; do
     echo "    avisos de etiqueta no log da Evolution (48 h): $(docker logs "$c" --since 48h 2>&1 | grep -ciE 'labels? ?(edit|association)|LABELS_' || true)"
+    docker logs "$c" --since 48h 2>&1 | grep -iE 'labels? ?(edit|association)|LABELS_' | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g' | cut -c1-220 | sort | uniq -c | sort -rn | head -8 | sed 's/^/       /'
   done
 fi
 
