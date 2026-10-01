@@ -467,9 +467,15 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 - Para quando o cliente responde (recomeça se ele sumir de novo); fila com cronômetro; "não enviar" na conversa encerra a sequência do cliente.
 - **Horário único** (8h–20h) no topo da página vale para o follow-up e todas as automações.
 
+### 👤 Um cliente = uma conversa (número com/sem 9 e id escondido)
+
+O WhatsApp pode mandar o mesmo cliente pelo número (com ou sem o 9) ou por um id escondido (LID); a Evolution 2.3 ainda troca o LID pelo número antes de avisar o CRM. O `src/identidade.js` decide de quem é cada mensagem (recebida, enviada pelo celular ou importada) por **qualquer** desses endereços e, se o mesmo cliente estiver em duas conversas, junta as duas (mensagens, agendamentos, vendas, etiquetas, anotações). Também: ligações LID→número copiadas (só leitura) do banco da Evolution a cada deploy, consulta à Evolution quando um número desconhecido chega e ainda há conversas só com LID, e revisão de duplicadas ao ligar e a cada 20 min.
+
 ### 🏷️ Etiquetas do WhatsApp Business ⇄ CRM
 
 Em IA do WhatsApp → "Etiquetas do WhatsApp Business" (ligado por padrão). Marcou **Agendado** num cliente no celular → aparece no CRM; marcou no CRM (conversa, lead, lote, IA) → o CRM marca no celular. Etiquetas com o mesmo nome ficam ligadas e as criadas no WhatsApp Business entram no CRM sozinhas (renomear lá renomeia aqui). A Evolution não cria etiqueta nova no WhatsApp: para ligar uma etiqueta que só existe no CRM, crie uma com o mesmo nome no WhatsApp Business. Só funciona em número WhatsApp Business (eventos `LABELS_EDIT` e `LABELS_ASSOCIATION`, que o CRM liga sozinho no webhook).
+
+Se as etiquetas do celular não aparecerem (a conexão nunca recebeu a sincronização do WhatsApp), o cartão de etiquetas mostra **Trazer etiquetas do celular**: desconecta só esse número e mostra o QR; escaneando com o mesmo celular, o WhatsApp manda todas as etiquetas e marcações.
 
 Etiquetas marcadas no celular **antes** de o CRM ouvir os avisos também entram: a cada deploy, o servidor copia (só lendo) do banco da Evolution as etiquetas e marcações **dos números do CRM** para `etiquetas-evolution.json` (ao lado do banco do CRM), e o CRM importa. A Evolution guarda os nomes sem acento ("Oramento") — o CRM liga com as etiquetas que já existem e conserta as palavras comuns ("Orçamento"). As listas automáticas do WhatsApp ("Não lidas", "Favoritos", "Grupos") ficam de fora.
 

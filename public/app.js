@@ -2778,10 +2778,19 @@ async function cartaoEtiquetasZap(id) {
     <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ✓</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
     ${r.soNoCrm.length ? `<p class="rotulo" style="margin:0 0 8px">Só no CRM (para ligar, crie no WhatsApp Business uma etiqueta com o mesmo nome): ${r.soNoCrm.map(esc).join(', ')}</p>` : ''}
     ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
+    ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
     <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>` : ''}`;
   $('#etq-zap-ativo').onchange = async (e) => {
     try { await api(`empresas/${id}/etiquetas-zap`, { method: 'PUT', body: { ativo: e.target.checked } }); if (e.target.checked) await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
   };
+  $('#etq-zap-reconectar')?.addEventListener('click', async (e) => {
+    if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
+    try {
+      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/sair-numero`, { method: 'POST' }));
+      aviso('Agora escaneie o QR code com o mesmo celular.');
+      paginaWhatsapp(id).then(() => window.scrollTo(0, 0));
+    } catch (err) { aviso(err.message, true); }
+  });
   $('#etq-zap-ler')?.addEventListener('click', async (e) => {
     try { await comEspera(e.target, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Lendo…'); aviso('Etiquetas lidas.'); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
   });

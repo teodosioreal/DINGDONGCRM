@@ -688,6 +688,8 @@ async function receberWebhook(empresa, corpo) {
       if (st === 'open' && antes !== 'open') {
         require('./sincronizar').aoReconectar(empresa);
         require('./etiquetas-zap').carregar(empresa).catch(() => {});
+        // ao conectar, o celular manda as etiquetas aos poucos: lê de novo depois
+        setTimeout(() => require('./etiquetas-zap').carregar(empresa).catch(() => {}), 90 * 1000).unref?.();
       }
     }
     return;
