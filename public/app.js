@@ -139,6 +139,8 @@ const rotaEmpresa = (id, sub = '') => `#/empresas/${id}${sub ? `/${sub}` : ''}`;
 
 // Balão explicativo (dica no topo das telas / seções)
 function balao(titulo, html, tipo = 'dica') {
+  // dica: fica recolhida num "ⓘ" (abre ao clicar) — deixa a tela limpa
+  if (tipo === 'dica' && html) return `<details class="balao-dica"><summary><span class="i">i</span>${titulo}</summary><div class="balao-corpo">${html}</div></details>`;
   const icone = { dica: '💡', aviso: '⚠️', ok: '✅', passo: '👉' }[tipo] || '💡';
   return `<div class="balao balao-${tipo}"><span class="balao-icone">${icone}</span><div><strong>${titulo}</strong>${html ? `<div class="balao-texto">${html}</div>` : ''}</div></div>`;
 }
@@ -378,14 +380,14 @@ async function paginaInicio() {
   const [r, empresas] = await Promise.all([api('resumo'), api('empresas')]);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Visão geral</h1><p class="sub">Todas as empresas do CRM</p></div></div>
-    <div class="grade-resumo">
-      ${numeroCard('Empresas', r.empresas)}
+    <div class="cabecalho"><div><h1>Visão geral</h1><p class="sub">${empresas.length} ${empresas.length === 1 ? 'empresa' : 'empresas'} no CRM</p></div><button class="primario" id="nova">+ Nova empresa</button></div>
+    <div class="grade-resumo compacta">
       ${numeroCard('Leads novos (7 dias)', r.leads7d)}
       ${numeroCard('Chegaram no WhatsApp (7 dias)', r.noWhatsapp7d)}
       ${numeroCard('Esperando a equipe', r.aguardandoEquipe, r.aguardandoEquipe ? 'destaque' : '')}
+      ${numeroCard('Empresas ativas', `${empresas.filter((e) => e.ativa !== false).length}<small>/${r.empresas}</small>`)}
     </div>
-    <div class="cabecalho"><h2 style="margin:0">Empresas</h2><button class="primario" id="nova">+ Nova empresa</button></div>
+    <h2 class="secao-titulo">Empresas</h2>
     ${gradeEmpresas(empresas)}
     ${tabelaTokens(empresas)}`;
   $('#nova').onclick = () => modalEmpresa();
@@ -481,7 +483,7 @@ function tabelaTokens(lista) {
   const porIa = (u) => Object.entries(u?.porIa || {}).map(([p, n]) => `${NOME_IA_CURTO[p] || p} ${numeroCurto(n)}`).join(' · ') || '—';
   return `
     <div class="card tabela-wrap tokens-tabela">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔢 Tokens de IA por empresa</h2><span class="rotulo">cada empresa tem a própria conta</span></div>
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">Uso de IA por empresa</h2><span class="rotulo">cada empresa tem a própria conta</span></div>
       <table>
         <thead><tr><th>Empresa</th><th class="num">Hoje</th><th class="num">7 dias</th><th class="num">30 dias</th><th class="esconde-mobile">Por IA (30 dias)</th><th class="esconde-mobile num">Chamadas (30 d)</th></tr></thead>
         <tbody>
@@ -973,7 +975,7 @@ async function paginaWhatsapp(id) {
       </div>`;
   } else {
     conexao = `
-      <div class="card">
+      <div class="card" data-cfg="conexao" ${online ? `data-pronto="ok" data-resumo="${esc([p.nome || w.sessao, p.numero ? telefoneBonito(p.numero) : '', 'online'].filter(Boolean).join(' · '))}"` : ''}>
         <div class="cabecalho" style="margin-bottom:12px;padding-right:0"><h2 style="margin:0">WhatsApp conectado</h2><button type="button" class="pequeno" id="zap-atualizar">Atualizar</button></div>
         <div class="perfil-zap">
           ${p.foto ? `<img src="${esc(p.foto)}" alt="" class="foto-zap" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'foto-zap vazia'}))">` : `<span class="foto-zap vazia">${ICONES.whatsapp}</span>`}
@@ -998,16 +1000,16 @@ async function paginaWhatsapp(id) {
     ${faixaPausada(emp)}
     ${ligado ? '' : balao('A IA do WhatsApp está desligada', 'As mensagens continuam chegando no CRM (você vê tudo em Leads), mas a IA não responde. Ligue no botão acima quando quiser.', 'aviso')}
     ${conexao}
-    <div class="card" id="card-diagnostico">
+    <div class="card" id="card-diagnostico" data-pronto="off" data-resumo="Use quando a IA não responder alguém">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🩺 A IA não está respondendo?</h2><button type="button" class="primario pequeno" id="rodar-diagnostico">Verificar agora</button></div>
       <p class="rotulo" style="margin:0">O CRM confere tudo: conexão do celular, se as mensagens estão chegando, chave de IA, modo teste e conversas pausadas — e mostra o que a IA fez com as últimas mensagens.</p>
       <div id="resultado-diagnostico"></div>
     </div>
-    ${w.configurado ? `<div class="card">
+    ${w.configurado ? `<div class="card" data-cfg="sincronia" data-pronto="ok" data-resumo="Busca sozinha a cada 20 min e ao reconectar">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📥 Mensagens do WhatsApp no painel</h2><button type="button" id="zap-sincronizar">🔄 Buscar mensagens</button></div>
       <p class="rotulo" style="margin:0">Todas as mensagens do WhatsApp aparecem aqui. Se alguma não chegou (o número ficou desconectado, você reconectou, o servidor reiniciou), o CRM busca sozinho a cada 20 minutos e sempre que o WhatsApp volta a conectar — sem a IA responder mensagens antigas.${w.sincronia ? ` <br>Última busca: <b>${esc(data(w.sincronia.em))}</b> · ${w.sincronia.erro ? `<span class="aviso-texto">erro: ${esc(w.sincronia.erro)}</span>` : `${w.sincronia.importadas} mensagem(ns) recuperada(s)${w.sincronia.importadas ? ` em ${w.sincronia.conversas} conversa(s)` : ''}`}.` : ''}</p>
     </div>` : ''}
-    <form class="card" id="f-ritmo">
+    <form class="card" id="f-ritmo" data-pronto="ok" data-resumo="${esc({ rapido: 'Rápido', humanizado: 'Humanizado', lento: 'Mais lento' }[w.velocidade || 'humanizado'] || 'Humanizado')}${w.whatsappAvisos ? ' · avisos de erro no WhatsApp' : ''}">
       <h2 style="margin:0 0 6px">⏱️ Ritmo das respostas</h2>
       <p class="rotulo" style="margin:0 0 12px">Quanto a IA espera e quanto tempo fica "digitando…" antes de responder. Mais lento parece mais humano.</p>
       <div class="opcoes-ritmo">
@@ -1020,7 +1022,7 @@ async function paginaWhatsapp(id) {
       </div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
     </form>
-    <div class="card">
+    <div class="card" data-cfg="ia-manual" data-pronto="ok" data-resumo="${!w.iaAposManual ? 'Ligado: a IA para quando você responde' : 'Desligado: a IA continua atendendo'}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ IA para de responder depois da minha mensagem manual</h2>${interruptor('ia-para-manual', !w.iaAposManual, !w.iaAposManual ? 'Ligado' : 'Desligado')}</div>
       <p class="rotulo" style="margin:0">${!w.iaAposManual
         ? '<b>Ligado (padrão):</b> quando você (ou a equipe) manda uma mensagem pelo painel ou pelo celular, a IA <b>para de responder</b> aquele cliente — você assume. Para devolver, use "Devolver para a IA" na conversa.'
@@ -1028,7 +1030,7 @@ async function paginaWhatsapp(id) {
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
-    <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
+    <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}" data-cfg="modo-teste" ${w.modoTeste ? '' : 'data-pronto="off" data-resumo="Desligado: a IA responde todos os clientes"'}>
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
       <form id="f-numeros-teste" class="linha-form"><input name="numerosTeste" value="${esc((w.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}" placeholder="Seu número com DDD — ex.: (21) 99999-9999 (separe vários por vírgula)"><button type="submit">Salvar números</button></form>
@@ -1369,7 +1371,7 @@ async function paginaMidias(id) {
       <div id="grade-biblioteca"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-cfg="drive" data-pronto="${pastas.length ? 'ok' : 'off'}" data-resumo="${pastas.length ? `${pastas.length} pasta(s) conectada(s)` : 'Nenhuma pasta conectada'}">
       <h2>📁 Fotos do Google Drive</h2>
       <p class="rotulo" style="margin-top:-6px">Cada pasta vira um <b>álbum</b>: a IA manda as fotos da pasta de uma vez. Coloque fotos novas na pasta e o CRM sincroniza sozinho (a cada 6 horas, ou no botão).</p>
       <details ${pastas.length ? '' : 'open'}><summary>Como compartilhar a pasta</summary>${passos([
@@ -1396,13 +1398,13 @@ async function paginaMidias(id) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-cfg="rapidas" data-pronto="${(emp.respostasRapidas || []).length ? 'ok' : 'off'}" data-resumo="${(emp.respostasRapidas || []).length ? `${emp.respostasRapidas.length} atalho(s)` : 'Nenhum atalho ainda'}">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">⚡ Respostas rápidas com mídia</h2><button type="button" class="primario pequeno" id="abrir-rapidas">Gerenciar</button></div>
       <p class="rotulo" style="margin:0 0 10px">Atalhos como <b>/preco</b> e <b>/catalogo</b> que mandam texto + foto, PDF ou álbum de uma vez — na aba Conversas${emp.atalhosNoCelular !== false ? ' e digitando no WhatsApp do celular' : ''}.</p>
       ${(emp.respostasRapidas || []).length ? `<div class="tabela-wrap"><table><thead><tr><th>Atalho</th><th>Manda</th><th class="esconde-mobile">Quando usar</th></tr></thead><tbody>${emp.respostasRapidas.map((r) => `<tr><td><b>/${esc(r.atalho)}</b></td><td>${esc((r.texto || '').slice(0, 70))}${(r.texto || '').length > 70 ? '…' : ''}${r.midia ? ` <span class="codigo-chip">#${esc(r.midia)}</span>` : ''}</td><td class="esconde-mobile rotulo">${esc(r.quando || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<span class="rotulo">Nenhuma ainda.</span>'}
     </div>
 
-    <div class="card">
+    <div class="card" data-cfg="links" data-pronto="${links.length ? 'ok' : 'off'}" data-resumo="${links.length ? `${links.length} link(s)` : 'Nenhum link ainda'}">
       <h2>🔗 Links</h2>
       <p class="rotulo" style="margin-top:-6px">Site, catálogo, cardápio, localização no mapa, agenda online, Instagram… A IA manda quando fizer sentido.</p>
       <div id="lista-links" class="lista-editavel"></div>
@@ -2771,6 +2773,7 @@ async function cartaoEtiquetasZap(id) {
   let r;
   try { r = await api(`empresas/${id}/etiquetas-zap`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
+  setTimeout(() => marcarPronto(el, !r.ativo ? 'off' : r.noZap.length ? 'ok' : null, !r.ativo ? 'Desligado' : `${r.noZap.length} etiqueta(s) ligadas ao celular`));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🏷️ Etiquetas do WhatsApp Business</h2>${interruptor('etq-zap-ativo', r.ativo, r.ativo ? 'Ligado' : 'Desligado')}</div>
     <p class="rotulo" style="margin:0 0 10px">Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Etiquetas com o <b>mesmo nome</b> ficam ligadas, e as que você cria no WhatsApp Business entram no CRM sozinhas. Funciona só em número <b>WhatsApp Business</b>.</p>
@@ -2803,6 +2806,7 @@ async function cartaoAvisoAgendamento(id) {
   let c;
   try { c = await api(`empresas/${id}/aviso-agendamento`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
+  setTimeout(() => marcarPronto(el, c.ativo && c.numero ? 'ok' : 'off', c.ativo && c.numero ? `Ligado · ${telefoneBonito(c.numero)}` : 'Desligado: ninguém é avisado dos agendamentos'));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 Aviso de agendamento</h2>${interruptor('aviso-ag-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
     <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, carro, endereço, preço e outras informações importantes da conversa.</p>
@@ -2824,6 +2828,7 @@ async function cartaoListaNegra(id) {
   let lista;
   try { lista = await api(`empresas/${id}/lista-negra`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
+  setTimeout(() => marcarPronto(el, 'ok', lista.length ? `${lista.length} número(s) bloqueado(s)` : 'Ninguém bloqueado'));
   el.innerHTML = `
     <h2>🚫 Lista negra</h2>
     <p class="rotulo" style="margin-top:-6px">Quem está aqui <b>não recebe nada</b>: nem IA, automações, follow-up, disparos ou mensagens da equipe. As mensagens deles continuam chegando (filtro 🚫 em Conversas). Também dá para pôr pelo botão 🚫 dentro da conversa.</p>
@@ -3707,7 +3712,8 @@ async function secaoFollowup(id, emp, el) {
     <div class="card fup-secao ${d.ativo ? 'ligada' : ''}">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><div><h2 style="margin:0">🔁 Follow-up: recuperar quem parou de responder</h2><p class="rotulo" style="margin:2px 0 0">A IA retoma a conversa sozinha, lendo o que cada cliente queria — em passos, com as mídias que você escolher.</p></div>${interruptor('fup-ativo', d.ativo, d.ativo ? 'Ligado' : 'Desligado')}</div>
       <p class="rotulo" style="margin:0 0 8px">${d.ativo ? `<b>${d.naFila}</b> cliente(s) na fila · <b>${d.enviadosHoje}</b> enviado(s) hoje.` : 'Desligado: nenhum follow-up sai. Ao ligar, só entram conversas que pararem a partir de agora (nada de mandar para conversa antiga).'}</p>
-      <details ${d.ativo ? '' : 'open'}><summary>Como funciona</summary>${passos([
+      <details class="fup-editar" id="fup-editar" ${(() => { try { return sessionStorage.getItem('fup_editar') === '1' ? 'open' : ''; } catch { return ''; } })()}><summary><span class="fup-editar-titulo">Sequência e para quem</span><span class="rotulo">${seq.length} ${seq.length === 1 ? 'mensagem' : 'mensagens'}: ${seq.map((p) => { const t = tempo(p.horas); return `${t.n} ${t.u === 'd' ? (t.n === 1 ? 'dia' : 'dias') : 'h'}`; }).join(' → ')} · ${seq.some((p) => p.modo !== 'texto') ? 'a IA escreve' : 'texto fixo'}</span><span class="cfg-abrir">Editar</span></summary>
+      <details><summary>Como funciona</summary>${passos([
         'Já vem pronto: <b>3 mensagens, uma a cada 48 h</b>, para quem parou de responder sem agendar. Mude os tempos, o texto, ponha um <b>vídeo</b> em cada passo — ou desligue.',
         'Em cada passo, a <b>IA lê a conversa daquele cliente</b> e escreve a mensagem certa para ele (ou use um texto fixo). Se a IA falhar, sai a <b>mensagem genérica de reserva</b>.',
         'Para sozinho quando o cliente <b>responde</b> (a IA volta a atender), compra, pede uma pessoa, pede para sair, ou vai para uma etapa de fechado/perdido. Só fala com quem está em Conversas.'
@@ -3722,10 +3728,13 @@ async function secaoFollowup(id, emp, el) {
       <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="fup-pausados" ${d.incluirPausados ? 'checked' : ''}> Mandar também para quem a equipe está atendendo (IA pausada)</label>
       ${(d.etapas || []).length ? `<div class="campo" style="margin-top:10px"><label>Não mandar para quem está nestas etapas ${ajuda('Ex.: Fechado, Perdido. Quem está aqui já resolveu — não recebe follow-up.')}</label><div class="chips">${d.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
       <div class="acoes"><button type="button" class="primario" id="salvar-fup">Salvar follow-up</button></div>
+      </details>
       <details style="margin-top:10px" ${(d.proximos || []).length ? 'open' : ''}><summary>⏳ Próximos envios (${(d.proximos || []).length})</summary>
       ${(d.proximos || []).length ? `<ul class="fila-fup">${d.proximos.map((p) => `<li><span><a href="#/leads/${esc(p.leadId)}">${esc(p.nome)}</a> <span class="rotulo">· passo ${p.passo}</span></span><b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b></li>`).join('')}</ul>` : `<p class="rotulo">${d.ativo ? 'Ninguém na fila agora.' : 'Ligue o follow-up para ver a fila.'}</p>`}
       </details>
     </div>`;
+
+  $('#fup-editar').ontoggle = (e) => { try { sessionStorage.setItem('fup_editar', e.target.open ? '1' : '0'); } catch { /* ok */ } };
 
   function desenharPassos() {
     $('#lista-passos').innerHTML = seq.map((p, i) => {
@@ -3818,7 +3827,7 @@ async function paginaAutomacoes(id) {
 
     <div id="secao-followup"><div class="card"><p class="rotulo">Carregando follow-up…</p></div></div>
 
-    <div class="card">
+    <div class="card" data-cfg="link-google" data-pronto="${d.linkAvaliacao ? 'ok' : precisaLink ? '' : 'off'}" data-resumo="${d.linkAvaliacao ? 'Link salvo' : 'Ainda sem link'}">
       <h2>Link de avaliação do Google</h2>
       <p class="rotulo" style="margin-top:-6px">Usado na automação "Pedir avaliação no Google" (variável <code>{link_avaliacao}</code>).</p>
       <details ${d.linkAvaliacao ? '' : 'open'}><summary>Onde pego esse link?</summary>${passos(['Abra o <a href="https://business.google.com" target="_blank" rel="noopener">Google Meu Negócio</a> (ou pesquise o nome da sua empresa no Google, logado).', 'Clique em <b>Pedir avaliações</b> (ou "Receber mais avaliações").', 'Copie o link que aparece (ex.: <code>https://g.page/r/…/review</code>) e cole aqui.'])}</details>
@@ -3826,7 +3835,7 @@ async function paginaAutomacoes(id) {
       ${precisaLink ? '<p class="erro-caixa" style="margin-top:10px">A automação de avaliação está ligada, mas falta o link — ela não envia até você salvar.</p>' : ''}
     </div>
 
-    <div class="card">
+    <div class="card" data-cfg="link-anuncio" data-pronto="${d.linkAnuncio ? 'ok' : precisaAnuncio ? '' : 'off'}" data-resumo="${d.linkAnuncio ? 'Link salvo' : 'Ainda sem link'}">
       <h2>Link do anúncio (Instagram/Facebook)</h2>
       <p class="rotulo" style="margin-top:-6px">Usado na automação "Pedir comentário no anúncio" (variável <code>{link_anuncio}</code>). O cliente abre o post do anúncio e comenta como foi — comentários reais no anúncio passam confiança para quem ainda não comprou.</p>
       <details ${d.linkAnuncio ? '' : 'open'}><summary>Onde pego esse link?</summary>${passos(['Abra o <a href="https://adsmanager.facebook.com" target="_blank" rel="noopener">Gerenciador de Anúncios</a> e clique no anúncio que está rodando.', 'Em <b>Visualização do anúncio</b>, clique no ícone de compartilhar (↗) e escolha <b>Publicação do Instagram com comentários</b> (ou do Facebook).', 'Copie o link da publicação (ex.: <code>https://www.instagram.com/p/…</code>) e cole aqui. Trocou de anúncio? É só colar o link novo.'])}<p class="rotulo" style="margin:8px 0 0">Dica: peça só a clientes reais e não ofereça brinde em troca do comentário — as regras do Meta não permitem.</p></details>
@@ -4036,17 +4045,20 @@ function gradeEmpresas(lista) {
         ${ehAdmin() ? `<button type="button" class="cartao-excluir" data-excluir-empresa="${esc(e.id)}" title="Excluir empresa" aria-label="Excluir ${esc(e.nome)}">🗑️</button>` : ''}
         <a class="cartao-empresa ${e.ativa === false ? 'pausada' : ''}" href="${rotaEmpresa(e.id)}">
           <div class="cartao-empresa-topo">${avatarEmpresa(e, 'grande')}<div class="cartao-empresa-nome"><strong>${esc(e.nome)}</strong><span class="rotulo">${esc(e.nicho || 'Sem ramo definido')}</span></div></div>
+          <div class="cartao-empresa-hero"><span class="rotulo">Faturamento no mês</span><b>${brl(e.faturamentoMes)}</b></div>
           <div class="cartao-empresa-numeros">
-            <div><span class="rotulo">Faturamento no mês</span><b>${brl(e.faturamentoMes)}</b></div>
-            <div><span class="rotulo">Leads (7 dias)</span><b>${e.leads7d || 0}</b></div>
-            <div><span class="rotulo">Não lidas</span><b>${e.naoLidas || 0}</b></div>
-            <div><span class="rotulo">Tokens de IA hoje</span><b>${numeroCurto(e.usoHoje?.total)}</b></div>
+            <div><b>${e.leads7d || 0}</b><span class="rotulo">Leads 7 dias</span></div>
+            <div class="${e.naoLidas ? 'pede' : ''}"><b>${e.naoLidas || 0}</b><span class="rotulo">Não lidas</span></div>
+            <div><b>${numeroCurto(e.usoHoje?.total)}</b><span class="rotulo">Tokens hoje</span></div>
           </div>
           <div class="cartao-empresa-rodape">
-            <span class="etiqueta ${e.canais?.site ? 'ok' : ''}">🌐 Site ${e.canais?.site ? 'ligado' : 'desligado'}</span>
-            <span class="etiqueta ${e.canais?.whatsapp && e.whatsapp?.configurado ? 'ok' : ''}">🟢 WhatsApp ${e.whatsapp?.configurado ? (e.canais?.whatsapp ? 'ligado' : 'desligado') : 'não conectado'}</span>
+            <span class="ponto-canal ${e.canais?.site ? 'ok' : ''}">Site</span>
+            <span class="ponto-canal ${e.canais?.whatsapp && e.whatsapp?.configurado ? 'ok' : e.whatsapp?.configurado ? '' : 'falta'}">WhatsApp${e.whatsapp?.configurado ? '' : ' · não conectado'}</span>
+            <span class="rodape-fim">
             ${e.ativa === false ? '<span class="etiqueta off">Pausada</span>' : ''}
-            ${(e.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="etiqueta off">⚠️ precisa de atenção</span>' : ''}${e.alertasNaoLidos ? `<span class="etiqueta aviso">🔔 ${e.alertasNaoLidos}</span>` : ''}
+            ${(e.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="etiqueta off">Precisa de atenção</span>' : ''}${e.alertasNaoLidos ? `<span class="etiqueta aviso">${e.alertasNaoLidos} ${e.alertasNaoLidos === 1 ? 'alerta' : 'alertas'}</span>` : ''}
+            <span class="abrir-seta" aria-hidden="true">→</span>
+            </span>
           </div>
         </a>
         </div>`).join('')}
@@ -4814,6 +4826,40 @@ async function abrirAlertas() {
   });
 }
 
+// Seção já configurada: vira uma linha recolhida e esmaecida ("✓ Título · resumo · Editar").
+// estado: 'ok' (configurado), 'off' (desligado/opcional) ou null (precisa de atenção: fica aberta)
+function marcarPronto(card, estado, resumo = '') {
+  if (!card) return;
+  const chave = `cfg_${(location.hash.split('?')[0] || '#/').replace(/[^\w/-]/g, '')}_${card.id || card.dataset.cfg || ''}`;
+  card.classList.toggle('cfg-pronto', Boolean(estado));
+  let barra = card.querySelector(':scope > .cfg-barra');
+  if (!estado) { card.classList.remove('recolhido'); barra?.remove(); return; }
+  let aberto = false;
+  try { aberto = sessionStorage.getItem(chave) === '1'; } catch { /* ok */ }
+  if (!barra) {
+    barra = document.createElement('button');
+    barra.type = 'button';
+    barra.className = 'cfg-barra';
+    card.prepend(barra);
+  }
+  const titulo = (card.querySelector('h2')?.textContent || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  const desenhar = () => {
+    const rec = card.classList.contains('recolhido');
+    barra.innerHTML = `<span class="cfg-ok ${estado === 'off' ? 'off' : ''}">${estado === 'off' ? '○' : '✓'}</span><span class="cfg-titulo">${esc(titulo)}</span><span class="cfg-resumo">${rec ? esc(resumo || (estado === 'off' ? 'Desligado' : 'Configurado')) : ''}</span><span class="cfg-abrir">${rec ? (estado === 'off' ? 'Configurar' : 'Editar') : 'Recolher'}</span>`;
+  };
+  card.classList.toggle('recolhido', !aberto);
+  desenhar();
+  barra.onclick = () => {
+    const recolher = !card.classList.contains('recolhido');
+    card.classList.toggle('recolhido', recolher);
+    try { sessionStorage.setItem(chave, recolher ? '0' : '1'); } catch { /* ok */ }
+    desenhar();
+  };
+}
+function aplicarProntos(raiz = conteudo) {
+  $$('.card[data-pronto]', raiz).forEach((c) => marcarPronto(c, c.dataset.pronto || null, c.dataset.resumo || ''));
+}
+
 async function rotear() {
   clearInterval(atualizador);
   atualizador = null;
@@ -4851,6 +4897,7 @@ async function rotear() {
       };
       if (!paginas[sub]) return void (location.hash = rotaEmpresa(id));
       await paginas[sub]();
+      aplicarProntos();
       if (sub === 'disparos') ativo = rotaEmpresa(id, 'disparos');
       if (sub === 'leads') ativo = rotaEmpresa(id, 'leads');
     } else {

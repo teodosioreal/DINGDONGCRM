@@ -942,3 +942,225 @@ html.dark .etiqueta.fup { background: #0c4a6e; color: #bae6fd; }
 .clone-progresso { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
 .barra-clone { flex: 1 1 180px; max-width: 320px; height: 10px; border-radius: 999px; background: var(--hover); overflow: hidden; }
 .barra-clone span { display: block; height: 100%; background: var(--primario); border-radius: 999px; transition: width .3s; }
+
+/* =====================================================================
+   VISUAL 2 — estilo SaaS: tipografia Inter, superfícies brancas sobre
+   fundo neutro, sombra suave, um acento (índigo) e hierarquia clara.
+   (fica por cima do resto: mexer aqui muda o painel todo)
+   ===================================================================== */
+:root {
+  --fundo: #f6f7f9;
+  --superficie: #ffffff;
+  --superficie-2: #f9fafb;
+  --texto: #0b1220;
+  --suave: #667085;
+  --rotulo: #344054;
+  --borda: #e7e9ee;
+  --borda-campo: #d0d5dd;
+  --hover: #f2f4f7;
+  --primario: #111827;
+  --primario-texto: #ffffff;
+  --acento: #4f46e5;
+  --acento-suave: #eef2ff;
+  --acento-texto: #3730a3;
+  --raio: 12px;
+  --sombra: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .05);
+  --sombra-alta: 0 12px 32px -8px rgba(16, 24, 40, .14), 0 4px 8px -4px rgba(16, 24, 40, .06);
+}
+html.dark {
+  --fundo: #0b0d12;
+  --superficie: #12151c;
+  --superficie-2: #161a22;
+  --texto: #eef0f4;
+  --suave: #98a2b3;
+  --rotulo: #d0d5dd;
+  --borda: #232834;
+  --borda-campo: #343b4a;
+  --hover: #1b202a;
+  --primario: #f5f6f8;
+  --primario-texto: #0b0d12;
+  --acento: #818cf8;
+  --acento-suave: #1e1b4b;
+  --acento-texto: #c7d2fe;
+  --sombra: 0 1px 2px rgba(0, 0, 0, .3);
+  --sombra-alta: 0 16px 40px -8px rgba(0, 0, 0, .6);
+}
+body {
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px; letter-spacing: -0.006em; font-feature-settings: "cv11", "ss01";
+}
+h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.022em; }
+h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.012em; }
+h3 { font-size: 14px; font-weight: 600; }
+.sub, .cabecalho .sub { color: var(--suave); font-size: 13.5px; margin: 4px 0 0; }
+.rotulo { color: var(--suave); }
+a { color: var(--acento-texto); text-decoration-color: color-mix(in srgb, var(--acento) 35%, transparent); text-underline-offset: 2px; }
+html.dark a { color: var(--acento-texto); }
+
+/* ---------- menu lateral ---------- */
+.lateral { background: var(--superficie-2); border-right: 1px solid var(--borda); }
+html.dark .lateral { background: #0e1117; }
+.lateral .marca { padding: 22px 20px 18px; font-size: 16px; font-weight: 700; letter-spacing: -0.03em; }
+.lateral .marca small { font-weight: 500; margin-top: 2px; }
+.item-menu { padding: 7px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 500; color: var(--rotulo); position: relative; }
+.item-menu:hover { background: var(--hover); color: var(--texto); }
+.item-menu.ativo { background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); font-weight: 600; }
+.item-menu.ativo::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--acento); }
+html.dark .item-menu.ativo { background: var(--hover); }
+.item-menu .icone-menu { opacity: .75; }
+.item-menu.ativo .icone-menu { opacity: 1; color: var(--acento); }
+.titulo-grupo { margin: 22px 0 6px; font-size: 10.5px; letter-spacing: .08em; color: color-mix(in srgb, var(--suave) 85%, transparent); }
+.empresa-menu { border-radius: 10px; background: var(--superficie); box-shadow: var(--sombra); border: 1px solid var(--borda); }
+html.dark .empresa-menu { background: var(--hover); }
+
+/* ---------- conteúdo ---------- */
+main { padding: 36px 40px; }
+.conteudo { max-width: 1120px; }
+.cabecalho { margin-bottom: 24px; }
+.card { border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); padding: 22px 24px; margin-bottom: 16px; }
+.card h2:first-child, .card > .cabecalho h2 { margin-bottom: 4px; }
+.card .rotulo { line-height: 1.55; }
+
+/* ---------- botões ---------- */
+button, .botao {
+  border-radius: 8px; font-weight: 600; font-size: 13.5px; letter-spacing: -0.006em;
+  border: 1px solid var(--borda-campo); background: var(--superficie); color: var(--texto);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05); transition: background .12s, border-color .12s, box-shadow .12s, transform .05s;
+}
+button:hover, .botao:hover { background: var(--hover); }
+button:active, .botao:active { transform: translateY(.5px); }
+button.primario, .botao.primario { background: var(--primario); border-color: var(--primario); color: var(--primario-texto); }
+button.primario:hover, .botao.primario:hover { background: color-mix(in srgb, var(--primario) 88%, var(--acento)); }
+button.pequeno, .botao.pequeno { font-size: 12.5px; border-radius: 7px; }
+button:focus-visible, .botao:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--acento) 28%, transparent); border-color: var(--acento);
+}
+.link-botao { color: var(--acento-texto); }
+
+/* ---------- campos ---------- */
+input, select, textarea { border-radius: 8px; border-color: var(--borda-campo); font-family: inherit; }
+input:focus, select:focus, textarea:focus { border-color: var(--acento); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acento) 18%, transparent); outline: none; }
+label { font-weight: 500; }
+
+/* ---------- etiquetas, chips e interruptor ---------- */
+.etiqueta { font-weight: 600; font-size: 11.5px; padding: 2px 8px; }
+.chip-filtro { border-radius: 999px; font-weight: 500; box-shadow: none; }
+.chip-filtro:not([style]).ativo, .chip-filtro[data-etiqueta=""].ativo { background: var(--primario); border-color: var(--primario); color: var(--primario-texto); }
+.interruptor input:checked + .trilho { background: var(--acento) !important; }
+
+/* ---------- números (KPIs) ---------- */
+.grade-resumo { gap: 14px; }
+.numero-card { padding: 18px 20px; }
+.numero-card .rotulo { font-size: 12.5px; font-weight: 500; }
+.numero-card .numero { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+/* ---------- tabelas ---------- */
+table th { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--suave); }
+table tbody tr { transition: background .1s; }
+tr.clicavel:hover td { background: var(--hover); }
+
+/* ---------- balões de explicação: discretos ---------- */
+.balao { border-radius: 10px; }
+details.balao-dica { display: block; background: transparent; border: 0; padding: 0; margin: -10px 0 18px; }
+details.balao-dica > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--suave); padding: 4px 10px 4px 8px; border-radius: 999px; border: 1px solid var(--borda); background: var(--superficie); }
+details.balao-dica > summary::-webkit-details-marker { display: none; }
+details.balao-dica > summary:hover { color: var(--texto); background: var(--hover); }
+details.balao-dica > summary .i { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--acento-suave); color: var(--acento-texto); }
+details.balao-dica[open] > summary { margin-bottom: 8px; }
+details.balao-dica .balao-corpo { background: var(--superficie); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; font-size: 13.5px; color: var(--rotulo); box-shadow: var(--sombra); }
+.card details.balao-dica { margin: 4px 0 12px; }
+
+/* ---------- seção já configurada: recolhida e esmaecida ---------- */
+.card.cfg-pronto > .cfg-barra { display: flex; }
+.cfg-barra {
+  display: none; width: 100%; align-items: center; gap: 10px; text-align: left;
+  border: 0; box-shadow: none; background: none; padding: 0; margin: 0 0 14px; cursor: pointer; font-weight: 500;
+}
+.cfg-barra:hover { background: none; }
+.cfg-barra .cfg-ok { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; font-size: 11px; font-weight: 700; background: var(--ok-fundo); color: var(--ok-texto); }
+.cfg-barra .cfg-ok.off { background: var(--hover); color: var(--suave); }
+.cfg-barra .cfg-titulo { font-weight: 600; color: var(--texto); font-size: 14px; flex: none; }
+.cfg-barra .cfg-resumo { color: var(--suave); font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfg-barra .cfg-abrir { font-size: 12.5px; font-weight: 600; color: var(--acento-texto); flex: none; }
+.card.cfg-pronto.recolhido { padding: 14px 20px; background: color-mix(in srgb, var(--superficie) 70%, var(--fundo)); box-shadow: none; }
+.card.cfg-pronto.recolhido > :not(.cfg-barra) { display: none !important; }
+.card.cfg-pronto.recolhido > .cfg-barra { margin: 0; opacity: .9; }
+.card.cfg-pronto.recolhido:hover { background: var(--superficie); box-shadow: var(--sombra); }
+.card.cfg-pronto.recolhido:hover > .cfg-barra { opacity: 1; }
+@media (max-width: 768px) {
+  .cfg-barra { flex-wrap: wrap; }
+  .cfg-barra .cfg-resumo { flex-basis: 100%; order: 3; padding-left: 30px; white-space: normal; }
+  main { padding: 64px 16px 48px; }
+  .card { padding: 18px; }
+}
+
+/* ---------- empresas: destaque ---------- */
+.cartao-empresa { border-radius: 14px; box-shadow: var(--sombra); transition: box-shadow .15s, transform .15s, border-color .15s; }
+.cartao-empresa:hover { box-shadow: var(--sombra-alta); transform: translateY(-2px); border-color: color-mix(in srgb, var(--acento) 30%, var(--borda)); }
+
+/* ---------- janelas ---------- */
+.modal { border-radius: 14px; box-shadow: var(--sombra-alta); }
+.fundo-modal { backdrop-filter: blur(2px); background: rgba(15, 18, 28, .38); }
+
+/* ---------- cartões de empresa: o faturamento em destaque ---------- */
+.secao-titulo { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); margin: 28px 0 12px; }
+.grade-resumo.compacta .numero-card { padding: 14px 16px; }
+.grade-resumo.compacta .numero { font-size: 22px; }
+.numero small { font-size: 14px; font-weight: 500; color: var(--suave); margin-left: 2px; }
+.grade-empresas { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+.cartao-empresa { padding: 20px; gap: 16px; }
+.cartao-empresa-topo { padding-right: 36px; }
+.cartao-empresa-nome strong { font-size: 16.5px; font-weight: 650; }
+.cartao-empresa-hero { display: flex; flex-direction: column; gap: 2px; }
+.cartao-empresa-hero .rotulo { font-size: 12px; font-weight: 500; }
+.cartao-empresa-hero b { font-size: 30px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.cartao-empresa-numeros { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 0; border: 1px solid var(--borda); border-radius: 10px; background: color-mix(in srgb, var(--borda) 18%, transparent); }
+.cartao-empresa-numeros div { padding: 10px 12px; gap: 0; }
+.cartao-empresa-numeros div + div { border-left: 1px solid var(--borda); }
+.cartao-empresa-numeros b { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cartao-empresa-numeros .rotulo { font-size: 11.5px; }
+.cartao-empresa-numeros .pede b { color: var(--acento); }
+.cartao-empresa-rodape { align-items: center; gap: 14px; font-size: 12.5px; color: var(--suave); }
+.ponto-canal { display: inline-flex; align-items: center; gap: 6px; }
+.ponto-canal::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
+.ponto-canal.ok { color: var(--texto); }
+.ponto-canal.ok::before { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
+.ponto-canal.falta::before { background: #f59e0b; }
+.rodape-fim { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.abrir-seta { color: var(--suave); transition: transform .15s, color .15s; }
+.cartao-empresa:hover .abrir-seta { color: var(--acento); transform: translateX(3px); }
+.cartao-excluir { opacity: 0; border-color: transparent; background: transparent; }
+.cartao-empresa-caixa:hover .cartao-excluir, .cartao-excluir:focus-visible { opacity: .7; }
+.cartao-empresa.nova-empresa { border-style: dashed; box-shadow: none; background: transparent; min-height: 220px; }
+@media (hover: none) { .cartao-excluir { opacity: .5; } }
+@media (max-width: 768px) {
+  .cartao-empresa-numeros { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cartao-empresa-hero b { font-size: 26px; }
+}
+.cartao-empresa, .cartao-empresa:hover { color: var(--texto); text-decoration: none; }
+.cartao-empresa-numeros b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cartao-empresa-numeros .pede b { color: var(--acento); }
+/* configurações prontas lado a lado viram uma lista só, discreta */
+.card.cfg-pronto.recolhido { padding: 12px 20px; margin-bottom: 0; border-radius: 0; }
+.card.cfg-pronto.recolhido + .card.cfg-pronto.recolhido { border-top-color: transparent; box-shadow: inset 0 1px 0 var(--borda); }
+.card.cfg-pronto.recolhido:not(.recolhido + .recolhido) { border-top-left-radius: var(--raio, 12px); border-top-right-radius: var(--raio, 12px); }
+.card.cfg-pronto.recolhido:not(:has(+ .card.cfg-pronto.recolhido)) { border-bottom-left-radius: var(--raio, 12px); border-bottom-right-radius: var(--raio, 12px); margin-bottom: 16px; }
+.cartao-empresa-numeros div { padding: 10px; min-width: 0; }
+.cartao-empresa-numeros b { font-size: 15.5px; overflow: visible; text-overflow: clip; }
+/* follow-up: a edição fica recolhida numa linha de resumo */
+details.fup-editar { margin-top: 10px; border: 1px solid var(--borda); border-radius: 10px; }
+details.fup-editar > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; }
+details.fup-editar > summary::-webkit-details-marker { display: none; }
+details.fup-editar > summary .rotulo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.fup-editar > summary .fup-editar-titulo { font-weight: 600; font-size: 14px; flex: none; }
+details.fup-editar > summary .cfg-abrir { font-size: 12.5px; font-weight: 600; color: var(--acento-texto); flex: none; }
+details.fup-editar[open] > summary { border-bottom: 1px solid var(--borda); }
+details.fup-editar[open] > summary .cfg-abrir { font-size: 0; }
+details.fup-editar[open] > summary .cfg-abrir::after { content: 'Recolher'; font-size: 12.5px; }
+details.fup-editar > :not(summary) { margin-left: 14px; margin-right: 14px; }
+details.fup-editar > .acoes { margin-bottom: 14px; }
+@media (max-width: 768px) { details.fup-editar > summary { flex-wrap: wrap; } details.fup-editar > summary .rotulo { flex-basis: 100%; order: 3; white-space: normal; } }
+@media (max-width: 768px) {
+  .cfg-barra .cfg-titulo { flex: 1 1 0; min-width: 0; }
+  .card.cfg-pronto.recolhido { padding: 12px 14px; }
+}
