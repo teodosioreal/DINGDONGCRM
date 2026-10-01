@@ -118,7 +118,7 @@ diagnostico() {
   echo "==> Diagnóstico do CRM"
   echo "    PUBLIC_URL=$(ler_env PUBLIC_URL .env)"
   echo "    Contatos (anônimo, só leitura):"
-  CRM_DB_PATH="$(ler_env CRM_DB_PATH .env)" node deploy/diagnostico-contatos.js 2>&1 | head -n 80 || true
+  CRM_DB_PATH="$(ler_env CRM_DB_PATH .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 60 node deploy/diagnostico-contatos.js 2>&1 | head -n 80 || true
   echo "    Últimos erros do app (números escondidos):"
   pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
     | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true

@@ -29,7 +29,9 @@ function temFoto(lead) {
 function numeroDoLead(lead) {
   if (/@s\.whatsapp\.net$/.test(lead.whatsappJid || '')) return lead.whatsappJid.split('@')[0];
   const tel = String(lead.telefone || '').replace(/\D/g, '');
-  return lead.whatsappJid && tel.length >= 12 ? tel : '';
+  if (lead.whatsappJid && tel.length >= 12) return tel;
+  // só o id escondido: a Evolution também busca a foto por ele
+  return /@lid$/.test(lead.whatsappJid || '') ? lead.whatsappJid : '';
 }
 
 function precisaBuscar(lead) {
@@ -59,6 +61,7 @@ async function buscar(lead) {
   try {
     const r = await whatsapp.evolution(empresa, 'POST', '/chat/fetchProfilePictureUrl/{instancia}', { number: numero });
     const url = r?.profilePictureUrl || r?.profilePicUrl || '';
+    if (numeroDoLead(lead) !== numero) return { ok: false, motivo: 'número mudou' };
     if (!url) {
       lead.fotoPerfil = { semFoto: true, buscadaEm: agora() };
       fs.rmSync(caminhoDaFoto(lead), { force: true });
@@ -66,6 +69,8 @@ async function buscar(lead) {
       return { ok: true, temFoto: false };
     }
     const buf = await baixar(url);
+    // o número mudou enquanto buscava (ex.: descobrimos o número de verdade): busca de novo com ele
+    if (numeroDoLead(lead) !== numero) return { ok: false, motivo: 'número mudou' };
     fs.mkdirSync(pastaDoLead(lead.id), { recursive: true });
     const tmp = `${caminhoDaFoto(lead)}.tmp`;
     fs.writeFileSync(tmp, buf);

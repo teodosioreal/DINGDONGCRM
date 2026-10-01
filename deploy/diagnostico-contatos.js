@@ -18,6 +18,7 @@ const mascara = (s) => {
 const tipoJid = (j) => (!j ? 'sem jid' : /@s\.whatsapp\.net$/.test(j) ? 'número' : /@lid$/.test(j) ? 'LID (escondido)' : `outro (${String(j).split('@')[1] || '?'})`);
 const conta = (lista, f) => lista.reduce((m, x) => ((m[f(x)] = (m[f(x)] || 0) + 1), m), {});
 
+const sondas = [];
 db.empresas.forEach((e, i) => {
   const ls = (db.conversas || []).filter((c) => c.empresaId === e.id && c.mensagens?.length);
   if (!ls.length) return;
@@ -41,6 +42,38 @@ db.empresas.forEach((e, i) => {
   }
   const foto = (c) => (c.fotoPerfil?.em && !c.fotoPerfil.semFoto ? 'com foto' : c.fotoPerfil?.semFoto ? 'sem foto (privacidade)' : c.fotoPerfil?.erro ? `erro: ${String(c.fotoPerfil.erro).replace(/\d{6,}/g, '#').slice(0, 70)}` : c.fotoPerfil ? 'outro' : 'nunca buscada');
   console.log(`        fotos: ${JSON.stringify(conta(ls, foto))}`);
+  const umLid = ls.find((c) => /@lid$/.test(c.whatsappJid || ''));
+  if (umLid && e.whatsappConfig?.instancia && e.whatsappConfig?.apiKey) sondas.push({ i, e, lid: umLid.whatsappJid });
   const s = e.whatsappConfig?.sincronia;
   if (s) console.log(`        última busca de mensagens: ${s.em} (${s.motivo}) importadas ${s.importadas}${s.erro ? ` ERRO ${s.erro}` : ''}`);
 });
+
+// Sonda: para um contato com número escondido, qual caminho da Evolution devolve o número?
+(async () => {
+  for (const { i, e, lid } of sondas) {
+    const base = (e.whatsappConfig.evolutionUrl || process.env.EVOLUTION_API_URL || 'https://api.evolutiondingdong.online').replace(/\/+$/, '');
+    const chamar = async (caminho, corpo) => {
+      try {
+        const r = await fetch(`${base}${caminho.replace('{i}', encodeURIComponent(e.whatsappConfig.instancia))}`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: e.whatsappConfig.apiKey }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(15000) });
+        return { status: r.status, j: await r.json().catch(() => null) };
+      } catch (err) {
+        return { status: 0, erro: err.message };
+      }
+    };
+    const tel = (v) => (/@s\.whatsapp\.net$/.test(String(v || '')) ? mascara(v) : null);
+    const n = await chamar('/chat/whatsappNumbers/{i}', { numbers: [lid] });
+    const nRes = Array.isArray(n.j) ? n.j.map((x) => tel(x.jid) || tel(x.remoteJidAlt)).find(Boolean) : null;
+    const m = await chamar('/chat/findMessages/{i}', { where: { key: { remoteJid: lid } }, page: 1, offset: 20 });
+    const regs = m.j?.messages?.records || [];
+    const campos = [...new Set(regs.flatMap((x) => Object.keys(x.key || {})))].join(',');
+    const mRes = regs.map((x) => tel(x.key?.remoteJidAlt) || tel(x.key?.senderPn) || tel(x.key?.participantAlt)).find(Boolean);
+    const c = await chamar('/chat/findContacts/{i}', { where: { remoteJid: lid } });
+    const cCampos = Array.isArray(c.j) && c.j[0] ? Object.keys(c.j[0]).join(',') : '';
+    const f = await chamar('/chat/fetchProfilePictureUrl/{i}', { number: lid });
+    console.log(`      Sonda (empresa ${i + 1}, contato com número escondido):`);
+    console.log(`        whatsappNumbers: HTTP ${n.status} → número ${nRes || 'não veio'}`);
+    console.log(`        findMessages: HTTP ${m.status}, ${regs.length} msg, campos da chave: [${campos}] → número ${mRes || 'não veio'}`);
+    console.log(`        findContacts: HTTP ${c.status}, campos: [${cCampos}]`);
+    console.log(`        foto pelo id escondido: HTTP ${f.status} → ${f.j?.profilePictureUrl ? 'TEM foto' : 'sem foto'}`);
+  }
+})();

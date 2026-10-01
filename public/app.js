@@ -2727,7 +2727,7 @@ function htmlTicket(t) {
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
     <span class="ticket-icone" aria-hidden="true">📅</span>
     <div class="ticket-corpo"><b>${cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO'}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
-    <small>${t.por === 'ia' ? 'marcado pela IA' : 'marcado pela equipe'} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}">cancelar</button>`}</small></div>
+    <small>${t.por === 'ia' ? 'marcado pela IA' : t.por === 'cliente' ? 'o cliente confirmou na conversa' : 'marcado pela equipe'} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}">cancelar</button>`}</small></div>
   </div>`;
 }
 

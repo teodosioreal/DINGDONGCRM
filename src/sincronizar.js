@@ -59,6 +59,43 @@ function consertarLid(empresa, lidJid, telefoneJid) {
   return doLid;
 }
 
+// Pergunta à Evolution o número de verdade por trás de um id escondido. Tenta, nesta
+// ordem: (1) o cache de números da Evolution (/chat/whatsappNumbers), (2) os campos
+// das mensagens guardadas dela, (3) os contatos dela. Devolve "55…@s.whatsapp.net" ou null.
+async function descobrirNumeroDoLid(empresa, lidJid) {
+  const w = whatsapp();
+  const r1 = await w.evolucao(empresa, 'POST', '/chat/whatsappNumbers/{instancia}', { numbers: [lidJid] }).catch(() => null);
+  for (const x of Array.isArray(r1) ? r1 : []) {
+    if (ehTelefone(x?.jid)) return x.jid;
+    if (ehTelefone(x?.remoteJidAlt)) return x.remoteJidAlt;
+  }
+  const r2 = await w.evolucao(empresa, 'POST', '/chat/findMessages/{instancia}', { where: { key: { remoteJid: lidJid } }, page: 1, offset: 50 }).catch(() => null);
+  for (const m of r2?.messages?.records || []) {
+    const alt = numeroDoLid(m.key || {}, m);
+    if (alt) return alt;
+  }
+  const r3 = await w.evolucao(empresa, 'POST', '/chat/findContacts/{instancia}', { where: { remoteJid: lidJid } }).catch(() => null);
+  for (const c of Array.isArray(r3) ? r3 : []) {
+    const alt = [c?.remoteJidAlt, c?.phoneNumber && `${String(c.phoneNumber).replace(/\D/g, '')}@s.whatsapp.net`, c?.jid].find(ehTelefone);
+    if (alt) return alt;
+  }
+  return null;
+}
+
+// Conversas que estão só com o id escondido: tenta achar o número (no máximo a cada 6 h por conversa)
+async function resolverLids(empresa, { forcar = false } = {}) {
+  let n = 0;
+  for (const c of estado.conversas.filter((x) => x.empresaId === empresa.id && /@lid$/.test(x.whatsappJid || ''))) {
+    if (!forcar && c.lidTentativaEm && Date.now() - new Date(c.lidTentativaEm).getTime() < 6 * 3600 * 1000) continue;
+    c.lidTentativaEm = agora();
+    const lid = c.whatsappJid;
+    const tel = await descobrirNumeroDoLid(empresa, lid).catch(() => null);
+    if (tel && consertarLid(empresa, lid, tel)) n++;
+  }
+  if (n) salvar();
+  return n;
+}
+
 // Para onde vai esta mensagem: o jid com o número de verdade (ou null se não der para saber)
 function jidReal(empresa, msg) {
   const rj = msg?.key?.remoteJid || '';
@@ -208,7 +245,7 @@ async function sincronizarEmpresa(empresa, { dias = null, motivo = 'auto' } = {}
   const resumo = { em: agora(), motivo, desde: new Date(desdeSeg * 1000).toISOString(), conversas: 0, importadas: 0, erro: '' };
   try {
     await w.revisarWebhook(empresa).catch(() => null); // aproveita e conserta o webhook se precisar
-    resumo.corrigidas = consertarConversasComLid(empresa);
+    resumo.corrigidas = consertarConversasComLid(empresa) + (await resolverLids(empresa, { forcar: motivo === 'botão' }).catch(() => 0));
     const chats = await listarChats(empresa, desdeSeg);
     // conversas que ainda estão com o id interno: lê o histórico delas para achar o número
     for (const c of estado.conversas.filter((x) => x.empresaId === empresa.id && /@lid$/.test(x.whatsappJid || ''))) {
@@ -269,4 +306,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { consertarConversasComLid, consertarLid, jidReal, sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };
+module.exports = { descobrirNumeroDoLid, resolverLids, consertarConversasComLid, consertarLid, jidReal, sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };

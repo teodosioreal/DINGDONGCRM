@@ -214,8 +214,9 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   sem IA ("sou de Petrópolis", "moro em Itaipava", "aqui em Niterói"; conhece todo o RJ,
   distritos de Petrópolis e as capitais) e a IA também marca `[[LOCAL: …]]`. A equipe
   corrige no perfil (vale mais). Vale o que o cliente disse por último.
-- **Número escondido do WhatsApp (`@lid`)**: o histórico da Evolution às vezes traz um id
-  interno no lugar do telefone. O CRM sempre usa o número de verdade (`remoteJidAlt`),
+- **Número escondido do WhatsApp (`@lid`)**: a Evolution às vezes manda um id interno no
+  lugar do telefone (ao vivo e no histórico). O CRM pergunta o número de verdade à Evolution
+  (cache de números, mensagens guardadas, contatos) ao chegar mensagem e a cada busca. O CRM sempre usa o número de verdade (`remoteJidAlt`),
   junta a conversa duplicada do mesmo cliente e nunca mostra o id como telefone. Celular
   salvo sem o 9 aparece com o 9. Foto de perfil é buscada pelo número de verdade.
 - **Sugerir com IA** lê a conversa inteira, sabe quem falou por último e há quanto
@@ -256,6 +257,13 @@ A IA só é usada para **responder** os clientes, nos follow-ups/automações em
 
 **Diretriz interna** no início do prompt (acima de tudo): obedecer fielmente às instruções
 da empresa e nunca inventar informação, com conferência antes de responder; lembrete no fim.
+
+### Agendamento escrito na conversa vira ticket (sem IA)
+
+- Mensagem da equipe (painel, celular, resposta rápida), do cliente ou da IA com uma
+  palavra de confirmação ("agendado", "marcado", "confirmado", "te espero"…) **e** dia/hora
+  ("sábado às 9h", "amanhã 14h", "dia 05/10 15:30", "hoje às 16h") cria o ticket
+  **AGENDADO** na conversa, sem duplicar o mesmo horário. O botão 📅 continua valendo.
 
 ### Lixeira de conversas
 

@@ -24,6 +24,11 @@ function valorDe(v) {
 function quandoDe(v, referencia = new Date()) {
   const s = String(v || '').trim();
   if (!s) return null;
+  // data completa com fuso (ex.: 2026-10-03T12:00:00.000Z): já é o instante certo
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/);
   const br = s.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\D+(\d{1,2})(?:[:h](\d{2})?)?)?/i);
   let ano, mes, dia, hora = 9, min = 0;
@@ -41,6 +46,75 @@ function quandoDe(v, referencia = new Date()) {
   if (!(mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31 && hora >= 0 && hora <= 23 && min >= 0 && min <= 59)) return null;
   const d = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}T${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}:00${FUSO}`);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// ---------------------------------------------------------------- agendamento lido na conversa (sem IA)
+// "agendado para sábado às 9h", "fica marcado amanhã 14h", "te espero dia 05/10 às 15:30"
+const CONFIRMA = /\b(agendad[oa]s?|marcad[oa]s?|confirmad[oa]s?|reservad[oa]s?|combinad[oa]s?|agendei|marquei|confirmei|reservei|te (espero|esperamos|aguardo|aguardamos)|esperamos (voc[eê]|vc)|est[aá] (marcado|agendado|confirmado)|fica (marcado|agendado|combinado))\b/i;
+const DIAS = { domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6 };
+const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+// Em Brasília: { ano, mes, dia, hora, min } de uma data
+function partesSp(d) {
+  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short' }).formatToParts(d);
+  const v = Object.fromEntries(f.map((p) => [p.type, p.value]));
+  return { ano: Number(v.year), mes: Number(v.month), dia: Number(v.day), hora: Number(v.hour) % 24, min: Number(v.minute), semana: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(v.weekday) };
+}
+
+const isoSp = (ano, mes, dia, hora, min) => new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}T${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}:00${FUSO}`);
+
+// Acha dia e horário escritos em português. Devolve ISO (Brasília) ou null.
+function quandoNoTexto(texto, referencia = new Date()) {
+  const t = semAcento(texto);
+  const hoje = partesSp(referencia);
+  // horário: "9h", "9:30", "14hs", "às 15", "as 9 horas"
+  const h = t.match(/\b(?:as|a partir das|pras|para as)\s+(\d{1,2})(?:[:h](\d{2}))?\b|\b(\d{1,2})(?::(\d{2})|\s*(?:h|hs|hrs|horas)(\d{2})?)\b/);
+  const hora = h ? Number(h[1] ?? h[3]) : null;
+  const min = h ? Number(h[2] ?? h[4] ?? h[5] ?? 0) : 0;
+  if (hora !== null && (hora > 23 || min > 59)) return null;
+  let alvo = null; // { ano, mes, dia }
+  const dm = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  const diaN = t.match(/\bdia\s+(\d{1,2})\b/);
+  const sem = t.match(/\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/);
+  const base = (diasAMais) => {
+    const d = new Date(isoSp(hoje.ano, hoje.mes, hoje.dia, 12, 0).getTime() + diasAMais * 86400000);
+    const p = partesSp(d);
+    return { ano: p.ano, mes: p.mes, dia: p.dia };
+  };
+  if (dm) {
+    const ano = dm[3] ? Number(dm[3].length === 2 ? `20${dm[3]}` : dm[3]) : hoje.ano;
+    alvo = { ano, mes: Number(dm[2]), dia: Number(dm[1]) };
+    if (!dm[3] && isoSp(alvo.ano, alvo.mes, alvo.dia, 23, 59) < referencia) alvo.ano++;
+  } else if (/\bdepois de amanha\b/.test(t)) alvo = base(2);
+  else if (/\bamanha\b/.test(t)) alvo = base(1);
+  else if (/\bhoje\b/.test(t)) alvo = base(0);
+  else if (sem) {
+    let mais = (DIAS[sem[1]] - hoje.semana + 7) % 7;
+    if (mais === 0 && (hora === null || hora * 60 + min <= hoje.hora * 60 + hoje.min)) mais = 7; // mesmo dia da semana já passou: a próxima
+    alvo = base(mais);
+  } else if (diaN) {
+    alvo = { ano: hoje.ano, mes: hoje.mes, dia: Number(diaN[1]) };
+    if (isoSp(alvo.ano, alvo.mes, alvo.dia, 23, 59) < referencia) {
+      alvo.mes++;
+      if (alvo.mes > 12) { alvo.mes = 1; alvo.ano++; }
+    }
+  } else if (hora !== null) {
+    alvo = base(0); // só o horário: hoje (se ainda não passou)
+    if (isoSp(alvo.ano, alvo.mes, alvo.dia, hora, min) < referencia) return null;
+  }
+  if (!alvo || !(alvo.mes >= 1 && alvo.mes <= 12 && alvo.dia >= 1 && alvo.dia <= 31)) return null;
+  const d = isoSp(alvo.ano, alvo.mes, alvo.dia, hora ?? 9, min);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Mensagem de quem confirma um horário (equipe no painel/celular, ou o cliente) → ticket AGENDADO
+function agendamentoDaMensagem(empresa, lead, texto, por) {
+  const t = String(texto || '');
+  if (!CONFIRMA.test(semAcento(t)) && !CONFIRMA.test(t)) return null;
+  const quando = quandoNoTexto(t);
+  if (!quando || new Date(quando).getTime() < Date.now() - 3600 * 1000) return null;
+  const descricao = t.replace(/\s+/g, ' ').trim().slice(0, 120);
+  return registrarAgendamento(empresa, lead, { quando, descricao, por });
 }
 
 function acharEtapaAgendamento(empresa) {
@@ -158,4 +232,4 @@ function aplicarDaIa(empresa, lead, r) {
   return feitos;
 }
 
-module.exports = { valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };
+module.exports = { quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };

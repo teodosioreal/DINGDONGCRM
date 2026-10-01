@@ -728,6 +728,7 @@ async function receberWebhook(empresa, corpo) {
       const legenda = texto.replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '');
       const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
       leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo, wid: msg.key.id });
+      require('./tickets').agendamentoDaMensagem(empresa, lead, textoEquipe, 'equipe');
       pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo WhatsApp');
       salvar();
       continue;
@@ -735,6 +736,12 @@ async function receberWebhook(empresa, corpo) {
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
     delete lead.historicoImportado; // o cliente escreveu de verdade agora
+    // número escondido pelo WhatsApp: pergunta à Evolution qual é o de verdade (sem travar a resposta)
+    if (/@lid$/.test(lead.whatsappJid || '') && (!lead.lidTentativaEm || Date.now() - new Date(lead.lidTentativaEm).getTime() > 6 * 3600 * 1000)) {
+      lead.lidTentativaEm = agora();
+      const lid = lead.whatsappJid;
+      require('./sincronizar').descobrirNumeroDoLid(empresa, lid).then((tel) => tel && (require('./sincronizar').consertarLid(empresa, lid, tel), salvar())).catch(() => {});
+    }
     require('./fotos-clientes').agendar(lead); // foto de perfil do cliente (se ainda não tem ou está velha)
     // cliente mandou mensagem de novo: a conversa volta para a lista
     if (lead.arquivado) {
@@ -758,6 +765,7 @@ async function receberWebhook(empresa, corpo) {
     }
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
     require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
+    require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
     origem.aplicarAnuncio(empresa, lead);
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
@@ -1083,6 +1091,7 @@ async function responderLead(empresaId, leadId) {
       return registrarIa(empresa, lead, 'erro', `A IA escreveu a resposta, mas o WhatsApp não enviou: ${err.message}`);
     }
     leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto });
+    if (!r.agendamento) require('./tickets').agendamentoDaMensagem(empresa, lead, r.texto, 'ia');
   }
   await enviarMidiasPedidas(empresa, lead, r.midias);
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
@@ -1120,6 +1129,7 @@ async function enviarRespostaRapida(empresa, lead, resposta) {
   if (resposta.texto) {
     await enviarTexto(empresa, destino, resposta.texto, { digitando: false });
     leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: resposta.texto, respostaRapida: resposta.atalho });
+    require('./tickets').agendamentoDaMensagem(empresa, lead, resposta.texto, 'equipe');
   }
   if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe');
 }
@@ -1245,6 +1255,7 @@ async function enviarPelaEquipe(empresa, lead, texto) {
   if (!destino) throw erro('Este lead não tem WhatsApp.', 400);
   await enviarTexto(empresa, destino, texto, { digitando: false });
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
+  require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'equipe'); // "agendado sábado 9h" → ticket AGENDADO
   pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo painel');
   salvar();
 }
