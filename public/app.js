@@ -1026,6 +1026,11 @@ async function paginaWhatsapp(id) {
         : '<b>Desligado:</b> mesmo depois da sua mensagem manual, a IA <b>continua atendendo</b> aquele cliente.'}
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧬 Modo clone</h2>${interruptor('modo-clone', w.clone?.ativo, w.clone?.ativo ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0 0 8px">Ligado, a IA <b>aprende com as suas respostas manuais</b> (painel, celular, respostas rápidas e arquivos que você manda) e passa a responder <b>do seu jeito</b>: mesmo tom, tamanho, emojis, jeito de passar preço e de fechar — e manda as <b>mesmas mídias</b> nas mesmas situações. Os arquivos que você manda entram na biblioteca como "aprendidos do clone". Suas instruções da empresa continuam valendo acima de tudo.</p>
+      <p class="rotulo" style="margin:0">${w.clone?.total ? `Aprendeu com <b>${w.clone.total}</b> resposta(s) sua(s)${w.clone.midiasAprendidas ? ` e <b>${w.clone.midiasAprendidas}</b> mídia(s)` : ''}. <button type="button" class="link-botao" id="ver-clone">Ver o que aprendeu</button>` : 'Ainda não aprendeu nada: ligue e responda alguns clientes à mão.'}</p>
+    </div>
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -1204,6 +1209,17 @@ async function paginaWhatsapp(id) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
+  $('#modo-clone').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/clone`, { method: 'PUT', body: { ativo: e.target.checked } });
+      aviso(e.target.checked ? 'Modo clone ligado: a IA vai aprender com as suas respostas manuais.' : 'Modo clone desligado.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !e.target.checked;
+      aviso(err.message, true);
+    }
+  };
+  $('#ver-clone')?.addEventListener('click', () => modalClone(id, recarregar));
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
@@ -2589,6 +2605,34 @@ function htmlMensagem(m, leadId, anterior) {
     return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
   }
   return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
+}
+
+// O que o modo clone aprendeu (dá para apagar exemplos ruins)
+async function modalClone(empresaId, depois) {
+  const r = await api(`empresas/${empresaId}/clone`);
+  abrirModal(`
+    <h2>🧬 O que a IA aprendeu com você</h2>
+    <p class="rotulo">Na hora de responder, a IA usa os exemplos mais parecidos com o que o cliente disse. Apague os que não representam o seu jeito.</p>
+    <div class="lista-clone">${r.exemplos.map((ex) => `
+      <div class="exemplo-clone" data-ex="${esc(ex.id)}">
+        <div class="rotulo">Cliente: ${esc(ex.cliente)}</div>
+        <div><b>Você:</b> ${esc(ex.resposta || '(só mandou mídia)')}${(ex.midias || []).length ? ` <span class="etiqueta">🖼️ ${ex.midias.map(esc).join(', ')}</span>` : ''}</div>
+        <button type="button" class="pequeno perigo" data-apagar-ex="${esc(ex.id)}">Apagar</button>
+      </div>`).join('') || '<p class="rotulo">Nada ainda.</p>'}</div>
+    <div class="acoes">${r.exemplos.length ? '<button type="button" class="perigo" id="limpar-clone">Apagar tudo</button>' : ''}<button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+    $$('[data-apagar-ex]', m).forEach((b) => {
+      b.onclick = async () => {
+        await api(`empresas/${empresaId}/clone/exemplos/${b.dataset.apagarEx}`, { method: 'DELETE', body: {} });
+        b.closest('.exemplo-clone').remove();
+      };
+    });
+    $('#limpar-clone', m)?.addEventListener('click', async () => {
+      if (!(await confirmar({ titulo: 'Apagar tudo o que aprendeu?', texto: 'A IA volta a responder sem os seus exemplos (as mídias aprendidas continuam na biblioteca).', botao: 'Apagar tudo', perigo: true }))) return;
+      await api(`empresas/${empresaId}/clone/exemplos`, { method: 'DELETE', body: {} });
+      fechar();
+      depois?.();
+    });
+  });
 }
 
 // Liga/desliga "a IA para de responder depois da minha mensagem manual"

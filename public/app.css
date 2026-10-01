@@ -809,6 +809,9 @@ html.dark .ticket-chip.ag { background: #1e3a8a; color: #bfdbfe; }
 .erro-envio { color: #b91c1c; }
 html.dark .erro-envio { color: #fca5a5; }
 .msg.apagada .msg-texto { color: var(--texto-suave, #667781); }
+.lista-clone { display: grid; gap: 8px; max-height: 60vh; overflow: auto; margin: 10px 0; }
+.exemplo-clone { border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; }
+.exemplo-clone button { justify-self: start; }
 .opcoes-apagar { display: grid; gap: 8px; margin: 12px 0; }
 .opcoes-apagar button { display: grid; text-align: left; gap: 2px; padding: 10px 14px; }
 .opcoes-apagar small { font-weight: 400; opacity: .8; font-size: 12px; }

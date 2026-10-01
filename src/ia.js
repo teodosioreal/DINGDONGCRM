@@ -236,7 +236,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.',
     '',
     'Regras de verdade (as mais importantes — nunca quebre):',
-    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
+    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
     '- NUNCA invente: preço, valor, desconto, parcelamento, prazo, horário, endereço, estoque, modelos/cores, garantia, política de troca, brinde, promoção, link, telefone ou nome de pessoa.',
     '- Se o cliente perguntar algo que não está escrito: diga com naturalidade que vai confirmar com a equipe (e, se ele precisar da resposta para seguir, use [[HUMANO]] no WhatsApp). É melhor dizer "vou confirmar" do que chutar.',
     '- Não prometa nada que a empresa não prometeu. Não confirme disponibilidade, data ou valor que não esteja nas informações ou que a equipe não tenha combinado na conversa.',
@@ -353,6 +353,19 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias que você já mandou nesta conversa: ${contexto.midiasEnviadas.join(', ')}.`);
+
+  if (contexto.clone) {
+    dinamico.push(
+      '',
+      'MODO CLONE — o dono quer que você responda EXATAMENTE como ele. Abaixo estão respostas reais dele (escritas à mão) em situações parecidas com a de agora:',
+      '<exemplos_do_dono>',
+      contexto.clone,
+      '</exemplos_do_dono>',
+      '- Imite o dono: o tamanho das mensagens, o tom, as gírias, os emojis, como ele cumprimenta, como passa o preço, como responde objeção e como fecha.',
+      '- Se a situação for parecida com um exemplo em que ele mandou mídia, mande a MESMA mídia (o mesmo [[MIDIA: CÓDIGO]]).',
+      '- O que o dono disse nos exemplos (preço, prazo, condição) vale como informação verdadeira; se conflitar com <instrucoes_da_empresa> ou <conhecimento>, valem essas. Nunca copie nome, telefone ou dado pessoal de outro cliente.'
+    );
+  }
 
   if (contexto.origem) {
     dinamico.push(

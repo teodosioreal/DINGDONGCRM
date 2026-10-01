@@ -729,6 +729,9 @@ async function receberWebhook(empresa, corpo) {
       const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
       leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo, wid: msg.key.id });
       require('./tickets').agendamentoDaMensagem(empresa, lead, textoEquipe, 'equipe');
+      // modo clone: aprende com o que você respondeu pelo celular (texto e arquivo)
+      if (anexo?.anexo) require('./clone').aprenderAnexo(empresa, lead, anexo.anexo, legenda);
+      else require('./clone').registrar(empresa, lead, { texto: textoEquipe });
       pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo WhatsApp');
       salvar();
       continue;
@@ -1072,6 +1075,7 @@ async function responderLead(empresaId, leadId) {
       midiasEnviadas: [...new Set(lead.mensagens.filter((m) => m.midiaCodigo).map((m) => m.midiaCodigo))],
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
+      clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),
@@ -1130,6 +1134,7 @@ async function enviarRespostaRapida(empresa, lead, resposta) {
     await enviarTexto(empresa, destino, resposta.texto, { digitando: false });
     leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: resposta.texto, respostaRapida: resposta.atalho });
     require('./tickets').agendamentoDaMensagem(empresa, lead, resposta.texto, 'equipe');
+    require('./clone').registrar(empresa, lead, { texto: resposta.texto, midias: resposta.midia ? [midias.resolverPedido(empresa, resposta.midia).alvo?.codigo] : [] });
   }
   if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe');
 }
@@ -1256,6 +1261,7 @@ async function enviarPelaEquipe(empresa, lead, texto) {
   await enviarTexto(empresa, destino, texto, { digitando: false });
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
   require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'equipe'); // "agendado sábado 9h" → ticket AGENDADO
+  require('./clone').registrar(empresa, lead, { texto }); // modo clone: aprende com a sua resposta
   pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo painel');
   salvar();
 }

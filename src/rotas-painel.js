@@ -188,6 +188,7 @@ function situacaoWhatsapp(e, req) {
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
     iaAposManual: e.whatsappConfig?.iaAposManual === true,
     sincronia: e.whatsappConfig?.sincronia || null,
+    clone: (({ ativo, total, midiasAprendidas }) => ({ ativo, total, midiasAprendidas }))(require('./clone').resumo(e)),
     whatsappAvisos: e.whatsappAvisos || '',
     // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
     podeCriar: whatsapp.podeCriarInstancia(),
@@ -1440,6 +1441,34 @@ router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------- modo clone
+router.get('/empresas/:id/clone', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./clone').resumo(empresa));
+});
+
+router.put('/empresas/:id/clone', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  require('./clone').ligar(empresa, req.body?.ativo === true);
+  res.json(require('./clone').resumo(empresa));
+});
+
+router.delete('/empresas/:id/clone/exemplos/:exId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  require('./clone').apagarExemplo(empresa, req.params.exId);
+  res.json(require('./clone').resumo(empresa));
+});
+
+router.delete('/empresas/:id/clone/exemplos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  require('./clone').limpar(empresa);
+  res.json(require('./clone').resumo(empresa));
+});
+
 // Foto de perfil do WhatsApp do cliente — só com login
 router.get('/leads/:id/foto', (req, res) => {
   const c = acharLead(req, res);
@@ -1490,6 +1519,7 @@ router.post('/leads/:id/arquivo', express.raw({ type: 'application/octet-stream'
   try {
     await whatsapp.enviarArquivo(empresa, destino, { buffer: req.body, mimetype, nome, legenda });
     const anexo = midias.salvarAnexo(c.id, req.body, mimetype, nome);
+    require('./clone').aprenderAnexo(empresa, c, anexo, legenda);
     const { tipo } = anexo;
     const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
     leads.adicionarMensagem(c, { papel: 'equipe', canal: 'whatsapp', texto: legenda || `[enviou ${NOME_TIPO[tipo]}]`, anexo });
@@ -1541,6 +1571,7 @@ router.post('/leads/:id/arquivo/envio/:envioId/concluir', async (req, res) => {
   try {
     const { tipo, wid } = await whatsapp.enviarAnexoPorUrl(empresa, destino, c.id, anexo, anexo.tipo === 'audio' ? '' : legenda);
     msg.envio = 'ok';
+    require('./clone').aprenderAnexo(empresa, c, anexo, legenda);
     if (wid) msg.wids = [wid];
     if (tipo === 'document' && anexo.tipo !== 'document') msg.comoArquivo = true;
   } catch (err) {
@@ -1561,6 +1592,7 @@ router.post('/leads/:id/midia', async (req, res) => {
   const nome = texto(req.body?.nome, 120);
   if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
   const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
+  if (r.enviadas) require('./clone').registrar(empresa, c, { midias: [midias.resolverPedido(empresa, nome).alvo?.codigo] });
   salvar();
   if (r.falhas.length && !r.enviadas) return res.status(502).json({ erro: `Não foi enviada. ${r.falhas.join(' · ')}` });
   res.json({ ...resumoLead(c), avisoEnvio: r.falhas.length ? `Algumas não foram: ${r.falhas.join(' · ')}` : '' });
