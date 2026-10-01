@@ -218,6 +218,20 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   tempo, usa as anotações da equipe e responde ao que o cliente disse.
 - Faixa "Modo teste": o "desligar" desliga na hora (Início e Conversas).
 
+### Nenhuma mensagem do WhatsApp fica de fora
+
+- O CRM busca na Evolution as mensagens que não chegaram pelo webhook (número
+  desconectado, instância reconectada, CRM reiniciando no deploy, webhook antigo):
+  ao reconectar (últimos 7 dias), ao ligar e a cada 20 min (desde a última busca, até
+  2 dias) e no botão **🔄 Buscar mensagens do WhatsApp** (Conversas e IA do WhatsApp:
+  24 h, 7 ou 30 dias). O histórico que o celular manda ao reconectar (`MESSAGES_SET`)
+  também entra (webhook aceita até 25 MB).
+- Sem duplicar (id do WhatsApp; nas antigas, texto + horário), na ordem certa, sem a IA
+  responder mensagens antigas e sem automação em conversa só recuperada. Grupos e
+  conversas na lixeira ficam de fora.
+- O webhook é conferido e consertado sozinho se for do CRM e estiver desligado, sem
+  endereço, com endereço antigo ou faltando evento (webhook de outro sistema nunca é mexido).
+
 ### Lixeira de conversas
 
 - Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat.

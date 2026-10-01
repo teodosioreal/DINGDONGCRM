@@ -187,6 +187,7 @@ function situacaoWhatsapp(e, req) {
     velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
     iaAposManual: e.whatsappConfig?.iaAposManual === true,
+    sincronia: e.whatsappConfig?.sincronia || null,
     whatsappAvisos: e.whatsappAvisos || '',
     // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
     podeCriar: whatsapp.podeCriarInstancia(),
@@ -443,6 +444,15 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
         return res.json(await whatsapp.criarInstancia(empresa));
       case 'pareamento':
         return res.json(await whatsapp.codigoPareamento(empresa, texto(b.telefone, 30)));
+      case 'sincronizar': {
+        // busca na Evolution as mensagens que não chegaram (1, 7 ou 30 dias)
+        const dias = [1, 7, 30].includes(Number(b.dias)) ? Number(b.dias) : 7;
+        if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
+        const r = await require('./sincronizar').sincronizarEmpresa(empresa, { dias, motivo: 'botão' });
+        if (r?.emAndamento) return res.status(409).json({ erro: 'Já estou buscando as mensagens. Aguarde um pouco.' });
+        if (r?.erro) return res.status(502).json({ erro: `Não consegui buscar no WhatsApp: ${r.erro}` });
+        return res.json(r);
+      }
       case 'sair-numero':
         await whatsapp.sairDoNumero(empresa);
         return res.json({ ok: true });

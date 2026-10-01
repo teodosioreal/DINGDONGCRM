@@ -999,6 +999,10 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0">O CRM confere tudo: conexão do celular, se as mensagens estão chegando, chave de IA, modo teste e conversas pausadas — e mostra o que a IA fez com as últimas mensagens.</p>
       <div id="resultado-diagnostico"></div>
     </div>
+    ${w.configurado ? `<div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📥 Mensagens do WhatsApp no painel</h2><button type="button" id="zap-sincronizar">🔄 Buscar mensagens</button></div>
+      <p class="rotulo" style="margin:0">Todas as mensagens do WhatsApp aparecem aqui. Se alguma não chegou (o número ficou desconectado, você reconectou, o servidor reiniciou), o CRM busca sozinho a cada 20 minutos e sempre que o WhatsApp volta a conectar — sem a IA responder mensagens antigas.${w.sincronia ? ` <br>Última busca: <b>${esc(data(w.sincronia.em))}</b> · ${w.sincronia.erro ? `<span class="aviso-texto">erro: ${esc(w.sincronia.erro)}</span>` : `${w.sincronia.importadas} mensagem(ns) recuperada(s)${w.sincronia.importadas ? ` em ${w.sincronia.conversas} conversa(s)` : ''}`}.` : ''}</p>
+    </div>` : ''}
     <form class="card" id="f-ritmo">
       <h2 style="margin:0 0 6px">⏱️ Ritmo das respostas</h2>
       <p class="rotulo" style="margin:0 0 12px">Quanto a IA espera e quanto tempo fica "digitando…" antes de responder. Mais lento parece mais humano.</p>
@@ -1196,6 +1200,7 @@ async function paginaWhatsapp(id) {
       aviso('Ritmo salvo.');
     } catch (err) { aviso(err.message, true); }
   };
+  $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
   $('#ia-apos-manual').onchange = async (e) => {
     try {
       await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaAposManual: e.target.checked } });
@@ -2592,6 +2597,34 @@ function htmlMensagem(m, leadId, anterior) {
   return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
 }
 
+// Buscar no WhatsApp as mensagens que não chegaram ao painel
+function modalSincronizar(empresaId, aoTerminar) {
+  abrirModal(`
+    <h2>🔄 Buscar mensagens do WhatsApp</h2>
+    <p class="rotulo">O CRM confere as conversas do WhatsApp e traz para cá as mensagens que faltam (sem duplicar e sem a IA responder mensagens antigas).</p>
+    <div class="opcoes-apagar">
+      <button type="button" data-dias="1">Últimas 24 horas<small>rápido</small></button>
+      <button type="button" class="primario" data-dias="7">Últimos 7 dias<small>recomendado depois de reconectar</small></button>
+      <button type="button" data-dias="30">Últimos 30 dias<small>pode levar alguns minutos</small></button>
+      <button type="button" data-fechar>Cancelar</button>
+    </div>`, (modal, fechar) => {
+    $$('[data-dias]', modal).forEach((b) => {
+      b.onclick = async () => {
+        $$('[data-dias]', modal).forEach((x) => { x.disabled = true; });
+        try {
+          const r = await comEspera(b, () => api(`empresas/${empresaId}/whatsapp/sincronizar`, { method: 'POST', body: { dias: Number(b.dataset.dias) } }), 'Buscando…');
+          fechar();
+          aviso(r.importadas ? `${r.importadas} mensagem(ns) recuperada(s) em ${r.conversas} conversa(s).` : 'Tudo certo: nenhuma mensagem faltando.');
+          aoTerminar?.();
+        } catch (err) {
+          $$('[data-dias]', modal).forEach((x) => { x.disabled = false; });
+          aviso(err.message, true);
+        }
+      };
+    });
+  });
+}
+
 // "Desligar o modo teste" direto das faixas de aviso (Início e Conversas)
 document.addEventListener('click', async (e) => {
   const botao = e.target.closest?.('[data-desligar-teste]');
@@ -2850,7 +2883,7 @@ async function paginaConversas(id, params) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
+    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? '<div class="barra"><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button></div>' : ''}</div>
     ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <button type="button" class="link-botao" data-desligar-teste="${esc(id)}">desligar</button></p>` : ''}
@@ -3256,6 +3289,7 @@ async function paginaConversas(id, params) {
   await carregarLista();
   if (abertoId) await abrir(abertoId);
   const aqui = rotaEmpresa(id, 'conversas');
+  $('#buscar-mensagens')?.addEventListener('click', () => modalSincronizar(id, () => { assinaturaAberta = ''; carregarLista(); recarregarAberto().catch(() => {}); }));
   // mensagem apagada no chat aberto: redesenha a conversa e a prévia da lista
   $('#inbox-chat').addEventListener('mensagem-apagada', () => {
     assinaturaAberta = '';

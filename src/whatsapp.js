@@ -230,17 +230,21 @@ function ehNossoWebhook(empresa, url) {
 }
 
 // Eventos que o CRM escuta: mensagens, conexão e conversa apagada no celular
-const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
+// MESSAGES_SET: histórico que o celular manda ao reconectar (entra nas conversas, sem a IA responder)
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
 
-// Instâncias ligadas antes desta versão não mandam "conversa apagada":
-// se o webhook é do CRM e falta o evento, liga de novo (sem mexer em outros sistemas)
+// Confere o webhook da instância e conserta se for do CRM e estiver errado:
+// desligado, com endereço antigo (ex.: depois de reconectar), sem algum evento
+// ou sem webhook nenhum. Webhook de OUTRO sistema nunca é mexido.
 async function revisarWebhook(empresa) {
   const r = await evolution(empresa, 'GET', '/webhook/find/{instancia}');
   const w = r?.webhook || r || {};
-  if (!ehNossoWebhook(empresa, w.url) || w.enabled === false) return false;
+  if (w.url && !ehNossoWebhook(empresa, w.url)) return false;
   const eventos = (w.events || []).map((e) => String(e).toUpperCase());
-  if (EVENTOS_WEBHOOK.every((e) => eventos.includes(e))) return false;
+  const certo = w.url === urlWebhook(empresa) && w.enabled !== false && EVENTOS_WEBHOOK.every((e) => eventos.includes(e));
+  if (certo) return false;
   await configurarWebhook(empresa);
+  console.log(`[whatsapp ${empresa.id}] webhook consertado (${!w.url ? 'não tinha' : w.enabled === false ? 'estava desligado' : w.url !== urlWebhook(empresa) ? 'endereço antigo' : 'faltava evento'})`);
   return true;
 }
 
@@ -309,6 +313,7 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
   await configurarWebhook(empresa, { forcar });
   empresa.whatsappConfig.webhookLigadoEm = agora();
   salvar();
+  require('./sincronizar').aoReconectar(empresa); // traz as mensagens da última semana
   return situacao(empresa);
 }
 
@@ -658,9 +663,20 @@ async function receberWebhook(empresa, corpo) {
   if (eventoDe(corpo) === 'connection.update') {
     const st = corpo?.data?.state || corpo?.data?.status;
     if (st && empresa.whatsappConfig) {
+      const antes = empresa.whatsappConfig.perfil?.estado;
       empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora() };
       salvar();
+      // voltou a conectar: busca o que chegou enquanto estava fora
+      if (st === 'open' && antes !== 'open') require('./sincronizar').aoReconectar(empresa);
     }
+    return;
+  }
+  // histórico que o celular manda ao reconectar: entra nas conversas, sem a IA responder
+  if (eventoDe(corpo) === 'messages.set') {
+    const d = corpo?.data;
+    const lista = Array.isArray(d) ? d : Array.isArray(d?.messages) ? d.messages : [];
+    const n = require('./sincronizar').importarLote(empresa, lista);
+    if (n) console.log(`[whatsapp ${empresa.id}] histórico: ${n} mensagem(ns) recuperada(s)`);
     return;
   }
   // conversa apagada no WhatsApp do celular: sai da lista do CRM (vai para "Arquivadas")
@@ -718,6 +734,7 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
+    delete lead.historicoImportado; // o cliente escreveu de verdade agora
     require('./fotos-clientes').agendar(lead); // foto de perfil do cliente (se ainda não tem ou está velha)
     // cliente mandou mensagem de novo: a conversa volta para a lista
     if (lead.arquivado) {
@@ -1194,6 +1211,8 @@ module.exports = {
   liberadoNoModoTeste,
   numerosDeTeste,
   evolucao: evolution,
+  textoDa,
+  acharOuCriarLead,
   enviarRespostaRapida,
   respostaPorAtalho,
   enviarArquivo,

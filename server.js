@@ -23,6 +23,8 @@ app.set('trust proxy', 'loopback');
 const base = express.Router();
 const pastaPublica = path.join(__dirname, 'public');
 
+// webhook do WhatsApp: o histórico que chega ao reconectar pode ser grande
+base.use('/api/public/whatsapp', express.json({ limit: '25mb' }));
 base.use(express.json({ limit: '200kb' }));
 
 // Widget que os sites incluem: <script src=".../crm/chat.js" data-bot="...">
@@ -94,6 +96,7 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/backup').iniciar();
   require('./src/fotos-clientes').iniciar();
   require('./src/lixeira').iniciar();
+  require('./src/sincronizar').iniciar();
   // vídeos que ficaram no meio da conversão (ou ainda não conferidos) voltam para a fila
   setTimeout(() => {
     try {
