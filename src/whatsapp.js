@@ -852,6 +852,32 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
   return { anexo, entendido };
 }
 
+// Arquivo grande mandado pela equipe na conversa: o WhatsApp baixa o ORIGINAL por
+// um link temporário (sem base64, sem recomprimir). Vídeo que não toca na conversa
+// (não é MP4 ou é grande demais) — ou que o WhatsApp recusar — vai como arquivo.
+async function enviarAnexoPorUrl(empresa, destino, leadId, anexo, legenda = '') {
+  const url = midias.linkTemporario(leadId, anexo);
+  const tempo = Math.min(15 * 60 * 1000, 60000 + Math.ceil((anexo.tamanho || 0) / 1048576) * 3000);
+  const corpo = (mediatype) => ({ number: destinoDe(destino), mediatype, mimetype: anexo.mimetype, media: url, fileName: anexo.nome || anexo.arquivo, caption: legenda || '' });
+  let tipo = anexo.tipo;
+  if (tipo === 'video' && (anexo.mimetype !== 'video/mp4' || anexo.tamanho > require('./video').LIMITE_WHATSAPP)) tipo = 'document';
+  let r;
+  if (tipo === 'audio') {
+    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url }, { tempo });
+  } else {
+    try {
+      r = await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', corpo(tipo), { tempo });
+    } catch (err) {
+      if (!['video', 'image'].includes(tipo) || err.semResposta) throw err;
+      console.error(`[whatsapp] ${tipo} recusado (${err.message}); enviando como arquivo`);
+      r = await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', corpo('document'), { tempo });
+      tipo = 'document';
+    }
+  }
+  lembrarEnvio(r); // o id fica direto na mensagem (quem chamou guarda)
+  return { r, tipo, wid: r?.key?.id || null };
+}
+
 // Arquivo mandado pela equipe no painel (vai em base64, sem precisar de link público)
 async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda = '' }) {
   let tipo = midias.tipoDoMime(mimetype);
@@ -1240,6 +1266,7 @@ module.exports = {
   enviarMidia,
   destinoDoLead,
   enviarPelaEquipe,
+  enviarAnexoPorUrl,
   pausarPorMensagemManual,
   iaContinuaAposManual,
   apagarMensagem,

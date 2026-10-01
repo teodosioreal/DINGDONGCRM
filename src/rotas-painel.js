@@ -1476,6 +1476,57 @@ router.post('/leads/:id/arquivo', express.raw({ type: 'application/octet-stream'
   }
 });
 
+// Arquivo grande da conversa (até 200 MB, qualidade original): sobe em pedaços
+// pelas rotas de envio da empresa e aqui é concluído e mandado pelo WhatsApp
+router.post('/leads/:id/arquivo/envio', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  try {
+    const b = req.body || {};
+    res.json({ ...midias.iniciarEnvio(empresa, { arquivo: texto(b.arquivo, 200), tamanho: b.tamanho, tipo: texto(b.tipo, 100) }), empresaId: empresa.id });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.post('/leads/:id/arquivo/envio/:envioId/concluir', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const destino = whatsapp.destinoDoLead(c);
+  if (!destino) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  const legenda = texto(req.body?.legenda, 1000);
+  let anexo;
+  try {
+    anexo = midias.concluirAnexo(empresa, req.params.envioId, c.id);
+  } catch (err) {
+    return res.status(err.status || 500).json({ erro: err.message });
+  }
+  // a mensagem aparece na hora como "enviando…"; arquivo grande pode levar minutos
+  // para o WhatsApp baixar e mandar, então o envio segue em segundo plano
+  const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
+  leads.adicionarMensagem(c, { papel: 'equipe', canal: 'whatsapp', texto: legenda || `[enviou ${NOME_TIPO[anexo.tipo] || 'um arquivo'}]`, anexo, envio: 'enviando', wids: [] });
+  const msg = c.mensagens[c.mensagens.length - 1];
+  whatsapp.pausarPorMensagemManual(empresa, c, 'A equipe respondeu pelo painel');
+  manterIa(c, caixinha(req.body?.manterIa));
+  salvar();
+  res.status(202).json(resumoLead(c));
+  try {
+    const { tipo, wid } = await whatsapp.enviarAnexoPorUrl(empresa, destino, c.id, anexo, anexo.tipo === 'audio' ? '' : legenda);
+    msg.envio = 'ok';
+    if (wid) msg.wids = [wid];
+    if (tipo === 'document' && anexo.tipo !== 'document') msg.comoArquivo = true;
+  } catch (err) {
+    msg.envio = 'erro';
+    msg.erroEnvio = String(err.message).slice(0, 200);
+    require('./alertas').registrar(empresa, 'whatsapp-envio', `O arquivo "${anexo.nome}" não foi enviado: ${err.message}`, { leadId: c.id });
+  }
+  c.atualizadoEm = agora();
+  salvar();
+});
+
 // Equipe manda uma mídia (ou álbum) da biblioteca
 router.post('/leads/:id/midia', async (req, res) => {
   const c = acharLead(req, res);

@@ -1,11 +1,14 @@
 // video.js — deixa todo vídeo da biblioteca pronto para o WhatsApp.
 //
-// O WhatsApp só toca direito MP4 com vídeo H.264 e áudio AAC. Vídeo de iPhone
-// (.mov / HEVC), .webm, .mkv, .avi ou um MP4 muito pesado chegam ao cliente
-// como "arquivo" ou nem saem. Por isso, ao subir um vídeo, o CRM confere o
-// formato e, se precisar, converte sozinho (em segundo plano, um por vez) para
-// MP4 H.264 até 720p e ~15 MB, com início rápido (faststart). Enquanto converte,
-// a mídia aparece como "convertendo…" e a IA ainda não a usa.
+// QUALIDADE MÁXIMA: o CRM nunca diminui o vídeo. O WhatsApp só toca na conversa
+// MP4 com vídeo H.264 (e áudio AAC); o resto chega como "arquivo" ou nem sai.
+// Ao subir um vídeo, o CRM confere (em segundo plano, um por vez):
+//   - já é MP4 H.264 → fica exatamente como está (qualquer tamanho);
+//   - H.264 em outro "envelope" (.mov do iPhone, .mkv, .m4v) → só troca o
+//     envelope para .mp4, SEM recomprimir (zero perda);
+//   - outro formato (HEVC, VP9…) → converte para H.264 quase sem perda (CRF 18),
+//     na mesma resolução (só reduz se passar de 1080p, que o WhatsApp não mostra).
+// Enquanto isso, a mídia aparece como "convertendo…" e a IA ainda não a usa.
 //
 // Usa o ffmpeg do sistema (ou FFMPEG_PATH, ou o pacote ffmpeg-static). Sem
 // ffmpeg, o vídeo continua na categoria Vídeos e é enviado como está; se o
@@ -16,10 +19,10 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { estado, salvar, agora } = require('./db');
 
-const LIMITE_WHATSAPP = 16 * 1024 * 1024; // acima disso muitos celulares recebem como arquivo
-const ALVO_BYTES = 15 * 1024 * 1024;
-const LARGURA_MAX = 1280;
-const TEMPO_MAX_MS = 20 * 60 * 1000;
+// acima disso o WhatsApp não aceita como vídeo: vai como arquivo (mesma qualidade)
+const LIMITE_WHATSAPP = 100 * 1024 * 1024;
+const LADO_MAX = 1920; // 1080p
+const TEMPO_MAX_MS = 60 * 60 * 1000;
 
 let caminhoFfmpeg; // undefined = ainda não procurou; null = não tem
 function ffmpeg() {
@@ -86,34 +89,32 @@ async function examinar(arquivo) {
 
 // Já está no formato que o WhatsApp toca?
 function jaCompativel(midia, info) {
-  return (
-    midia.mimetype === 'video/mp4' &&
-    info.video === 'h264' &&
-    (!info.audio || info.audio === 'aac') &&
-    midia.tamanho <= LIMITE_WHATSAPP &&
-    Math.max(info.largura, info.altura) <= 1920
-  );
+  return midia.mimetype === 'video/mp4' && info.video === 'h264' && (!info.audio || info.audio === 'aac');
+}
+
+// O que fazer com o vídeo, sempre perdendo o mínimo possível
+function plano(info) {
+  const videoOk = info.video === 'h264';
+  const audioOk = !info.audio || info.audio === 'aac';
+  if (videoOk && audioOk) return 'envelope'; // só troca .mov/.mkv por .mp4, sem recomprimir
+  if (videoOk) return 'audio'; // vídeo intacto, só o áudio vira AAC
+  return 'converter';
 }
 
 function argsConversao(entrada, saida, info) {
-  const audioKbps = info.audio ? 96 : 0;
-  // bitrate para caber em ~15 MB (entre 350 kbps e 2,5 Mbps)
-  let videoKbps = 2500;
-  if (info.duracao > 0) videoKbps = Math.floor((ALVO_BYTES * 8) / info.duracao / 1000) - audioKbps;
-  videoKbps = Math.max(350, Math.min(2500, videoKbps));
-  return [
-    '-hide_banner', '-y', '-i', entrada,
-    '-map', '0:v:0', '-map', '0:a:0?',
-    // até 1280 no lado maior, sem distorcer (medidas pares, exigência do H.264)
-    '-vf', `scale='if(gte(iw,ih),min(${LARGURA_MAX},iw),-2)':'if(gte(iw,ih),-2,min(${LARGURA_MAX},ih))',format=yuv420p`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'main',
-    // qualidade constante (não incha vídeo leve) com teto de bitrate (não passa de ~15 MB)
-    '-crf', '23', '-maxrate', `${videoKbps}k`, '-bufsize', `${videoKbps * 2}k`,
-    ...(info.audio ? ['-c:a', 'aac', '-b:a', `${audioKbps}k`, '-ac', '2'] : ['-an']),
-    '-movflags', '+faststart',
-    '-max_muxing_queue_size', '1024',
-    saida
-  ];
+  const p = plano(info);
+  const audio = info.audio ? (p === 'envelope' ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']) : ['-an'];
+  const video =
+    p === 'converter'
+      ? [
+          // mesma resolução; só reduz se passar de 1080p (medidas pares, exigência do H.264)
+          ...(Math.max(info.largura, info.altura) > LADO_MAX
+            ? ['-vf', `scale='if(gte(iw,ih),${LADO_MAX},-2)':'if(gte(iw,ih),-2,${LADO_MAX})',format=yuv420p`]
+            : ['-vf', 'format=yuv420p']),
+          '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-crf', '18'
+        ]
+      : ['-c:v', 'copy'];
+  return ['-hide_banner', '-y', '-i', entrada, '-map', '0:v:0', '-map', '0:a:0?', ...video, ...audio, '-movflags', '+faststart', '-max_muxing_queue_size', '4096', saida];
 }
 
 function acharEmpresaDa(midiaId) {
@@ -128,8 +129,8 @@ async function preparar(midiaId) {
   if (!midia || midia.tipo !== 'video') return;
   if (!disponivel()) {
     delete midia.processando;
-    midia.videoOk = midia.mimetype === 'video/mp4' && midia.tamanho <= LIMITE_WHATSAPP;
-    if (!midia.videoOk) midia.avisoVideo = 'Este vídeo não é MP4 leve: o WhatsApp pode entregar como arquivo. Para tocar direto na conversa, exporte em MP4 720p.';
+    midia.videoOk = midia.mimetype === 'video/mp4';
+    if (!midia.videoOk) midia.avisoVideo = 'Este vídeo não é MP4: o WhatsApp entrega como arquivo (na qualidade original). Para tocar direto na conversa, exporte em MP4.';
     salvar();
     return;
   }
@@ -167,7 +168,7 @@ async function preparar(midiaId) {
       mimetype: 'video/mp4',
       tamanho: fs.statSync(destino).size,
       videoOk: true,
-      convertido: { de: antes.mimetype, tamanhoAntes: antes.tamanho, em: agora(), segundos: Math.round((Date.now() - inicio) / 1000) }
+      convertido: { de: antes.mimetype, tamanhoAntes: antes.tamanho, em: agora(), segundos: Math.round((Date.now() - inicio) / 1000), como: plano(info) }
     });
     delete midia.processando;
     delete midia.erroVideo;

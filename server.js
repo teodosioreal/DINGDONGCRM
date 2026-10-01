@@ -45,6 +45,17 @@ base.get('/midia/:id/:arquivo', (req, res) => {
   });
 });
 
+// Anexo da conversa por link temporário (só o WhatsApp usa, para baixar o arquivo original)
+base.get('/anexo/:token/:nome', (req, res) => {
+  const a = midias.arquivoDoLink(req.params.token);
+  if (!a) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.type(a.mimetype || 'application/octet-stream');
+  res.sendFile(a.caminho, (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
 // Logo da empresa (aparece no painel e, se o assistente não tiver foto, no chat do site)
 base.get('/logo/:empresaId', (req, res) => {
   const { estado } = require('./src/db');

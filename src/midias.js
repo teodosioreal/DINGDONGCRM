@@ -9,9 +9,9 @@ const crypto = require('crypto');
 const config = require('./config');
 const { estado, salvar, agora } = require('./db');
 
-// Fotos e vídeos grandes: até 64 MB (o painel manda em pedaços, então o limite
-// do Nginx não atrapalha). Acima de ~16 MB o WhatsApp pode entregar o vídeo como documento.
-const TAMANHO_MAXIMO = 64 * 1024 * 1024;
+// Fotos e vídeos grandes, na qualidade original: até 200 MB (o painel manda em
+// pedaços de 900 KB, então o limite do Nginx não atrapalha).
+const TAMANHO_MAXIMO = 200 * 1024 * 1024;
 
 const TIPOS = {
   'image/jpeg': 'image',
@@ -189,7 +189,7 @@ const listaEtapas = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).m
 
 function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeInformado, extra = {} }) {
   if (!buffer?.length) throw Object.assign(new Error('Arquivo vazio.'), { status: 400 });
-  if (buffer.length > TAMANHO_MAXIMO) throw Object.assign(new Error('Arquivo maior que 64 MB. Diminua o vídeo (ex.: exporte em 720p) e envie de novo.'), { status: 413 });
+  if (buffer.length > TAMANHO_MAXIMO) throw Object.assign(new Error('Arquivo maior que 200 MB. Divida o vídeo em partes e envie de novo.'), { status: 413 });
   const arquivo = nomeArquivoSeguro(nomeArquivo);
   const mimetype = mimeDe(arquivo, mimetypeInformado);
   const id = crypto.randomBytes(12).toString('hex');
@@ -313,7 +313,7 @@ const PASTA_ENVIOS = () => path.join(config.midiasDir, '.envios');
 function iniciarEnvio(empresa, { arquivo, tamanho, tipo }) {
   const t = Number(tamanho) || 0;
   if (t <= 0) throw Object.assign(new Error('Arquivo vazio.'), { status: 400 });
-  if (t > TAMANHO_MAXIMO) throw Object.assign(new Error(`"${arquivo}" tem ${(t / 1024 / 1024).toFixed(0)} MB. O máximo é 64 MB — diminua o vídeo (ex.: exporte em 720p).`), { status: 413 });
+  if (t > TAMANHO_MAXIMO) throw Object.assign(new Error(`"${arquivo}" tem ${(t / 1024 / 1024).toFixed(0)} MB. O máximo é 200 MB — divida o vídeo em partes.`), { status: 413 });
   // limpa envios abandonados (mais de 2 horas)
   for (const [id, e] of envios) {
     if (Date.now() - e.em > 2 * 3600 * 1000) {
@@ -537,6 +537,38 @@ function salvarAnexo(leadId, buffer, mimetype, nomeOriginal) {
   return { arquivo, mimetype: mime, tipo: tipoDoMime(mime), nome: String(nomeOriginal || '').slice(0, 120), tamanho: buffer.length };
 }
 
+// Arquivo grande que a equipe mandou na conversa (chegou em pedaços): vai para a
+// pasta da conversa, na qualidade original
+function concluirAnexo(empresa, envioId, leadId) {
+  const e = envios.get(envioId);
+  if (!e || e.empresaId !== empresa.id) throw Object.assign(new Error('Envio não encontrado (comece de novo).'), { status: 404 });
+  if (e.recebido !== e.tamanho) throw Object.assign(new Error('O arquivo não chegou inteiro. Tente de novo.'), { status: 400 });
+  const mime = mimeDe(e.arquivo, e.tipo);
+  const ext = EXT_DO_MIME[mime] || path.extname(e.arquivo).toLowerCase().replace(/[^.\w]/g, '').slice(0, 6) || '.bin';
+  const arquivo = `${crypto.randomBytes(10).toString('hex')}${ext}`;
+  fs.mkdirSync(pastaAnexos(leadId), { recursive: true });
+  fs.renameSync(e.caminho, path.join(pastaAnexos(leadId), arquivo));
+  envios.delete(envioId);
+  return { arquivo, mimetype: mime, tipo: tipoDoMime(mime), nome: e.arquivo.slice(0, 120), tamanho: e.tamanho };
+}
+
+// Link temporário (6 h) para o WhatsApp baixar um anexo da conversa, que é privado
+const linksTemporarios = new Map(); // token → { leadId, arquivo, mimetype, ate }
+function linkTemporario(leadId, anexo) {
+  const agoraMs = Date.now();
+  for (const [t, l] of linksTemporarios) if (l.ate < agoraMs) linksTemporarios.delete(t);
+  const token = crypto.randomBytes(24).toString('hex');
+  linksTemporarios.set(token, { leadId, arquivo: anexo.arquivo, mimetype: anexo.mimetype, ate: agoraMs + 6 * 3600 * 1000 });
+  return `${config.urlPublica}/anexo/${token}/${encodeURIComponent(nomeArquivoSeguro(anexo.nome || anexo.arquivo))}`;
+}
+
+function arquivoDoLink(token) {
+  const l = linksTemporarios.get(String(token || ''));
+  if (!l || l.ate < Date.now()) return null;
+  const caminho = caminhoAnexo(l.leadId, l.arquivo);
+  return caminho ? { caminho, mimetype: l.mimetype } : null;
+}
+
 function caminhoAnexo(leadId, arquivo) {
   if (!/^[a-f0-9]{20}\.[\w]{1,6}$/.test(String(arquivo))) return null;
   return path.join(pastaAnexos(leadId), arquivo);
@@ -573,6 +605,9 @@ module.exports = {
   apagarPasta,
   salvarAnexo,
   caminhoAnexo,
+  concluirAnexo,
+  linkTemporario,
+  arquivoDoLink,
   pastaAnexosDoLead: pastaAnexos,
   apagarAnexosDoLead,
   mimeDe,

@@ -806,6 +806,8 @@ html.dark .ticket-chip.ag { background: #1e3a8a; color: #bfdbfe; }
 .msg:hover .msg-menu, .msg-menu:focus-visible { opacity: 1; }
 @media (hover: none) { .msg-menu { opacity: .6; } }
 .msg.apagada { opacity: .75; }
+.erro-envio { color: #b91c1c; }
+html.dark .erro-envio { color: #fca5a5; }
 .msg.apagada .msg-texto { color: var(--texto-suave, #667781); }
 .opcoes-apagar { display: grid; gap: 8px; margin: 12px 0; }
 .opcoes-apagar button { display: grid; text-align: left; gap: 2px; padding: 10px 14px; }

@@ -1348,7 +1348,7 @@ async function paginaMidias(id) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
     ${balao('Como fazer a IA mandar a foto certa na hora certa', passos([
-      '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 64 MB cada). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
+      '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 200 MB cada, na qualidade original). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
       'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Proposta").',
       'Marque <b>Pronta</b>. Pronto: a IA manda sozinha na hora certa.',
       'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
@@ -1356,7 +1356,7 @@ async function paginaMidias(id) {
 
     <div class="card" id="biblioteca">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🖼️ Suas fotos, vídeos e arquivos</h2><label class="botao primario">📤 Adicionar (vários de uma vez)<input type="file" id="mais-midias" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label></div>
-      <label class="soltar" id="soltar"><span class="soltar-texto">📁 Arraste vários arquivos aqui — fotos, vídeos (até 64 MB cada), PDFs e áudios</span></label>
+      <label class="soltar" id="soltar"><span class="soltar-texto">📁 Arraste vários arquivos aqui — fotos, vídeos (até 200 MB cada, qualidade original), PDFs e áudios</span></label>
       <div id="fila-envio"></div>
       <div class="chips abas-midia" id="abas-midia"></div>
       <div class="barra-selecao" id="barra-selecao" hidden></div>
@@ -1678,7 +1678,7 @@ async function paginaMidias(id) {
       const st = $('[data-st]', linha);
       const barra = $('.barra-envio span', linha);
       try {
-        if (arq.size > 64 * 1024 * 1024) throw new Error('maior que 64 MB');
+        if (arq.size > 200 * 1024 * 1024) throw new Error(`tem ${(arq.size / 1048576).toFixed(0)} MB — o máximo é 200 MB`);
         const ini = await api(`empresas/${id}/midias/envio`, { method: 'POST', body: { arquivo: arq.name, tamanho: arq.size, tipo: arq.type || '' } });
         for (let pos = 0; pos < arq.size; pos += ini.pedaco) {
           const parte = arq.slice(pos, pos + ini.pedaco);
@@ -2588,7 +2588,7 @@ function htmlMensagem(m, leadId, anterior) {
     const quem = { cliente: 'O cliente apagou esta mensagem', celular: 'Apagada pelo celular da empresa', equipe: 'Você apagou esta mensagem' }[m.apagada.por] || 'Mensagem apagada';
     return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
   }
-  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
 }
 
 // Liga/desliga "a IA para de responder depois da minha mensagem manual"
@@ -2601,6 +2601,21 @@ async function trocarIaParaManual(empresaId, chk, depois) {
   } catch (err) {
     chk.checked = !parar;
     aviso(err.message, true);
+  }
+}
+
+// Sobe um arquivo em pedaços de ~900 KB (passa do limite do servidor e aguenta
+// vídeo grande); tenta cada pedaço até 3 vezes se a internet oscilar
+async function subirEmPedacos(arquivo, ini, aoAvancar) {
+  for (let pos = 0; pos < arquivo.size; pos += ini.pedaco) {
+    const parte = arquivo.slice(pos, pos + ini.pedaco);
+    for (let tentativa = 1; ; tentativa++) {
+      const r = await fetch(`api/empresas/${ini.empresaId}/midias/envio/${ini.envioId}/parte?pos=${pos}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: parte }).catch(() => ({ ok: false }));
+      if (r.ok) break;
+      if (tentativa >= 3) throw new Error(r.status === 413 ? 'o servidor recusou um pedaço do arquivo' : 'a conexão caiu no meio do envio. Tente de novo.');
+      await new Promise((ok) => setTimeout(ok, 1000 * tentativa));
+    }
+    aoAvancar?.(Math.round((Math.min(arquivo.size, pos + ini.pedaco) / arquivo.size) * 100));
   }
 }
 
@@ -3200,17 +3215,21 @@ async function paginaConversas(id, params) {
       const arquivo = e.target.files[0];
       e.target.value = '';
       if (!arquivo) return;
-      if (arquivo.size > 16 * 1024 * 1024) return aviso('Arquivo maior que 16 MB (limite do WhatsApp).', true);
+      if (arquivo.size > 200 * 1024 * 1024) return aviso(`"${arquivo.name}" tem ${(arquivo.size / 1048576).toFixed(0)} MB. O máximo é 200 MB — divida o vídeo em partes.`, true);
       const legenda = arquivo.type.startsWith('audio/') ? '' : campo.value.trim();
+      const botao = $('#chat-enviar');
+      const leadId = abertoId;
       try {
-        await comEspera($('#chat-enviar'), async () => {
-          const qs = new URLSearchParams({ nome: arquivo.name, tipo: arquivo.type || '', legenda, manterIa: $('#chat-manter-ia').checked ? '1' : '0' });
-          const r = await fetch(`api/leads/${abertoId}/arquivo?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arquivo });
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+        let r;
+        await comEspera(botao, async () => {
+          // sobe em pedaços (arquivo grande, qualidade original) e depois manda pelo WhatsApp
+          const ini = await api(`leads/${leadId}/arquivo/envio`, { method: 'POST', body: { arquivo: arquivo.name, tamanho: arquivo.size, tipo: arquivo.type || '' } });
+          await subirEmPedacos(arquivo, ini, (pct) => { botao.innerHTML = `<span class="girando"></span> ${pct}%`; });
+          botao.innerHTML = '<span class="girando"></span> Enviando…';
+          r = await api(`leads/${leadId}/arquivo/envio/${ini.envioId}/concluir`, { method: 'POST', body: { legenda, manterIa: $('#chat-manter-ia')?.checked } });
         }, 'Enviando…');
         campo.value = '';
-        aviso('Arquivo enviado.');
+        aviso('Arquivo recebido. Enviando pelo WhatsApp na qualidade original — aparece ✓ quando chegar.');
         await recarregarAberto();
         carregarLista();
       } catch (err) { aviso(err.message, true); }

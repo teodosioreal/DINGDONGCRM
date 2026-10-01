@@ -186,19 +186,17 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   rápidas nativas do WhatsApp Business ficam só no celular (nenhum sistema lê):
   recrie com o mesmo atalho.
 
-### Vídeos prontos para o WhatsApp
+### Arquivos e vídeos em qualidade máxima
 
-- Qualquer vídeo (`.mp4`, `.mov` do iPhone, `.m4v`, `.webm`, `.mkv`, `.avi`…) entra
-  na aba **Vídeos** (vídeos antigos que tinham caído em "Documentos" são corrigidos
-  sozinhos ao abrir o painel).
-- Ao subir, o CRM confere o vídeo e, se não for MP4 H.264/AAC leve, **converte
-  sozinho** (em segundo plano, um por vez) para MP4 até 720p e ~15 MB, com início
-  rápido. Enquanto converte aparece "Convertendo…" e a IA ainda não usa o vídeo.
-- Usa o `ffmpeg` do sistema, `FFMPEG_PATH` ou o pacote opcional `ffmpeg-static`
-  (instalado pelo `npm ci`). Sem ffmpeg, o vídeo é enviado como está.
-- No envio: vídeo que não dá para tocar na conversa (ou que o WhatsApp recusar) vai
-  **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
-  pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
+- Até **200 MB** por arquivo, enviados em pedaços de 900 KB (passa do limite do Nginx),
+  tanto na biblioteca de Mídias quanto no 📎 Arquivo da conversa.
+- O CRM **nunca diminui** a qualidade: MP4 H.264 fica intacto; .mov/.mkv/.m4v com H.264
+  só troca o "envelope" para .mp4 sem recomprimir; HEVC/VP9 viram H.264 quase sem perda
+  (CRF 18), na mesma resolução (só reduz acima de 1080p).
+- Arquivo da conversa: o WhatsApp baixa o **original** por um link temporário (6 h, só
+  com o token); a mensagem aparece na hora com ⏳ e vira ✓ quando sai (ou ⚠️ com o motivo).
+  Vídeo que não toca na conversa (não MP4 ou acima de 100 MB) — ou que o WhatsApp
+  recusar — vai como arquivo, na mesma qualidade.
 
 ### IA: instruções, verdade, mensagem manual, localização
 
