@@ -126,6 +126,9 @@ async function carregar(empresa) {
 }
 
 function acharLead(empresa, jid) {
+  return require('./identidade').conversaDoEndereco(empresa, jid);
+}
+function acharLeadAntigo(empresa, jid) {
   const d = digitos(jid);
   const da = estado.conversas.filter((c) => c.empresaId === empresa.id);
   return (
@@ -240,6 +243,22 @@ function importarCopia(arquivo = ARQUIVO_COPIA) {
     const inst = empresa.whatsappConfig?.instancia;
     if (!inst || configDa(empresa).ativo === false) continue;
     for (const l of (dados.etiquetas || []).filter((x) => x.instancia === inst)) registrarLabel(empresa, { id: l.id, name: l.nome, color: l.cor });
+    // ligação "id escondido → número": junta conversas duplicadas e mostra o número real
+    const ligacoes = (dados.mapaLid || []).filter((x) => x.instancia === inst && /@lid$/.test(x.lid || '') && /@s\.whatsapp\.net$/.test(x.fone || ''));
+    if (ligacoes.length) {
+      empresa.mapaLid = empresa.mapaLid || {};
+      for (const x of ligacoes) empresa.mapaLid[x.lid] = x.fone;
+      const sinc = require('./sincronizar');
+      let convertidas = 0;
+      for (const x of ligacoes) {
+        if (estado.conversas.some((c) => c.empresaId === empresa.id && c.whatsappJid === x.lid)) {
+          sinc.consertarLid(empresa, x.lid, x.fone);
+          convertidas++;
+        }
+      }
+      const juntadas = require('./identidade').repararDuplicadas(empresa);
+      console.log(`[identidade ${empresa.id}] ${ligacoes.length} ligação(ões) LID→número; ${convertidas} conversa(s) com número real; ${juntadas} duplicada(s) juntada(s)`);
+    }
     for (const c of (dados.conversas || []).filter((x) => x.instancia === inst)) {
       for (const labelId of Array.isArray(c.labels) ? c.labels : []) if (associar(empresa, c.jid, String(labelId), 'add')) marcadas++;
     }

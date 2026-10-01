@@ -79,6 +79,15 @@ function juntar(lead, nova, { manterEstado = false } = {}) {
   lead.naoLidas = (lead.naoLidas || 0) + (nova.naoLidas || 0);
   lead.etapaHistorico = [...(lead.etapaHistorico || []), ...(nova.etapaHistorico || [])];
   lead.nome = lead.nome || nova.nome;
+  // dados do cliente que só a outra conversa tinha
+  if (!lead.telefone && nova.telefone) lead.telefone = nova.telefone;
+  const lidDe = (c) => c.lidJid || (/@lid$/.test(c.whatsappJid || '') ? c.whatsappJid : '');
+  if (!lead.lidJid && lidDe(nova)) lead.lidJid = lidDe(nova);
+  if (/@lid$/.test(lead.whatsappJid || '') && /@s\.whatsapp\.net$/.test(nova.whatsappJid || '')) lead.whatsappJid = nova.whatsappJid;
+  if (nova.anotacoes && nova.anotacoes !== lead.anotacoes) lead.anotacoes = [lead.anotacoes, nova.anotacoes].filter(Boolean).join('\n');
+  for (const k of ['origemSite', 'rastro', 'anuncioId', 'origemManual', 'email', 'codigo', 'localizacao']) if (lead[k] == null && nova[k] != null) lead[k] = nova[k];
+  if (nova.listaNegra) lead.listaNegra = true;
+  if (nova.naoDisparar) lead.naoDisparar = true;
   if (!manterEstado) {
     // restaurar da lixeira: a situação atual é a da conversa nova
     lead.etapa = nova.etapa || lead.etapa;

@@ -606,21 +606,18 @@ function mesmoNumero(a, b) {
   return sem9(a) === sem9(b);
 }
 
-function leadDoNumero(empresa, jid) {
-  const numero = jid.split('@')[0];
-  return estado.conversas
-    .filter((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || (!c.whatsappJid && mesmoNumero(c.telefone, numero))))
-    .sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))[0];
-}
 
 function acharOuCriarLead(empresa, jid, texto, msg) {
   const doEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
   // 1) código do chat do site na mensagem → continua aquele atendimento
   const codigo = (texto.match(/#([A-Z2-9]{6})\b/) || [])[1];
+  const identidade = require('./identidade');
+  const msgCom = { ...msg, key: { ...(msg?.key || {}), remoteJid: msg?.key?.remoteJid || jid, ...(msg?.key?.remoteJid && msg.key.remoteJid !== jid ? { remoteJidAlt: msg.key.remoteJidAlt || jid } : {}) } };
   if (codigo) {
     const doSite = doEmpresa.find((c) => c.codigo === codigo);
-    if (doSite && (!doSite.whatsappJid || doSite.whatsappJid === jid)) {
-      doSite.whatsappJid = jid;
+    const doMesmoCliente = doSite && doSite.whatsappJid && identidade.conversasDoCliente(empresa, identidade.enderecos(msgCom)).includes(doSite);
+    if (doSite && (!doSite.whatsappJid || doSite.whatsappJid === jid || doMesmoCliente)) {
+      doSite.whatsappJid = doSite.whatsappJid && doMesmoCliente ? doSite.whatsappJid : jid;
       doSite.telefone = doSite.telefone || telefoneDe(msg);
       if (msg.pushName && !doSite.nome) doSite.nome = msg.pushName;
       return doSite;
@@ -629,17 +626,18 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
   // 1b) código de um clique no botão do WhatsApp do site (sem chat): o lead
   // nasce já com a origem do cliente (anúncio, página que ele via…)
   const visita = codigo && origem.tirarVisita(empresa.id, codigo);
-  // 2) mesmo número → mesmo lead (o mais recente)
-  const existente = leadDoNumero(empresa, jid);
+  // 2) o mesmo cliente (número com/sem 9, id escondido…) → a mesma conversa
+  const existente = identidade.acharCliente(empresa, msgCom);
   if (existente) {
-    existente.whatsappJid = jid;
     if (msg.pushName && !existente.nome) existente.nome = msg.pushName;
     if (visita) origem.registrarNoLead(existente, visita.rastro);
     return existente;
   }
   // 3) novo lead que chegou direto pelo WhatsApp
   const bot = botDoWhatsapp(empresa);
-  const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msg), whatsappJid: jid });
+  const e = identidade.enderecos(msgCom);
+  const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msgCom), whatsappJid: identidade.jidPreferido(empresa, msgCom) });
+  if (e.lid) novo.lidJid = e.lid;
   require('./localizacao').garantir(novo);
   if (visita) {
     novo.codigo = codigo; // o mesmo código da mensagem, para a equipe achar
@@ -710,7 +708,8 @@ async function receberWebhook(empresa, corpo) {
   // conversa apagada no WhatsApp do celular: sai da lista do CRM (vai para "Arquivadas")
   if (eventoDe(corpo) === 'chats.delete') {
     const jids = (Array.isArray(corpo?.data) ? corpo.data : [corpo?.data]).map((x) => (typeof x === 'string' ? x : x?.remoteJid || x?.id)).filter(Boolean);
-    for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id && jids.includes(c.whatsappJid))) {
+    const doCliente = jids.map((j) => require('./identidade').conversaDoEndereco(empresa, j)).filter(Boolean);
+    for (const lead of [...new Set(doCliente)]) {
       lead.arquivado = true;
       lead.arquivadoPor = 'apagada no WhatsApp';
       lead.arquivadoEm = agora();
@@ -749,7 +748,8 @@ async function receberWebhook(empresa, corpo) {
         await usarAtalhoDoCelular(empresa, jid, msg, atalho).catch((err) => console.error(`[whatsapp atalho ${jid}]`, err.message));
         continue;
       }
-      const lead = estado.conversas.find((c) => c.empresaId === empresa.id && c.whatsappJid === jid);
+      // a equipe respondeu pelo celular: acha a conversa por qualquer endereço do cliente
+      const lead = require('./identidade').acharCliente(empresa, msg);
       if (!lead) continue;
       const anexo = await baixarAnexo(empresa, lead, msg).catch(() => null);
       const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };

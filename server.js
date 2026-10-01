@@ -121,6 +121,19 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/lixeira').iniciar();
   require('./src/sincronizar').iniciar();
   require('./src/etiquetas-zap').iniciar();
+  // mesmo cliente em duas conversas (número com/sem 9, id escondido): junta ao ligar e a cada 20 min
+  const revisarDuplicadas = () => {
+    for (const e of require('./src/db').estado.empresas) {
+      try {
+        const n = require('./src/identidade').repararDuplicadas(e);
+        if (n) console.log(`[identidade ${e.id}] ${n} conversa(s) duplicada(s) juntada(s)`);
+      } catch (err) {
+        console.error('[identidade]', err.message);
+      }
+    }
+  };
+  setTimeout(revisarDuplicadas, 5000).unref?.();
+  setInterval(revisarDuplicadas, 20 * 60 * 1000).unref?.();
   try {
     // localização: tira a antiga pelo DDD e lê das conversas
     require('./src/localizacao').revisarTodas(require('./src/db').estado);

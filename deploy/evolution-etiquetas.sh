@@ -83,18 +83,10 @@ if [ -n "${EXPORTAR:-}" ] && [ -n "${INSTANCIAS:-}" ] && [ -n "$PG" ]; then
       ESQ=$(docker exec -e BD="$BD" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "SELECT table_schema FROM information_schema.tables WHERE table_name = '"'"'Label'"'"' LIMIT 1"' 2>/dev/null)
       [ -n "$ESQ" ] || continue
       TMP="$EXPORTAR.tmp"
-      if docker exec -e BD="$BD" -e ESQ="$ESQ" -e INST="$INSTANCIAS" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "
-        SET search_path TO \"$ESQ\";
-        SELECT json_build_object(
-          '"'"'geradoEm'"'"', now(),
-          '"'"'etiquetas'"'"', COALESCE((SELECT json_agg(json_build_object('"'"'instancia'"'"', i.name, '"'"'id'"'"', l.\"labelId\", '"'"'nome'"'"', l.name, '"'"'cor'"'"', l.color))
-              FROM \"Label\" l JOIN \"Instance\" i ON i.id = l.\"instanceId\" WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"'))), '"'"'[]'"'"'::json),
-          '"'"'conversas'"'"', COALESCE((SELECT json_agg(json_build_object('"'"'instancia'"'"', i.name, '"'"'jid'"'"', c.\"remoteJid\", '"'"'labels'"'"', c.labels))
-              FROM \"Chat\" c JOIN \"Instance\" i ON i.id = c.\"instanceId\"
-              WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"')) AND jsonb_typeof(c.labels) = '"'"'array'"'"' AND jsonb_array_length(c.labels) > 0), '"'"'[]'"'"'::json)
-        );"' 2>/dev/null | grep -v '^SET$' > "$TMP" && [ -s "$TMP" ]; then
+      if docker exec -i -e BD="$BD" -e ESQ="$ESQ" -e INST="$INSTANCIAS" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -v ON_ERROR_STOP=1 -v inst="$INST" -v esq="$ESQ"' \
+          < "$(dirname "$0")/evolution-export.sql" 2>/dev/null | grep -v '^SET$' > "$TMP" && [ -s "$TMP" ]; then
         chmod 600 "$TMP" && mv "$TMP" "$EXPORTAR"
-        echo "    exportar: etiquetas dos números do CRM copiadas ($(wc -c < "$EXPORTAR") bytes)"
+        echo "    exportar: etiquetas e ligações LID→número dos números do CRM copiadas ($(wc -c < "$EXPORTAR") bytes; $(grep -o '"lid"' "$EXPORTAR" | wc -l) ligações)"
       else
         rm -f "$TMP"; echo "    exportar: não consegui ler (nada mudou)"
       fi
@@ -107,6 +99,17 @@ if [ -n "$CONTAINER" ]; then
   for c in $CONTAINER; do
     echo "    avisos de etiqueta no log da Evolution (48 h): $(docker logs "$c" --since 48h 2>&1 | grep -ciE 'labels? ?(edit|association)|LABELS_' || true)"
     docker logs "$c" --since 48h 2>&1 | grep -iE 'labels? ?(edit|association)|LABELS_' | grep -F "$(printf '%s' "${INSTANCIAS:-@@}" | tr ',' '\n')" | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g' | cut -c1-220 | sort | uniq -c | sort -rn | head -8 | sed 's/^/       /'
+  done
+fi
+
+# sincronização de etiquetas/listas do celular (app state) dos números do CRM: erros e avisos
+if [ -n "$CONTAINER" ] && [ -n "${INSTANCIAS:-}" ]; then
+  for c in $CONTAINER; do
+    for inst in $(printf '%s' "$INSTANCIAS" | tr ',' ' '); do
+      echo "    sincronização do celular ($inst, 7 dias):"
+      docker logs "$c" --since 168h 2>&1 | grep -F "$inst" | grep -iE 'app ?state|resync|syncd|sync state|patch|label|critical_|regular_|mutation|appStateSync|connection|qrcode|logout' \
+        | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g; s/^.*(INFO|WARN|ERROR|VERBOSE|DEBUG)/\1/' | cut -c1-170 | sort | uniq -c | sort -rn | head -12 | sed 's/^/       /'
+    done
   done
 fi
 

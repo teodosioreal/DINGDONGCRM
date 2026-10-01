@@ -101,6 +101,8 @@ function textoDaMensagem(m) {
 }
 
 function leadDoJid(empresa, jid) {
+  const achou = require('./identidade').conversaDoEndereco(empresa, jid);
+  if (achou) return achou;
   const numero = jid.split('@')[0];
   return estado.conversas.find((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || (c.telefone && c.telefone === numero)));
 }
