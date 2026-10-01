@@ -113,6 +113,13 @@ function garantirIdsDasMensagens(lead) {
   if (mudou) salvar();
 }
 
+// A IA só escreve para quem está na aba Conversas e já mandou mensagem (ela
+// "leu" o cliente). Contato importado/cadastrado à mão, sem conversa, ou
+// conversa na lixeira: a IA nunca manda nada (só a equipe, à mão ou por disparo).
+function iaPodeFalarCom(lead) {
+  return Boolean(lead && estado.conversas.includes(lead) && (lead.mensagens || []).some((m) => m.papel === 'visitante'));
+}
+
 function adicionarMensagem(lead, msg) {
   const saiuPeloWhatsapp = msg.canal === 'whatsapp' && msg.papel !== 'visitante' && !msg.wid && !msg.wids;
   const wids = saiuPeloWhatsapp ? tirarEnviosPendentes(lead) : [];
@@ -206,6 +213,7 @@ module.exports = {
   acharEtapa,
   criarLead,
   adicionarMensagem,
+  iaPodeFalarCom,
   registrarEnvioWhatsapp,
   garantirIdsDasMensagens,
   moverEtapa,

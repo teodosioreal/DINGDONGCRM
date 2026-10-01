@@ -599,7 +599,7 @@ async function paginaEmpresa(id) {
 
     ${faixaPausada(emp)}
     ${htmlDicas(emp, id)}
-    ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <a href="${rotaEmpresa(id, 'whatsapp')}">Desligar o modo teste</a>`, 'aviso') : ''}
+    ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <button type="button" class="pequeno" data-desligar-teste="${esc(id)}">Desligar o modo teste</button>`, 'aviso') : ''}
     <h2>Seus atendentes de IA</h2>
     ${balao('Duas IAs, um atendimento só', 'A <b>IA do site</b> tira as dúvidas no chat do site e, quando o cliente quer avançar, manda ele para o WhatsApp. Lá a <b>IA do WhatsApp</b> continua a mesma conversa, de onde parou. Pode usar as duas juntas ou só uma delas — é só ligar ou desligar aqui.')}
     <div class="canais">${cartaoCanal('site')}${cartaoCanal('whatsapp')}</div>
@@ -1012,6 +1012,13 @@ async function paginaWhatsapp(id) {
       </div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
     </form>
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ Quando você manda mensagem manual</h2>${interruptor('ia-apos-manual', w.iaAposManual, w.iaAposManual ? 'IA continua' : 'IA para')}</div>
+      <p class="rotulo" style="margin:0">${w.iaAposManual
+        ? '<b>Ligado:</b> depois que você (ou a equipe) manda uma mensagem pelo painel ou pelo celular, a IA <b>continua atendendo</b> aquele cliente.'
+        : '<b>Desligado (padrão):</b> depois que você manda uma mensagem pelo painel ou pelo celular, a IA <b>para de responder</b> aquele cliente — você assume. Para devolver, use "Devolver para a IA" na conversa.'}
+        Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
+    </div>
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -1188,6 +1195,16 @@ async function paginaWhatsapp(id) {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { velocidade: f.elements.velocidade.value, esperaPrimeiraSeg: Number(f.elements.esperaPrimeiraSeg.value), whatsappAvisos: f.elements.whatsappAvisos.value } }));
       aviso('Ritmo salvo.');
     } catch (err) { aviso(err.message, true); }
+  };
+  $('#ia-apos-manual').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaAposManual: e.target.checked } });
+      aviso(e.target.checked ? 'A IA continua atendendo depois das suas mensagens manuais.' : 'A IA para de responder o cliente depois que você manda uma mensagem manual.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !e.target.checked;
+      aviso(err.message, true);
+    }
   };
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
@@ -1965,6 +1982,12 @@ function nomeDoLead(l) {
   return l.nome || (l.telefone ? telefoneBonito(l.telefone) : 'Visitante do site');
 }
 
+// 📍 de onde o cliente é (DDD do WhatsApp, o que ele disse na conversa ou a equipe)
+function chipLocal(l, classe = '') {
+  if (!l?.local?.texto) return '';
+  return `<span class="etiqueta chip-local ${classe}" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>`;
+}
+
 function chipsDoLead(l, etiquetas) {
   return (l.etiquetas || []).map((tid) => etiquetas.find((t) => t.id === tid)).filter(Boolean).map((t) => chipEtiqueta(t)).join('');
 }
@@ -1974,7 +1997,7 @@ function cartaoLead(l, etiquetas) {
   return `
     <a class="cartao-lead" href="#/leads/${esc(l.id)}" draggable="true" data-lead="${esc(l.id)}">
       <span class="cartao-topo"><span class="cartao-quem">${avatarLead(l, 'mini')}<strong>${esc(nomeDoLead(l))}</strong></span>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
-      ${l.etiquetas?.length ? `<span class="chips">${chipsDoLead(l, etiquetas)}</span>` : ''}
+      ${l.etiquetas?.length || l.local?.texto ? `<span class="chips">${chipLocal(l)}${chipsDoLead(l, etiquetas)}</span>` : ''}
       <span class="rotulo cartao-texto">${esc(ultima)}</span>
       <span class="cartao-rodape">
         ${l.canais.map((c) => `<span class="etiqueta">${ROTULO_CANAL[c] || c}</span>`).join(' ')}
@@ -2066,7 +2089,7 @@ async function paginaLeads(id, params) {
               <tr>
                 <td><input type="checkbox" class="sel" value="${esc(l.id)}" aria-label="Selecionar"></td>
                 <td><div class="celula-lead">${avatarLead(l, 'mini')}<div><a href="#/leads/${esc(l.id)}"><strong>${esc(nomeDoLead(l))}</strong></a>${l.telefone && l.nome ? `<br><span class="rotulo">${esc(telefoneBonito(l.telefone))}</span>` : ''}${l.precisaHumano ? ' <span class="etiqueta off">chamou a equipe</span>' : ''}</div></div></td>
-                <td class="esconde-mobile"><span class="chips">${chipsDoLead(l, etiquetas) || '<span class="rotulo">—</span>'}</span></td>
+                <td class="esconde-mobile"><span class="chips">${chipLocal(l)}${chipsDoLead(l, etiquetas) || (l.local?.texto ? '' : '<span class="rotulo">—</span>')}</span></td>
                 <td>${esc(l.etapa)}</td>
                 <td class="esconde-mobile">${l.canais.map((c) => ROTULO_CANAL[c] || c).join(' ')}</td>
                 <td class="esconde-mobile rotulo">${data(l.atualizadoEm)}</td>
@@ -2174,7 +2197,7 @@ async function paginaLead(leadId) {
   const etiquetasLead = new Set(l.etiquetas);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div class="lead-quem">${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l, 'grande')}</a>` : avatarLead(l, 'grande')}<div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)} · desde ${data(l.criadoEm)}${l.noWhatsapp ? ` · <button type="button" class="link-botao" id="atualizar-foto" title="Buscar a foto de perfil do WhatsApp de novo">🔄 ${l.fotoUrl ? 'atualizar foto' : 'buscar foto'}</button>` : ''}</p></div></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
+    <div class="cabecalho"><div class="lead-quem">${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l, 'grande')}</a>` : avatarLead(l, 'grande')}<div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)}${l.local?.texto ? ` · <span title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''} · desde ${data(l.criadoEm)}${l.noWhatsapp ? ` · <button type="button" class="link-botao" id="atualizar-foto" title="Buscar a foto de perfil do WhatsApp de novo">🔄 ${l.fotoUrl ? 'atualizar foto' : 'buscar foto'}</button>` : ''}</p></div></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
@@ -2196,6 +2219,7 @@ async function paginaLead(leadId) {
             <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || `<a class="rotulo" href="${rotaEmpresa(l.empresaId, 'organizar')}">Criar etiquetas</a>`}</div>
           </div>
           <div class="campo" style="margin-top:12px"><label>Nome</label><input id="nome" value="${esc(l.nome)}" placeholder="Nome do cliente"></div>
+          <div class="campo" style="margin-top:12px"><label>📍 Localização ${ajuda('Vem sozinha pelo DDD do WhatsApp e fica mais precisa quando o cliente diz onde mora (a IA marca). Pode corrigir aqui; vazio = volta a usar o DDD.')}</label><input id="localizacao" value="${esc(l.local?.fonte === 'ddd' ? '' : l.local?.texto || '')}" placeholder="${esc(l.local?.fonte === 'ddd' ? `${l.local.texto} (pelo DDD)` : 'Ex.: Centro, Petrópolis - RJ')}"></div>
           ${l.noWhatsapp ? `<p style="margin:12px 0 0"><strong>WhatsApp:</strong> ${esc(telefoneBonito(l.telefone)) || '—'}</p>` : `<div class="campo" style="margin-top:12px"><label>Telefone / WhatsApp</label><input id="telefone" value="${esc(telefoneBonito(l.telefone))}" placeholder="(21) 99999-9999"></div>`}
           <p class="rotulo" style="margin:10px 0 0">Código #${esc(l.codigo)} · veio por ${ROTULO_CANAL[l.origem] || l.origem}${l.pagina ? ` · <span title="${esc(l.pagina)}">página do site</span>` : ''}</p>
           <div class="secao" style="margin-top:14px;padding-top:14px">
@@ -2252,7 +2276,7 @@ async function paginaLead(leadId) {
     const mudouAnuncio = escolhido !== (l.origemSite?.anuncio?.id || '');
     atualizar({ origemManual: $('#origem-manual').value, ...(mudouAnuncio ? { anuncioId: escolhido } : {}) }, 'Origem salva. A IA já usa na próxima resposta.');
   });
-  $('#salvar-lead').onclick = () => atualizar({ nome: $('#nome').value, anotacoes: $('#anotacoes').value, ...($('#telefone') ? { telefone: $('#telefone').value } : {}) }, 'Lead salvo.');
+  $('#salvar-lead').onclick = () => atualizar({ nome: $('#nome').value, localizacao: $('#localizacao').value, anotacoes: $('#anotacoes').value, ...($('#telefone') ? { telefone: $('#telefone').value } : {}) }, 'Lead salvo.');
   $('#alternar-ia').onclick = () => atualizar({ iaPausada: !l.iaPausada }, l.iaPausada ? 'A IA voltou a responder este lead.' : 'IA pausada neste lead.');
   $('#apagar-lead').onclick = async () => {
     if (!(await confirmar({ titulo: 'Apagar este lead?', texto: 'O lead e a conversa vão para a Lixeira (em Conversas → 🗑️) e podem ser restaurados por 30 dias.', botao: 'Apagar', perigo: true }))) return;
@@ -2568,6 +2592,18 @@ function htmlMensagem(m, leadId, anterior) {
   return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
 }
 
+// "Desligar o modo teste" direto das faixas de aviso (Início e Conversas)
+document.addEventListener('click', async (e) => {
+  const botao = e.target.closest?.('[data-desligar-teste]');
+  if (!botao) return;
+  e.preventDefault();
+  try {
+    await comEspera(botao, () => api(`empresas/${encodeURIComponent(botao.dataset.desligarTeste)}/whatsapp`, { method: 'PUT', body: { modoTeste: false } }), '…');
+    aviso('Modo teste desligado: a IA responde todos os clientes.');
+    rotear();
+  } catch (err) { aviso(err.message, true); }
+});
+
 // Apagar mensagem: "para todos" (sai do WhatsApp do cliente) ou "só no CRM"
 document.addEventListener('click', (e) => {
   const botao = e.target.closest?.('[data-msg-menu]');
@@ -2817,7 +2853,7 @@ async function paginaConversas(id, params) {
     <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div></div>
     ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
-    ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <a href="${rotaEmpresa(id, 'whatsapp')}">desligar</a></p>` : ''}
+    ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <button type="button" class="link-botao" data-desligar-teste="${esc(id)}">desligar</button></p>` : ''}
     <div class="inbox ${abertoId ? 'com-chat' : ''}" id="inbox">
       <aside class="inbox-lista">
         <div class="inbox-busca"><input id="busca-conversa" placeholder="🔎 Buscar nome, telefone ou mensagem"></div>
@@ -2908,7 +2944,7 @@ async function paginaConversas(id, params) {
           <span class="item-meio">
             <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
-            <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipsDoLead(c, emp.etiquetas)}</span>
+            <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipLocal(c)}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
         </button>
         </div>`).join('')
@@ -2936,11 +2972,11 @@ async function paginaConversas(id, params) {
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
         ${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l)}</a>` : avatarLead(l)}
-        <div class="chat-quem"><strong>${esc(nomeDoLead(l))}</strong><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'} · <a href="#/leads/${esc(l.id)}">ver lead</a></span></div>
+        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'}</span>${l.local?.texto ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
-        <button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
-        <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button>
+        <span class="chat-acoes"><button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
+        <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button></span>
       </header>
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
@@ -2966,7 +3002,7 @@ async function paginaConversas(id, params) {
           <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem… (Enter envia, / para respostas prontas)"></textarea>
           <button class="primario" type="submit" id="chat-enviar">Enviar</button>
         </div>
-        <label class="linha-check rotulo manter-ia"><input type="checkbox" id="chat-manter-ia"> Deixar a IA continuar atendendo depois da minha mensagem</label>
+        <label class="linha-check rotulo manter-ia"><input type="checkbox" id="chat-manter-ia" ${emp.whatsapp?.iaAposManual ? 'checked' : ''}> Deixar a IA continuar atendendo depois da minha mensagem</label>
       </form>` : '<p class="rotulo" style="padding:12px 16px">Este lead não tem WhatsApp. Coloque o telefone no lead para conversar.</p>'}`;
     const caixa = $('#chat-mensagens');
     caixa.scrollTop = caixa.scrollHeight;

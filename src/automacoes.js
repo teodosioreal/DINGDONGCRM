@@ -209,6 +209,7 @@ function entrouNaEtapaEm(lead, etapa) {
 
 function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (!whatsapp.destinoDoLead(lead)) return 'sem WhatsApp';
+  if (!leads.iaPodeFalarCom(lead)) return 'nunca conversou (não está em Conversas)';
   if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return 'modo teste';
   if (lead.naoDisparar) return 'pediu para não receber';
   if (lead.precisaHumano) return 'esperando a equipe';
@@ -387,6 +388,12 @@ async function enviarAgendadas(empresa) {
         if (!destino) throw new Error('lead sem WhatsApp');
         let textoEnvio = a.texto;
         let midiasPedidas = [];
+        if ((a.modo === 'ia' || a.criadoPor === 'IA') && !leads.iaPodeFalarCom(lead)) {
+          a.status = 'cancelada';
+          a.motivo = 'a IA só escreve para quem já conversou (está em Conversas)';
+          salvar();
+          continue;
+        }
         if (a.modo === 'ia') {
           // follow-up agendado pela IA: ela escreve agora, com a conversa atualizada
           const bot = whatsapp.botDoWhatsapp(empresa);

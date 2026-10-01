@@ -15,6 +15,7 @@ const siteEmpresa = require('./site');
 const tickets = require('./tickets');
 const fotosClientes = require('./fotos-clientes');
 const lixeira = require('./lixeira');
+const localizacao = require('./localizacao');
 const alertas = require('./alertas');
 const backup = require('./backup');
 const midias = require('./midias');
@@ -185,6 +186,7 @@ function situacaoWhatsapp(e, req) {
     numerosTeste: e.whatsappConfig?.numerosTeste || '',
     velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
+    iaAposManual: e.whatsappConfig?.iaAposManual === true,
     whatsappAvisos: e.whatsappAvisos || '',
     // o CRM consegue criar a conexão sozinho (tem a chave global da Evolution)
     podeCriar: whatsapp.podeCriarInstancia(),
@@ -402,6 +404,7 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   empresa.whatsappConfig = empresa.whatsappConfig || {};
   if (b.iaAtiva !== undefined) empresa.whatsappConfig.iaAtiva = b.iaAtiva !== false;
   if (b.modoTeste !== undefined) empresa.whatsappConfig.modoTeste = b.modoTeste === true;
+  if (b.iaAposManual !== undefined) empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
   if (b.numerosTeste !== undefined) {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
@@ -1029,6 +1032,7 @@ function resumoLead(c) {
     nome: c.nome || '',
     telefone: c.telefone || '',
     fotoUrl: fotosClientes.urlDaFoto(c),
+    local: localizacao.paraPainel(c),
     origem: c.origem || 'site',
     canais,
     noWhatsapp: Boolean(c.whatsappJid),
@@ -1145,6 +1149,7 @@ router.get('/leads/:id', (req, res) => {
     ...resto,
     mensagens: c.mensagens.map((m) => (whatsapp.podeApagarParaTodos(m) ? { ...m, apagaParaTodos: true } : m)),
     fotoUrl: fotosClientes.urlDaFoto(c),
+    local: localizacao.paraPainel(c),
     origemSite: origem.resumoOrigem(c, empresa),
     pedidos: automacoes.pedidosFeitos(c, empresa),
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
@@ -1172,6 +1177,14 @@ router.put('/leads/:id', (req, res) => {
   }
   if (b.nome !== undefined) c.nome = texto(b.nome, 120);
   if (b.anotacoes !== undefined) c.anotacoes = texto(b.anotacoes, 5000);
+  if (b.localizacao !== undefined) {
+    // vazio = volta a usar o DDD do telefone
+    if (texto(b.localizacao, 60)) localizacao.definir(c, b.localizacao, 'equipe');
+    else {
+      delete c.localizacao;
+      localizacao.garantir(c);
+    }
+  }
   if (b.telefone !== undefined && !c.whatsappJid) c.telefone = numeroWhatsapp(b.telefone);
   if (Array.isArray(b.etiquetas)) {
     const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
@@ -1266,7 +1279,7 @@ router.post('/leads/:id/mensagem', async (req, res) => {
   if (!msg) return res.status(400).json({ erro: 'Escreva a mensagem.' });
   try {
     await whatsapp.enviarPelaEquipe(empresa, c, msg);
-    manterIa(c, req.body?.manterIa === true);
+    manterIa(c, caixinha(req.body?.manterIa));
     res.json(resumoLead(c));
   } catch (err) {
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
@@ -1326,13 +1339,22 @@ router.delete('/empresas/:id/lixeira', (req, res) => {
 });
 
 
-// A equipe mandou algo mas quer que a IA continue atendendo este lead
+// Caixinha "Deixar a IA continuar" da mensagem manual: marcada = IA segue; desmarcada = IA para.
+// Sem a caixinha (ex.: app antigo), vale o padrão da empresa (IA do WhatsApp → mensagem manual).
 function manterIa(lead, manter) {
-  if (!manter) return;
-  lead.iaPausada = false;
-  lead.iaPausadaMotivo = '';
+  if (manter === undefined) return;
+  if (manter) {
+    lead.iaPausada = false;
+    lead.iaPausadaMotivo = '';
+    lead.precisaHumano = false;
+  } else {
+    lead.iaPausada = true;
+    lead.iaPausadaMotivo = lead.iaPausadaMotivo || 'A equipe respondeu pelo painel';
+    whatsapp.cancelarResposta(lead.id);
+  }
   salvar();
 }
+const caixinha = (v) => (v === undefined || v === null || v === '' ? undefined : v === true || v === '1' || v === 'true');
 
 // ---------------------------------------------------------------- conversas (estilo WhatsApp Web)
 
@@ -1435,11 +1457,8 @@ router.post('/leads/:id/arquivo', express.raw({ type: 'application/octet-stream'
     const { tipo } = anexo;
     const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
     leads.adicionarMensagem(c, { papel: 'equipe', canal: 'whatsapp', texto: legenda || `[enviou ${NOME_TIPO[tipo]}]`, anexo });
-    c.iaPausada = true;
-    c.iaPausadaMotivo = 'A equipe respondeu pelo painel';
-    whatsapp.cancelarResposta(c.id);
-    salvar();
-    manterIa(c, req.query.manterIa === '1');
+    whatsapp.pausarPorMensagemManual(empresa, c, 'A equipe respondeu pelo painel');
+    manterIa(c, caixinha(req.query.manterIa));
     res.json(resumoLead(c));
   } catch (err) {
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
@@ -1460,6 +1479,25 @@ router.post('/leads/:id/midia', async (req, res) => {
   res.json({ ...resumoLead(c), avisoEnvio: r.falhas.length ? `Algumas não foram: ${r.falhas.join(' · ')}` : '' });
 });
 
+// O que a IA precisa saber para sugerir a próxima mensagem certa: quem falou
+// por último, o que o cliente disse, há quanto tempo e as anotações da equipe
+function instrucaoDeSugestao(lead, conversa, pedido) {
+  const ultima = conversa[conversa.length - 1];
+  const ultimaDoCliente = [...conversa].reverse().find((m) => m.papel === 'visitante');
+  const horas = (Date.now() - new Date(ultima.em).getTime()) / 3600e3;
+  const quando = horas < 1 ? 'agora há pouco' : horas < 24 ? `há ${Math.round(horas)} h` : `há ${Math.round(horas / 24)} dia(s)`;
+  const linhas = ['Tarefa: sugerir a PRÓXIMA mensagem que a equipe vai mandar a este cliente. Leia a conversa inteira acima antes de escrever.'];
+  if (ultima.papel === 'visitante') {
+    linhas.push(`A última mensagem é do CLIENTE (${quando}): "${ultima.texto.slice(0, 600)}". Responda diretamente a ela — o que ele perguntou, pediu ou objetou — sem mudar de assunto.`);
+  } else {
+    linhas.push(`A última mensagem foi NOSSA (${quando}) e o cliente ainda não respondeu. Sugira um retorno curto e gentil que retome exatamente o último assunto${ultimaDoCliente ? ` (o que o cliente tinha dito por último: "${ultimaDoCliente.texto.slice(0, 300)}")` : ''}, sem repetir a mensagem anterior.`);
+  }
+  if (lead.anotacoes?.trim()) linhas.push(`Anotações internas da equipe sobre este cliente (não cite ao cliente): ${lead.anotacoes.trim().slice(0, 800)}`);
+  linhas.push('Leve em conta o que já foi combinado, perguntado e respondido (não repita perguntas já respondidas). Se fizer sentido, conduza para o próximo passo da venda, mas sem ignorar o que o cliente disse. Use só informações que estão na conversa ou nas informações da empresa.');
+  if (pedido) linhas.push(`Pedido da equipe para esta sugestão: ${pedido}`);
+  return linhas.join(' ');
+}
+
 // A IA sugere a próxima mensagem (a equipe revisa antes de enviar)
 router.post('/leads/:id/sugerir', async (req, res) => {
   const c = acharLead(req, res);
@@ -1468,14 +1506,18 @@ router.post('/leads/:id/sugerir', async (req, res) => {
   const bot = whatsapp.botDoWhatsapp(empresa);
   if (!bot) return res.status(400).json({ erro: 'A empresa não tem assistente.' });
   const pedido = texto(req.body?.pedido, 500);
+  const conversa = (c.mensagens || []).filter((m) => !m.apagada && m.texto);
+  if (!conversa.length) return res.status(400).json({ erro: 'Ainda não há conversa com este cliente para a IA ler.' });
   try {
-    const r = await ia.escreverMensagem(
-      bot,
-      empresa,
-      c.mensagens,
-      `Sugira a melhor próxima mensagem para a equipe mandar a este cliente agora, com foco em avançar a venda (tirar a objeção, propor o próximo passo ou fechar).${pedido ? ` Pedido da equipe: ${pedido}` : ''}`,
-      { etapas: leads.etapasDa(empresa), etapaAtual: c.etapa, links: midias.linksDa(empresa), origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa) }
-    );
+    const r = await ia.escreverMensagem(bot, empresa, c.mensagens, instrucaoDeSugestao(c, conversa, pedido), {
+      etapas: leads.etapasDa(empresa),
+      etapaAtual: c.etapa,
+      links: midias.linksDa(empresa),
+      midias: midias.paraIa(empresa),
+      tickets: tickets.paraIa(c),
+      localizacao: localizacao.paraIa(c),
+      origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa)
+    });
     res.json({ texto: r.texto });
   } catch (err) {
     res.status(502).json({ erro: ia.descreverErroIa(err) });
@@ -1513,11 +1555,8 @@ router.post('/leads/:id/resposta-rapida', async (req, res) => {
   if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
   try {
     await whatsapp.enviarRespostaRapida(empresa, c, { ...resposta, texto: req.body?.texto !== undefined ? texto(req.body.texto, 4000) : resposta.texto });
-    c.iaPausada = true;
-    c.iaPausadaMotivo = 'A equipe respondeu pelo painel';
-    whatsapp.cancelarResposta(c.id);
-    salvar();
-    manterIa(c, req.body?.manterIa === true);
+    whatsapp.pausarPorMensagemManual(empresa, c, 'A equipe respondeu pelo painel');
+    manterIa(c, caixinha(req.body?.manterIa));
     res.json(resumoLead(c));
   } catch (err) {
     res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });

@@ -200,6 +200,24 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   **como arquivo**, para o cliente receber de qualquer jeito. Espera de até 3 min
   pela Evolution (vídeo grande demora) e erro vira alerta e aviso na tela.
 
+### IA: instruções, verdade, mensagem manual, localização
+
+- **Instruções da empresa** ficam no fim do prompt, marcadas como prioridade máxima
+  ("siga à risca"), acima das dicas gerais de venda. **Regras de verdade**: a IA só afirma
+  o que está escrito (instruções, Sobre a empresa, site, conversa) e diz "vou confirmar"
+  em vez de inventar preço, prazo, endereço etc. O atendimento usa esforço médio e
+  temperatura baixa (segue melhor e inventa menos).
+- **Mensagem manual** (painel ou celular): por padrão a IA para naquele cliente. Em
+  IA do WhatsApp → "Quando você manda mensagem manual" dá para deixar a IA continuar;
+  a caixinha na conversa troca só para aquela mensagem.
+- A IA (respostas, follow-ups e automações) **só fala com quem já mandou mensagem e
+  está em Conversas**. Contatos importados/sem conversa: só a equipe (à mão ou disparo).
+- **📍 Localização**: pelo DDD do WhatsApp na hora; quando o cliente diz onde mora, a IA
+  marca `[[LOCAL: bairro, cidade - UF]]` e fica mais precisa; a equipe corrige no perfil.
+- **Sugerir com IA** lê a conversa inteira, sabe quem falou por último e há quanto
+  tempo, usa as anotações da equipe e responde ao que o cliente disse.
+- Faixa "Modo teste": o "desligar" desliga na hora (Início e Conversas).
+
 ### Lixeira de conversas
 
 - Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat.

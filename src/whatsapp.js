@@ -615,6 +615,7 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
   // 3) novo lead que chegou direto pelo WhatsApp
   const bot = botDoWhatsapp(empresa);
   const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msg), whatsappJid: jid });
+  require('./localizacao').garantir(novo);
   if (visita) {
     novo.codigo = codigo; // o mesmo código da mensagem, para a equipe achar
     novo.veioDoSite = true;
@@ -711,9 +712,7 @@ async function receberWebhook(empresa, corpo) {
       const legenda = texto.replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '');
       const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
       leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo, wid: msg.key.id });
-      lead.iaPausada = true;
-      lead.iaPausadaMotivo = 'A equipe respondeu pelo WhatsApp';
-      cancelarResposta(lead.id);
+      pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo WhatsApp');
       salvar();
       continue;
     }
@@ -940,6 +939,7 @@ async function responderLead(empresaId, leadId) {
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva) return;
   if (empresa.ativa === false) return registrarIa(empresa, lead, 'ignorou', MOTIVO_EMPRESA_PAUSADA);
   if (!liberadoNoModoTeste(empresa, lead)) return;
+  if (!leads.iaPodeFalarCom(lead)) return; // só responde quem escreveu e está em Conversas
   const bot = botDoWhatsapp(empresa);
   if (!bot) return registrarIa(empresa, lead, 'erro', 'A empresa não tem assistente de IA.');
 
@@ -955,6 +955,7 @@ async function responderLead(empresaId, leadId) {
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
       midiasEnviadas: [...new Set(lead.mensagens.filter((m) => m.midiaCodigo).map((m) => m.midiaCodigo))],
       tickets: require('./tickets').paraIa(lead),
+      localizacao: require('./localizacao').paraIa(lead),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa),
@@ -983,6 +984,7 @@ async function responderLead(empresaId, leadId) {
   } catch (err) {
     console.error(`[whatsapp ${lead.id}] venda/agendamento:`, err.message);
   }
+  if (r.local) require('./localizacao').definir(lead, r.local, 'ia'); // o cliente disse onde está
   // a IA combinou de retomar depois → follow-up agendado (com cronômetro no painel)
   if (r.retomar) require('./automacoes').agendarFollowupDaIa(empresa, lead, r.retomar);
   for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
@@ -1020,9 +1022,7 @@ async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
   const lead = acharOuCriarLead(empresa, jid, '', { ...msg, pushName: '' });
   await enviarRespostaRapida(empresa, lead, resposta);
   // a equipe está atendendo esse cliente pelo celular
-  lead.iaPausada = true;
-  lead.iaPausadaMotivo = 'A equipe respondeu pelo WhatsApp';
-  cancelarResposta(lead.id);
+  pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo WhatsApp');
   salvar();
 }
 
@@ -1118,15 +1118,26 @@ async function apagarMensagem(empresa, lead, msgId, { paraTodos = false } = {}) 
   return { ok: true };
 }
 
+// Mensagem manual (painel ou celular): por padrão a IA para naquele cliente e a
+// equipe assume. Em "IA do WhatsApp" dá para deixar a IA continuar atendendo.
+function iaContinuaAposManual(empresa) {
+  return empresa?.whatsappConfig?.iaAposManual === true;
+}
+
+function pausarPorMensagemManual(empresa, lead, motivo) {
+  cancelarResposta(lead.id); // a resposta que a IA ia mandar agora não sai (a pessoa já respondeu)
+  if (iaContinuaAposManual(empresa)) return;
+  lead.iaPausada = true;
+  lead.iaPausadaMotivo = motivo;
+}
+
 // Mensagem escrita pela equipe no painel: vai pelo WhatsApp e a IA para no lead
 async function enviarPelaEquipe(empresa, lead, texto) {
   const destino = destinoDoLead(lead);
   if (!destino) throw erro('Este lead não tem WhatsApp.', 400);
   await enviarTexto(empresa, destino, texto, { digitando: false });
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
-  lead.iaPausada = true;
-  lead.iaPausadaMotivo = 'A equipe respondeu pelo painel';
-  cancelarResposta(lead.id);
+  pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo painel');
   salvar();
 }
 
@@ -1209,6 +1220,8 @@ module.exports = {
   enviarMidia,
   destinoDoLead,
   enviarPelaEquipe,
+  pausarPorMensagemManual,
+  iaContinuaAposManual,
   apagarMensagem,
   podeApagarParaTodos,
   agendarResposta,

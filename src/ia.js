@@ -223,10 +223,20 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     'Como responder:',
     `- Português do Brasil, tom ${tom}.`,
     '- Mensagens curtas (1 a 4 frases), como numa conversa de WhatsApp. Nada de títulos, tabelas ou markdown pesado; no máximo *negrito* com um asterisco de cada lado e listas curtas com "-".',
-    '- Use apenas as informações da seção "Sobre a empresa". Se a resposta não estiver lá (preço, prazo, disponibilidade, qualquer detalhe), não invente: diga que vai confirmar com a equipe.',
+    '- Antes de responder, leia o histórico inteiro e a ÚLTIMA mensagem do cliente: responda exatamente ao que ele disse ou perguntou, sem mudar de assunto e sem repetir o que já foi dito.',
+    '- Se a mensagem do cliente estiver ambígua, pergunte o que ele quis dizer em vez de supor.',
     '- Faça uma pergunta por vez para entender o que o cliente precisa.',
     '- Se perguntarem, deixe claro que você é um assistente virtual (uma IA), não uma pessoa.',
-    '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.'
+    '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.',
+    '',
+    'Regras de verdade (as mais importantes — nunca quebre):',
+    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
+    '- NUNCA invente: preço, valor, desconto, parcelamento, prazo, horário, endereço, estoque, modelos/cores, garantia, política de troca, brinde, promoção, link, telefone ou nome de pessoa.',
+    '- Se o cliente perguntar algo que não está escrito: diga com naturalidade que vai confirmar com a equipe (e, se ele precisar da resposta para seguir, use [[HUMANO]] no WhatsApp). É melhor dizer "vou confirmar" do que chutar.',
+    '- Não prometa nada que a empresa não prometeu. Não confirme disponibilidade, data ou valor que não esteja nas informações ou que a equipe não tenha combinado na conversa.',
+    '',
+    'Ordem de prioridade quando uma coisa conflitar com outra:',
+    '1) <instrucoes_da_empresa> (o que o dono mandou fazer) → 2) <conhecimento> (Sobre a empresa) → 3) o que a equipe combinou na conversa → 4) <site_da_empresa> → 5) <aprendizados> → 6) as dicas gerais de venda deste texto.'
   ];
 
   if (noWhatsapp) {
@@ -237,7 +247,6 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Mensagens marcadas como "(equipe)" foram escritas por uma pessoa da empresa. Respeite o que a equipe combinou.',
       '- Áudios do cliente chegam transcritos ("[áudio do cliente]: …") e fotos chegam descritas ("[foto do cliente]: …"): responda ao conteúdo normalmente, sem comentar que foi transcrito. Se vier só "[o cliente enviou um áudio]" sem texto, peça com educação para ele escrever.'
     );
-    if (bot.promptWhatsapp?.trim()) partes.push('', 'Instruções da empresa para o WhatsApp:', bot.promptWhatsapp.trim());
 
     const midias = contexto.midias || [];
     if (midias.length) {
@@ -274,7 +283,6 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         '- Use essa linha no máximo uma vez por resposta e só quando fizer sentido; o site transforma ela num botão "Continuar no WhatsApp".'
       );
     }
-    if (bot.regras?.trim()) partes.push('', 'Instruções da empresa para o chat do site:', bot.regras.trim());
   }
 
   const links = contexto.links || [];
@@ -326,13 +334,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '- A data e a hora de agora estão em "Contexto desta conversa", no fim. Use para transformar "amanhã", "sábado" etc. em data.',
     '- Quando o cliente CONFIRMAR a compra (fechou o pedido e combinou o pagamento, ou avisou que pagou), escreva numa linha separada: [[VENDA: valor | o que ele comprou]] — ex.: [[VENDA: 350,00 | Volante em couro]]. Sem valor certo, deixe o valor vazio: [[VENDA: | Volante em couro]].',
     '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | Instalação do volante]].',
-    '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.'
+    '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.',
+    '',
+    'Localização do cliente (a equipe vê como etiqueta 📍 na conversa):',
+    '- Quando o cliente disser onde mora ou onde está (cidade, bairro, região), escreva numa linha separada: [[LOCAL: bairro/cidade - UF]] — ex.: [[LOCAL: Quitandinha, Petrópolis - RJ]] ou [[LOCAL: Niterói - RJ]]. Só com o que ele disse; nunca adivinhe. Não marque de novo se já estiver igual no "Contexto desta conversa".'
   );
 
   // ---- a partir daqui: o que muda a cada conversa (fica fora do cache do prompt)
   const hojeSp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const dinamico = ['Contexto desta conversa:', `- Agora: ${hojeSp} (horário de Brasília).`];
   if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
+  if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias que você já mandou nesta conversa: ${contexto.midiasEnviadas.join(', ')}.`);
 
@@ -375,6 +387,18 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
 
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
+  // por último (a IA dá mais peso ao fim): as instruções que o dono escreveu
+  const instrucoes = (noWhatsapp ? bot.promptWhatsapp : bot.regras)?.trim();
+  if (instrucoes) {
+    partes.push(
+      '',
+      `INSTRUÇÕES DA EMPRESA para ${noWhatsapp ? 'o WhatsApp' : 'o chat do site'} — escritas pelo dono. Siga à risca: o jeito de falar, o que pode e o que não pode dizer, a ordem do atendimento e quando passar para a equipe. Elas valem mais do que qualquer dica geral deste texto. Se uma instrução estiver ambígua, siga a intenção mais provável do dono, sem inventar informação:`,
+      '<instrucoes_da_empresa>',
+      instrucoes,
+      '</instrucoes_da_empresa>'
+    );
+  }
+
   // parte fixa (vai para o cache do prompt, fica bem mais barata a partir da 2ª mensagem) + o que muda
   return { fixo: partes.filter((l) => l !== null).join('\n'), dinamico: textoDinamico };
 }
@@ -385,6 +409,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
 function paraTurnos(historico) {
   const turnos = [];
   for (const m of historico) {
+    if (m.apagada) continue; // mensagem apagada não entra no que a IA lê
     const role = m.papel === 'visitante' ? 'user' : 'assistant';
     const conteudo = m.papel === 'equipe' ? `(equipe) ${m.texto}` : m.texto;
     if (!conteudo) continue;
@@ -542,7 +567,8 @@ const openaiSemTemperatura = (modelo) => /^(gpt-5|o\d)/i.test(modelo);
  * `anexo` = { base64, mime } (foto ou PDF) vai junto da última mensagem do cliente.
  * @returns {{ texto: string, recusado?: boolean }}
  */
-async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true }) {
+async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true, esforco = 'low' }) {
+  const nivel = esforcoBaixo ? esforco : null; // quanto a IA "pensa" antes de responder
   const fixo = typeof sistema === 'string' ? sistema : sistema.fixo || '';
   const dinamico = typeof sistema === 'string' ? '' : sistema.dinamico || '';
   const k = chaveDoMotor(m, empresa);
@@ -567,7 +593,7 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
       max_tokens: maxTokens,
       ...(system.length ? { system } : {}),
       messages: mensagens,
-      ...(m.modelo === 'claude-haiku-4-5' || !esforcoBaixo ? {} : { output_config: { effort: 'low' } })
+      ...(m.modelo === 'claude-haiku-4-5' || !nivel ? {} : { output_config: { effort: nivel } })
     };
     const r = COM_FALLBACK.has(m.modelo)
       ? // se o modelo recusar por segurança, a própria API tenta de novo num modelo reserva
@@ -594,7 +620,7 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
       model: m.modelo,
       messages: mensagens,
       max_completion_tokens: maxTokens,
-      ...(openaiSemTemperatura(m.modelo) ? { reasoning_effort: 'low' } : { temperature: temperatura })
+      ...(openaiSemTemperatura(m.modelo) ? { reasoning_effort: nivel || 'low' } : { temperature: temperatura })
     });
     const u = dados.usage || {};
     const emCache = u.prompt_tokens_details?.cached_tokens || 0;
@@ -646,6 +672,11 @@ function extrairAcoes(bruto) {
   let venda = null;
   let agendamento = null;
   let retomar = null;
+  let local = null;
+  texto = texto.replace(/\[\[\s*LOCAL\s*:\s*([^\]]+?)\s*\]\]/gi, (_, onde) => {
+    local = onde.trim();
+    return '';
+  });
   texto = texto.replace(/\[\[\s*RETOMAR\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
     const [quando, ...resto] = dentro.split('|');
     retomar = { quando: (quando || '').trim(), assunto: resto.join('|').trim() };
@@ -684,7 +715,7 @@ function extrairAcoes(bruto) {
     texto = texto.slice(0, marcador.index);
   }
   texto = texto.replace(/\n{3,}/g, '\n\n').trim();
-  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar };
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local };
 }
 
 /**
@@ -696,7 +727,8 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   const turnos = paraTurnos(historico.slice(-40));
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
-  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos }), { tarefa: 'resposta' });
+  // atendimento: pensa um pouco mais (segue melhor as instruções) e com menos "criatividade" (inventa menos)
+  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos, esforco: 'medium', temperatura: 0.35 }), { tarefa: 'resposta' });
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
   const r = extrairAcoes(bruto.texto);
