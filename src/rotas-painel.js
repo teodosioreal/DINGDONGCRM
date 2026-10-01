@@ -1206,6 +1206,8 @@ router.get('/leads/:id', (req, res) => {
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     listaNegra: leads.naListaNegra(empresa, c),
+    vendaConcluida: c.vendaConcluidaManual === true || /fechad|ganh|vendid/i.test(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
+    temVendaRegistrada: (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     erroEtiquetaZap: c.erroEtiquetaZap || null,
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
@@ -1420,7 +1422,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
   const filtro = String(req.query.filtro || 'todas');
   // venda concluída (comprovante, IA ou equipe) ou lead em "Fechado": vai para "Vendas concluídas"
   const comVenda = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status !== 'cancelada' && v.leadId).map((v) => v.leadId));
-  const fechado = (c) => comVenda.has(c.id) || /fechad|ganh|vendid/i.test(c.etapa || '');
+  const fechado = (c) => comVenda.has(c.id) || c.vendaConcluidaManual === true || /fechad|ganh|vendid/i.test(c.etapa || '');
   const etiqueta = String(req.query.etiqueta || '');
   const bloqueado = (c) => leads.naListaNegra(empresa, c);
   const lista = estado.conversas
@@ -1546,6 +1548,34 @@ router.delete('/empresas/:id/lista-negra/:itemId', (req, res) => {
   if (!empresa) return;
   leads.tirarDaListaNegra(empresa, { id: req.params.itemId });
   res.json(leads.listaNegraDa(empresa).slice().reverse());
+});
+
+// Mover à mão para "Vendas concluídas" (e desfazer)
+router.post('/leads/:id/venda-concluida', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const etapaFechado = leads.etapasDa(empresa).find((e) => /fechad|ganh|vendid/i.test(e.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+  if (req.body?.concluida !== false) {
+    c.vendaConcluidaManual = true;
+    c.vendaConcluidaEm = agora();
+    c.vendaConcluidaPor = req.usuario.email;
+    if (etapaFechado && c.etapa !== etapaFechado) {
+      c.etapaAntesDaVenda = c.etapa;
+      leads.moverEtapa(c, empresa, etapaFechado, 'equipe');
+    }
+  } else {
+    if ((estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada')) {
+      return res.status(400).json({ erro: 'Este cliente tem uma venda registrada. Para tirar daqui, cancele a venda em Faturamento.' });
+    }
+    delete c.vendaConcluidaManual;
+    delete c.vendaConcluidaEm;
+    if (c.etapaAntesDaVenda && /fechad|ganh|vendid/i.test((c.etapa || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
+    delete c.etapaAntesDaVenda;
+  }
+  c.atualizadoEm = agora();
+  salvar();
+  res.json({ ok: true, vendaConcluida: c.vendaConcluidaManual === true });
 });
 
 router.post('/leads/:id/lista-negra', (req, res) => {

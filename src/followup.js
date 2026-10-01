@@ -128,7 +128,7 @@ function situacao(empresa, lead, agoraMs = Date.now()) {
   if (lead.iaPausada && !f.incluirPausados) return { motivo: 'equipe atendendo' };
   if (f.pararEtapas.includes(lead.etapa)) return { motivo: `etapa ${lead.etapa}` };
   if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return { motivo: 'já tem mensagem agendada' };
-  if ((estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada')) return { motivo: 'já comprou' };
+  if (lead.vendaConcluidaManual || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada')) return { motivo: 'já comprou' };
   if (jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
   const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada);
   const ultima = msgs[msgs.length - 1];

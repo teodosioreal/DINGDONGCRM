@@ -3269,7 +3269,8 @@ async function paginaConversas(id, params) {
         <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
-        <span class="chat-acoes"><button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
+        <span class="chat-acoes"><button type="button" class="pequeno ${l.vendaConcluida ? 'primario' : ''}" id="chat-concluida" title="${l.vendaConcluida ? 'Tirar de Vendas concluídas' : 'Mover para a aba Vendas concluídas'}">${l.vendaConcluida ? '✅ Venda concluída' : '✅ Mover para Vendas concluídas'}</button>
+        <button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
         <button type="button" class="pequeno ${l.listaNegra ? 'primario' : ''}" id="chat-lista-negra" title="${l.listaNegra ? 'Tirar da lista negra' : 'Lista negra: ninguém (nem a IA) manda mais nada para este cliente'}">${l.listaNegra ? '✅ Desbloquear' : '🚫 Lista negra'}</button>
         <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button></span>
       </header>
@@ -3370,6 +3371,17 @@ async function paginaConversas(id, params) {
     };
     $('#chat-add-etq')?.addEventListener('change', (e) => { if (e.target.value) salvarEtiquetas([...(leadAberto.etiquetas || []), e.target.value]); });
     $$('[data-tirar-etq]').forEach((b) => { b.onclick = () => salvarEtiquetas((leadAberto.etiquetas || []).filter((t) => t !== b.dataset.tirarEtq)); });
+    $('#chat-concluida')?.addEventListener('click', async (e) => {
+      const concluir = !leadAberto.vendaConcluida;
+      if (!concluir && !(await confirmar({ titulo: 'Tirar de Vendas concluídas?', texto: 'A conversa volta para a lista normal (e para a etapa em que estava).', botao: 'Tirar' }))) return;
+      try {
+        await comEspera(e.currentTarget, () => api(`leads/${abertoId}/venda-concluida`, { method: 'POST', body: { concluida: concluir } }));
+        aviso(concluir ? 'Movida para Vendas concluídas.' : 'Voltou para a lista de conversas.');
+        assinaturaAberta = '';
+        await recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
     $('#chat-arquivar')?.addEventListener('click', async (e) => {
       const arquivar = !leadAberto.arquivado;
       try {

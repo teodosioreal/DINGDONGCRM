@@ -170,6 +170,7 @@ function vendaDoLead(lead, empresa) {
   const vendas = (estado.vendas || []).filter((v) => v.leadId === lead.id && v.status === 'confirmada');
   const ultima = vendas.map((v) => v.confirmadaEm || v.criadoEm).sort().pop();
   if (ultima) return ultima;
+  if (lead.vendaConcluidaManual && lead.vendaConcluidaEm) return lead.vendaConcluidaEm; // marcada à mão
   const fechado = etapaParecida(empresa, 'fechad', 'ganh', 'vendid');
   return fechado ? entrouNaEtapaEm(lead, fechado) : null;
 }
