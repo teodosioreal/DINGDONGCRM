@@ -456,6 +456,20 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 - Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo, já
   em "No WhatsApp".
 
+### 🔁 Follow-up automático (qualquer nicho)
+
+Página própria no menu. Quando o cliente para de responder, o CRM manda uma sequência de até 5 passos (padrão: 1 dia, 3 dias, 7 dias — cada tempo conta da mensagem anterior):
+
+- **IA escreve lendo a conversa** daquele cliente (com a instrução do passo) ou **texto fixo** (`{nome}` vira o nome).
+- Cada passo pode levar **mídias da biblioteca** (fotos, vídeos, álbuns, pastas do Drive), novas ou já existentes.
+- Para sozinho quando o cliente responde (a sequência recomeça na próxima vez que ele sumir), compra, pede uma pessoa, pede SAIR, entra em etapa de fechado/perdido (escolhidas na página), ou quando a IA já combinou retomar ([[RETOMAR]]). Só fala com quem está em Conversas, por padrão das 8h às 20h, e ao ligar não dispara para conversas antigas.
+- Fila com cronômetro na página e na conversa ("não enviar" encerra a sequência daquele cliente).
+- Com o follow-up ligado, as automações de "parou de responder" da Máquina de vendas ficam paradas (sem mensagem em dobro).
+
+### 🏷️ Assuntos das mídias
+
+Cada empresa cria seus próprios assuntos na página Mídias (ex.: *Completo*, *Arco*; numa clínica, *Limpeza*, *Clareamento*). Em cada mídia/álbum você marca o assunto e **onde usar**: "Conversa e follow-up" ou "Só no follow-up". A IA só manda mídia do assunto que está explicando; mídia sem assunto vale para tudo. Filtro por assunto e ações em lote na biblioteca.
+
 ### Widget (`chat.js`)
 
 Não depende de framework, fica isolado do visual do site (Shadow DOM) e lembra

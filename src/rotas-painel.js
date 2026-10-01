@@ -277,6 +277,7 @@ function empresaComExtras(e, req) {
     respostasRapidas: e.respostasRapidas || [],
     atalhosNoCelular: e.atalhosNoCelular !== false,
     naoLidas: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? c.naoLidas || 0 : 0), 0),
+    followupAtivo: e.followup?.ativo === true,
     logoUrl: e.logo ? `${config.urlPublica}/logo/${e.id}?v=${encodeURIComponent(e.logo.v)}` : '',
     faturamentoMes: comprovantes.resumo(e).mes,
     leads7d: estado.conversas.filter((c) => c.empresaId === e.id && c.criadoEm >= new Date(Date.now() - 7 * 864e5).toISOString()).length,
@@ -675,6 +676,8 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
     if (b.pronta !== undefined) midia.pronta = b.pronta === true;
+    if (b.assuntos !== undefined) midia.assuntos = midias.listaAssuntos(empresa, b.assuntos);
+    if (b.soFollowup !== undefined) midia.soFollowup = b.soFollowup === true;
   } catch (err) {
     return res.status(err.status || 400).json({ erro: err.message });
   }
@@ -696,6 +699,8 @@ router.post('/empresas/:id/midias/lote', (req, res) => {
     const albumId = midias.albunsDa(empresa).some((a) => a.id === req.body?.albumId) ? req.body.albumId : null;
     for (const m of alvo) m.albumId = albumId;
   } else if (acao === 'etapas') for (const m of alvo) m.etapas = midias.listaEtapas(req.body?.etapas);
+  else if (acao === 'assuntos') for (const m of alvo) m.assuntos = midias.listaAssuntos(empresa, req.body?.assuntos);
+  else if (acao === 'soFollowup' || acao === 'naConversa') for (const m of alvo) m.soFollowup = acao === 'soFollowup';
   else return res.status(400).json({ erro: 'Ação inválida.' });
   salvar();
   res.json({ ok: true, alteradas: alvo.length });
@@ -734,6 +739,19 @@ router.post('/empresas/:id/midias/envio/:envioId/concluir', (req, res) => {
   }
 });
 
+// Assuntos das mídias (cada empresa cria os seus: "Completo", "Arco", "Corte", "Coloração"...)
+router.get('/empresas/:id/assuntos-midia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ assuntos: midias.assuntosDa(empresa) });
+});
+
+router.put('/empresas/:id/assuntos-midia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ assuntos: midias.salvarAssuntos(empresa, req.body?.assuntos) });
+});
+
 // ---------------------------------------------------------------- álbuns (mídias enviadas juntas)
 
 router.get('/empresas/:id/albuns', (req, res) => {
@@ -747,7 +765,14 @@ function dadosAlbum(empresa, b, atual = null) {
   const nome = texto(b.nome, 80);
   if (!nome) throw Object.assign(new Error('Dê um nome para o álbum.'), { status: 400 });
   const codigo = b.codigo ? (atual && midias.slugCodigo(b.codigo) === atual.codigo ? atual.codigo : midias.validarCodigo(empresa, b.codigo, atual?.id)) : atual?.codigo || midias.novoCodigo(empresa, nome);
-  return { nome, codigo, descricao: texto(b.descricao, 300), etapas: midias.listaEtapas(b.etapas) };
+  return {
+    nome,
+    codigo,
+    descricao: texto(b.descricao, 300),
+    etapas: midias.listaEtapas(b.etapas),
+    assuntos: b.assuntos !== undefined ? midias.listaAssuntos(empresa, b.assuntos) : atual?.assuntos || [],
+    soFollowup: b.soFollowup !== undefined ? b.soFollowup === true : atual?.soFollowup === true
+  };
 }
 
 router.post('/empresas/:id/albuns', (req, res) => {
@@ -1244,6 +1269,11 @@ router.post('/leads/:id/pular-automacao', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  // passo do follow-up: para a sequência deste cliente (recomeça se ele responder)
+  if (String(req.body?.regraId || '').startsWith('fup')) {
+    if (!require('./followup').pular(empresa, c, req.usuario.email)) return res.status(404).json({ erro: 'Nenhum follow-up na fila para este cliente.' });
+    return res.json({ ok: true });
+  }
   const regra = automacoes.automacoesDa(empresa).find((r) => r.id === req.body?.regraId);
   if (!regra) return res.status(404).json({ erro: 'Automação não encontrada.' });
   const h = c.automacoes?.[regra.id] || { enviados: 0 };
@@ -1438,6 +1468,24 @@ router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
     res.json({ ok: true, anexo: msg.anexo });
   } catch (err) {
     res.status(502).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
+// ---------------------------------------------------------------- follow-up
+router.get('/empresas/:id/followup', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ ...require('./followup').paraPainel(empresa), etapas: leads.etapasDa(empresa) });
+});
+
+router.put('/empresas/:id/followup', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    require('./followup').salvarConfig(empresa, req.body || {});
+    res.json({ ...require('./followup').paraPainel(empresa), etapas: leads.etapasDa(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
   }
 });
 

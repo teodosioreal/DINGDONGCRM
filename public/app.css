@@ -902,3 +902,26 @@ html.dark .proximos-envios { background: #0c1a33; border-color: #1e3a8a; }
 html.dark .proximo .contagem { color: #93c5fd; }
 html.dark .proximo.por-ia .contagem { color: #c4b5fd; }
 html.dark .contagem-chip { background: #1e3a8a; color: #bfdbfe; }
+
+/* assuntos das mídias e follow-up */
+.assuntos-midia { margin: 10px 0 6px; }
+.assuntos-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.inline-form { display: inline-flex; gap: 6px; align-items: center; }
+.inline-form input { width: 200px; max-width: 52vw; padding: 5px 8px; }
+.etiqueta.assunto { background: #f3e8ff; color: #6b21a8; }
+html.dark .etiqueta.assunto { background: #3b0764; color: #e9d5ff; }
+.etiqueta.fup { background: #e0f2fe; color: #075985; }
+html.dark .etiqueta.fup { background: #0c4a6e; color: #bae6fd; }
+.x-chip { border: 0; background: none; padding: 0 0 0 4px; font-size: 11px; cursor: pointer; color: inherit; opacity: .7; }
+.x-chip:hover { opacity: 1; }
+.filtro-assunto { margin-top: 6px; }
+.filtro-assunto:empty { display: none; }
+.pequeno-chip { font-size: 12px; padding: 3px 9px; }
+.passo-fup { border: 1px solid var(--borda); border-radius: 12px; padding: 14px; margin-bottom: 12px; background: var(--fundo-card, transparent); }
+.passo-fup-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 8px; }
+.passo-fup-topo .num { font-weight: 700; }
+.passo-fup .tempo { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; flex-wrap: wrap; }
+.passo-fup .tempo input { width: 80px; }
+.midias-fup { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fila-fup li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--borda); }
+.fila-fup { list-style: none; padding: 0; margin: 0; }

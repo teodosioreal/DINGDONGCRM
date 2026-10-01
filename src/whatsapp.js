@@ -1150,7 +1150,9 @@ async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
 }
 
 // [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
-async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
+// papel: quem pediu ('assistente' = IA/automação: só mídia pronta e na etapa certa; 'equipe' = escolhida à mão).
+// papelMensagem: como aparece na conversa (ex.: follow-up escolhido à mão, mas enviado pela IA)
+async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', { papelMensagem = papel, followup = false } = {}) {
   const resultado = { enviadas: 0, falhas: [] };
   for (const nome of nomes || []) {
     const pedido = midias.resolverPedido(empresa, nome);
@@ -1164,6 +1166,11 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
         continue;
       }
     }
+    // mídia "só no follow-up": a IA não manda numa conversa normal
+    if (papel === 'assistente' && !followup && pedido.alvo?.soFollowup) {
+      console.error(`[whatsapp ${lead.id}] mídia ${nome} é só do follow-up: não enviei`);
+      continue;
+    }
     // mídia presa a uma etapa só sai quando o lead está nela (pedido da IA; a equipe manda sempre)
     if (papel === 'assistente' && pedido.etapas?.length && !pedido.etapas.some((e) => leads.acharEtapa(empresa, e) === lead.etapa)) {
       console.error(`[whatsapp ${lead.id}] mídia ${nome} é da etapa ${pedido.etapas.join('/')}, o lead está em ${lead.etapa}: não enviei`);
@@ -1175,7 +1182,7 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente') {
     for (const midia of achadas) {
       try {
         await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia);
-        leads.adicionarMensagem(lead, { papel, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${midia.codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
+        leads.adicionarMensagem(lead, { papel: papelMensagem, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${midia.codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
         resultado.enviadas++;
       } catch (err) {
         console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);

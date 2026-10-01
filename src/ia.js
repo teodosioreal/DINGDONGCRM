@@ -261,9 +261,12 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda vários arquivos de uma vez). Cada uma tem um CÓDIGO:',
         ...midias.map(
           (m) =>
-            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}`
+            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}${m.assuntos?.length ? ` · ASSUNTO: ${m.assuntos.join(' ou ')}` : ''}`
         ),
         '- Para enviar, escreva numa linha separada: [[MIDIA: CÓDIGO]] (ex.: [[MIDIA: ' + midias[0].codigo + ']]). Pode enviar mais de uma, uma por linha. Use só códigos desta lista.',
+        ...(midias.some((m) => m.assuntos?.length)
+          ? ['- ASSUNTO: mídia com assunto só vai quando você estiver falando DAQUELE assunto (ex.: explicando o assunto X → mídias de X; nunca mande mídia de outro assunto). Se ainda não sabe qual o cliente quer, pergunte antes de mandar.']
+          : []),
         '- Siga o "QUANDO ENVIAR" de cada mídia e a etapa, se tiver. Não mande a mesma mídia duas vezes na conversa, a não ser que o cliente peça. Sem regra: mande quando ajudar o cliente (mostrar o trabalho vende muito).'
       );
     }

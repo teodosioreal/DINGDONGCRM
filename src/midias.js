@@ -185,6 +185,31 @@ function albunsDa(empresa) {
   return Array.isArray(empresa.albuns) ? empresa.albuns : [];
 }
 
+// ASSUNTOS: a própria empresa cria a lista (ex.: "Completo", "Arco"; outra
+// empresa, de outro nicho, cria os dela). Cada mídia/álbum pode ter assuntos:
+// a IA só manda quando a conversa for sobre aquele assunto.
+const MAX_ASSUNTOS = 20;
+function assuntosDa(empresa) {
+  return Array.isArray(empresa.assuntosMidia) ? empresa.assuntosMidia : [];
+}
+function salvarAssuntos(empresa, lista) {
+  const vistos = new Set();
+  const novos = (Array.isArray(lista) ? lista : [])
+    .map((x) => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 40))
+    .filter((x) => x && !vistos.has(x.toLowerCase()) && vistos.add(x.toLowerCase()))
+    .slice(0, MAX_ASSUNTOS);
+  empresa.assuntosMidia = novos;
+  // assunto apagado sai das mídias e álbuns
+  const ok = new Set(novos);
+  for (const item of [...midiasDa(empresa), ...albunsDa(empresa)]) if (Array.isArray(item.assuntos)) item.assuntos = item.assuntos.filter((a) => ok.has(a));
+  salvar();
+  return novos;
+}
+const listaAssuntos = (empresa, v) => {
+  const ok = new Set(assuntosDa(empresa));
+  return [...new Set((Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim()).filter((x) => ok.has(x)))];
+};
+
 const listaEtapas = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 10);
 
 function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeInformado, extra = {} }) {
@@ -290,13 +315,16 @@ function prontaParaIa(m) {
   return m.pronta !== false && !m.processando;
 }
 
-function paraIa(empresa) {
+// { followup: true } inclui as mídias marcadas "só no follow-up"
+function paraIa(empresa, { followup = false } = {}) {
   const todas = midiasDa(empresa).filter(prontaParaIa);
+  const valeAqui = (x) => followup || !x.soFollowup;
   const avulsas = todas
-    .filter((m) => !m.pastaId && !m.albumId)
-    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], tipo: m.tipo }));
+    .filter((m) => !m.pastaId && !m.albumId && valeAqui(m))
+    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo }));
   const albuns = albunsDa(empresa)
-    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
+    .filter(valeAqui)
+    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
     .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length }))
@@ -596,6 +624,9 @@ module.exports = {
   TIPOS,
   tipoDoMime,
   prontaParaIa,
+  assuntosDa,
+  salvarAssuntos,
+  listaAssuntos,
   acharParaEnviar,
   paraIa,
   linksDa,

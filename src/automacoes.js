@@ -215,6 +215,8 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (lead.naoDisparar) return 'pediu para não receber';
   if (lead.precisaHumano) return 'esperando a equipe';
   if (lead.iaPausada && !regra.incluirPausados) return 'equipe atendendo';
+  // quem parou de responder agora é com a seção Follow-up (não manda duas retomadas)
+  if (regra.gatilho.tipo === 'sem_resposta' && empresa.followup?.ativo) return 'o Follow-up cuida disso';
   if (regra.filtro.etapas.length && !regra.filtro.etapas.includes(lead.etapa)) return 'fora do filtro';
   if (regra.filtro.etiquetas.length && !(lead.etiquetas || []).some((t) => regra.filtro.etiquetas.includes(t))) return 'fora do filtro';
   const hist = lead.automacoes?.[regra.id] || { enviados: 0 };
@@ -284,6 +286,8 @@ function proximosEnvios(lead, empresa) {
     lista.push({ tipo: 'agendada', id: a.id, quando: a.quando, titulo: a.criadoPor === 'IA' ? 'Follow-up que a IA agendou' : 'Mensagem agendada pela equipe', detalhe: a.modo === 'ia' ? a.instrucao : a.texto, porIa: a.criadoPor === 'IA' });
   }
   if (empresa.ativa !== false && whatsapp.configurado(empresa)) {
+    const fup = require('./followup').proximo(empresa, lead);
+    if (fup) lista.push({ ...fup, quando: new Date(Math.max(new Date(fup.quando).getTime(), agoraMs)).toISOString() });
     for (const regra of automacoesDa(empresa).filter((r) => r.ativa)) {
       const motivo = motivoInelegivel(regra, lead, empresa, agoraMs);
       let quandoMs = null;
@@ -355,7 +359,7 @@ async function executar(regra, lead, empresa) {
       origem: await require('./origem').contextoParaIa(lead, bot, 'whatsapp', empresa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
-      midias: midias.paraIa(empresa),
+      midias: midias.paraIa(empresa, { followup: true }),
       links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
@@ -367,7 +371,7 @@ async function executar(regra, lead, empresa) {
   leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: mensagem, automacaoId: regra.id, automacaoNome: regra.nome });
   const midiaFixa = regra.acao.midiaId && midias.midiasDa(empresa).find((m) => m.id === regra.acao.midiaId);
   if (midiaFixa) midiasPedidas.push(midiaFixa.nome);
-  await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas);
+  await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas, 'assistente', { followup: true });
   lead.automacoes = lead.automacoes || {};
   const hist = lead.automacoes[regra.id] || { enviados: 0 };
   lead.automacoes[regra.id] = { enviados: hist.enviados + 1, ultimoEm: agora() };
@@ -404,7 +408,7 @@ async function enviarAgendadas(empresa) {
           const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, `Chegou a hora do follow-up combinado com o cliente. Retome a conversa: ${a.instrucao}. Seja breve e natural, sem pressionar.`, {
             etapas: leads.etapasDa(empresa),
             etapaAtual: lead.etapa,
-            midias: midias.paraIa(empresa),
+            midias: midias.paraIa(empresa, { followup: true }),
             links: midias.linksDa(empresa)
           });
           textoEnvio = r.texto;
@@ -413,7 +417,7 @@ async function enviarAgendadas(empresa) {
         }
         await whatsapp.enviarTexto(empresa, destino, textoEnvio);
         leads.adicionarMensagem(lead, { papel: a.modo === 'ia' || a.criadoPor === 'IA' ? 'assistente' : 'equipe', canal: 'whatsapp', texto: textoEnvio, agendadaId: a.id });
-        if (midiasPedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas);
+        if (midiasPedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas, 'assistente', { followup: true });
         a.status = 'enviada';
         a.enviadaEm = agora();
       } catch (err) {
@@ -433,6 +437,7 @@ async function cicloDaEmpresa(empresa) {
   ocupadas.add(empresa.id);
   try {
     await enviarAgendadas(empresa);
+    await require('./followup').processar(empresa); // follow-up em passos (seção Follow-up)
     const ativas = automacoesDa(empresa).filter((r) => r.ativa);
     if (!ativas.length) return;
     let enviadas = 0;
@@ -553,6 +558,7 @@ async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario
 }
 
 module.exports = {
+  noHorarioComercial,
   proximosEnvios,
   agendarFollowupDaIa,
   cancelarFollowupsDaIa,
