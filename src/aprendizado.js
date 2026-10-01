@@ -15,7 +15,7 @@ const whatsapp = require('./whatsapp');
 const disparos = require('./disparos');
 
 const LIMITE_CARACTERES_POR_LOTE = 45000; // um pedido para a IA
-const MAX_LOTES_POR_VARREDURA = 10; // o que sobrar fica para a próxima
+const MAX_LOTES_POR_VARREDURA = 4; // o que sobrar fica para a próxima (economiza tokens)
 const MAX_MENSAGENS_PRIMEIRA_LEITURA = 120; // por conversa
 const MAX_CONVERSAS_LISTADAS = 1000;
 
@@ -165,7 +165,7 @@ async function varrer(empresa, { motivo = 'manual' } = {}) {
       if (!lote.length) return;
       prog.etapa = `A IA está estudando as conversas (parte ${prog.lotes + 1})…`;
       const pedido = `DOCUMENTO ATUAL DE APRENDIZADOS:\n${texto || '(vazio — primeira leitura)'}\n\nCONVERSAS NOVAS PARA ESTUDAR:\n\n${lote.join('\n\n')}`;
-      const novo = await ia.gerarTexto(bot, empresa, SISTEMA, pedido, 4000);
+      const novo = await ia.gerarTexto(bot, empresa, SISTEMA, pedido, 3000, { barato: true });
       if (novo && novo.length > 40) texto = novo.replace(/^```\w*\n?|```$/g, '').trim();
       Object.assign(checkpoints, loteCheckpoints);
       prog.lotes++;

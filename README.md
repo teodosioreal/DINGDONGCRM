@@ -236,6 +236,27 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - O webhook é conferido e consertado sozinho se for do CRM e estiver desligado, sem
   endereço, com endereço antigo ou faltando evento (webhook de outro sistema nunca é mexido).
 
+### Economia de tokens (o que é feito por código, sem IA)
+
+A IA só é usada para **responder** os clientes, nos follow-ups/automações em modo IA, no
+"Sugerir com IA" e no Aprendizado. Todo o resto é código:
+- "ok", "obrigado", "valeu 👍", emoji ou figurinha depois de uma resposta nossa sem
+  pergunta: **não chama a IA**. "Quero falar com um atendente/pessoa": o CRM avisa o
+  cliente, pausa a IA e chama a equipe (alerta 🔔), sem IA.
+- Foto/áudio do cliente só são descritos/transcritos quando a IA vai responder aquele
+  cliente; senão há o botão "📝 Transcrever áudio" na conversa. Comprovante: lido por
+  OCR; a IA só entra se o texto parecer pagamento (antes: toda foto sem texto ia para a IA).
+- Follow-up: a IA escreve a mensagem na hora em que combina (`[[RETOMAR: quando | assunto |
+  mensagem]]`); na hora marcada só envia.
+- Respostas: cache do prompt de 1 hora (parte fixa ~90% mais barata), esforço baixo,
+  saída curta, histórico das últimas 30 mensagens (antigas longas cortadas) e no máximo
+  12 mil caracteres do site no prompt.
+- Aprendizado: modelo mais barato de cada IA e no máximo 4 partes por varredura.
+- Localização, vendas por comprovante, recuperação de mensagens, fotos, números: tudo sem IA.
+
+**Diretriz interna** no início do prompt (acima de tudo): obedecer fielmente às instruções
+da empresa e nunca inventar informação, com conferência antes de responder; lembrete no fim.
+
 ### Lixeira de conversas
 
 - Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat.

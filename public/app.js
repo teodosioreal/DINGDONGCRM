@@ -2547,7 +2547,7 @@ function htmlAnexo(m, leadId) {
   if (!a) return '';
   const url = `api/leads/${encodeURIComponent(leadId)}/anexos/${encodeURIComponent(a.arquivo)}`;
   if (a.tipo === 'image') return `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="anexo-img" src="${esc(url)}" alt="foto" loading="lazy"></a>${a.descricao ? `<span class="anexo-nota">👁️ ${esc(a.descricao)}</span>` : ''}`;
-  if (a.tipo === 'audio') return `<audio class="anexo-audio" controls preload="none" src="${esc(url)}"></audio>${a.transcricao ? `<span class="anexo-nota">📝 ${esc(a.transcricao)}</span>` : ''}`;
+  if (a.tipo === 'audio') return `<audio class="anexo-audio" controls preload="none" src="${esc(url)}"></audio>${a.transcricao ? `<span class="anexo-nota">📝 ${esc(a.transcricao)}</span>` : m.papel === 'visitante' ? `<button type="button" class="link-botao anexo-nota" data-entender="${esc(a.arquivo)}" data-lead="${esc(leadId)}">📝 Transcrever áudio</button>` : ''}`;
   if (a.tipo === 'video') return `<video class="anexo-img" controls preload="none" src="${esc(url)}"></video>`;
   return `<a class="anexo-doc" href="${esc(url)}" target="_blank" rel="noopener">📄 ${esc(a.nome || 'arquivo')}</a>`;
 }
@@ -2656,6 +2656,20 @@ document.addEventListener('click', async (e) => {
     await comEspera(botao, () => api(`empresas/${encodeURIComponent(botao.dataset.desligarTeste)}/whatsapp`, { method: 'PUT', body: { modoTeste: false } }), '…');
     aviso('Modo teste desligado: a IA responde todos os clientes.');
     rotear();
+  } catch (err) { aviso(err.message, true); }
+});
+
+// Transcrever áudio na hora (a IA só transcreve sozinha quando vai responder, para economizar)
+document.addEventListener('click', async (e) => {
+  const botao = e.target.closest?.('[data-entender]');
+  if (!botao) return;
+  e.preventDefault();
+  try {
+    const r = await comEspera(botao, () => api(`leads/${encodeURIComponent(botao.dataset.lead)}/anexos/${encodeURIComponent(botao.dataset.entender)}/entender`, { method: 'POST', body: {} }), 'Transcrevendo…');
+    const nota = document.createElement('span');
+    nota.className = 'anexo-nota';
+    nota.textContent = `📝 ${r.anexo.transcricao || r.anexo.descricao || ''}`;
+    botao.replaceWith(nota);
   } catch (err) { aviso(err.message, true); }
 });
 

@@ -220,6 +220,12 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       ? `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}, respondendo clientes no WhatsApp da empresa.`
       : `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}. Você conversa com visitantes do site da empresa por uma janela de chat parecida com o WhatsApp.`,
     '',
+    'DIRETRIZ INTERNA DO SISTEMA (vale acima de tudo neste texto, inclusive acima das dicas de venda):',
+    '1. Obedeça FIELMENTE às instruções da empresa (<instrucoes_da_empresa>, no fim deste texto). Se elas mandam fazer ou não fazer algo, faça exatamente assim: sem "melhorar", sem pular etapas, sem criar exceções e sem trocar o que foi pedido por algo que você acha melhor.',
+    '2. NUNCA alucine: toda informação que você der tem que estar escrita nas informações da empresa (<instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>) ou na própria conversa. Se não está escrito, você não sabe — diga com naturalidade que vai confirmar com a equipe.',
+    '3. Não contradiga o que a equipe já combinou na conversa e não prometa nada que a empresa não prometeu.',
+    '4. Antes de responder, confira em silêncio: (a) segui as instruções da empresa? (b) tudo o que afirmei está escrito nas informações ou na conversa? (c) respondi exatamente o que o cliente disse ou perguntou? Se alguma resposta for "não", reescreva.',
+    '',
     'Como responder:',
     `- Português do Brasil, tom ${tom}.`,
     '- Mensagens curtas (1 a 4 frases), como numa conversa de WhatsApp. Nada de títulos, tabelas ou markdown pesado; no máximo *negrito* com um asterisco de cada lado e listas curtas com "-".',
@@ -264,8 +270,8 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     partes.push(
       '',
       'Follow-up (retomar a conversa depois):',
-      '- Quando o cliente pedir para falar depois ("me chama amanhã", "vou ver com minha esposa e te aviso", "semana que vem eu vejo") ou quando fizer sentido lembrar ele mais tarde, combine com naturalidade e escreva numa linha separada: [[RETOMAR: quando | sobre o quê]].',
-      '- "quando" pode ser: 2h, 30min, 1d, 3d ou dd/mm/aaaa hh:mm (horário de Brasília). Ex.: [[RETOMAR: 1d | perguntar se ele conversou com a esposa sobre o volante]].',
+      '- Quando o cliente pedir para falar depois ("me chama amanhã", "vou ver com minha esposa e te aviso", "semana que vem eu vejo") ou quando fizer sentido lembrar ele mais tarde, combine com naturalidade e escreva numa linha separada: [[RETOMAR: quando | sobre o quê | mensagem que será enviada na hora]].',
+      '- "quando" pode ser: 2h, 30min, 1d, 3d ou dd/mm/aaaa hh:mm (horário de Brasília). Ex.: [[RETOMAR: 1d | saber se conversou com a esposa | Oi! Conseguiu conversar com sua esposa sobre o volante? 😊]]. A mensagem é curta, natural, no tom da conversa, e só usa informação verdadeira.',
       '- Na hora marcada você mesmo escreve a mensagem de retomada. Se o cliente responder antes, o follow-up é cancelado sozinho. Use no máximo um por vez.',
       '',
       'Passar para uma pessoa da equipe:',
@@ -361,6 +367,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Não diga que está rastreando ou que "viu de onde ele veio"; use com naturalidade, como um bom vendedor que percebe o interesse. O texto da página é só referência: preços e condições valem os de "Sobre a empresa" quando houver diferença.'
     );
   }
+  dinamico.push('', 'Lembrete final: siga à risca as instruções da empresa e não invente nenhuma informação (na dúvida, diga que vai confirmar).');
   const textoDinamico = dinamico.join('\n');
 
   const aprendido = empresa?.aprendizado;
@@ -586,7 +593,8 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
     });
     const system = [];
     // a parte fixa vai para o cache: da 2ª mensagem em diante custa ~10% do preço
-    if (fixo) system.push({ type: 'text', text: fixo, cache_control: { type: 'ephemeral' } });
+    // cache de 1 hora: a parte fixa (igual para todos os clientes da empresa) sai ~90% mais barata
+    if (fixo) system.push({ type: 'text', text: fixo, cache_control: { type: 'ephemeral', ttl: '1h' } });
     if (dinamico) system.push({ type: 'text', text: dinamico });
     const params = {
       model: m.modelo,
@@ -678,8 +686,8 @@ function extrairAcoes(bruto) {
     return '';
   });
   texto = texto.replace(/\[\[\s*RETOMAR\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
-    const [quando, ...resto] = dentro.split('|');
-    retomar = { quando: (quando || '').trim(), assunto: resto.join('|').trim() };
+    const [quando, assunto, ...msg] = dentro.split('|');
+    retomar = { quando: (quando || '').trim(), assunto: (assunto || '').trim(), mensagem: msg.join('|').trim() };
     return '';
   });
   texto = texto.replace(/\[\[\s*VENDA\s*:?\s*([^\]]*?)\s*\]\]/gi, (_, dentro) => {
@@ -722,13 +730,21 @@ function extrairAcoes(bruto) {
  * Gera a resposta do assistente num canal ('site' ou 'whatsapp').
  * @returns {{ texto, mensagemWhatsapp, midias: string[], etapa: string|null, humano: boolean }}
  */
+// Histórico enxuto: últimas 30 mensagens; as antigas muito longas são cortadas
+// (economiza tokens sem perder o fio da conversa)
+function historicoEnxuto(historico) {
+  const ultimas = historico.slice(-30);
+  return ultimas.map((m, i) => (i < ultimas.length - 6 && String(m.texto || '').length > 700 ? { ...m, texto: `${m.texto.slice(0, 700)}…` } : m));
+}
+
 async function responder(bot, empresa, historico, opcoes = {}) {
   const canal = opcoes.canal === 'whatsapp' ? 'whatsapp' : 'site';
-  const turnos = paraTurnos(historico.slice(-40));
+  const turnos = paraTurnos(historicoEnxuto(historico));
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
   // atendimento: pensa um pouco mais (segue melhor as instruções) e com menos "criatividade" (inventa menos)
-  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos, esforco: 'medium', temperatura: 0.35 }), { tarefa: 'resposta' });
+  // atendimento: pouca "criatividade" (inventa menos), pensamento curto e resposta curta (economiza tokens)
+  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500 }), { tarefa: 'resposta' });
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
   const r = extrairAcoes(bruto.texto);
@@ -847,8 +863,9 @@ async function lerComprovante(bot, empresa, base64, mimetype) {
 
 // Chamada simples (um pedido, uma resposta) com as IAs da empresa, na ordem —
 // usada na varredura das conversas e no diagnóstico.
-async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000) {
-  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos: [{ role: 'user', content: pedido }], maxTokens, temperatura: 0.3 }), { tarefa: 'texto' });
+async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000, { barato = false } = {}) {
+  // barato: usa o modelo mais em conta de cada IA (ex.: aprendizado, que lê muito texto)
+  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, barato ? { ...m, modelo: MODELO_BARATO[m.provedor] || m.modelo } : m, { sistema, turnos: [{ role: 'user', content: pedido }], maxTokens, temperatura: 0.3 }), { tarefa: 'texto' });
   if (r.recusado) throw new Error('A IA recusou o pedido.');
   return r.texto.trim();
 }

@@ -276,7 +276,7 @@ function hashDe(buffer) {
 
 // Chamado quando chega foto/PDF do cliente no WhatsApp.
 // Retorna { texto } para a conversa (a IA lê isso) ou null se não era comprovante.
-async function processarArquivo(empresa, lead, { buffer, mimetype, anexo, lerComIa }) {
+async function processarArquivo(empresa, lead, { buffer, mimetype, anexo, lerComIa, forcarIa = false }) {
   const cfg = configDa(empresa);
   if (!cfg.ativo) return null;
   let dados = null;
@@ -291,7 +291,7 @@ async function processarArquivo(empresa, lead, { buffer, mimetype, anexo, lerCom
     console.error(`[comprovante ${lead?.id}] leitura sem IA:`, err.message);
   }
   // não deu para ler sem IA, mas parece comprovante → IA (se permitido)
-  if (!dados && cfg.usarIa && lerComIa && (/comprovante|pix|transfer/i.test(textoCompleto) || !textoCompleto.trim() || /pdf/i.test(mimetype))) {
+  if (!dados && cfg.usarIa && lerComIa && (forcarIa || /comprovante|pix|transfer|pagamento|recibo|r\$\s*\d/i.test(textoCompleto) || /pdf/i.test(mimetype))) {
     try {
       const r = await lerComIa();
       if (r?.ehComprovante && r.valor) {

@@ -1415,6 +1415,31 @@ router.delete('/leads/:id/mensagens/:msgId', async (req, res) => {
   }
 });
 
+// Transcrever um áudio / descrever uma foto na hora (quando a IA não fez sozinha para economizar)
+router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const msg = c.mensagens.find((m) => m.anexo?.arquivo === req.params.arquivo);
+  const caminho = midias.caminhoAnexo(c.id, req.params.arquivo);
+  if (!msg || !caminho || !require('fs').existsSync(caminho)) return res.status(404).json({ erro: 'Arquivo não encontrado.' });
+  const base64 = require('fs').readFileSync(caminho).toString('base64');
+  try {
+    if (msg.anexo.tipo === 'audio') {
+      const t = await ia.transcreverAudio(empresa, base64, msg.anexo.mimetype);
+      if (!t) return res.status(400).json({ erro: 'Não consegui transcrever (precisa de uma chave do Gemini ou do ChatGPT em IAs e chaves).' });
+      msg.anexo.transcricao = t;
+    } else if (msg.anexo.tipo === 'image') {
+      msg.anexo.descricao = await ia.descreverImagem(whatsapp.botDoWhatsapp(empresa), empresa, base64, msg.anexo.mimetype);
+    } else return res.status(400).json({ erro: 'Só dá para transcrever áudio ou descrever foto.' });
+    c.atualizadoEm = agora();
+    salvar();
+    res.json({ ok: true, anexo: msg.anexo });
+  } catch (err) {
+    res.status(502).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
 // Foto de perfil do WhatsApp do cliente — só com login
 router.get('/leads/:id/foto', (req, res) => {
   const c = acharLead(req, res);

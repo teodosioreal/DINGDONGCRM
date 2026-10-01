@@ -13,7 +13,7 @@ const MAX_LINKS = 10;
 const MAX_PAGINAS = 20;
 const MAX_POR_PAGINA = 6000;
 const MAX_COPIA = 30000;
-const MAX_NO_PROMPT = 24000;
+const MAX_NO_PROMPT = 12000; // o essencial do site em cada resposta (economiza tokens)
 const RELER_A_CADA_MS = 7 * 24 * 3600 * 1000;
 const POUCO_TEXTO = 300;
 

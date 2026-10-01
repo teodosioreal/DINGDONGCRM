@@ -744,10 +744,11 @@ async function receberWebhook(empresa, corpo) {
     // veio de um anúncio de clique para WhatsApp (Meta)? guarda qual
     const anuncioMeta = origem.anuncioDoWhatsapp(msg);
     if (anuncioMeta) origem.registrarAnuncioWhatsapp(lead, anuncioMeta);
-    // áudio vira texto (Gemini) e foto vira descrição, para a IA entender
+    // áudio vira texto e foto vira descrição, para a IA entender — só se a IA vai
+    // responder este cliente (economiza tokens); comprovante de Pix é lido sempre (sem IA)
     let anexo = null;
     try {
-      const r = await baixarAnexo(empresa, lead, msg, { entender: true });
+      const r = await baixarAnexo(empresa, lead, msg, { entender: iaVaiResponder(empresa, lead), comprovante: true });
       if (r) {
         anexo = r.anexo;
         if (r.entendido) texto = r.entendido;
@@ -776,8 +777,53 @@ async function receberWebhook(empresa, corpo) {
       continue;
     }
     salvar();
+    if (resolverSemIa(empresa, lead, texto, jid)) continue;
     agendarResposta(empresa, lead);
   }
+}
+
+// ---------------------------------------------------------------- o que dá para resolver sem IA (economiza tokens)
+
+// "ok", "obrigado", "👍", figurinha… depois de uma resposta nossa que não perguntou nada:
+// não precisa de resposta (a IA não é chamada)
+const SO_CONFIRMACAO = /^(ok+|okay|okey|blz|beleza|obrigad[oa]s?|obg|brigad[oa]|vlw|valeu|tmj|show|top|perfeito|certo|certinho|combinado|entendi|entendido|t[aá]|t[aá] bom|t[aá] certo|de nada|tudo bem|kk+|rs+|haha+|hehe+|sim sim|beleza então|fechou)[\s!.,]*$/i;
+function soConfirmacao(texto) {
+  const t = String(texto || '').trim();
+  if (!t) return false;
+  if (t === '[o cliente enviou uma figurinha]') return true;
+  const semEmoji = t.replace(/[\p{Extended_Pictographic}\u200d\ufe0f\s]/gu, '');
+  if (!semEmoji) return true; // só emoji
+  return SO_CONFIRMACAO.test(t.replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, '').trim());
+}
+
+// "quero falar com um atendente / uma pessoa / humano"
+const PEDE_HUMANO = /\b(falar|conversar|atendimento)\s+(com\s+)?(um|uma|algu[eé]m|o|a)?\s*(atendente|humano|pessoa( de verdade)?|vendedor[a]?|dono|respons[aá]vel|gerente)\b|\batendimento humano\b|\bn[aã]o quero (falar com )?(rob[oô]|bot|ia)\b/i;
+
+function resolverSemIa(empresa, lead, texto, jid) {
+  if (!iaVaiResponder(empresa, lead)) return false; // a IA nem ia responder: segue o fluxo normal (que registra o motivo)
+  const nossas = (lead.mensagens || []).filter((m) => m.papel !== 'visitante' && !m.apagada);
+  const ultimaNossa = nossas[nossas.length - 1];
+  if (soConfirmacao(texto) && ultimaNossa && !/\?\s*$/.test(ultimaNossa.texto || '')) {
+    registrarIa(empresa, lead, 'ignorou', 'Só confirmação ("ok", "obrigado", emoji…) — não precisava de resposta.');
+    return true;
+  }
+  if (PEDE_HUMANO.test(texto)) {
+    const aviso = 'Claro! Já chamei uma pessoa da equipe para falar com você. Em instantes alguém te responde por aqui. 😊';
+    lead.iaPausada = true;
+    lead.iaPausadaMotivo = 'O cliente pediu para falar com uma pessoa';
+    lead.precisaHumano = true;
+    salvar();
+    enviarTexto(empresa, jid, aviso)
+      .then(() => {
+        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: aviso });
+        registrarIa(empresa, lead, 'respondeu', 'O cliente pediu uma pessoa: avisei e chamei a equipe (sem gastar IA).');
+        salvar();
+      })
+      .catch((err) => console.error(`[whatsapp ${lead.id}] humano:`, err.message));
+    require('./alertas').registrar(empresa, 'humano', `O cliente ${lead.nome || lead.telefone || ''} pediu para falar com uma pessoa.`, { nivel: 'aviso', leadId: lead.id });
+    return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- anexos recebidos
@@ -792,7 +838,12 @@ const TIPO_DA_MENSAGEM = [
 
 // Baixa o arquivo da mensagem pela Evolution e guarda no lead. Com `entender`,
 // transcreve áudio e descreve foto para a IA responder ao conteúdo.
-async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
+// A IA vai responder este cliente? (senão não vale gastar tokens entendendo foto/áudio)
+function iaVaiResponder(empresa, lead) {
+  return Boolean(configDa(empresa).iaAtiva && empresa.ativa !== false && !lead.iaPausada && liberadoNoModoTeste(empresa, lead));
+}
+
+async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante = entender } = {}) {
   const m = msg.message || {};
   const achado = TIPO_DA_MENSAGEM.find(([campo]) => m[campo]);
   if (!achado) return null;
@@ -810,8 +861,8 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
   const anexo = midias.salvarAnexo(lead.id, buffer, mimetype, r.fileName || info?.fileName || '');
   anexo.tipo = tipo;
   let entendido = null;
-  if (entender) {
-    const legenda = info?.caption ? ` ${info.caption}` : '';
+  const legenda = info?.caption ? ` ${info.caption}` : '';
+  if (comprovante) {
     // comprovante de Pix (foto ou PDF) → venda no Faturamento (lê sem IA primeiro)
     if (tipo === 'image' || /pdf/i.test(mimetype)) {
       const comp = await comprovantes
@@ -831,6 +882,8 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
         return { anexo, entendido: `${comp.texto}${legenda}` };
       }
     }
+  }
+  if (entender) {
     try {
       if (tipo === 'audio') {
         const t = await ia.transcreverAudio(empresa, r.base64, mimetype);
@@ -843,6 +896,17 @@ async function baixarAnexo(empresa, lead, msg, { entender = false } = {}) {
         if (d) {
           anexo.descricao = d;
           entendido = `[foto do cliente]: ${d}${legenda}`;
+          // a descrição diz que é comprovante (o texto da foto não deu para ler): aí sim lê com a IA
+          if (/comprovante|pix|transfer[eê]ncia|pagamento|recibo/i.test(d)) {
+            const comp = await comprovantes
+              .processarArquivo(empresa, lead, { buffer, mimetype, anexo, forcarIa: true, lerComIa: () => ia.lerComprovante(botDoWhatsapp(empresa), empresa, r.base64, mimetype) })
+              .catch(() => null);
+            if (comp) {
+              anexo.vendaId = comp.venda.id;
+              anexo.descricao = `Comprovante ${comp.venda.forma} de ${comprovantes.brl(comp.venda.valor)}`;
+              entendido = `${comp.texto}${legenda}`;
+            }
+          }
         }
       }
     } catch (err) {
