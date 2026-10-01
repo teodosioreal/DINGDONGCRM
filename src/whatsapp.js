@@ -304,6 +304,10 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
   if (!c.instancia) throw erro('Informe a Session ID.', 400);
   if (!c.apiKey) throw erro('Informe a API Key.', 400);
   const inst = await buscarInstancia(c);
+  // o mesmo número já está em outra empresa deste CRM: não deixa misturar
+  const dona = estado.empresas.find((e) => e !== empresa && e.whatsappConfig?.instancia === (inst.nome || c.instancia) && configurado(e));
+  if (dona && !forcar) throw erro(`Este WhatsApp já está conectado à empresa "${dona.nome}" neste CRM. Desconecte de lá primeiro.`, 409);
+  const anterior = empresa.whatsappConfig ? { ...empresa.whatsappConfig } : undefined;
   empresa.whatsappConfig = {
     ...(empresa.whatsappConfig || {}),
     instancia: inst.nome || c.instancia,
@@ -313,9 +317,21 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
     conectadoEm: agora()
   };
   garantirSegredo(empresa);
-  salvar();
-  await configurarWebhook(empresa, { forcar });
+  try {
+    await configurarWebhook(empresa, { forcar });
+  } catch (err) {
+    // recusou (número ligado a outro sistema) ou falhou: não fica conectado pela metade
+    if (anterior) empresa.whatsappConfig = anterior;
+    else delete empresa.whatsappConfig;
+    salvar();
+    throw err;
+  }
   empresa.whatsappConfig.webhookLigadoEm = agora();
+  // número movido de outra empresa deste CRM (você confirmou): ela deixa de usar este WhatsApp
+  if (dona) {
+    dona.whatsappConfig = { segredo: dona.whatsappConfig.segredo, desconectadoEm: agora(), movidoPara: empresa.id };
+    console.log(`[whatsapp] número movido da empresa ${dona.id} para ${empresa.id}`);
+  }
   salvar();
   require('./sincronizar').aoReconectar(empresa); // traz as mensagens da última semana
   return situacao(empresa);
