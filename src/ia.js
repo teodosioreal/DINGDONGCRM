@@ -321,7 +321,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     partes.push(
       '',
       'Etapas do funil de atendimento (onde o lead está):',
-      ...etapas.map((e) => `- ${e}`),
+      ...etapas.map((e) => { const s = require('./leads').significadoEtapa(e); return `- ${e}${s ? ` (${s})` : ''}`; }),
       '- A etapa atual do lead está em "Contexto desta conversa", no fim.',
       '- Quando o atendimento avançar (ou o cliente desistir), mova o lead escrevendo numa linha separada: [[ETAPA: nome exato da etapa]]. Use só nomes desta lista e só quando a etapa realmente mudar.'
     );

@@ -188,7 +188,7 @@ function recebedorConfere(empresa, textoCompleto, recebedor) {
 
 function etapaFechado(empresa) {
   const etapas = leads.etapasDa(empresa);
-  return etapas.find((e) => /fechad|ganh|vendid|conclu/i.test(limpar(e))) || '';
+  return etapas.find((e) => /fechad|ganh|vendi|conclu/i.test(limpar(e))) || '';
 }
 
 function brl(v) {

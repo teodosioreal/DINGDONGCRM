@@ -7,15 +7,30 @@
 const crypto = require('crypto');
 const { estado, salvar, novoId, agora } = require('./db');
 
-const ETAPAS_PADRAO = [
-  'Novo',
-  'Conversando no site',
-  'No WhatsApp',
-  'Qualificado',
-  'Proposta / agendamento',
-  'Fechado',
-  'Perdido'
-];
+const ETAPAS_PADRAO = ['Lead novo', 'Convertendo', 'Agendou', 'Vendi', 'Não fechou'];
+
+// O que cada etapa padrão quer dizer (vai para a IA saber quando mover o lead)
+const SIGNIFICADO_ETAPA = {
+  'lead novo': 'acabou de chegar, ainda não conversou de verdade',
+  convertendo: 'está conversando, tirando dúvidas, vendo preço ou negociando',
+  agendou: 'marcou dia e horário do serviço/atendimento',
+  vendi: 'comprou ou pagou',
+  'nao fechou': 'desistiu, sumiu de vez ou disse que não quer'
+};
+function significadoEtapa(nome) {
+  return SIGNIFICADO_ETAPA[String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()] || '';
+}
+
+// Funil antigo (7 etapas) → funil novo (5 etapas)
+const ETAPAS_ANTIGAS = {
+  Novo: 'Lead novo',
+  'Conversando no site': 'Convertendo',
+  'No WhatsApp': 'Convertendo',
+  Qualificado: 'Convertendo',
+  'Proposta / agendamento': 'Convertendo',
+  Fechado: 'Vendi',
+  Perdido: 'Não fechou'
+};
 
 const MAX_LEADS_GUARDADOS = 20000;
 const MAX_MENSAGENS_POR_LEAD = 400;
@@ -198,6 +213,16 @@ function aoChegarNoWhatsapp(lead, empresa) {
   if (posAtual === -1 || posAtual < posZap) moverEtapa(lead, empresa, noZap, 'sistema');
 }
 
+// Funil padrão: o cliente mandou a 2ª mensagem → sai da 1ª etapa ("Lead novo")
+// e vai para "Convertendo". Só anda para frente e só se a etapa existir.
+function aoConversar(lead, empresa) {
+  const etapas = etapasDa(empresa);
+  const convertendo = acharEtapa(empresa, 'Convertendo');
+  if (!convertendo || lead.etapa !== etapas[0] || etapas.indexOf(convertendo) <= 0) return false;
+  const doCliente = (lead.mensagens || []).filter((m) => m.papel === 'visitante').length;
+  return doCliente >= 2 ? moverEtapa(lead, empresa, convertendo, 'sistema') : false;
+}
+
 // ---------------------------------------------------------------- etiquetas
 // Cada empresa tem as suas etiquetas (ex.: "Quente", "Orçamento enviado").
 // O lead guarda só os ids; a equipe e as IAs podem marcar.
@@ -235,8 +260,48 @@ function aplicarEtiqueta(lead, empresa, nome) {
   return true;
 }
 
+// Empresas com o funil antigo de 7 etapas passam para o funil padrão de 5
+// (Lead novo, Convertendo, Agendou, Vendi, Não fechou). Etapas criadas pela
+// empresa ficam (no fim). Leads, follow-up, automações e mídias acompanham.
+function migrarFunilPadrao() {
+  let mudou = false;
+  for (const empresa of estado.empresas) {
+    const atuais = (empresa.etapas || []).map((e) => String(e).trim()).filter(Boolean);
+    if (!atuais.length || empresa.funilV2) continue;
+    const antigas = atuais.filter((e) => ETAPAS_ANTIGAS[e]);
+    if (antigas.length < 5) { empresa.funilV2 = true; mudou = true; continue; } // funil próprio: não mexe
+    const extras = atuais.filter((e) => !ETAPAS_ANTIGAS[e] && !ETAPAS_PADRAO.includes(e));
+    empresa.etapas = [...ETAPAS_PADRAO, ...extras];
+    const agendou = (lead) => (lead.agendamentos || []).some((a) => a.status === 'agendado');
+    const trocar = (nome, lead) => {
+      if (lead && nome === 'Proposta / agendamento' && agendou(lead)) return 'Agendou';
+      return ETAPAS_ANTIGAS[nome] || nome;
+    };
+    const lista = (v) => (Array.isArray(v) ? [...new Set(v.map((x) => trocar(x)))] : v);
+    for (const c of estado.conversas) {
+      if (c.empresaId !== empresa.id) continue;
+      if (c.etapa && ETAPAS_ANTIGAS[c.etapa]) c.etapa = trocar(c.etapa, c);
+      else if (c.etapa && !empresa.etapas.includes(c.etapa)) c.etapa = empresa.etapas[0];
+      if (c.etapaAntesDaVenda) c.etapaAntesDaVenda = trocar(c.etapaAntesDaVenda, c);
+      // quem já tem agendamento ativo e ainda está antes de "Agendou" vai para lá
+      if (agendou(c) && ['Lead novo', 'Convertendo'].includes(c.etapa)) c.etapa = 'Agendou';
+    }
+    if (empresa.followup && Array.isArray(empresa.followup.pararEtapas)) empresa.followup.pararEtapas = lista(empresa.followup.pararEtapas);
+    for (const r of empresa.automacoes || []) {
+      if (r.gatilho?.etapa) r.gatilho.etapa = trocar(r.gatilho.etapa);
+      if (r.filtro?.etapas) r.filtro.etapas = lista(r.filtro.etapas);
+    }
+    for (const grupo of ['midias', 'albuns', 'drivePastas']) for (const m of empresa[grupo] || []) if (m.etapas) m.etapas = lista(m.etapas);
+    empresa.funilV2 = true;
+    mudou = true;
+    console.log(`[funil] ${empresa.nome}: etapas trocadas para ${empresa.etapas.join(', ')}`);
+  }
+  if (mudou) salvar();
+}
+
 // Leads criados por versões antigas (antes do funil) ganham os campos novos
 function migrarLeads() {
+  migrarFunilPadrao();
   let mudou = false;
   for (const c of estado.conversas) {
     if (c.codigo && c.etapa) continue;
@@ -254,6 +319,9 @@ function migrarLeads() {
 
 module.exports = {
   ETAPAS_PADRAO,
+  significadoEtapa,
+  aoConversar,
+  migrarFunilPadrao,
   CORES_ETIQUETA,
   etiquetasDa,
   aplicarEtiqueta,

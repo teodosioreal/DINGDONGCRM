@@ -37,7 +37,7 @@ const PADRAO = () => [
 const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function jaAgendou(empresa, lead) {
   if ((lead.agendamentos || []).some((a) => a.status !== 'cancelado')) return true;
-  if (/agendad|marcad/.test(sem(lead.etapa))) return true;
+  if (/agendou|agendad|marcad/.test(sem(lead.etapa))) return true;
   const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, sem(t.nome)]));
   return (lead.etiquetas || []).some((id) => /agendad/.test(nomes.get(id) || ''));
 }
@@ -72,7 +72,7 @@ function configDa(empresa) {
   }
   if (!Array.isArray(f.pararEtapas)) {
     // padrão: para em etapas de fechado/perdido (pelo nome, serve para qualquer nicho)
-    f.pararEtapas = require('./leads').etapasDa(empresa).filter((e) => /fechad|ganh|vendid|conclu|perdid|desist|cancel/i.test(e.normalize('NFD').replace(/[̀-ͯ]/g, '')));
+    f.pararEtapas = require('./leads').etapasDa(empresa).filter((e) => /fechad|ganh|vendi|conclu|perdid|desist|cancel|nao fech/i.test(e.normalize('NFD').replace(/[̀-ͯ]/g, '')));
   }
   return f;
 }

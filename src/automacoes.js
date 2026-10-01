@@ -71,8 +71,8 @@ const RECEITAS = {
   }),
   reativar: (empresa) => ({
     nome: 'Reativar quem desistiu',
-    explicacao: '15 dias depois de o lead ir para "Perdido", a IA pergunta se ainda tem interesse e lembra uma condição ou novidade (sem inventar).',
-    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'perdid') || leads.etapasDa(empresa).slice(-1)[0], horas: 15 * 24 },
+    explicacao: '15 dias depois de o lead ir para "Não fechou", a IA pergunta se ainda tem interesse e lembra uma condição ou novidade (sem inventar).',
+    gatilho: { tipo: 'etapa', etapa: etapaParecida(empresa, 'perdid', 'nao fech') || leads.etapasDa(empresa).slice(-1)[0], horas: 15 * 24 },
     filtro: { etapas: [], etiquetas: [] },
     acao: {
       modo: 'ia',
@@ -171,7 +171,7 @@ function vendaDoLead(lead, empresa) {
   const ultima = vendas.map((v) => v.confirmadaEm || v.criadoEm).sort().pop();
   if (ultima) return ultima;
   if (lead.vendaConcluidaManual && lead.vendaConcluidaEm) return lead.vendaConcluidaEm; // marcada à mão
-  const fechado = etapaParecida(empresa, 'fechad', 'ganh', 'vendid');
+  const fechado = etapaParecida(empresa, 'fechad', 'ganh', 'vendi');
   return fechado ? entrouNaEtapaEm(lead, fechado) : null;
 }
 

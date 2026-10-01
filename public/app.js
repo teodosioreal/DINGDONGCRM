@@ -1354,7 +1354,7 @@ async function paginaMidias(id) {
     <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
     ${balao('Como fazer a IA mandar a foto certa na hora certa', passos([
       '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 200 MB cada, na qualidade original). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
-      'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Proposta").',
+      'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Convertendo").',
       'Marque <b>Pronta</b>. Pronto: a IA manda sozinha na hora certa.',
       'Vende mais de uma coisa? Crie <b>assuntos</b> (ex.: <i>Completo</i>, <i>Arco</i> — ou os do seu ramo) e marque em cada mídia: a IA só manda a mídia do assunto que está explicando. Mídias de <b>follow-up</b> ficam guardadas para o <a href="' + rotaEmpresa(id, 'automacoes') + '">Follow-up (Máquina de vendas)</a>.',
       'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
@@ -3726,7 +3726,7 @@ async function secaoFollowup(id, emp, el) {
       <p class="rotulo" style="margin:0 0 6px">Entra sozinho todo cliente que parou de responder <b>sem agendar</b>. Quem já agendou (agendamento marcado, etapa ou etiqueta "Agendado") ou comprou fica de fora.</p>
       <label class="linha-check"><input type="checkbox" id="fup-indeciso" ${d.etiquetaIndeciso !== false ? 'checked' : ''}> Marcar a etiqueta <b>Indeciso</b> em quem entra no follow-up (sai sozinha quando ele agenda ou compra)</label>
       <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="fup-pausados" ${d.incluirPausados ? 'checked' : ''}> Mandar também para quem a equipe está atendendo (IA pausada)</label>
-      ${(d.etapas || []).length ? `<div class="campo" style="margin-top:10px"><label>Não mandar para quem está nestas etapas ${ajuda('Ex.: Fechado, Perdido. Quem está aqui já resolveu — não recebe follow-up.')}</label><div class="chips">${d.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
+      ${(d.etapas || []).length ? `<div class="campo" style="margin-top:10px"><label>Não mandar para quem está nestas etapas ${ajuda('Ex.: Vendi, Não fechou. Quem está aqui já resolveu — não recebe follow-up.')}</label><div class="chips">${d.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
       <div class="acoes"><button type="button" class="primario" id="salvar-fup">Salvar follow-up</button></div>
       </details>
       <details style="margin-top:10px" ${(d.proximos || []).length ? 'open' : ''}><summary>⏳ Próximos envios (${(d.proximos || []).length})</summary>
@@ -4097,7 +4097,7 @@ async function paginaFaturamento(id, params) {
         <button type="button" class="primario" id="nova-venda">+ Lançar venda</button>
       </div>
     </div>
-    ${balao('As vendas entram sozinhas', `Quando o cliente manda o <b>comprovante do Pix</b> (print ou PDF) no WhatsApp, o CRM lê o valor, a data e quem pagou <b>sem usar IA</b> (não gasta crédito), registra a venda aqui, move o lead para "Fechado" e a IA agradece o cliente. ${cfg.usarIa ? 'Só quando a foto está ruim de ler a IA ajuda.' : 'A IA não é usada para ler comprovantes.'}`)}
+    ${balao('As vendas entram sozinhas', `Quando o cliente manda o <b>comprovante do Pix</b> (print ou PDF) no WhatsApp, o CRM lê o valor, a data e quem pagou <b>sem usar IA</b> (não gasta crédito), registra a venda aqui, move o lead para "Vendi" e a IA agradece o cliente. ${cfg.usarIa ? 'Só quando a foto está ruim de ler a IA ajuda.' : 'A IA não é usada para ler comprovantes.'}`)}
     ${cfg.recebedores ? '' : balao('Proteja-se de comprovante falso', 'Informe abaixo, em <b>Configurações</b>, o nome, CNPJ/CPF ou chave Pix de quem recebe. Comprovante feito para outra pessoa fica marcado "A conferir".', 'aviso')}
     ${r.aConferir ? balao(`${r.aConferir} ${r.aConferir === 1 ? 'venda precisa' : 'vendas precisam'} ser conferida${r.aConferir === 1 ? '' : 's'}`, 'Veja na lista abaixo (marcadas com ⚠). Confira no extrato do banco e clique em Confirmar ou Cancelar.', 'aviso') : ''}
 
@@ -4161,7 +4161,7 @@ async function paginaFaturamento(id, params) {
         <div class="campo"><label>Quem recebe os pagamentos ${ajuda('Nome da empresa como aparece no comprovante, CNPJ/CPF e/ou chave Pix. Separe por vírgula. Comprovante para outra pessoa fica "A conferir".')}</label><input name="recebedores" value="${esc(cfg.recebedores)}" placeholder="Ex.: MADARA VOLANTES, 12.345.678/0001-90, pix@madara.com"></div>
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="ativo" ${cfg.ativo ? 'checked' : ''}> Registrar vendas pelos comprovantes que chegam no WhatsApp</label>
         <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="usarIa" ${cfg.usarIa ? 'checked' : ''}> Se não der para ler sem IA (foto ruim), deixar a IA tentar ${ajuda('Gasta um pouco de crédito da IA só nesses casos. Desmarcado = nunca usa IA para comprovantes.')}</label>
-        <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="moverParaFechado" ${cfg.moverParaFechado ? 'checked' : ''}> Mover o lead para "Fechado" quando pagar (e colocar a etiqueta "Cliente")</label>
+        <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="moverParaFechado" ${cfg.moverParaFechado ? 'checked' : ''}> Mover o lead para "Vendi" quando pagar (e colocar a etiqueta "Cliente")</label>
         <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
       </form>
     </details>`;
@@ -4315,7 +4315,7 @@ async function paginaAprendizado(id) {
     ${balao('Como funciona', `${passos([
       'Todo dia às <b>8h</b> (ou quando você clicar em <b>Varrer agora</b>) a IA lê as conversas do WhatsApp.',
       'Da primeira vez ela lê o histórico; depois, <b>só as mensagens novas</b>. Conversa com <b>venda concluída</b> é lida uma última vez e depois não é mais lida.',
-      'Ela estuda <b>só as conversas que deram venda</b> (comprovante, venda marcada ou lead em "Fechado") e anota o que funcionou: jeito de falar, perguntas, preços, como respondeu objeções e como fechou — sem guardar dados pessoais. Conversa que não vendeu fica de fora.',
+      'Ela estuda <b>só as conversas que deram venda</b> (comprovante, venda marcada ou lead em "Vendi") e anota o que funcionou: jeito de falar, perguntas, preços, como respondeu objeções e como fechou — sem guardar dados pessoais. Conversa que não vendeu fica de fora.',
       'A IA do WhatsApp e a do site usam esse arquivo para atender cada vez mais parecido com você. Você pode ler, corrigir ou desligar.'
     ])}`)}
 

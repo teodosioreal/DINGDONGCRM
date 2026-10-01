@@ -805,6 +805,7 @@ async function receberWebhook(empresa, corpo) {
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
     leads.aoChegarNoWhatsapp(lead, empresa);
+    leads.aoConversar(lead, empresa); // 2ª mensagem do cliente: Lead novo → Convertendo
 
     // lista negra: a mensagem aparece em Conversas, mas ninguém (nem a IA) responde
     if (leads.naListaNegra(empresa, lead)) {

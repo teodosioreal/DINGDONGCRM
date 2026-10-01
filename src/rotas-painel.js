@@ -395,6 +395,7 @@ router.put('/empresas/:id/etapas', (req, res) => {
   const unicas = [...new Set(lista)].slice(0, 20);
   if (unicas.length < 2) return res.status(400).json({ erro: 'Cadastre pelo menos 2 etapas.' });
   empresa.etapas = unicas;
+  empresa.funilV2 = true; // funil escolhido pela empresa: a troca automática não mexe mais
   // leads em etapas que deixaram de existir vão para a primeira
   for (const c of estado.conversas) if (c.empresaId === empresa.id && !unicas.includes(c.etapa)) c.etapa = unicas[0];
   salvar();
@@ -841,7 +842,7 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
   const dados = dadosEmpresa(req.body || {});
   if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
   // empresa nova: usa só as próprias chaves de IA (o admin pode liberar a padrão)
-  const empresa = { id: novoId('emp'), usarChavePadrao: false, ...dados, chavesIa: {}, criadoEm: agora() };
+  const empresa = { id: novoId('emp'), usarChavePadrao: false, etapas: leads.ETAPAS_PADRAO.slice(), ...dados, funilV2: true, chavesIa: {}, criadoEm: agora() };
   estado.empresas.push(empresa);
 
   // Já cria o assistente principal, para o código da empresa funcionar de cara
@@ -1206,7 +1207,7 @@ router.get('/leads/:id', (req, res) => {
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     listaNegra: leads.naListaNegra(empresa, c),
-    vendaConcluida: c.vendaConcluidaManual === true || /fechad|ganh|vendid/i.test(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
+    vendaConcluida: c.vendaConcluidaManual === true || /fechad|ganh|vendi/i.test(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     temVendaRegistrada: (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     erroEtiquetaZap: c.erroEtiquetaZap || null,
     noWhatsapp: Boolean(whatsappJid),
@@ -1422,7 +1423,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
   const filtro = String(req.query.filtro || 'todas');
   // venda concluída (comprovante, IA ou equipe) ou lead em "Fechado": vai para "Vendas concluídas"
   const comVenda = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status !== 'cancelada' && v.leadId).map((v) => v.leadId));
-  const fechado = (c) => comVenda.has(c.id) || c.vendaConcluidaManual === true || /fechad|ganh|vendid/i.test(c.etapa || '');
+  const fechado = (c) => comVenda.has(c.id) || c.vendaConcluidaManual === true || /fechad|ganh|vendi/i.test(c.etapa || '');
   const etiqueta = String(req.query.etiqueta || '');
   const bloqueado = (c) => leads.naListaNegra(empresa, c);
   const lista = estado.conversas
@@ -1555,7 +1556,7 @@ router.post('/leads/:id/venda-concluida', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
-  const etapaFechado = leads.etapasDa(empresa).find((e) => /fechad|ganh|vendid/i.test(e.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+  const etapaFechado = leads.etapasDa(empresa).find((e) => /fechad|ganh|vendi/i.test(e.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
   if (req.body?.concluida !== false) {
     c.vendaConcluidaManual = true;
     c.vendaConcluidaEm = agora();
@@ -1570,7 +1571,7 @@ router.post('/leads/:id/venda-concluida', (req, res) => {
     }
     delete c.vendaConcluidaManual;
     delete c.vendaConcluidaEm;
-    if (c.etapaAntesDaVenda && /fechad|ganh|vendid/i.test((c.etapa || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
+    if (c.etapaAntesDaVenda && /fechad|ganh|vendi/i.test((c.etapa || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
     delete c.etapaAntesDaVenda;
   }
   c.atualizadoEm = agora();

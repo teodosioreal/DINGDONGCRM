@@ -330,7 +330,7 @@ da empresa e nunca inventar informação, com conferência antes de responder; l
 - Venda entendida pela IA (sem comprovante) entra **em dinheiro** no valor
   combinado; se o comprovante do Pix chegar depois, a mesma venda vira Pix.
 - Avaliação no Google / comentário no anúncio / pós-venda / recompra disparam
-  **depois da venda confirmada** (Pix, IA, equipe ou lead em "Fechado"), com opção
+  **depois da venda confirmada** (Pix, IA, equipe ou lead em "Vendi"), com opção
   de incluir quem **já comprou** (30/90/365 dias). Botões na conversa para pedir à
   mão, avisando se já foi pedido.
 - Conversas: **Todas / Não lidas / Vendas concluídas** (vendeu, sai de "Todas") e
@@ -352,7 +352,7 @@ da empresa e nunca inventar informação, com conferência antes de responder; l
   próximo agendamento ou "Venda".
 - A venda da IA vai para o Faturamento como **a conferir** (o valor veio da
   conversa), não duplica se já houver venda do cliente nas últimas 24 h (ex.:
-  comprovante de Pix) e move o lead para "Fechado". Agendamento move para a
+  comprovante de Pix) e move o lead para "Vendi". Agendamento move para a
   etapa com "agend" no nome, se o lead estiver antes dela.
 - A equipe também marca pelos botões **✅ Venda** e **📅 Agendamento** (Conversas
   e página do lead) e pode cancelar um agendamento.
@@ -413,7 +413,7 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
   preços e condições passados, objeções e respostas, como fecha, perguntas
   frequentes e o que evitar — sem dados pessoais dos clientes.
 - Lê o histórico **uma vez** e depois **só mensagens novas** (guarda até onde
-  leu em cada conversa). Conversa com **venda concluída** (lead em "Fechado"
+  leu em cada conversa). Conversa com **venda concluída** (lead em "Vendi"
   ou venda confirmada) é lida uma última vez e depois não é mais lida.
   Grupos ficam de fora. Primeira leitura muito grande continua na próxima.
 - As IAs do site e do WhatsApp usam o arquivo para atender cada vez mais
@@ -424,7 +424,7 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 
 - Quando o cliente manda o **comprovante do Pix** (print ou PDF) no WhatsApp,
   o CRM lê valor, data, quem pagou, quem recebeu e o ID da transação e
-  registra a venda no **Faturamento** da empresa. O lead vai para "Fechado",
+  registra a venda no **Faturamento** da empresa. O lead vai para "Vendi",
   ganha a etiqueta "Cliente" e a IA agradece.
 - **Lê sem IA** (não gasta crédito): PDF pelo texto do arquivo e foto por
   reconhecimento de texto (OCR) rodando no próprio servidor (tesseract.js com
@@ -444,17 +444,26 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
   continua, manda mídia, agenda e passa para a equipe).
 - A IA do site termina com o botão "Continuar no WhatsApp". A mensagem leva o
   código do atendimento; quando ela chega no WhatsApp, o CRM junta as duas
-  conversas no **mesmo lead** e move para "No WhatsApp".
+  conversas no **mesmo lead**.
 - A IA do WhatsApp recebe o histórico inteiro e é instruída a **não recomeçar**
   a conversa: retoma de onde parou.
 - As IAs podem pedir ações escrevendo marcações que o cliente nunca vê:
-  `[[ETAPA: Qualificado]]` (move o lead), `[[ETIQUETA: Quente]]` (coloca a
+  `[[ETAPA: Convertendo]]` (move o lead), `[[ETIQUETA: Quente]]` (coloca a
   etiqueta), `[[MIDIA: Tabela de preços]]` (envia a mídia com esse nome) e
   `[[HUMANO]]` (avisa a equipe e para de responder).
 - Mensagens seguidas do cliente viram **uma resposta só** (a IA espera uns
   segundos ele parar de digitar).
-- Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo, já
-  em "No WhatsApp".
+- Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo.
+
+### Funil padrão (etapas do lead)
+
+**Lead novo → Convertendo → Agendou → Vendi → Não fechou.** O lead entra em
+"Lead novo", vai sozinho para "Convertendo" quando manda a 2ª mensagem, para
+"Agendou" quando um agendamento é confirmado e para "Vendi" quando a venda é
+confirmada (comprovante, IA ou equipe). A IA move para "Não fechou" quando o
+cliente desiste. Dá para criar mais etapas (e etiquetas) em **Etiquetas e
+etapas**; empresas que tinham o funil antigo de 7 etapas foram trocadas para
+este sozinhas, levando os leads junto.
 
 ### 🔁 Follow-up (dentro da Máquina de vendas)
 
