@@ -133,6 +133,7 @@ router.post('/chat', async (req, res) => {
 
   origem.registrarNoLead(conversa, rastro);
   leads.adicionarMensagem(conversa, { papel: 'visitante', canal: 'site', texto: mensagem });
+  require('./localizacao').lerMensagem(conversa, mensagem);
   origem.aplicarAnuncio(empresa, conversa);
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;

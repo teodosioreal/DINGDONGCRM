@@ -47,9 +47,12 @@ function data(iso) {
 }
 
 function telefoneBonito(n) {
-  const d = String(n || '').replace(/\D/g, '');
+  let d = String(n || '').replace(/\D/g, '');
+  if (/^\d{10,11}$/.test(d)) d = `55${d}`; // salvo sem o 55
+  // celular que o WhatsApp guarda sem o 9 (55 + DDD + 8 dígitos começando com 6-9): mostra com o 9
+  if (/^55\d{2}[6-9]\d{7}$/.test(d)) d = `${d.slice(0, 4)}9${d.slice(4)}`;
   const m = d.match(/^55(\d{2})(\d{4,5})(\d{4})$/);
-  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : d ? `+${d}` : '';
+  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : d.length >= 8 && d.length <= 13 ? `+${d}` : '';
 }
 
 const ehAdmin = () => sessao?.usuario.papel === 'admin';
@@ -1017,10 +1020,10 @@ async function paginaWhatsapp(id) {
       <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
     </form>
     <div class="card">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ Quando você manda mensagem manual</h2>${interruptor('ia-apos-manual', w.iaAposManual, w.iaAposManual ? 'IA continua' : 'IA para')}</div>
-      <p class="rotulo" style="margin:0">${w.iaAposManual
-        ? '<b>Ligado:</b> depois que você (ou a equipe) manda uma mensagem pelo painel ou pelo celular, a IA <b>continua atendendo</b> aquele cliente.'
-        : '<b>Desligado (padrão):</b> depois que você manda uma mensagem pelo painel ou pelo celular, a IA <b>para de responder</b> aquele cliente — você assume. Para devolver, use "Devolver para a IA" na conversa.'}
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ IA para de responder depois da minha mensagem manual</h2>${interruptor('ia-para-manual', !w.iaAposManual, !w.iaAposManual ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0">${!w.iaAposManual
+        ? '<b>Ligado (padrão):</b> quando você (ou a equipe) manda uma mensagem pelo painel ou pelo celular, a IA <b>para de responder</b> aquele cliente — você assume. Para devolver, use "Devolver para a IA" na conversa.'
+        : '<b>Desligado:</b> mesmo depois da sua mensagem manual, a IA <b>continua atendendo</b> aquele cliente.'}
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
@@ -1201,16 +1204,7 @@ async function paginaWhatsapp(id) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
-  $('#ia-apos-manual').onchange = async (e) => {
-    try {
-      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaAposManual: e.target.checked } });
-      aviso(e.target.checked ? 'A IA continua atendendo depois das suas mensagens manuais.' : 'A IA para de responder o cliente depois que você manda uma mensagem manual.');
-      recarregar();
-    } catch (err) {
-      e.target.checked = !e.target.checked;
-      aviso(err.message, true);
-    }
-  };
+  $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
     await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { modoTeste, numerosTeste } });
@@ -1984,7 +1978,7 @@ let modoLeads = 'quadro';
 try { modoLeads = localStorage.getItem('dingdong_crm_leads') || 'quadro'; } catch { /* ok */ }
 
 function nomeDoLead(l) {
-  return l.nome || (l.telefone ? telefoneBonito(l.telefone) : 'Visitante do site');
+  return l.nome || (l.telefone && telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'Contato do WhatsApp' : 'Visitante do site');
 }
 
 // 📍 de onde o cliente é (DDD do WhatsApp, o que ele disse na conversa ou a equipe)
@@ -2224,7 +2218,7 @@ async function paginaLead(leadId) {
             <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || `<a class="rotulo" href="${rotaEmpresa(l.empresaId, 'organizar')}">Criar etiquetas</a>`}</div>
           </div>
           <div class="campo" style="margin-top:12px"><label>Nome</label><input id="nome" value="${esc(l.nome)}" placeholder="Nome do cliente"></div>
-          <div class="campo" style="margin-top:12px"><label>📍 Localização ${ajuda('Vem sozinha pelo DDD do WhatsApp e fica mais precisa quando o cliente diz onde mora (a IA marca). Pode corrigir aqui; vazio = volta a usar o DDD.')}</label><input id="localizacao" value="${esc(l.local?.fonte === 'ddd' ? '' : l.local?.texto || '')}" placeholder="${esc(l.local?.fonte === 'ddd' ? `${l.local.texto} (pelo DDD)` : 'Ex.: Centro, Petrópolis - RJ')}"></div>
+          <div class="campo" style="margin-top:12px"><label>📍 Localização ${ajuda('O CRM lê a conversa: quando o cliente diz de onde é ("sou de Petrópolis", "moro em Itaipava"), aparece aqui sozinho. Pode corrigir à mão; vazio = volta a ler da conversa.')}</label><input id="localizacao" value="${esc(l.local?.texto || '')}" placeholder="Ex.: Petrópolis - RJ (aparece quando o cliente disser)"></div>
           ${l.noWhatsapp ? `<p style="margin:12px 0 0"><strong>WhatsApp:</strong> ${esc(telefoneBonito(l.telefone)) || '—'}</p>` : `<div class="campo" style="margin-top:12px"><label>Telefone / WhatsApp</label><input id="telefone" value="${esc(telefoneBonito(l.telefone))}" placeholder="(21) 99999-9999"></div>`}
           <p class="rotulo" style="margin:10px 0 0">Código #${esc(l.codigo)} · veio por ${ROTULO_CANAL[l.origem] || l.origem}${l.pagina ? ` · <span title="${esc(l.pagina)}">página do site</span>` : ''}</p>
           <div class="secao" style="margin-top:14px;padding-top:14px">
@@ -2597,6 +2591,19 @@ function htmlMensagem(m, leadId, anterior) {
   return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}<span class="msg-rodape">${hora}${saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
 }
 
+// Liga/desliga "a IA para de responder depois da minha mensagem manual"
+async function trocarIaParaManual(empresaId, chk, depois) {
+  const parar = chk.checked;
+  try {
+    await api(`empresas/${empresaId}/whatsapp`, { method: 'PUT', body: { iaAposManual: !parar } });
+    aviso(parar ? 'Ligado: a IA para de responder o cliente quando você manda uma mensagem manual.' : 'Desligado: a IA continua atendendo mesmo depois das suas mensagens manuais.');
+    depois?.();
+  } catch (err) {
+    chk.checked = !parar;
+    aviso(err.message, true);
+  }
+}
+
 // Buscar no WhatsApp as mensagens que não chegaram ao painel
 function modalSincronizar(empresaId, aoTerminar) {
   abrirModal(`
@@ -2883,7 +2890,7 @@ async function paginaConversas(id, params) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? '<div class="barra"><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button></div>' : ''}</div>
+    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? `<div class="barra"><span class="interruptor-topo" title="Quando você manda uma mensagem manual (painel ou celular), a IA para de responder aquele cliente">${interruptor('conv-ia-para-manual', !emp.whatsapp?.iaAposManual, 'IA para quando eu respondo')}</span><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button></div>` : ''}</div>
     ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <button type="button" class="link-botao" data-desligar-teste="${esc(id)}">desligar</button></p>` : ''}
@@ -3005,7 +3012,7 @@ async function paginaConversas(id, params) {
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
         ${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l)}</a>` : avatarLead(l)}
-        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${l.telefone ? esc(telefoneBonito(l.telefone)) : 'sem WhatsApp'}</span>${l.local?.texto ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
+        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
         <span class="chat-acoes"><button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
@@ -3289,6 +3296,11 @@ async function paginaConversas(id, params) {
   await carregarLista();
   if (abertoId) await abrir(abertoId);
   const aqui = rotaEmpresa(id, 'conversas');
+  $('#conv-ia-para-manual')?.addEventListener('change', (e) => trocarIaParaManual(id, e.target, () => {
+    const caixa = $('#chat-manter-ia');
+    if (caixa) caixa.checked = !e.target.checked; // a caixinha da conversa segue o novo padrão
+    if (emp.whatsapp) emp.whatsapp.iaAposManual = !e.target.checked;
+  }));
   $('#buscar-mensagens')?.addEventListener('click', () => modalSincronizar(id, () => { assinaturaAberta = ''; carregarLista(); recarregarAberto().catch(() => {}); }));
   // mensagem apagada no chat aberto: redesenha a conversa e a prévia da lista
   $('#inbox-chat').addEventListener('mensagem-apagada', () => {

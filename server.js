@@ -97,6 +97,12 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/fotos-clientes').iniciar();
   require('./src/lixeira').iniciar();
   require('./src/sincronizar').iniciar();
+  try {
+    // localização: tira a antiga pelo DDD e lê das conversas
+    require('./src/localizacao').revisarTodas(require('./src/db').estado);
+  } catch (err) {
+    console.error('[localizacao]', err.message);
+  }
   // vídeos que ficaram no meio da conversão (ou ainda não conferidos) voltam para a fila
   setTimeout(() => {
     try {

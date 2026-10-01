@@ -756,6 +756,7 @@ async function receberWebhook(empresa, corpo) {
       console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
     }
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
+    require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
     origem.aplicarAnuncio(empresa, lead);
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;

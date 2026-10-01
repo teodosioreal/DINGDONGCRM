@@ -207,13 +207,19 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   o que está escrito (instruções, Sobre a empresa, site, conversa) e diz "vou confirmar"
   em vez de inventar preço, prazo, endereço etc. O atendimento usa esforço médio e
   temperatura baixa (segue melhor e inventa menos).
-- **Mensagem manual** (painel ou celular): por padrão a IA para naquele cliente. Em
-  IA do WhatsApp → "Quando você manda mensagem manual" dá para deixar a IA continuar;
+- **"IA para de responder depois da minha mensagem manual"** (painel ou celular): ligado
+  por padrão. Interruptor em Conversas ("IA para quando eu respondo") e em IA do WhatsApp;
   a caixinha na conversa troca só para aquela mensagem.
 - A IA (respostas, follow-ups e automações) **só fala com quem já mandou mensagem e
   está em Conversas**. Contatos importados/sem conversa: só a equipe (à mão ou disparo).
-- **📍 Localização**: pelo DDD do WhatsApp na hora; quando o cliente diz onde mora, a IA
-  marca `[[LOCAL: bairro, cidade - UF]]` e fica mais precisa; a equipe corrige no perfil.
+- **📍 Localização lida da conversa (nunca pelo DDD)**: o CRM lê as mensagens do cliente
+  sem IA ("sou de Petrópolis", "moro em Itaipava", "aqui em Niterói"; conhece todo o RJ,
+  distritos de Petrópolis e as capitais) e a IA também marca `[[LOCAL: …]]`. A equipe
+  corrige no perfil (vale mais). Vale o que o cliente disse por último.
+- **Número escondido do WhatsApp (`@lid`)**: o histórico da Evolution às vezes traz um id
+  interno no lugar do telefone. O CRM sempre usa o número de verdade (`remoteJidAlt`),
+  junta a conversa duplicada do mesmo cliente e nunca mostra o id como telefone. Celular
+  salvo sem o 9 aparece com o 9. Foto de perfil é buscada pelo número de verdade.
 - **Sugerir com IA** lê a conversa inteira, sabe quem falou por último e há quanto
   tempo, usa as anotações da equipe e responde ao que o cliente disse.
 - Faixa "Modo teste": o "desligar" desliga na hora (Início e Conversas).

@@ -1191,8 +1191,9 @@ router.put('/leads/:id', (req, res) => {
     // vazio = volta a usar o DDD do telefone
     if (texto(b.localizacao, 60)) localizacao.definir(c, b.localizacao, 'equipe');
     else {
+      // vazio = volta a ler da conversa
       delete c.localizacao;
-      localizacao.garantir(c);
+      localizacao.lerConversa(c);
     }
   }
   if (b.telefone !== undefined && !c.whatsappJid) c.telefone = numeroWhatsapp(b.telefone);

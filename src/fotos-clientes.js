@@ -13,6 +13,7 @@ const { estado, salvar, agora } = require('./db');
 
 const RENOVAR_MS = 7 * 24 * 3600 * 1000;
 const SEM_FOTO_MS = 3 * 24 * 3600 * 1000;
+const ERRO_MS = 6 * 3600 * 1000; // falhou (servidor fora, limite): tenta de novo em 6 h
 const INTERVALO_MS = Number(process.env.FOTOS_INTERVALO_MS) || 2500;
 const MAX_BYTES = 3 * 1024 * 1024;
 const POR_VARREDURA = 150;
@@ -24,12 +25,19 @@ function temFoto(lead) {
   return Boolean(lead.fotoPerfil?.em && !lead.fotoPerfil.semFoto);
 }
 
+// Número de verdade do cliente (nunca o id interno "@lid" do WhatsApp)
+function numeroDoLead(lead) {
+  if (/@s\.whatsapp\.net$/.test(lead.whatsappJid || '')) return lead.whatsappJid.split('@')[0];
+  const tel = String(lead.telefone || '').replace(/\D/g, '');
+  return lead.whatsappJid && tel.length >= 12 ? tel : '';
+}
+
 function precisaBuscar(lead) {
-  if (!lead.whatsappJid || !/@s\.whatsapp\.net$/.test(lead.whatsappJid)) return false;
+  if (!numeroDoLead(lead)) return false;
   const f = lead.fotoPerfil;
   if (!f?.buscadaEm) return true;
   const idade = Date.now() - new Date(f.buscadaEm).getTime();
-  return idade > (f.semFoto || f.erro ? SEM_FOTO_MS : RENOVAR_MS);
+  return idade > (f.erro && !f.em ? ERRO_MS : f.semFoto ? SEM_FOTO_MS : RENOVAR_MS);
 }
 
 async function baixar(url) {
@@ -46,8 +54,8 @@ async function baixar(url) {
 async function buscar(lead) {
   const whatsapp = require('./whatsapp');
   const empresa = estado.empresas.find((e) => e.id === lead.empresaId);
-  if (!empresa || !whatsapp.configurado(empresa) || !lead.whatsappJid) return { ok: false, motivo: 'sem WhatsApp' };
-  const numero = lead.whatsappJid.split('@')[0];
+  const numero = numeroDoLead(lead);
+  if (!empresa || !whatsapp.configurado(empresa) || !numero) return { ok: false, motivo: 'sem WhatsApp' };
   try {
     const r = await whatsapp.evolution(empresa, 'POST', '/chat/fetchProfilePictureUrl/{instancia}', { number: numero });
     const url = r?.profilePictureUrl || r?.profilePicUrl || '';

@@ -44,6 +44,13 @@ function juntarConversaNova(lead) {
   if (!lead.whatsappJid) return null;
   const nova = estado.conversas.find((c) => c.empresaId === lead.empresaId && c.whatsappJid === lead.whatsappJid && c.id !== lead.id);
   if (!nova) return null;
+  return juntar(lead, nova);
+}
+
+// Junta a conversa `nova` dentro de `lead` (mensagens, anexos, etiquetas, vendas…)
+// e tira a `nova` de Conversas. Usado ao restaurar da lixeira e ao corrigir
+// conversas duplicadas do mesmo cliente.
+function juntar(lead, nova, { manterEstado = false } = {}) {
   const fs = require('fs');
   const midias = require('./midias');
   // anexos (fotos, áudios…) da conversa nova vão para a pasta da restaurada
@@ -55,18 +62,31 @@ function juntarConversaNova(lead) {
     if (fs.existsSync(`${de}/perfil.jpg`)) fs.renameSync(`${de}/perfil.jpg`, `${para}/perfil.jpg`);
     fs.rmSync(de, { recursive: true, force: true });
   }
-  lead.mensagens = [...(lead.mensagens || []), ...(nova.mensagens || [])].sort((a, b) => (a.em < b.em ? -1 : 1));
+  // mesma mensagem nas duas (mesmo id do WhatsApp): fica uma só (a que chegou ao vivo)
+  const todas = [...(lead.mensagens || []), ...(nova.mensagens || [])].sort((a, b) => (a.importada === b.importada ? 0 : a.importada ? 1 : -1));
+  const vistos = new Set();
+  lead.mensagens = todas
+    .filter((m) => {
+      const ids = [m.wid, ...(m.wids || [])].filter(Boolean);
+      if (ids.some((i) => vistos.has(i))) return false;
+      ids.forEach((i) => vistos.add(i));
+      return true;
+    })
+    .sort((a, b) => (a.em < b.em ? -1 : a.em > b.em ? 1 : 0));
   lead.agendadas = [...(lead.agendadas || []), ...(nova.agendadas || [])];
   lead.agendamentos = [...(lead.agendamentos || []), ...(nova.agendamentos || [])];
   lead.etiquetas = [...new Set([...(lead.etiquetas || []), ...(nova.etiquetas || [])])];
   lead.naoLidas = (lead.naoLidas || 0) + (nova.naoLidas || 0);
-  lead.etapa = nova.etapa || lead.etapa; // a situação atual é a da conversa nova
   lead.etapaHistorico = [...(lead.etapaHistorico || []), ...(nova.etapaHistorico || [])];
   lead.nome = lead.nome || nova.nome;
-  if (nova.fotoPerfil) lead.fotoPerfil = nova.fotoPerfil;
-  lead.iaPausada = nova.iaPausada;
-  lead.iaPausadaMotivo = nova.iaPausadaMotivo;
-  lead.arquivado = nova.arquivado;
+  if (!manterEstado) {
+    // restaurar da lixeira: a situação atual é a da conversa nova
+    lead.etapa = nova.etapa || lead.etapa;
+    if (nova.fotoPerfil) lead.fotoPerfil = nova.fotoPerfil;
+    lead.iaPausada = nova.iaPausada;
+    lead.iaPausadaMotivo = nova.iaPausadaMotivo;
+    lead.arquivado = nova.arquivado;
+  }
   lead.atualizadoEm = nova.atualizadoEm > lead.atualizadoEm ? nova.atualizadoEm : lead.atualizadoEm;
   for (const v of estado.vendas || []) {
     if (v.leadId === nova.id) v.leadId = lead.id;
@@ -154,4 +174,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { moverParaLixeira, acharNaLixeira, restaurar, apagarDeVez, daEmpresa, esvaziar, diasRestantes, limparVencidos, iniciar, DIAS };
+module.exports = { juntar, moverParaLixeira, acharNaLixeira, restaurar, apagarDeVez, daEmpresa, esvaziar, diasRestantes, limparVencidos, iniciar, DIAS };

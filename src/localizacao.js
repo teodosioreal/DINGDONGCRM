@@ -1,95 +1,142 @@
-// localizacao.js — de onde o cliente é, para a equipe e a IA saberem.
+// localizacao.js — de onde o cliente é, LIDO NA CONVERSA (nunca pelo DDD).
 //
-// 1) Na hora (sem IA, sem custo): pelo DDD do WhatsApp do cliente.
-//    Ex.: 5521… → "Rio de Janeiro - RJ". Número de fora do Brasil → o país.
-// 2) Mais preciso: quando o cliente diz onde está ("sou de Niterói", "moro no
-//    Quitandinha"), a IA marca [[LOCAL: Niterói - RJ]] e isso substitui o DDD.
-// 3) A equipe também pode corrigir à mão no perfil do lead.
+// 1) O CRM lê as mensagens do cliente, sem IA e sem custo: "sou de Petrópolis",
+//    "moro em Itaipava", "aqui em Niterói", "tô no Quitandinha", "bairro Centro"…
+//    Cidades conhecidas (todo o RJ, distritos de Petrópolis, capitais e cidades
+//    grandes) saem com o nome certo e a UF.
+// 2) A IA também marca [[LOCAL: …]] quando o cliente diz onde está.
+// 3) A equipe pode corrigir à mão no perfil do lead (vale mais que tudo).
 // Aparece como etiqueta 📍 na conversa, no funil e no perfil do lead.
 
 const { salvar, agora } = require('./db');
 
-// DDD → cidade principal / região e UF
-const DDD = {
-  11: 'São Paulo - SP', 12: 'São José dos Campos - SP', 13: 'Santos - SP', 14: 'Bauru - SP', 15: 'Sorocaba - SP',
-  16: 'Ribeirão Preto - SP', 17: 'São José do Rio Preto - SP', 18: 'Presidente Prudente - SP', 19: 'Campinas - SP',
-  21: 'Rio de Janeiro - RJ', 22: 'Campos dos Goytacazes - RJ', 24: 'Petrópolis / Volta Redonda - RJ',
-  27: 'Vitória - ES', 28: 'Cachoeiro de Itapemirim - ES',
-  31: 'Belo Horizonte - MG', 32: 'Juiz de Fora - MG', 33: 'Governador Valadares - MG', 34: 'Uberlândia - MG',
-  35: 'Poços de Caldas - MG', 37: 'Divinópolis - MG', 38: 'Montes Claros - MG',
-  41: 'Curitiba - PR', 42: 'Ponta Grossa - PR', 43: 'Londrina - PR', 44: 'Maringá - PR', 45: 'Foz do Iguaçu - PR', 46: 'Francisco Beltrão - PR',
-  47: 'Joinville - SC', 48: 'Florianópolis - SC', 49: 'Chapecó - SC',
-  51: 'Porto Alegre - RS', 53: 'Pelotas - RS', 54: 'Caxias do Sul - RS', 55: 'Santa Maria - RS',
-  61: 'Brasília - DF', 62: 'Goiânia - GO', 63: 'Palmas - TO', 64: 'Rio Verde - GO', 65: 'Cuiabá - MT', 66: 'Rondonópolis - MT',
-  67: 'Campo Grande - MS', 68: 'Rio Branco - AC', 69: 'Porto Velho - RO',
-  71: 'Salvador - BA', 73: 'Ilhéus - BA', 74: 'Juazeiro - BA', 75: 'Feira de Santana - BA', 77: 'Vitória da Conquista - BA', 79: 'Aracaju - SE',
-  81: 'Recife - PE', 82: 'Maceió - AL', 83: 'João Pessoa - PB', 84: 'Natal - RN', 85: 'Fortaleza - CE', 86: 'Teresina - PI',
-  87: 'Petrolina - PE', 88: 'Juazeiro do Norte - CE', 89: 'Picos - PI',
-  91: 'Belém - PA', 92: 'Manaus - AM', 93: 'Santarém - PA', 94: 'Marabá - PA', 95: 'Boa Vista - RR', 96: 'Macapá - AP',
-  97: 'Coari - AM', 98: 'São Luís - MA', 99: 'Imperatriz - MA'
-};
+const sem = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-// Código do país → país (os mais comuns)
-const PAISES = [
-  ['351', 'Portugal'], ['54', 'Argentina'], ['595', 'Paraguai'], ['598', 'Uruguai'], ['56', 'Chile'], ['57', 'Colômbia'],
-  ['51', 'Peru'], ['591', 'Bolívia'], ['52', 'México'], ['34', 'Espanha'], ['39', 'Itália'], ['44', 'Reino Unido'],
-  ['49', 'Alemanha'], ['33', 'França'], ['81', 'Japão'], ['353', 'Irlanda'], ['61', 'Austrália'], ['1', 'EUA / Canadá']
+// Cidades e lugares conhecidos → como mostrar
+const RJ = 'Angra dos Reis|Aperibé|Araruama|Areal|Armação dos Búzios|Búzios|Arraial do Cabo|Barra do Piraí|Barra Mansa|Belford Roxo|Bom Jardim|Bom Jesus do Itabapoana|Cabo Frio|Cachoeiras de Macacu|Cambuci|Campos dos Goytacazes|Cantagalo|Carapebus|Cardoso Moreira|Carmo|Casimiro de Abreu|Comendador Levy Gasparian|Conceição de Macabu|Cordeiro|Duas Barras|Duque de Caxias|Engenheiro Paulo de Frontin|Guapimirim|Iguaba Grande|Itaboraí|Itaguaí|Italva|Itaocara|Itaperuna|Itatiaia|Japeri|Laje do Muriaé|Macaé|Macuco|Magé|Mangaratiba|Maricá|Mendes|Mesquita|Miguel Pereira|Miracema|Natividade|Nilópolis|Niterói|Nova Friburgo|Nova Iguaçu|Paracambi|Paraíba do Sul|Paraty|Paty do Alferes|Petrópolis|Pinheiral|Piraí|Porciúncula|Porto Real|Quatis|Queimados|Quissamã|Resende|Rio Bonito|Rio Claro|Rio das Flores|Rio das Ostras|Rio de Janeiro|Santa Maria Madalena|Santo Antônio de Pádua|São Fidélis|São Francisco de Itabapoana|São Gonçalo|São João da Barra|São João de Meriti|São José de Ubá|São José do Vale do Rio Preto|São Pedro da Aldeia|São Sebastião do Alto|Sapucaia|Saquarema|Seropédica|Silva Jardim|Sumidouro|Tanguá|Teresópolis|Trajano de Moraes|Três Rios|Valença|Varre-Sai|Vassouras|Volta Redonda'
+  .split('|')
+  .map((c) => [c, `${c} - RJ`]);
+const PETROPOLIS = 'Itaipava|Corrêas|Correas|Araras|Nogueira|Pedro do Rio|Secretário|Cascatinha|Quitandinha|Valparaíso|Bingen|Mosela|Alto da Serra|Samambaia|Vale do Cuiabá|Fazenda Inglesa|Duarte da Silveira|Coronel Veiga|Bonfim'
+  .split('|')
+  .map((b) => [b, `${b === 'Correas' ? 'Corrêas' : b}, Petrópolis - RJ`]);
+const OUTRAS = [
+  ['São Paulo', 'São Paulo - SP'], ['Campinas', 'Campinas - SP'], ['Guarulhos', 'Guarulhos - SP'], ['Belo Horizonte', 'Belo Horizonte - MG'], ['BH', 'Belo Horizonte - MG'],
+  ['Juiz de Fora', 'Juiz de Fora - MG'], ['Brasília', 'Brasília - DF'], ['Salvador', 'Salvador - BA'], ['Curitiba', 'Curitiba - PR'], ['Porto Alegre', 'Porto Alegre - RS'],
+  ['Recife', 'Recife - PE'], ['Fortaleza', 'Fortaleza - CE'], ['Florianópolis', 'Florianópolis - SC'], ['Goiânia', 'Goiânia - GO'], ['Manaus', 'Manaus - AM'],
+  ['Belém', 'Belém - PA'], ['São Luís', 'São Luís - MA'], ['Maceió', 'Maceió - AL'], ['Natal', 'Natal - RN'], ['João Pessoa', 'João Pessoa - PB'], ['Aracaju', 'Aracaju - SE'],
+  ['Teresina', 'Teresina - PI'], ['Cuiabá', 'Cuiabá - MT'], ['Campo Grande', 'Campo Grande - MS'], ['Vila Velha', 'Vila Velha - ES'], ['Uberlândia', 'Uberlândia - MG'],
+  ['Copacabana', 'Copacabana, Rio de Janeiro - RJ'], ['Barra da Tijuca', 'Barra da Tijuca, Rio de Janeiro - RJ'], ['Tijuca', 'Tijuca, Rio de Janeiro - RJ'],
+  ['Icaraí', 'Icaraí, Niterói - RJ'], ['Rio', 'Rio de Janeiro - RJ']
 ];
+const CONHECIDOS = [...PETROPOLIS, ...RJ, ...OUTRAS]
+  .map(([nome, mostrar]) => ({ chave: sem(nome), mostrar }))
+  .sort((a, b) => b.chave.length - a.chave.length); // o mais específico primeiro ("Rio das Ostras" antes de "Rio")
 
-function pelaDdd(telefoneOuJid) {
-  const n = String(telefoneOuJid || '').split('@')[0].replace(/\D/g, '');
-  if (n.length < 10) return null;
-  if (n.startsWith('55') && n.length >= 12) {
-    const cidade = DDD[Number(n.slice(2, 4))];
-    return cidade ? { texto: cidade, fonte: 'ddd' } : null;
-  }
-  // número salvo sem o 55 (ex.: 21999998888)
-  if (n.length === 10 || n.length === 11) {
-    const cidade = DDD[Number(n.slice(0, 2))];
-    return cidade ? { texto: cidade, fonte: 'ddd' } : null;
-  }
-  const pais = PAISES.find(([cod]) => n.startsWith(cod));
-  return pais ? { texto: pais[1], fonte: 'ddd' } : null;
+// Palavras que aparecem depois de "sou de", "estou em"… e NÃO são lugar
+const NAO_LUGAR = new Set(
+  'casa|trabalho|duvida|acordo|manha|tarde|noite|novo|nova|confianca|longe|perto|um|uma|o|a|os|as|isso|aqui|la|ai|viagem|ferias|horario|familia|fora|outra|outro|outro estado|cidade|interior|rua|onde|lugar|reuniao|consulta|atendimento|duvidas|boa|bom|pouco|tempo|pe|carro|loja|empresa|mercado|hospital|escola|faculdade|igreja|academia|praia|shopping|centro comercial|frente|cima|baixo|pressa|folga|ferias|licenca|dia|semana|mes|ano|hoje|amanha|vez|serie|minha|meu|sua|seu|tua|teu|nossa|nosso|que|qual|quem|como|ver|olhar|saber|saida|chegada|cliente|clientes|aguardo|espera|correria|onibus|metro|uber|caminho|estrada|ponto|fila|banho|almoco|janta|cama|servico|plantao|banco|medico|dentista|reuniao|aula|curso|obra|transito|engarrafamento|hospital|feira|evento|festa|igreja|culto|missa|treino|jogo|area|ramo|setor|duvida ainda|grupo|chamada|ligacao'.split('|')
+);
+
+const titulo = (t) =>
+  String(t)
+    .split(/\s+/)
+    .map((p, i) => (i > 0 && /^(de|da|do|dos|das|e)$/i.test(p) ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()))
+    .join(' ');
+
+function conhecido(trecho) {
+  const t = ` ${sem(trecho).replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ')} `;
+  return CONHECIDOS.find((c) => t.includes(` ${c.chave} `)) || null;
+}
+
+// Lê UMA mensagem do cliente e diz de onde ele é (ou null)
+const GATILHOS = /\b(?:sou|somos|venho|vim)\s+(?:de|da|do|dos|das)\s+|\b(?:moro|moramos|resido|estou|to|tô|tou|estamos)\s+(?:em|no|na|nos|nas|aqui\s+em|aqui\s+no|aqui\s+na)\s+|\baqui\s+(?:em|no|na|de|do|da)\s+|\b(?:bairro|cidade\s+de|regi[aã]o\s+(?:de|da|do)|perto\s+(?:de|da|do))\s+|\bminha\s+cidade\s+(?:é|e)\s+/i;
+
+function detectar(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  if (!t || t.startsWith('[')) return null; // "[o cliente enviou uma foto]" etc.
+  const g = t.match(GATILHOS);
+  if (!g) return null;
+  // o que vem depois do gatilho, até a pontuação ou palavra de ligação
+  const resto = t.slice(g.index + g[0].length).split(/[,.;!?\n()]|\s(?:e|mas|só|so|que|pra|para|com|porque|pq|quero|queria|gostaria|vou|vocês|voces|vcs|vc|tem|tenho|ta|tá|está|esta|já|ja|ainda|hoje|amanhã|amanha)\s/i)[0].trim();
+  if (!resto) return null;
+  const achado = conhecido(resto);
+  if (achado) return achado.mostrar;
+  const palavras = resto.split(/\s+/).slice(0, 3);
+  const limpo = palavras.join(' ').replace(/[^\p{L}\s'-]/gu, '').trim();
+  if (!limpo || limpo.length < 3 || NAO_LUGAR.has(sem(limpo)) || NAO_LUGAR.has(sem(palavras[0]))) return null;
+  // UF no fim ("petrópolis rj")
+  const uf = limpo.match(/\s([a-z]{2})$/i);
+  const nome = uf && /^(rj|sp|mg|es|pr|sc|rs|ba|df|go|pe|ce)$/i.test(uf[1]) ? `${titulo(limpo.slice(0, -3))} - ${uf[1].toUpperCase()}` : titulo(limpo);
+  return nome.length <= 40 ? nome : null;
 }
 
 const limpar = (t) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+const FORCA = { equipe: 3, ia: 2, conversa: 1 };
 
-// Garante uma localização (pelo DDD) em quem ainda não tem
-function garantir(lead) {
-  if (lead.localizacao?.texto) return false;
-  const l = pelaDdd(lead.whatsappJid || lead.telefone);
-  if (!l) return false;
-  lead.localizacao = { ...l, em: agora() };
-  return true;
-}
-
-// O cliente disse onde está (a IA marcou) ou a equipe corrigiu
+// Guarda a localização; a equipe vale mais que a IA, que vale mais que a leitura automática
 function definir(lead, texto, fonte) {
   const t = limpar(texto);
   if (!t) return false;
-  if (lead.localizacao?.fonte === 'equipe' && fonte === 'ia') return false; // a equipe manda
-  if (lead.localizacao?.texto === t) return false;
+  const atual = lead.localizacao?.fonte === 'ddd' ? null : lead.localizacao;
+  if (atual && (FORCA[atual.fonte] || 0) > (FORCA[fonte] || 0)) return false;
+  if (atual?.texto === t && atual.fonte === fonte) return false;
   lead.localizacao = { texto: t, fonte, em: agora() };
   salvar();
   return true;
 }
 
+// Lê uma mensagem nova do cliente (chamado ao receber e ao recuperar histórico)
+function lerMensagem(lead, texto) {
+  // áudio transcrito também vale ("[áudio do cliente]: sou de petrópolis")
+  const t = String(texto || '').replace(/^\[(?:áudio|foto) do cliente\]:\s*/i, '');
+  const onde = detectar(t);
+  return onde ? definir(lead, onde, 'conversa') : false;
+}
+
+// Lê a conversa inteira (do mais antigo ao mais novo: vale o que ele disse por último)
+function lerConversa(lead) {
+  let mudou = false;
+  for (const m of lead.mensagens || []) if (m.papel === 'visitante' && !m.apagada && lerMensagem(lead, m.texto)) mudou = true;
+  return mudou;
+}
+
+// Versões antigas punham a cidade pelo DDD: isso sai
+function semDdd(lead) {
+  if (lead.localizacao?.fonte === 'ddd') {
+    delete lead.localizacao;
+    return true;
+  }
+  return false;
+}
+
 function paraPainel(lead) {
-  garantir(lead);
+  semDdd(lead);
   const l = lead.localizacao;
   if (!l?.texto) return null;
-  const DE_ONDE = { ddd: 'pelo DDD do WhatsApp', ia: 'o cliente disse na conversa', equipe: 'informado pela equipe' };
+  const DE_ONDE = { conversa: 'o cliente disse na conversa', ia: 'a IA entendeu na conversa', equipe: 'informado pela equipe' };
   return { texto: l.texto, fonte: l.fonte, origem: DE_ONDE[l.fonte] || '' };
 }
 
-// Linha para o contexto da IA (ela não repete a pergunta "de onde você é?" se já souber)
+// Linha para o contexto da IA (ela não repete "de onde você é?" se já souber)
 function paraIa(lead) {
-  garantir(lead);
-  const l = lead.localizacao;
-  if (!l?.texto) return '';
-  return l.fonte === 'ddd'
-    ? `- Localização provável do cliente (pelo DDD do telefone, pode não ser exata): ${l.texto}.`
-    : `- Localização do cliente: ${l.texto}.`;
+  semDdd(lead);
+  return lead.localizacao?.texto ? `- Localização do cliente (ele disse na conversa): ${lead.localizacao.texto}.` : '';
 }
 
-module.exports = { pelaDdd, garantir, definir, paraPainel, paraIa, DDD };
+// compatibilidade: antes "garantir" punha pelo DDD; agora só limpa o antigo
+function garantir(lead) {
+  return semDdd(lead);
+}
+
+// Ao ligar: tira o DDD de todo mundo e lê as conversas que ainda não têm localização
+function revisarTodas(estado) {
+  let n = 0;
+  for (const c of estado.conversas || []) {
+    if (semDdd(c)) n++;
+    if (!c.localizacao && lerConversa(c)) n++;
+  }
+  if (n) salvar();
+  return n;
+}
+
+module.exports = { detectar, definir, lerMensagem, lerConversa, paraPainel, paraIa, garantir, revisarTodas };

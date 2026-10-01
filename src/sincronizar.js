@@ -28,6 +28,63 @@ const segundos = (ts) => {
   return Number.isFinite(n) && n > 0 ? (n > 1e12 ? Math.floor(n / 1000) : n) : 0;
 };
 
+// ---------------------------------------------------------------- número escondido (LID)
+// O WhatsApp passou a esconder o número de muitos contatos atrás de um id interno
+// ("…@lid"). Ao vivo a Evolution já troca pelo número, mas no histórico dela fica
+// o id interno — que NÃO é telefone. Aqui sempre usamos o número de verdade.
+const ehTelefone = (j) => /@s\.whatsapp\.net$/.test(String(j || ''));
+
+function numeroDoLid(key = {}, msg = {}) {
+  return [key.remoteJidAlt, key.senderPn, key.participantAlt, msg.senderPn].find(ehTelefone) || null;
+}
+
+// Uma conversa que ficou com o id interno passa a usar o número de verdade
+// (se o cliente já tem outra conversa, as duas viram uma só)
+function consertarLid(empresa, lidJid, telefoneJid) {
+  if (!lidJid || !ehTelefone(telefoneJid)) return null;
+  const doLid = estado.conversas.find((c) => c.empresaId === empresa.id && c.whatsappJid === lidJid);
+  const doNumero = estado.conversas.find((c) => c.empresaId === empresa.id && c.whatsappJid === telefoneJid);
+  if (doNumero) doNumero.lidJid = lidJid;
+  if (!doLid) return doNumero || null;
+  if (doNumero) {
+    require('./lixeira').juntar(doNumero, doLid, { manterEstado: true });
+    return doNumero;
+  }
+  doLid.whatsappJid = telefoneJid;
+  doLid.telefone = telefoneJid.split('@')[0];
+  doLid.lidJid = lidJid;
+  require('./localizacao').garantir(doLid); // tira a "cidade" que vinha do id interno
+  delete doLid.fotoPerfil; // busca a foto de novo, agora pelo número
+  require('./fotos-clientes').agendar(doLid);
+  return doLid;
+}
+
+// Para onde vai esta mensagem: o jid com o número de verdade (ou null se não der para saber)
+function jidReal(empresa, msg) {
+  const rj = msg?.key?.remoteJid || '';
+  if (ehTelefone(rj)) return rj;
+  if (!/@lid$/.test(rj)) return null;
+  const alt = numeroDoLid(msg.key, msg);
+  if (alt) {
+    consertarLid(empresa, rj, alt);
+    return alt;
+  }
+  // sem o número na mensagem: só entra se já conhecemos esse contato
+  const conhecido = estado.conversas.find((c) => c.empresaId === empresa.id && (c.lidJid === rj || c.whatsappJid === rj));
+  return conhecido ? conhecido.whatsappJid : null;
+}
+
+// Conversas antigas que ficaram com o id interno e já têm o telefone: corrige na hora
+function consertarConversasComLid(empresa) {
+  let n = 0;
+  for (const c of estado.conversas.filter((x) => x.empresaId === empresa.id && /@lid$/.test(x.whatsappJid || ''))) {
+    const tel = String(c.telefone || '').replace(/\D/g, '');
+    if (tel.length >= 12 && consertarLid(empresa, c.whatsappJid, `${tel}@s.whatsapp.net`)) n++;
+  }
+  if (n) salvar();
+  return n;
+}
+
 // Já temos esta mensagem? (pelo id do WhatsApp; nas antigas, sem id, pelo texto e horário)
 function jaTem(lead, wid, papelSaida, texto, emMs) {
   for (const m of lead.mensagens || []) {
@@ -49,9 +106,10 @@ function jaTem(lead, wid, papelSaida, texto, emMs) {
 // Coloca UMA mensagem do histórico na conversa certa (cria o lead se precisar).
 // Devolve true se entrou algo novo.
 function importarMensagem(empresa, msg) {
-  const jid = msg?.key?.remoteJid || '';
   const wid = msg?.key?.id;
-  if (!wid || !jidValido(jid)) return false;
+  if (!wid || !jidValido(msg?.key?.remoteJid)) return false;
+  const jid = jidReal(empresa, msg);
+  if (!jid) return false; // número escondido que ainda não sabemos de quem é: não inventa conversa
   const texto = whatsapp().textoDa(msg);
   if (!texto) return false; // reação, aviso do sistema, mensagem apagada…
   const ts = segundos(msg.messageTimestamp);
@@ -63,7 +121,8 @@ function importarMensagem(empresa, msg) {
   if (!lead) {
     // na lixeira? fica lá (a pessoa apagou de propósito)
     if ((estado.lixeira || []).some((c) => c.empresaId === empresa.id && c.whatsappJid === jid)) return false;
-    lead = whatsapp().acharOuCriarLead(empresa, jid, saida ? '' : texto, saida ? { ...msg, pushName: '' } : msg);
+    const comNumero = { ...msg, key: { ...msg.key, remoteJid: jid }, ...(saida ? { pushName: '' } : {}) };
+    lead = whatsapp().acharOuCriarLead(empresa, jid, saida ? '' : texto, comNumero);
     if (!lead.mensagens.length) {
       lead.historicoImportado = true; // não entra em automação até o cliente escrever de novo
       lead.criadoEm = new Date(emMs).toISOString();
@@ -84,6 +143,8 @@ function importarMensagem(empresa, msg) {
     wid,
     importada: true
   });
+  if (!saida) require('./localizacao').lerMensagem(lead, texto);
+  require('./fotos-clientes').agendar(lead); // foto de perfil (se ainda não tem)
   lead.mensagens.sort((a, b) => (a.em < b.em ? -1 : a.em > b.em ? 1 : 0));
   if (lead.mensagens.length > 400) lead.mensagens.splice(0, lead.mensagens.length - 400);
   const ultimaEm = lead.mensagens[lead.mensagens.length - 1].em;
@@ -147,9 +208,16 @@ async function sincronizarEmpresa(empresa, { dias = null, motivo = 'auto' } = {}
   const resumo = { em: agora(), motivo, desde: new Date(desdeSeg * 1000).toISOString(), conversas: 0, importadas: 0, erro: '' };
   try {
     await w.revisarWebhook(empresa).catch(() => null); // aproveita e conserta o webhook se precisar
+    resumo.corrigidas = consertarConversasComLid(empresa);
     const chats = await listarChats(empresa, desdeSeg);
+    // conversas que ainda estão com o id interno: lê o histórico delas para achar o número
+    for (const c of estado.conversas.filter((x) => x.empresaId === empresa.id && /@lid$/.test(x.whatsappJid || ''))) {
+      const ch = chats.find((x) => x.jid === c.whatsappJid);
+      if (ch) ch.desde = Math.floor(Date.now() / 1000 - 30 * 86400);
+      else chats.push({ jid: c.whatsappJid, ultima: 0, desde: Math.floor(Date.now() / 1000 - 30 * 86400) });
+    }
     for (const chat of chats) {
-      const msgs = await mensagensDesde(empresa, chat.jid, desdeSeg).catch(() => []);
+      const msgs = await mensagensDesde(empresa, chat.jid, Math.min(desdeSeg, chat.desde || desdeSeg)).catch(() => []);
       let novas = 0;
       for (const m of msgs.sort((a, b) => segundos(a.messageTimestamp) - segundos(b.messageTimestamp))) if (importarMensagem(empresa, m)) novas++;
       if (novas) {
@@ -201,4 +269,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };
+module.exports = { consertarConversasComLid, consertarLid, jidReal, sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };
