@@ -56,10 +56,29 @@ fi
 [ -f data.json ] && chmod 600 data.json
 
 echo "==> Baixando a versão nova (branch $BRANCH)"
+ler_env() { grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//'; }
+# Diagnóstico (só do CRM): aparece no log do GitHub Actions
+diagnostico() {
+  set +e +o pipefail # só informa: nada aqui derruba um deploy que já deu certo
+  echo "==> Diagnóstico do CRM"
+  echo "    PUBLIC_URL=$(ler_env PUBLIC_URL .env)"
+  echo "    Contatos (anônimo, só leitura):"
+  CRM_DB_PATH="$(ler_env CRM_DB_PATH .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 60 node deploy/diagnostico-contatos.js 2>&1 | head -n 80 || true
+  # etiquetas do WhatsApp Business: copia (só leitura) as marcações dos números DO CRM para o CRM importar
+  DB_CRM="$(ler_env CRM_DB_PATH .env || true)"; DB_CRM="${DB_CRM:-$PASTA/data.json}"
+  INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
+  echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
+  EXPORTAR="$(dirname "$DB_CRM")/etiquetas-evolution.json" INSTANCIAS="$INSTANCIAS" timeout 60 bash deploy/evolution-etiquetas.sh 2>&1 | head -n 60 || true
+  echo "    Últimos erros do app (números escondidos):"
+  pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
+    | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true
+}
+
 git "${GIT_AUTH[@]}" fetch -q "${REPO_URL:-origin}" "$BRANCH"
 NOVA="$(git rev-parse FETCH_HEAD)"
 if [ "$NOVA" = "$ANTES" ]; then
   echo "==> Já está na versão mais nova ($(git log -1 --format='%h %s'))."
+  diagnostico
   exit 0
 fi
 git merge -q --ff-only FETCH_HEAD \
@@ -90,7 +109,6 @@ responde() {
 # como o DingDong Tracking). Se o .env do CRM ainda não tem, copia do .env do
 # tracker — só LÊ o arquivo do tracker, nunca altera nada nele.
 ENV_TRACKER="${ENV_TRACKER:-/var/www/dingdong/.env}"
-ler_env() { grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//'; }
 if [ -f .env ] && [ -z "$(ler_env EVOLUTION_API_KEY .env)" ] && [ -r "$ENV_TRACKER" ]; then
   CHAVE_EVO="$(ler_env EVOLUTION_API_KEY "$ENV_TRACKER")"
   URL_EVO="$(ler_env EVOLUTION_API_URL "$ENV_TRACKER")"
@@ -117,21 +135,6 @@ echo "==> Reiniciando só o \"$NOME_PM2\""
 pm2 restart "$NOME_PM2" --update-env >/dev/null
 # Diagnóstico (só do CRM): endereço público e os últimos erros do app, com os
 # números de telefone escondidos. Aparece no log do GitHub Actions.
-diagnostico() {
-  set +e +o pipefail # só informa: nada aqui derruba um deploy que já deu certo
-  echo "==> Diagnóstico do CRM"
-  echo "    PUBLIC_URL=$(ler_env PUBLIC_URL .env)"
-  echo "    Contatos (anônimo, só leitura):"
-  CRM_DB_PATH="$(ler_env CRM_DB_PATH .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 60 node deploy/diagnostico-contatos.js 2>&1 | head -n 80 || true
-  # etiquetas do WhatsApp Business: copia (só leitura) as marcações dos números DO CRM para o CRM importar
-  DB_CRM="$(ler_env CRM_DB_PATH .env || true)"; DB_CRM="${DB_CRM:-$PASTA/data.json}"
-  INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
-  echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
-  EXPORTAR="$(dirname "$DB_CRM")/etiquetas-evolution.json" INSTANCIAS="$INSTANCIAS" timeout 60 bash deploy/evolution-etiquetas.sh 2>&1 | head -n 60 || true
-  echo "    Últimos erros do app (números escondidos):"
-  pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
-    | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true
-}
 
 if responde; then
   pm2 save >/dev/null

@@ -24,6 +24,11 @@ db.empresas.forEach((e, i) => {
   if (!ls.length) return;
   console.log(`      Empresa ${i + 1}: ${ls.length} conversa(s)`);
   console.log(`        tipo do contato: ${JSON.stringify(conta(ls, (c) => tipoJid(c.whatsappJid)))}`);
+  // mesmo cliente em mais de uma conversa? (pelo número sem o 9 e pelo nome do WhatsApp)
+  const chave = (c) => { let d = String(/@s\.whatsapp\.net$/.test(c.whatsappJid || '') ? c.whatsappJid : c.telefone || '').split('@')[0].replace(/\D/g, ''); if (/^55\d{2}9\d{8}$/.test(d)) d = d.slice(0, 4) + d.slice(5); return d.length >= 10 ? d : ''; };
+  const porNumero = conta(ls.filter(chave), chave);
+  const porNome = conta(ls.filter((c) => c.nome), (c) => c.nome.trim().toLowerCase());
+  console.log(`        ligações LID→número conhecidas: ${Object.keys(e.mapaLid || {}).length} · mesmo número em 2+ conversas: ${Object.values(porNumero).filter((n) => n > 1).length} · mesmo nome em 2+ conversas: ${Object.values(porNome).filter((n) => n > 1).length}`);
   const fmt = (c) => {
     const d = String(c.telefone || '').replace(/\D/g, '');
     if (!d) return 'sem telefone';
