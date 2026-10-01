@@ -1,6 +1,7 @@
 // automacoes.js — a "máquina de vendas": mensagens automáticas no WhatsApp
 // que saem sozinhas quando o lead cumpre um critério. Exemplos (receitas):
-//  - recuperar quem parou de responder (a IA retoma a conversa);
+//  - recuperar quem parou de responder é o FOLLOW-UP (followup.js), que fica
+//    no topo desta mesma página — aqui ficam as outras regras;
 //  - pedir avaliação no Google para quem já fechou;
 //  - reativar quem desistiu; pós-venda; chamar para comprar de novo.
 // Também envia as mensagens agendadas pela equipe em cada lead.
@@ -33,25 +34,15 @@ function etapaParecida(empresa, ...nomes) {
   return '';
 }
 
+// Horário dos envios automáticos: UM só para o follow-up e todas as automações
+// (antes cada regra e o follow-up tinham o seu). Padrão: 8h às 20h.
+function horarioAutomatico(empresa) {
+  if (typeof empresa.horarioAutomatico === 'boolean') return empresa.horarioAutomatico;
+  return empresa.followup?.horarioComercial !== false;
+}
+
 // Receitas prontas: a empresa liga com um clique e ajusta se quiser
 const RECEITAS = {
-  recuperar: (empresa) => ({
-    nome: 'Recuperar quem parou de responder',
-    explicacao: 'Quando o cliente some no meio da conversa, a IA retoma o assunto de forma leve, com uma pergunta fácil. Até 2 tentativas.',
-    gatilho: { tipo: 'sem_resposta', horas: 20 },
-    filtro: {
-      etapas: leads.etapasDa(empresa).filter((e) => e !== etapaParecida(empresa, 'fechad', 'ganh', 'vendid') && e !== etapaParecida(empresa, 'perdid')),
-      etiquetas: []
-    },
-    acao: {
-      modo: 'ia',
-      instrucao:
-        'O cliente parou de responder. Retome a conversa de forma leve e útil: lembre do que ele queria, resolva uma possível dúvida ou objeção e termine com uma pergunta fácil de responder. Não seja insistente e não repita a última mensagem.'
-    },
-    maxPorLead: 2,
-    incluirPausados: false,
-    horarioComercial: true
-  }),
   avaliacao: (empresa) => ({
     nome: 'Pedir avaliação no Google',
     explicacao: 'Dois dias depois da venda confirmada (comprovante de Pix, venda marcada pela IA ou pela equipe), agradece e manda o link de avaliação do Google Meu Negócio. Mais avaliações = mais clientes novos.',
@@ -64,7 +55,6 @@ const RECEITAS = {
     },
     maxPorLead: 1,
     incluirPausados: true,
-    horarioComercial: true
   }),
   comentario: (empresa) => ({
     nome: 'Pedir comentário no anúncio (Instagram/Facebook)',
@@ -78,7 +68,6 @@ const RECEITAS = {
     },
     maxPorLead: 1,
     incluirPausados: true,
-    horarioComercial: true
   }),
   reativar: (empresa) => ({
     nome: 'Reativar quem desistiu',
@@ -92,7 +81,6 @@ const RECEITAS = {
     },
     maxPorLead: 1,
     incluirPausados: true,
-    horarioComercial: true
   }),
   posvenda: (empresa) => ({
     nome: 'Pós-venda: está tudo certo?',
@@ -106,7 +94,6 @@ const RECEITAS = {
     },
     maxPorLead: 1,
     incluirPausados: true,
-    horarioComercial: true
   }),
   recompra: (empresa) => ({
     nome: 'Chamar para comprar de novo',
@@ -120,7 +107,6 @@ const RECEITAS = {
     },
     maxPorLead: 1,
     incluirPausados: true,
-    horarioComercial: true
   })
 };
 
@@ -137,8 +123,45 @@ function automacoesDa(empresa) {
       mudou = true;
     }
   }
+  if (lista.some((r) => r.gatilho?.tipo === 'sem_resposta')) {
+    migrarRecuperarParaFollowup(empresa, lista);
+    mudou = true;
+  }
   if (mudou) salvar();
-  return lista;
+  return empresa.automacoes || lista;
+}
+
+// As regras antigas "parou de responder" viram passos do Follow-up (uma vez só):
+// mesma ideia, um lugar só. Quem já recebeu a regra antiga não recebe de novo
+// (o follow-up só começa para conversas que pararem depois da migração).
+function migrarRecuperarParaFollowup(empresa, lista) {
+  const velhas = lista.filter((r) => r.gatilho?.tipo === 'sem_resposta');
+  const base = velhas.find((r) => r.ativa) || velhas[0];
+  const fup = require('./followup');
+  // follow-up que você já configurou (ligou ou salvou) fica como está; senão vira a regra antiga
+  const jaConfigurado = Boolean(empresa.followup && (empresa.followup.ativo || empresa.followup.editadoEm));
+  const f = fup.configDa(empresa);
+  if (!jaConfigurado && base) {
+    const codigo = base.acao?.midiaId && midias.midiasDa(empresa).find((m) => m.id === base.acao.midiaId)?.codigo;
+    f.passos = Array.from({ length: Math.min(5, Math.max(1, base.maxPorLead || 1)) }, (_, i) => ({
+      id: novoId('fup'),
+      horas: base.gatilho.horas || 24,
+      modo: base.acao?.modo === 'texto' ? 'texto' : 'ia',
+      instrucao: base.acao?.instrucao || '',
+      texto: base.acao?.texto || '',
+      midias: i === 0 && codigo ? [codigo] : []
+    })).filter((p) => (p.modo === 'texto' ? p.texto : true));
+    if (!f.passos.length) f.passos = fup.PADRAO();
+    f.incluirPausados = base.incluirPausados === true;
+    if (typeof empresa.horarioAutomatico !== 'boolean') empresa.horarioAutomatico = base.horarioComercial !== false;
+  }
+  if (velhas.some((r) => r.ativa) && !f.ativo) {
+    f.ativo = true;
+    f.ativadoEm = agora();
+  }
+  empresa.automacoes = lista.filter((r) => r.gatilho?.tipo !== 'sem_resposta');
+  empresa.followupMigradoEm = agora();
+  console.log(`[automações ${empresa.id}] ${velhas.length} regra(s) "parou de responder" viraram o Follow-up`);
 }
 
 // Quando o lead comprou: a venda confirmada mais recente (comprovante de Pix,
@@ -157,7 +180,10 @@ function normalizarRegra(empresa, b, atual = {}) {
   const etapas = leads.etapasDa(empresa);
   const idsEtiquetas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
   const gat = b.gatilho || atual.gatilho || {};
-  const tipo = ['etapa', 'venda'].includes(gat.tipo) ? gat.tipo : 'sem_resposta';
+  if (!['etapa', 'venda'].includes(gat.tipo)) {
+    throw Object.assign(new Error('Para quem parou de responder, use o Follow-up (no topo da Máquina de vendas).'), { status: 400 });
+  }
+  const tipo = gat.tipo;
   const horas = Math.min(24 * 365, Math.max(1, Number(gat.horas) || 24));
   const etapa = tipo === 'etapa' ? leads.acharEtapa(empresa, gat.etapa) : '';
   if (tipo === 'etapa' && !etapa) throw Object.assign(new Error('Escolha a etapa que dispara a automação.'), { status: 400 });
@@ -181,7 +207,6 @@ function normalizarRegra(empresa, b, atual = {}) {
     },
     maxPorLead: Math.min(5, Math.max(1, Number(b.maxPorLead ?? atual.maxPorLead) || 1)),
     incluirPausados: (b.incluirPausados ?? atual.incluirPausados) === true,
-    horarioComercial: (b.horarioComercial ?? atual.horarioComercial) !== false,
     // também para quem comprou ANTES de ligar a regra (0 = só vendas novas)
     incluirAntigosDias: Math.min(365, Math.max(0, Number(b.incluirAntigosDias ?? atual.incluirAntigosDias) || 0))
   };
@@ -215,8 +240,7 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (lead.naoDisparar) return 'pediu para não receber';
   if (lead.precisaHumano) return 'esperando a equipe';
   if (lead.iaPausada && !regra.incluirPausados) return 'equipe atendendo';
-  // quem parou de responder agora é com a seção Follow-up (não manda duas retomadas)
-  if (regra.gatilho.tipo === 'sem_resposta' && empresa.followup?.ativo) return 'o Follow-up cuida disso';
+  if (regra.gatilho.tipo === 'sem_resposta') return 'o Follow-up cuida disso'; // (regra antiga, antes de migrar)
   if (regra.filtro.etapas.length && !regra.filtro.etapas.includes(lead.etapa)) return 'fora do filtro';
   if (regra.filtro.etiquetas.length && !(lead.etiquetas || []).some((t) => regra.filtro.etiquetas.includes(t))) return 'fora do filtro';
   const hist = lead.automacoes?.[regra.id] || { enviados: 0 };
@@ -299,7 +323,7 @@ function proximosEnvios(lead, empresa) {
         // nada mais impede quando chegar a hora?
         if (motivoInelegivel(regra, lead, empresa, quandoMs + 60 * 1000) !== null) continue;
       } else continue;
-      if (regra.horarioComercial) quandoMs = noHorarioComercial(quandoMs);
+      if (horarioAutomatico(empresa)) quandoMs = noHorarioComercial(quandoMs);
       lista.push({ tipo: 'automacao', id: regra.id, quando: new Date(Math.max(quandoMs, agoraMs)).toISOString(), titulo: regra.nome, detalhe: regra.acao.modo === 'ia' ? 'a IA escreve na hora' : regra.acao.texto.slice(0, 120), porIa: regra.acao.modo === 'ia' });
     }
   }
@@ -444,11 +468,10 @@ async function cicloDaEmpresa(empresa) {
     await enviarAgendadas(empresa);
     await require('./followup').processar(empresa); // follow-up em passos (seção Follow-up)
     const ativas = automacoesDa(empresa).filter((r) => r.ativa);
-    if (!ativas.length) return;
+    if (!ativas.length || (horarioAutomatico(empresa) && !dentroDoHorario())) return;
     let enviadas = 0;
     const doEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
     for (const regra of ativas) {
-      if (regra.horarioComercial && !dentroDoHorario()) continue;
       for (const lead of doEmpresa) {
         if (enviadas >= POR_CICLO) return;
         if (motivoInelegivel(regra, lead, empresa)) continue;
@@ -573,6 +596,7 @@ module.exports = {
   enviarPedidoManual,
   RECEITAS_DE_VENDA,
   RECEITAS,
+  horarioAutomatico,
   automacoesDa,
   normalizarRegra,
   criarDeReceita,

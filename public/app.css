@@ -934,3 +934,4 @@ html.dark .etiqueta.fup { background: #0c4a6e; color: #bae6fd; }
 .filtro-etiquetas .chip-filtro { white-space: nowrap; flex: none; }
 .perigo-aviso { background: var(--perigo-fundo); color: var(--perigo); }
 .lista-negra-tabela td { vertical-align: middle; }
+.passo-fup .tempo select { width: auto; }

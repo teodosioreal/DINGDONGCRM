@@ -230,7 +230,6 @@ function montarMenu(ativo) {
     // o dia a dia primeiro: conversas e máquina de vendas
     html += item(rotaEmpresa(id), 'inicio', 'Início', (d.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="ponto off" title="Algo precisa de atenção"></span>' : '');
     html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
-    html += item(rotaEmpresa(id, 'followup'), 'followup', 'Follow-up', d.followupAtivo ? '' : '<span class="ponto off" title="Desligado"></span>');
     html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
     html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
     html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
@@ -560,7 +559,7 @@ async function paginaEmpresa(id) {
   if (siteLigado) lista.push({ feito: Object.keys(r.porEtapa).length > 0 || r.totalLeads > 0, texto: 'Coloque o chat no seu site', dica: 'Copie e cole um código uma vez só.', href: rotaEmpresa(id, 'site') });
   if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Clique em Gerar QR code e escaneie com o celular.', href: rotaEmpresa(id, 'whatsapp') });
   if (zapLigado) lista.push({ feito: emp.totalMidias > 0 || (emp.links || []).length > 0, texto: 'Coloque fotos (ou uma pasta do Drive) e links para a IA usar', dica: 'Mostrar o trabalho vende: a IA manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
-  if (zapLigado) lista.push({ feito: (emp.automacoes || []).some((a) => a.ativa), texto: 'Ligue a máquina de vendas', dica: 'Recuperar vendas e pedir avaliações no Google, no automático.', href: rotaEmpresa(id, 'automacoes') });
+  if (zapLigado) lista.push({ feito: emp.followupAtivo || (emp.automacoes || []).some((a) => a.ativa), texto: 'Ligue a máquina de vendas', dica: 'Recuperar vendas e pedir avaliações no Google, no automático.', href: rotaEmpresa(id, 'automacoes') });
   const feitos = lista.filter((p) => p.feito).length;
   const tudoPronto = feitos === lista.length;
 
@@ -616,7 +615,7 @@ async function paginaEmpresa(id) {
       ${numeroCard('Disparos em andamento', r.disparosAtivos)}
     </div>
     <div class="card maquina-card">
-      <div class="maquina-topo"><span class="canal-icone maquina">${ICONES.maquina}</span><div><h2 style="margin:0">Máquina de vendas</h2><p class="rotulo" style="margin:2px 0 0">Mensagens automáticas: recuperar quem sumiu, pedir avaliação no Google, reativar quem desistiu.</p></div><a class="botao primario pequeno" href="${rotaEmpresa(id, 'automacoes')}">${(emp.automacoes || []).some((a) => a.ativa) ? 'Ver automações' : 'Ligar agora'}</a></div>
+      <div class="maquina-topo"><span class="canal-icone maquina">${ICONES.maquina}</span><div><h2 style="margin:0">Máquina de vendas</h2><p class="rotulo" style="margin:2px 0 0">Mensagens automáticas: recuperar quem sumiu, pedir avaliação no Google, reativar quem desistiu.</p></div><a class="botao primario pequeno" href="${rotaEmpresa(id, 'automacoes')}">${emp.followupAtivo || (emp.automacoes || []).some((a) => a.ativa) ? 'Ver automações' : 'Ligar agora'}</a></div>
       <div class="automacao-numeros"><span><b>${r.automaticas7d}</b> mensagens automáticas (7 dias)</span><span><b>${r.recuperados7d}</b> clientes responderam depois</span><span><b>${emp.naoLidas || 0}</b> mensagens não lidas · <a href="${rotaEmpresa(id, 'conversas')}">abrir conversas</a></span></div>
     </div>
     ${r.aguardandoEquipe ? balao(`${r.aguardandoEquipe} ${r.aguardandoEquipe === 1 ? 'cliente está' : 'clientes estão'} esperando alguém da equipe`, `A IA passou o atendimento para vocês. <a href="${rotaEmpresa(id, 'leads')}">Ver leads</a>`, 'aviso') : ''}
@@ -1028,11 +1027,6 @@ async function paginaWhatsapp(id) {
         : '<b>Desligado:</b> mesmo depois da sua mensagem manual, a IA <b>continua atendendo</b> aquele cliente.'}
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
-    <div class="card">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧬 Modo clone</h2>${interruptor('modo-clone', w.clone?.ativo, w.clone?.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0 0 8px">Ligado, a IA <b>aprende com as suas respostas manuais</b> (painel, celular, respostas rápidas e arquivos que você manda) e passa a responder <b>do seu jeito</b>: mesmo tom, tamanho, emojis, jeito de passar preço e de fechar — e manda as <b>mesmas mídias</b> nas mesmas situações. Os arquivos que você manda entram na biblioteca como "aprendidos do clone". Suas instruções da empresa continuam valendo acima de tudo.</p>
-      <p class="rotulo" style="margin:0">${w.clone?.total ? `Aprendeu com <b>${w.clone.total}</b> resposta(s) sua(s)${w.clone.midiasAprendidas ? ` e <b>${w.clone.midiasAprendidas}</b> mídia(s)` : ''}. <button type="button" class="link-botao" id="ver-clone">Ver o que aprendeu</button>` : 'Ainda não aprendeu nada: ligue e responda alguns clientes à mão.'}</p>
-    </div>
     ${w.configurado ? '<div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
@@ -1213,17 +1207,6 @@ async function paginaWhatsapp(id) {
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
   if (w.configurado) { cartaoEtiquetasZap(id); cartaoListaNegra(id); }
-  $('#modo-clone').onchange = async (e) => {
-    try {
-      await api(`empresas/${id}/clone`, { method: 'PUT', body: { ativo: e.target.checked } });
-      aviso(e.target.checked ? 'Modo clone ligado: a IA vai aprender com as suas respostas manuais.' : 'Modo clone desligado.');
-      recarregar();
-    } catch (err) {
-      e.target.checked = !e.target.checked;
-      aviso(err.message, true);
-    }
-  };
-  $('#ver-clone')?.addEventListener('click', () => modalClone(id, recarregar));
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
@@ -1371,7 +1354,7 @@ async function paginaMidias(id) {
       '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 200 MB cada, na qualidade original). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
       'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Proposta").',
       'Marque <b>Pronta</b>. Pronto: a IA manda sozinha na hora certa.',
-      'Vende mais de uma coisa? Crie <b>assuntos</b> (ex.: <i>Completo</i>, <i>Arco</i> — ou os do seu ramo) e marque em cada mídia: a IA só manda a mídia do assunto que está explicando. Mídias de <b>follow-up</b> ficam guardadas para o <a href="#/empresas/${esc(id)}/followup">Follow-up</a>.',
+      'Vende mais de uma coisa? Crie <b>assuntos</b> (ex.: <i>Completo</i>, <i>Arco</i> — ou os do seu ramo) e marque em cada mídia: a IA só manda a mídia do assunto que está explicando. Mídias de <b>follow-up</b> ficam guardadas para o <a href="' + rotaEmpresa(id, 'automacoes') + '">Follow-up (Máquina de vendas)</a>.',
       'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
     ]))}
 
@@ -3515,10 +3498,11 @@ async function paginaConversas(id, params) {
     $('#chat-sugerir').onclick = async (e) => {
       try {
         const r = await comEspera(e.currentTarget, () => api(`leads/${abertoId}/sugerir`, { method: 'POST', body: { pedido: campo.value.trim() } }), 'Pensando…');
+        if (!r.texto) throw new Error('A IA não conseguiu escrever uma sugestão agora. Tente de novo.');
         campo.value = r.texto;
         ajustarAltura();
         campo.focus();
-        aviso('Sugestão pronta — revise e clique em Enviar.');
+        aviso(r.midias?.length ? `Sugestão pronta — a IA também mandaria: ${r.midias.map((m) => `#${m}`).join(', ')} (use 🖼️ Mídias).` : 'Sugestão pronta — revise e clique em Enviar.');
       } catch (err) { aviso(err.message, true); }
     };
     $('#chat-agendar').onclick = () => {
@@ -3662,11 +3646,11 @@ function descreverGatilho(r) {
 
 // ---------------------------------------------------------------- follow-up automático (em passos)
 
-async function paginaFollowup(id) {
-  const hashDaPagina = location.hash;
-  const emp = await definirEmpresaAtual(id);
+// Seção 🔁 Follow-up (topo da Máquina de vendas): recuperar quem parou de responder
+async function secaoFollowup(id, emp, el) {
+  if (!el?.isConnected) return;
   const [d, todas, albuns, { assuntos: ASSUNTOS }] = await Promise.all([api(`empresas/${id}/followup`), api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/assuntos-midia`)]);
-  if (location.hash !== hashDaPagina) return;
+  if (!el.isConnected) return;
   // o que dá para anexar num passo: mídias soltas, álbuns e pastas do Drive (pelo código)
   const opcoes = [
     ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, icone: ICONE_TIPO[m.tipo] || '📎', assuntos: m.assuntos || [], soFollowup: m.soFollowup, pronta: m.pronta !== false })),
@@ -3677,40 +3661,28 @@ async function paginaFollowup(id) {
   let seq = (d.passos || []).map((p) => ({ ...p, midias: [...(p.midias || [])] }));
   const tempo = (h) => (h % 24 === 0 ? { n: h / 24, u: 'd' } : { n: h, u: 'h' });
 
-  conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>🔁 Follow-up</h1><p class="sub">Quando o cliente para de responder, o CRM retoma a conversa sozinho — com mensagem escrita pela IA para cada conversa e as mídias que você escolher</p></div></div>
-    ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `O follow-up sai pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
-    ${balao('Como funciona', passos([
-      'Você monta a sequência: ex. <b>1 dia</b> sem resposta → mensagem leve; <b>3 dias</b> depois → um benefício ou prova; <b>7 dias</b> depois → última tentativa.',
-      'Em cada passo, a <b>IA lê a conversa daquele cliente</b> e escreve a mensagem certa para ele (ou use um texto fixo). Pode anexar fotos, vídeos e álbuns da biblioteca.',
-      'Para sozinho quando o cliente <b>responde</b> (a IA volta a atender), compra, pede uma pessoa, pede para sair, ou vai para uma etapa de fechado/perdido. Só fala com quem está em Conversas.'
-    ]))}
-
-    <div class="card">
-      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">Follow-up automático</h2>${interruptor('fup-ativo', d.ativo, d.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0">${d.ativo ? `<b>${d.naFila}</b> cliente(s) na fila · <b>${d.enviadosHoje}</b> enviado(s) hoje.` : 'Desligado: nenhum follow-up sai. Ao ligar, só entram conversas que pararem a partir de agora (nada de mandar para conversa antiga).'}</p>
-    </div>
-
-    <div class="card">
-      <h2>Sequência</h2>
-      <p class="rotulo" style="margin-top:-6px">Cada tempo conta a partir da mensagem anterior (a sua ou o follow-up anterior). Até 5 passos.</p>
+  el.innerHTML = `
+    <div class="card fup-secao ${d.ativo ? 'ligada' : ''}">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><div><h2 style="margin:0">🔁 Follow-up: recuperar quem parou de responder</h2><p class="rotulo" style="margin:2px 0 0">A IA retoma a conversa sozinha, lendo o que cada cliente queria — em passos, com as mídias que você escolher.</p></div>${interruptor('fup-ativo', d.ativo, d.ativo ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0 0 8px">${d.ativo ? `<b>${d.naFila}</b> cliente(s) na fila · <b>${d.enviadosHoje}</b> enviado(s) hoje.` : 'Desligado: nenhum follow-up sai. Ao ligar, só entram conversas que pararem a partir de agora (nada de mandar para conversa antiga).'}</p>
+      <details ${d.ativo ? '' : 'open'}><summary>Como funciona</summary>${passos([
+        'Já vem pronto: <b>3 mensagens, uma a cada 48 h</b>, para quem parou de responder sem agendar. Mude os tempos, o texto, ponha um <b>vídeo</b> em cada passo — ou desligue.',
+        'Em cada passo, a <b>IA lê a conversa daquele cliente</b> e escreve a mensagem certa para ele (ou use um texto fixo). Se a IA falhar, sai a <b>mensagem genérica de reserva</b>.',
+        'Para sozinho quando o cliente <b>responde</b> (a IA volta a atender), compra, pede uma pessoa, pede para sair, ou vai para uma etapa de fechado/perdido. Só fala com quem está em Conversas.'
+      ])}</details>
+      <h3 style="margin:14px 0 4px">Sequência</h3>
+      <p class="rotulo" style="margin:0 0 8px">Cada tempo conta a partir da mensagem anterior (a sua ou o follow-up anterior). Até 5 passos.</p>
       <div id="lista-passos"></div>
-      <div class="acoes"><button type="button" id="add-passo">+ Adicionar passo</button></div>
-    </div>
-
-    <div class="card">
-      <h2>Regras</h2>
-      <label class="linha-check"><input type="checkbox" id="fup-horario" ${d.horarioComercial !== false ? 'checked' : ''}> Só enviar das 8h às 20h (horário de Brasília)</label>
-      <label class="linha-check" style="margin-top:8px"><input type="checkbox" id="fup-pausados" ${d.incluirPausados ? 'checked' : ''}> Mandar também para quem a equipe está atendendo (IA pausada)</label>
-      ${(d.etapas || []).length ? `<div class="campo" style="margin-top:12px"><label>Não mandar para quem está nestas etapas ${ajuda('Ex.: Fechado, Perdido. Quem está aqui já resolveu — não recebe follow-up.')}</label><div class="chips">${d.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
-      <p class="rotulo" style="margin:10px 0 0">Com o follow-up ligado, as automações de "parou de responder" da <a href="${rotaEmpresa(id, 'automacoes')}">Máquina de vendas</a> ficam paradas para não mandar em dobro.</p>
-    </div>
-
-    <div class="acoes" style="margin:0 0 18px"><button type="button" class="primario" id="salvar-fup">Salvar follow-up</button></div>
-
-    <div class="card">
-      <h2>⏳ Próximos envios</h2>
+      <div class="acoes" style="margin-top:0"><button type="button" id="add-passo">+ Adicionar passo</button></div>
+      <h3 style="margin:14px 0 6px">Para quem</h3>
+      <p class="rotulo" style="margin:0 0 6px">Entra sozinho todo cliente que parou de responder <b>sem agendar</b>. Quem já agendou (agendamento marcado, etapa ou etiqueta "Agendado") ou comprou fica de fora.</p>
+      <label class="linha-check"><input type="checkbox" id="fup-indeciso" ${d.etiquetaIndeciso !== false ? 'checked' : ''}> Marcar a etiqueta <b>Indeciso</b> em quem entra no follow-up (sai sozinha quando ele agenda ou compra)</label>
+      <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="fup-pausados" ${d.incluirPausados ? 'checked' : ''}> Mandar também para quem a equipe está atendendo (IA pausada)</label>
+      ${(d.etapas || []).length ? `<div class="campo" style="margin-top:10px"><label>Não mandar para quem está nestas etapas ${ajuda('Ex.: Fechado, Perdido. Quem está aqui já resolveu — não recebe follow-up.')}</label><div class="chips">${d.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
+      <div class="acoes"><button type="button" class="primario" id="salvar-fup">Salvar follow-up</button></div>
+      <details style="margin-top:10px" ${(d.proximos || []).length ? 'open' : ''}><summary>⏳ Próximos envios (${(d.proximos || []).length})</summary>
       ${(d.proximos || []).length ? `<ul class="fila-fup">${d.proximos.map((p) => `<li><span><a href="#/leads/${esc(p.leadId)}">${esc(p.nome)}</a> <span class="rotulo">· passo ${p.passo}</span></span><b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b></li>`).join('')}</ul>` : `<p class="rotulo">${d.ativo ? 'Ninguém na fila agora.' : 'Ligue o follow-up para ver a fila.'}</p>`}
+      </details>
     </div>`;
 
   function desenharPassos() {
@@ -3729,7 +3701,8 @@ async function paginaFollowup(id) {
         </div>
         ${p.modo === 'texto'
           ? `<div class="campo" style="margin-top:8px"><textarea rows="3" data-texto="${i}" maxlength="2000" placeholder="Oi {nome}! Passando para saber se ficou alguma dúvida 😊">${esc(p.texto || '')}</textarea><small><code>{nome}</code> vira o nome do cliente.</small></div>`
-          : `<div class="campo" style="margin-top:8px"><textarea rows="2" data-instrucao="${i}" maxlength="500" placeholder="O que a IA deve fazer neste passo (ex.: lembrar do que ele queria e perguntar se ficou dúvida)">${esc(p.instrucao || '')}</textarea><small>A IA segue isto e fala do que ESTE cliente queria, no tom das suas instruções. Ela também pode mandar mídias da biblioteca que combinem com o assunto da conversa.</small></div>`}
+          : `<div class="campo" style="margin-top:8px"><textarea rows="2" data-instrucao="${i}" maxlength="500" placeholder="O que a IA deve fazer neste passo (ex.: lembrar do que ele queria e perguntar se ficou dúvida)">${esc(p.instrucao || '')}</textarea><small>A IA segue isto e fala do que ESTE cliente queria, no tom das suas instruções. Ela também pode mandar mídias da biblioteca que combinem com o assunto da conversa.</small></div>
+            <div class="campo" style="margin-top:8px"><label>Se a IA falhar, manda esta mensagem genérica ${ajuda('Sem chave, sem crédito ou IA fora do ar: o cliente recebe isto no lugar, no mesmo horário. {nome} vira o nome do cliente.')}</label><textarea rows="2" data-reserva="${i}" maxlength="1000" placeholder="Oi {nome}! Passando para saber se ficou alguma dúvida 😊">${esc(p.reserva || '')}</textarea></div>`}
         <div class="campo" style="margin-top:8px"><label>Mídias deste passo (sempre vão junto)</label>
           <div class="midias-fup">${p.midias.map((c, j) => { const o = porCodigo[c]; return `<span class="etiqueta ${o && !o.pronta ? 'aviso' : ''}">${o ? `${o.icone} ${esc(o.nome)}` : `⚠️ #${esc(c)} (não existe mais)`} <button type="button" class="x-chip" data-tirar-midia="${i}:${j}">✕</button></span>`; }).join('') || '<span class="rotulo">nenhuma</span>'}</div>
           ${p.midias.length < 5 ? `<select data-add-midia="${i}" style="margin-top:6px"><option value="">+ Escolher mídia da biblioteca…</option>${(ASSUNTOS.length ? [...ASSUNTOS, ''] : ['']).map((a) => {
@@ -3747,6 +3720,7 @@ async function paginaFollowup(id) {
     $$('[data-modo]').forEach((el) => { el.onchange = () => { seq[el.dataset.modo].modo = el.value; desenharPassos(); }; });
     $$('[data-texto]').forEach((el) => { el.oninput = () => { seq[el.dataset.texto].texto = el.value; }; });
     $$('[data-instrucao]').forEach((el) => { el.oninput = () => { seq[el.dataset.instrucao].instrucao = el.value; }; });
+    $$('[data-reserva]').forEach((el) => { el.oninput = () => { seq[el.dataset.reserva].reserva = el.value; }; });
     $$('[data-tirar]').forEach((el) => { el.onclick = () => { seq.splice(Number(el.dataset.tirar), 1); desenharPassos(); }; });
     $$('[data-subir]').forEach((el) => { el.onclick = () => { const i = Number(el.dataset.subir); [seq[i - 1], seq[i]] = [seq[i], seq[i - 1]]; desenharPassos(); }; });
     $$('[data-descer]').forEach((el) => { el.onclick = () => { const i = Number(el.dataset.descer); [seq[i + 1], seq[i]] = [seq[i], seq[i + 1]]; desenharPassos(); }; });
@@ -3757,20 +3731,20 @@ async function paginaFollowup(id) {
   ligarRelogio();
   $('#add-passo').onclick = () => {
     const ultimo = seq[seq.length - 1];
-    seq.push({ id: '', horas: ultimo ? Math.min(ultimo.horas * 2, 24 * 30) : 24, modo: 'ia', instrucao: '', texto: '', midias: [] });
+    seq.push({ id: '', horas: ultimo ? ultimo.horas : 48, modo: 'ia', instrucao: '', texto: '', reserva: '', midias: [] });
     desenharPassos();
   };
   const corpo = () => ({
     passos: seq,
-    horarioComercial: $('#fup-horario').checked,
     incluirPausados: $('#fup-pausados').checked,
+    etiquetaIndeciso: $('#fup-indeciso').checked,
     ...($$('input[name=parar]').length ? { pararEtapas: $$('input[name=parar]:checked').map((c) => c.value) } : {})
   });
   $('#salvar-fup').onclick = async (e) => {
     try {
       await comEspera(e.target, () => api(`empresas/${id}/followup`, { method: 'PUT', body: corpo() }));
       aviso('Follow-up salvo.');
-      paginaFollowup(id);
+      secaoFollowup(id, emp, el);
     } catch (err) { aviso(err.message, true); }
   };
   $('#fup-ativo').onchange = async (e) => {
@@ -3779,7 +3753,7 @@ async function paginaFollowup(id) {
       if (ligar && !seq.length) throw new Error('Adicione pelo menos um passo antes de ligar.');
       await api(`empresas/${id}/followup`, { method: 'PUT', body: { ...corpo(), ativo: ligar } });
       aviso(ligar ? 'Follow-up ligado.' : 'Follow-up desligado.');
-      paginaFollowup(id);
+      secaoFollowup(id, emp, el);
     } catch (err) { e.target.checked = !ligar; aviso(err.message, true); }
   };
 }
@@ -3794,8 +3768,13 @@ async function paginaAutomacoes(id) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Máquina de vendas</h1><p class="sub">Mensagens automáticas que recuperam vendas, trazem avaliações e clientes de volta</p></div><button type="button" class="primario" id="nova-regra">+ Criar automação</button></div>
     ${d.whatsappConectado ? '' : balao('Conecte o WhatsApp primeiro', `As automações saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
-    ${emp.followupAtivo ? balao('O Follow-up está ligado', `Quem parou de responder é retomado pela página <a href="${rotaEmpresa(id, 'followup')}">🔁 Follow-up</a>. Aqui, as automações de "parou de responder" ficam paradas para o cliente não receber em dobro — as outras (avaliação, reativar, etc.) continuam.`, 'ok') : ''}
-    ${balao('Como funciona', 'Cada automação olha seus leads a cada minuto e manda a mensagem sozinha para quem cumpre o critério — ex.: "parou de responder há 20 horas" ou "fechou há 2 dias". Quando o cliente responde, a IA continua a conversa. <b>Ninguém recebe duas vezes</b>, quem pediu SAIR fica de fora e, por padrão, só envia das 8h às 20h.')}
+    ${balao('Como funciona', 'Tudo que sai sozinho para o cliente fica aqui. <b>Follow-up</b> retoma quem parou de responder; as <b>automações</b> abaixo cuidam do resto (avaliação no Google, pós-venda, reativar quem desistiu…). O CRM confere seus leads a cada minuto, <b>ninguém recebe duas vezes</b>, quem pediu SAIR ou está na lista negra fica de fora, e quando o cliente responde a IA continua a conversa.')}
+
+    <div class="card horario-auto">
+      <label class="linha-check" style="margin:0"><input type="checkbox" id="horario-auto" ${d.horarioAutomatico ? 'checked' : ''}> <b>Só enviar das 8h às 20h</b> (horário de Brasília) <span class="rotulo">— vale para o follow-up e todas as automações</span></label>
+    </div>
+
+    <div id="secao-followup"><div class="card"><p class="rotulo">Carregando follow-up…</p></div></div>
 
     <div class="card">
       <h2>Link de avaliação do Google</h2>
@@ -3813,12 +3792,12 @@ async function paginaAutomacoes(id) {
       ${precisaAnuncio ? '<p class="erro-caixa" style="margin-top:10px">A automação de comentário no anúncio está ligada, mas falta o link — ela não envia até você salvar.</p>' : ''}
     </div>
 
-    <h2>Suas automações</h2>
+    <h2>Outras automações</h2>
     <div class="lista-automacoes">
       ${d.regras.length ? d.regras.map((r) => `
         <div class="card automacao ${r.ativa ? 'ligada' : ''}">
           <div class="automacao-topo">
-            <div><strong>${esc(r.nome)}</strong><div class="rotulo">${esc(descreverGatilho(r))} · ${r.acao.modo === 'ia' ? '✨ a IA escreve' : '✉️ mensagem pronta'}${r.maxPorLead > 1 ? ` · até ${r.maxPorLead}x por lead` : ''}${r.horarioComercial ? ' · 8h–20h' : ''}</div></div>
+            <div><strong>${esc(r.nome)}</strong><div class="rotulo">${esc(descreverGatilho(r))} · ${r.acao.modo === 'ia' ? '✨ a IA escreve' : '✉️ mensagem pronta'}${r.maxPorLead > 1 ? ` · até ${r.maxPorLead}x por lead` : ''}</div></div>
             ${interruptor(`regra-${r.id}`, r.ativa)}
           </div>
           ${r.explicacao ? `<p class="rotulo" style="margin:8px 0 0">${esc(r.explicacao)}</p>` : ''}
@@ -3895,6 +3874,13 @@ async function paginaAutomacoes(id) {
     };
   });
   $('#nova-regra').onclick = () => modalAutomacao(emp, null, () => paginaAutomacoes(id));
+  secaoFollowup(id, emp, $('#secao-followup'));
+  $('#horario-auto').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/followup`, { method: 'PUT', body: { horarioComercial: e.target.checked } });
+      aviso(e.target.checked ? 'Envios automáticos só das 8h às 20h.' : 'Envios automáticos a qualquer hora.');
+    } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
+  };
 }
 
 async function modalAutomacao(emp, r, depois) {
@@ -3906,7 +3892,7 @@ async function modalAutomacao(emp, r, depois) {
     <form id="f-regra">
       <div class="campo"><label>Nome</label><input name="nome" required value="${esc(r?.nome || '')}" placeholder="Ex.: Lembrar orçamento enviado"></div>
       <div class="campo" style="margin-top:12px"><label>Quando enviar</label>
-        <select name="tipo"><option value="sem_resposta" ${!r || r.gatilho.tipo === 'sem_resposta' ? 'selected' : ''}>Quando o cliente não responde há…</option><option value="venda" ${r?.gatilho.tipo === 'venda' ? 'selected' : ''}>Depois da venda confirmada (comprovante, IA ou equipe)…</option><option value="etapa" ${r?.gatilho.tipo === 'etapa' ? 'selected' : ''}>Depois que o lead entra numa etapa…</option></select>
+        <select name="tipo"><option value="venda" ${!r || r.gatilho.tipo === 'venda' ? 'selected' : ''}>Depois da venda confirmada (comprovante, IA ou equipe)…</option><option value="etapa" ${r?.gatilho.tipo === 'etapa' ? 'selected' : ''}>Depois que o lead entra numa etapa…</option></select>
       </div>
       <div class="campos" style="margin-top:12px">
         <div class="campo"><label>Tempo</label><div class="linha-form"><input type="number" name="quantidade" min="1" value="${emDias ? horas / 24 : horas}"><select name="unidade" style="width:auto"><option value="h" ${emDias ? '' : 'selected'}>horas</option><option value="d" ${emDias ? 'selected' : ''}>dias</option></select></div></div>
@@ -3924,7 +3910,7 @@ async function modalAutomacao(emp, r, depois) {
         <div class="campo"><label>Mandar junto (opcional)</label><select name="midiaId"><option value="">Nada</option>${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}" ${m.id === r?.acao.midiaId ? 'selected' : ''}>${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</select></div>
         <div class="campo"><label>Vezes por lead ${ajuda('Quantas vezes, no máximo, o mesmo cliente recebe esta automação.')}</label><input type="number" name="maxPorLead" min="1" max="5" value="${r?.maxPorLead || 1}"></div>
       </div>
-      <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="horarioComercial" ${r?.horarioComercial === false ? '' : 'checked'}> Só das 8h às 20h</label>
+      <p class="rotulo" style="margin:12px 0 0">Quem parou de responder é com o 🔁 Follow-up, no topo da página. O horário (8h–20h) é o mesmo para tudo.</p>
       <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="incluirPausados" ${r?.incluirPausados ? 'checked' : ''}> Mandar também para leads que a equipe está atendendo</label>
       <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {
@@ -3952,7 +3938,6 @@ async function modalAutomacao(emp, r, depois) {
         filtro: { etapas: $$('input[name=fetapa]:checked', f).map((c) => c.value), etiquetas: $$('input[name=fetiqueta]:checked', f).map((c) => c.value) },
         acao: { modo, instrucao: o.instrucao, texto: o.texto, midiaId: o.midiaId },
         maxPorLead: Number(o.maxPorLead),
-        horarioComercial: o.horarioComercial,
         incluirPausados: o.incluirPausados,
         ...(r ? {} : { ativa: true })
       };
@@ -4220,6 +4205,29 @@ function modalVenda(emp, v, leadId, depois, padrao = {}) {
 
 // ---------------------------------------------------------------- empresa: aprendizados da IA (varredura das conversas)
 
+// 🧬 Modo clone (fica em Aprendizados da IA, junto com o resto do que a IA aprende com você)
+async function cartaoClone(id) {
+  const el = $('#ap-clone');
+  if (!el) return;
+  let c;
+  try { c = await api(`empresas/${id}/clone`); } catch (err) { el.innerHTML = `<div class="card"><p class="erro-caixa">${esc(err.message)}</p></div>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧬 Modo clone: a IA responde do seu jeito</h2>${interruptor('modo-clone', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0 0 8px">Ligado, a IA <b>aprende com as suas respostas manuais</b> (painel, celular, respostas rápidas e arquivos que você manda) e passa a responder <b>do seu jeito</b>: mesmo tom, tamanho, emojis, jeito de passar preço e de fechar — e manda as <b>mesmas mídias</b> nas mesmas situações. Os arquivos que você manda entram na biblioteca como "aprendidos do clone". Suas instruções da empresa continuam valendo acima de tudo.</p>
+      <p class="rotulo" style="margin:0">${c.total ? `Aprendeu com <b>${c.total}</b> resposta(s) sua(s)${c.midiasAprendidas ? ` e <b>${c.midiasAprendidas}</b> mídia(s)` : ''}. <button type="button" class="link-botao" id="ver-clone">Ver o que aprendeu</button>` : 'Ainda não aprendeu nada: ligue e responda alguns clientes à mão.'}</p>
+    </div>`;
+  $('#modo-clone').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/clone`, { method: 'PUT', body: { ativo: e.target.checked } });
+      aviso(e.target.checked ? 'Modo clone ligado: a IA vai aprender com as suas respostas manuais.' : 'Modo clone desligado.');
+      cartaoClone(id);
+    } catch (err) { e.target.checked = !e.target.checked; aviso(err.message, true); }
+  };
+  $('#ver-clone')?.addEventListener('click', () => modalClone(id, () => cartaoClone(id)));
+}
+
 async function paginaAprendizado(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -4231,10 +4239,12 @@ async function paginaAprendizado(id) {
       <div class="barra"><a class="botao" href="api/empresas/${esc(id)}/aprendizado/arquivo">⬇️ Baixar arquivo</a><button type="button" class="primario" id="varrer" ${rodando || !emp.whatsapp?.configurado ? 'disabled' : ''}>🔍 Varrer agora</button></div>
     </div>
     <div class="chips atalhos-secao">
+      <button type="button" class="chip-filtro" data-ir="ap-clone">🧬 Modo clone</button>
       <button type="button" class="chip-filtro" data-ir="ap-site">🌐 Seu site</button>
       <button type="button" class="chip-filtro" data-ir="ap-anuncios">📣 Anúncios e campanhas</button>
       <button type="button" class="chip-filtro" data-ir="ap-conversas">💬 Conversas do WhatsApp</button>
     </div>
+    <div id="ap-clone"><div class="card"><p class="rotulo">Carregando modo clone…</p></div></div>
     <div id="area-site"></div>
     <div id="area-anuncios"></div>
 
@@ -4287,6 +4297,7 @@ async function paginaAprendizado(id) {
   $$('[data-ir]').forEach((b) => { b.onclick = () => document.getElementById(b.dataset.ir)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   montarSiteDaEmpresa(id, $('#area-site'));
   montarAnuncios(id, $('#area-anuncios'));
+  cartaoClone(id);
   $('#varrer')?.addEventListener('click', async (e) => {
     try {
       await comEspera(e.target, () => api(`empresas/${id}/aprendizado/varrer`, { method: 'POST' }), 'Começando…');
@@ -4705,7 +4716,7 @@ function paginaConta() {
 // ---------------------------------------------------------------- roteador
 
 // endereços antigos do painel continuam funcionando
-const ROTAS_ANTIGAS = { assistentes: 'site', instalar: 'site' };
+const ROTAS_ANTIGAS = { assistentes: 'site', instalar: 'site', followup: 'automacoes' };
 
 // ---------------------------------------------------------------- sininho: avisos do sistema (erros de IA, WhatsApp, mídia…)
 async function atualizarSino() {
@@ -4778,7 +4789,6 @@ async function rotear() {
         faturamento: () => paginaFaturamento(id, params),
         aprendizado: () => paginaAprendizado(id),
         automacoes: () => paginaAutomacoes(id),
-        followup: () => paginaFollowup(id),
         disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id)),
         ia: () => paginaCerebro(id),
         site: () => paginaSite(id),

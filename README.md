@@ -456,15 +456,16 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 - Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo, já
   em "No WhatsApp".
 
-### 🔁 Follow-up automático (qualquer nicho)
+### 🔁 Follow-up (dentro da Máquina de vendas)
 
-Página própria no menu. Quando o cliente para de responder, o CRM manda uma sequência de até 5 passos (padrão: 1 dia, 3 dias, 7 dias — cada tempo conta da mensagem anterior):
+É a primeira seção da **Máquina de vendas** (não existe mais página separada nem a receita "Recuperar quem parou de responder" — as regras antigas desse tipo viraram passos do Follow-up sozinhas).
 
-- **IA escreve lendo a conversa** daquele cliente (com a instrução do passo) ou **texto fixo** (`{nome}` vira o nome).
-- Cada passo pode levar **mídias da biblioteca** (fotos, vídeos, álbuns, pastas do Drive), novas ou já existentes.
-- Para sozinho quando o cliente responde (a sequência recomeça na próxima vez que ele sumir), compra, pede uma pessoa, pede SAIR, entra em etapa de fechado/perdido (escolhidas na página), ou quando a IA já combinou retomar ([[RETOMAR]]). Só fala com quem está em Conversas, por padrão das 8h às 20h, e ao ligar não dispara para conversas antigas.
-- Fila com cronômetro na página e na conversa ("não enviar" encerra a sequência daquele cliente).
-- Com o follow-up ligado, as automações de "parou de responder" da Máquina de vendas ficam paradas (sem mensagem em dobro).
+- **Já vem ligado e pré-configurado:** 3 mensagens, uma a cada **48 h**, para quem parou de responder **sem agendar**. Ao ligar (ou ao atualizar), só entram conversas que pararem dali em diante.
+- Cada passo: **IA escreve lendo a conversa** daquele cliente (ou texto fixo), com **mensagem genérica de reserva** se a IA falhar (sem chave/crédito/fora do ar), e mídias/vídeo da biblioteca.
+- **Quem agendou não entra** (agendamento marcado, etapa "Agendado" ou etiqueta "Agendado"), nem quem comprou, pediu pessoa, pediu SAIR, está na lista negra ou numa etapa de fechado/perdido.
+- Etiqueta **Indeciso** marcada sozinha em quem entra no follow-up; sai quando ele agenda ou compra (opcional).
+- Para quando o cliente responde (recomeça se ele sumir de novo); fila com cronômetro; "não enviar" na conversa encerra a sequência do cliente.
+- **Horário único** (8h–20h) no topo da página vale para o follow-up e todas as automações.
 
 ### 🏷️ Etiquetas do WhatsApp Business ⇄ CRM
 

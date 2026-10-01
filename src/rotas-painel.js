@@ -129,7 +129,7 @@ router.get('/resumo', (req, res) => {
     noWhatsapp7d: recentes.filter((c) => c.whatsappJid).length,
     aguardandoEquipe: conversas.filter((c) => c.precisaHumano).length,
     totalLeads: conversas.length,
-    automaticas7d: conversas.reduce((n, c) => n + c.mensagens.filter((m) => m.automacaoId && m.em >= seteDias).length, 0),
+    automaticas7d: conversas.reduce((n, c) => n + c.mensagens.filter((m) => (m.automacaoId || m.followupPasso) && m.em >= seteDias).length, 0),
     recuperados7d: conversas.filter((c) => c.ultimaAutomacaoEm && c.ultimaAutomacaoEm >= seteDias && c.mensagens.some((m) => m.papel === 'visitante' && m.em > c.ultimaAutomacaoEm)).length,
     disparosAtivos: estado.disparos.filter((d) => ids.has(d.empresaId) && ['enviando', 'agendado'].includes(d.status)).length,
     porEtapa,
@@ -1760,21 +1760,40 @@ router.post('/leads/:id/sugerir', async (req, res) => {
   const pedido = texto(req.body?.pedido, 500);
   const conversa = (c.mensagens || []).filter((m) => !m.apagada && m.texto);
   if (!conversa.length) return res.status(400).json({ erro: 'Ainda não há conversa com este cliente para a IA ler.' });
-  try {
-    const r = await ia.escreverMensagem(bot, empresa, c.mensagens, instrucaoDeSugestao(c, conversa, pedido), {
-      etapas: leads.etapasDa(empresa),
-      etapaAtual: c.etapa,
-      links: midias.linksDa(empresa),
-      midias: midias.paraIa(empresa),
-      tickets: tickets.paraIa(c),
-      localizacao: localizacao.paraIa(c),
-      origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa)
-    });
-    res.json({ texto: r.texto });
-  } catch (err) {
-    res.status(502).json({ erro: ia.descreverErroIa(err) });
+  const contexto = async () => ({
+    etapas: leads.etapasDa(empresa),
+    etapaAtual: c.etapa,
+    links: midias.linksDa(empresa),
+    midias: midias.paraIa(empresa),
+    tickets: tickets.paraIa(c),
+    localizacao: localizacao.paraIa(c),
+    origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa).catch(() => '')
+  });
+  // tenta de novo uma vez: a IA às vezes devolve só comandos internos (texto vazio) ou falha por um instante
+  let ultimoErro = null;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const instrucao = instrucaoDeSugestao(c, conversa, pedido) + (tentativa ? ' IMPORTANTE: escreva o TEXTO da mensagem para o cliente (não use marcadores [[...]] e não deixe vazio).' : '');
+      const r = await ia.escreverMensagem(bot, empresa, c.mensagens, instrucao, await contexto());
+      const sugestao = limparSugestao(r.texto);
+      if (sugestao) return res.json({ texto: sugestao, midias: r.midias || [] });
+      ultimoErro = null;
+    } catch (err) {
+      ultimoErro = err;
+      if (err?.status && err.status < 500 && err.status !== 429) break; // chave inválida, sem crédito: não adianta repetir
+    }
   }
+  res.status(502).json({ erro: ultimoErro ? ia.descreverErroIa(ultimoErro) : 'A IA não conseguiu escrever uma sugestão agora. Tente de novo.' });
 });
+
+// Tira o que a IA às vezes põe em volta: "Sugestão:", aspas, marcadores que sobraram
+function limparSugestao(t) {
+  return String(t || '')
+    .replace(/\[\[[^\]]*\]\]/g, '')
+    .replace(/^\s*(sugest[aã]o( de mensagem)?|mensagem( sugerida)?|resposta)\s*:\s*/i, '')
+    .replace(/^["“”']+|["“”']+$/g, '')
+    .trim();
+}
 
 router.post('/leads/:id/agendar', (req, res) => {
   const c = acharLead(req, res);
@@ -2069,7 +2088,8 @@ router.get('/empresas/:id/automacoes', (req, res) => {
     }),
     linkAvaliacao: whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao || '',
     linkAnuncio: whatsapp.botDoWhatsapp(empresa)?.linkAnuncio || '',
-    whatsappConectado: whatsapp.configurado(empresa)
+    whatsappConectado: whatsapp.configurado(empresa),
+    horarioAutomatico: automacoes.horarioAutomatico(empresa)
   });
 });
 

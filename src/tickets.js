@@ -50,6 +50,7 @@ function quandoDe(v, referencia = new Date()) {
 
 // ---------------------------------------------------------------- agendamento lido na conversa (sem IA)
 // "agendado para sábado às 9h", "fica marcado amanhã 14h", "te espero dia 05/10 às 15:30"
+const RETORNO = /\b(te (chamo|chamar|chamamos|aviso|avisar|retorno|retornar|ligo|ligar|mando|mandar|procuro)|me (chama|chame|avisa|avise|liga|ligue|manda|mande)|entro em contato|falo com (voce|vc)|falamos|conversamos)\b/i;
 const CONFIRMA = /\b(agendad[oa]s?|marcad[oa]s?|confirmad[oa]s?|reservad[oa]s?|combinad[oa]s?|agendei|marquei|confirmei|reservei|te (espero|esperamos|aguardo|aguardamos)|esperamos (voc[eê]|vc)|est[aá] (marcado|agendado|confirmado)|fica (marcado|agendado|combinado))\b/i;
 const DIAS = { domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6 };
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -111,6 +112,8 @@ function quandoNoTexto(texto, referencia = new Date()) {
 function agendamentoDaMensagem(empresa, lead, texto, por) {
   const t = String(texto || '');
   if (!CONFIRMA.test(semAcento(t)) && !CONFIRMA.test(t)) return null;
+  // "combinado, amanhã te chamo" é retorno de contato, não horário marcado com o cliente
+  if (RETORNO.test(semAcento(t)) && !/\b(agendad|marcad|reservad|horario|consulta|visita|atendimento|instalac|sessao)/i.test(semAcento(t))) return null;
   const quando = quandoNoTexto(t);
   if (!quando || new Date(quando).getTime() < Date.now() - 3600 * 1000) return null;
   const descricao = t.replace(/\s+/g, ' ').trim().slice(0, 120);
