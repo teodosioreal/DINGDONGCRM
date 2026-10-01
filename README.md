@@ -471,6 +471,8 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 
 Em IA do WhatsApp → "Etiquetas do WhatsApp Business" (ligado por padrão). Marcou **Agendado** num cliente no celular → aparece no CRM; marcou no CRM (conversa, lead, lote, IA) → o CRM marca no celular. Etiquetas com o mesmo nome ficam ligadas e as criadas no WhatsApp Business entram no CRM sozinhas (renomear lá renomeia aqui). A Evolution não cria etiqueta nova no WhatsApp: para ligar uma etiqueta que só existe no CRM, crie uma com o mesmo nome no WhatsApp Business. Só funciona em número WhatsApp Business (eventos `LABELS_EDIT` e `LABELS_ASSOCIATION`, que o CRM liga sozinho no webhook).
 
+Etiquetas marcadas no celular **antes** de o CRM ouvir os avisos também entram: a cada deploy, o servidor copia (só lendo) do banco da Evolution as etiquetas e marcações **dos números do CRM** para `etiquetas-evolution.json` (ao lado do banco do CRM), e o CRM importa. A Evolution guarda os nomes sem acento ("Oramento") — o CRM liga com as etiquetas que já existem e conserta as palavras comuns ("Orçamento"). As listas automáticas do WhatsApp ("Não lidas", "Favoritos", "Grupos") ficam de fora.
+
 Em Conversas, os botões de etiqueta filtram a lista (ex.: só os **Agendados**), e na conversa dá para pôr/tirar etiquetas direto.
 
 ### 🚫 Lista negra

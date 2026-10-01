@@ -63,20 +63,50 @@ if [ -n "$PG" ]; then
     ESQ=$(docker exec -e BD="$BD" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "SELECT table_schema FROM information_schema.tables WHERE table_name = '"'"'Label'"'"' LIMIT 1"' 2>/dev/null)
     [ -n "$ESQ" ] || continue
     echo "       banco=$BD esquema=$ESQ"
-    docker exec -e BD="$BD" -e ESQ="$ESQ" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -F " | " -c "
+    docker exec -e BD="$BD" -e ESQ="$ESQ" -e INST="${INSTANCIAS:-}" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -F " | " -c "
       SET search_path TO \"$ESQ\";
       SELECT i.name, i.\"connectionStatus\", CASE WHEN i.\"businessId\" IS NULL THEN '"'"'sem businessId'"'"' ELSE '"'"'business'"'"' END,
         (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
         (SELECT string_agg(l.name, '"'"', '"'"') FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS nomes,
         (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id) AS conversas,
         (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id AND c.labels IS NOT NULL AND jsonb_typeof(c.labels) = '"'"'array'"'"' AND jsonb_array_length(c.labels) > 0) AS conversas_com_etiqueta
-      FROM \"Instance\" i ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed -E 's/[0-9]{8,}/[núm]/g; s/^/       instância: /' | head -20
+      FROM \"Instance\" i WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"')) ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed -E 's/[0-9]{8,}/[núm]/g; s/^/       instância (do CRM): /' | head -20
   done
 fi
+# ---------- cópia das etiquetas dos números DO CRM para o CRM importar (só leitura na Evolution)
+# EXPORTAR=<arquivo> e INSTANCIAS=<nomes separados por vírgula> (vêm do atualizar.sh)
+if [ -n "${EXPORTAR:-}" ] && [ -n "${INSTANCIAS:-}" ] && [ -n "$PG" ]; then
+  if ! printf '%s' "$INSTANCIAS" | grep -qE '^[A-Za-z0-9_.,-]+$'; then
+    echo "    exportar: nomes de instância estranhos, pulei"
+  else
+    for BD in $(docker exec "$PG" sh -c 'psql -U "$POSTGRES_USER" -d postgres -At -c "SELECT datname FROM pg_database WHERE NOT datistemplate"' 2>/dev/null); do
+      ESQ=$(docker exec -e BD="$BD" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "SELECT table_schema FROM information_schema.tables WHERE table_name = '"'"'Label'"'"' LIMIT 1"' 2>/dev/null)
+      [ -n "$ESQ" ] || continue
+      TMP="$EXPORTAR.tmp"
+      if docker exec -e BD="$BD" -e ESQ="$ESQ" -e INST="$INSTANCIAS" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -c "
+        SET search_path TO \"$ESQ\";
+        SELECT json_build_object(
+          '"'"'geradoEm'"'"', now(),
+          '"'"'etiquetas'"'"', COALESCE((SELECT json_agg(json_build_object('"'"'instancia'"'"', i.name, '"'"'id'"'"', l.\"labelId\", '"'"'nome'"'"', l.name, '"'"'cor'"'"', l.color))
+              FROM \"Label\" l JOIN \"Instance\" i ON i.id = l.\"instanceId\" WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"'))), '"'"'[]'"'"'::json),
+          '"'"'conversas'"'"', COALESCE((SELECT json_agg(json_build_object('"'"'instancia'"'"', i.name, '"'"'jid'"'"', c.\"remoteJid\", '"'"'labels'"'"', c.labels))
+              FROM \"Chat\" c JOIN \"Instance\" i ON i.id = c.\"instanceId\"
+              WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"')) AND jsonb_typeof(c.labels) = '"'"'array'"'"' AND jsonb_array_length(c.labels) > 0), '"'"'[]'"'"'::json)
+        );"' 2>/dev/null | grep -v '^SET$' > "$TMP" && [ -s "$TMP" ]; then
+        chmod 600 "$TMP" && mv "$TMP" "$EXPORTAR"
+        echo "    exportar: etiquetas dos números do CRM copiadas ($(wc -c < "$EXPORTAR") bytes)"
+      else
+        rm -f "$TMP"; echo "    exportar: não consegui ler (nada mudou)"
+      fi
+      break
+    done
+  fi
+fi
+
 if [ -n "$CONTAINER" ]; then
   for c in $CONTAINER; do
     echo "    avisos de etiqueta no log da Evolution (48 h): $(docker logs "$c" --since 48h 2>&1 | grep -ciE 'labels? ?(edit|association)|LABELS_' || true)"
-    docker logs "$c" --since 48h 2>&1 | grep -iE 'labels? ?(edit|association)|LABELS_' | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g' | cut -c1-220 | sort | uniq -c | sort -rn | head -8 | sed 's/^/       /'
+    docker logs "$c" --since 48h 2>&1 | grep -iE 'labels? ?(edit|association)|LABELS_' | grep -F "$(printf '%s' "${INSTANCIAS:-@@}" | tr ',' '\n')" | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g' | cut -c1-220 | sort | uniq -c | sort -rn | head -8 | sed 's/^/       /'
   done
 fi
 
