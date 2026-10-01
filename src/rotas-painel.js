@@ -1491,6 +1491,34 @@ router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
 });
 
 // ---------------------------------------------------------------- follow-up
+// ---------------------------------------------------------------- aviso de agendamento
+router.get('/empresas/:id/aviso-agendamento', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./aviso-agendamento').configDa(empresa));
+});
+
+router.put('/empresas/:id/aviso-agendamento', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(require('./aviso-agendamento').salvarConfig(empresa, req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.post('/empresas/:id/aviso-agendamento/testar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    await require('./aviso-agendamento').testar(empresa);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.message });
+  }
+});
+
 // ---------------------------------------------------------------- lista negra
 router.get('/empresas/:id/lista-negra', (req, res) => {
   const empresa = acharEmpresa(req, res);
@@ -1584,8 +1612,16 @@ router.get('/empresas/:id/clone', (req, res) => {
 router.put('/empresas/:id/clone', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  require('./clone').ligar(empresa, req.body?.ativo === true);
+  require('./clone').configurar(empresa, req.body || {});
   res.json(require('./clone').resumo(empresa));
+});
+
+// arquivo com tudo o que o clone aprendeu
+router.get('/empresas/:id/clone/arquivo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.attachment(`clone-${String(require('./clone').resumo(empresa).nome || 'aprendizado').replace(/[^\w-]+/g, '-').toLowerCase()}.txt`);
+  res.type('text/plain; charset=utf-8').send(require('./clone').arquivo(empresa));
 });
 
 router.delete('/empresas/:id/clone/exemplos/:exId', (req, res) => {

@@ -358,15 +358,19 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias que você já mandou nesta conversa: ${contexto.midiasEnviadas.join(', ')}.`);
 
   if (contexto.clone) {
+    // clone: respostas reais (escritas à mão) de conversas que viraram venda
+    const cl = typeof contexto.clone === 'string' ? { texto: contexto.clone, nome: 'o dono', completo: false } : contexto.clone;
     dinamico.push(
       '',
-      'MODO CLONE — o dono quer que você responda EXATAMENTE como ele. Abaixo estão respostas reais dele (escritas à mão) em situações parecidas com a de agora:',
+      cl.completo
+        ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Você é o clone de ${cl.nome}: responda 100% como ${cl.nome} responderia, seguindo a mesma linha das conversas abaixo, que viraram venda:`
+        : `CLONE DE ${cl.nome.toUpperCase()} — responda como ${cl.nome}. Abaixo estão respostas reais dele(a), escritas à mão, em conversas parecidas que viraram venda:`,
       '<exemplos_do_dono>',
-      contexto.clone,
+      cl.texto,
       '</exemplos_do_dono>',
-      '- Imite o dono: o tamanho das mensagens, o tom, as gírias, os emojis, como ele cumprimenta, como passa o preço, como responde objeção e como fecha.',
-      '- Se a situação for parecida com um exemplo em que ele mandou mídia, mande a MESMA mídia (o mesmo [[MIDIA: CÓDIGO]]).',
-      '- O que o dono disse nos exemplos (preço, prazo, condição) vale como informação verdadeira; se conflitar com <instrucoes_da_empresa> ou <conhecimento>, valem essas. Nunca copie nome, telefone ou dado pessoal de outro cliente.'
+      `- Imite ${cl.nome}: o tamanho das mensagens, o tom, as gírias, os emojis, como cumprimenta, a ordem das perguntas, como passa o preço, como responde objeção e como fecha.`,
+      '- Se a situação for parecida com um exemplo em que foi mandada mídia, mande a MESMA mídia (o mesmo [[MIDIA: CÓDIGO]]).',
+      '- O que foi dito nos exemplos (preço, prazo, condição) vale como informação verdadeira; se conflitar com <instrucoes_da_empresa> ou <conhecimento>, valem essas. Nunca copie nome, telefone ou dado pessoal de outro cliente.'
     );
   }
 

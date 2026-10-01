@@ -177,6 +177,8 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) 
   }
   lead.atualizadoEm = agora();
   salvar();
+  // aviso para o número cadastrado (técnico/dono), se estiver ligado
+  require('./aviso-agendamento').agendamentoNovo(empresa, lead, ag);
   return { agendamento: ag, novo: true };
 }
 

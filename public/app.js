@@ -1027,7 +1027,7 @@ async function paginaWhatsapp(id) {
         : '<b>Desligado:</b> mesmo depois da sua mensagem manual, a IA <b>continua atendendo</b> aquele cliente.'}
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
-    ${w.configurado ? '<div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
+    ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -1206,7 +1206,7 @@ async function paginaWhatsapp(id) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
-  if (w.configurado) { cartaoEtiquetasZap(id); cartaoListaNegra(id); }
+  if (w.configurado) { cartaoAvisoAgendamento(id); cartaoEtiquetasZap(id); cartaoListaNegra(id); }
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
@@ -2711,15 +2711,15 @@ function htmlMensagem(m, leadId, anterior) {
 async function modalClone(empresaId, depois) {
   const r = await api(`empresas/${empresaId}/clone`);
   abrirModal(`
-    <h2>🧬 O que a IA aprendeu com você</h2>
-    <p class="rotulo">Na hora de responder, a IA usa os exemplos mais parecidos com o que o cliente disse. Apague os que não representam o seu jeito.</p>
+    <h2>🧬 O que o clone aprendeu</h2>
+    <p class="rotulo">Respostas manuais de conversas que viraram venda. Na hora de responder, a IA usa as mais parecidas com o que o cliente disse. Tire as que não representam o seu jeito.</p>
     <div class="lista-clone">${r.exemplos.map((ex) => `
       <div class="exemplo-clone" data-ex="${esc(ex.id)}">
         <div class="rotulo">Cliente: ${esc(ex.cliente)}</div>
         <div><b>Você:</b> ${esc(ex.resposta || '(só mandou mídia)')}${(ex.midias || []).length ? ` <span class="etiqueta">🖼️ ${ex.midias.map(esc).join(', ')}</span>` : ''}</div>
-        <button type="button" class="pequeno perigo" data-apagar-ex="${esc(ex.id)}">Apagar</button>
+        <button type="button" class="pequeno perigo" data-apagar-ex="${esc(ex.id)}">Não usar esta</button>
       </div>`).join('') || '<p class="rotulo">Nada ainda.</p>'}</div>
-    <div class="acoes">${r.exemplos.length ? '<button type="button" class="perigo" id="limpar-clone">Apagar tudo</button>' : ''}<button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+    <div class="acoes">${r.exemplos.length ? '<button type="button" class="perigo" id="limpar-clone">Recomeçar do zero</button>' : ''}<button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
     $$('[data-apagar-ex]', m).forEach((b) => {
       b.onclick = async () => {
         await api(`empresas/${empresaId}/clone/exemplos/${b.dataset.apagarEx}`, { method: 'DELETE', body: {} });
@@ -2727,7 +2727,7 @@ async function modalClone(empresaId, depois) {
       };
     });
     $('#limpar-clone', m)?.addEventListener('click', async () => {
-      if (!(await confirmar({ titulo: 'Apagar tudo o que aprendeu?', texto: 'A IA volta a responder sem os seus exemplos (as mídias aprendidas continuam na biblioteca).', botao: 'Apagar tudo', perigo: true }))) return;
+      if (!(await confirmar({ titulo: 'Recomeçar o clone do zero?', texto: 'Ele esquece o que aprendeu até agora e volta a contar a partir das próximas vendas (as conversas e as mídias continuam).', botao: 'Recomeçar', perigo: true }))) return;
       await api(`empresas/${empresaId}/clone/exemplos`, { method: 'DELETE', body: {} });
       fechar();
       depois?.();
@@ -2794,6 +2794,27 @@ async function cartaoEtiquetasZap(id) {
   $('#etq-zap-ler')?.addEventListener('click', async (e) => {
     try { await comEspera(e.target, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Lendo…'); aviso('Etiquetas lidas.'); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
   });
+}
+
+// 📅 aviso de agendamento para um número cadastrado (página IA do WhatsApp)
+async function cartaoAvisoAgendamento(id) {
+  const el = $('#card-aviso-agenda');
+  if (!el) return;
+  let c;
+  try { c = await api(`empresas/${id}/aviso-agendamento`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 Aviso de agendamento</h2>${interruptor('aviso-ag-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
+    <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, carro, endereço, preço e outras informações importantes da conversa.</p>
+    <form id="f-aviso-ag" class="linha-form" style="flex-wrap:wrap"><input name="numero" value="${esc(c.numero ? telefoneBonito(c.numero) : '')}" placeholder="WhatsApp que recebe o aviso (DDD + número)"><button type="submit" class="primario">Salvar número</button><button type="button" id="aviso-ag-teste" ${c.numero ? '' : 'disabled'}>Mandar um teste</button></form>`;
+  const salvar_ = async (corpo, msg) => {
+    try { await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: corpo }); aviso(msg); cartaoAvisoAgendamento(id); } catch (err) { aviso(err.message, true); cartaoAvisoAgendamento(id); }
+  };
+  $('#aviso-ag-ativo').onchange = (e) => salvar_({ ativo: e.target.checked, numero: $('#f-aviso-ag').elements.numero.value }, e.target.checked ? 'Aviso de agendamento ligado.' : 'Aviso de agendamento desligado.');
+  $('#f-aviso-ag').onsubmit = (e) => { e.preventDefault(); salvar_({ numero: e.target.elements.numero.value }, 'Número salvo.'); };
+  $('#aviso-ag-teste').onclick = async (e) => {
+    try { await comEspera(e.target, () => api(`empresas/${id}/aviso-agendamento/testar`, { method: 'POST', body: {} }), 'Enviando…'); aviso('Teste enviado. Confira o WhatsApp do número cadastrado.'); } catch (err) { aviso(err.message, true); }
+  };
 }
 
 // 🚫 lista negra (página IA do WhatsApp)
@@ -4214,26 +4235,35 @@ function modalVenda(emp, v, leadId, depois, padrao = {}) {
 
 // ---------------------------------------------------------------- empresa: aprendizados da IA (varredura das conversas)
 
-// 🧬 Modo clone (fica em Aprendizados da IA, junto com o resto do que a IA aprende com você)
+// 🧬 Clone (Aprendizados da IA, junto do "O que a IA aprendeu"): aprende com as
+// respostas manuais das conversas que viraram venda; com 10, fica completo
 async function cartaoClone(id) {
   const el = $('#ap-clone');
   if (!el) return;
   let c;
   try { c = await api(`empresas/${id}/clone`); } catch (err) { el.innerHTML = `<div class="card"><p class="erro-caixa">${esc(err.message)}</p></div>`; return; }
   if (!el.isConnected) return;
+  const feito = Math.min(c.conversas, c.meta);
+  const nome = c.nome || 'o clone';
   el.innerHTML = `
-    <div class="card">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧬 Modo clone: a IA responde do seu jeito</h2>${interruptor('modo-clone', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0 0 8px">Ligado, a IA <b>aprende com as suas respostas manuais</b> (painel, celular, respostas rápidas e arquivos que você manda) e passa a responder <b>do seu jeito</b>: mesmo tom, tamanho, emojis, jeito de passar preço e de fechar — e manda as <b>mesmas mídias</b> nas mesmas situações. Os arquivos que você manda entram na biblioteca como "aprendidos do clone". Suas instruções da empresa continuam valendo acima de tudo.</p>
-      <p class="rotulo" style="margin:0">${c.total ? `Aprendeu com <b>${c.total}</b> resposta(s) sua(s)${c.midiasAprendidas ? ` e <b>${c.midiasAprendidas}</b> mídia(s)` : ''}. <button type="button" class="link-botao" id="ver-clone">Ver o que aprendeu</button>` : 'Ainda não aprendeu nada: ligue e responda alguns clientes à mão.'}</p>
+    <div class="card clone-card ${c.ativo ? 'ligado' : ''}">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🧬 Clone${c.nome ? `: ${esc(c.nome)}` : ''}</h2>${interruptor('clone-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0 0 10px">Aprende com as <b>respostas que você (ou a equipe) escreveu à mão</b> nas conversas que <b>viraram venda</b> — tom, tamanho, preço, como fecha e as mídias que mandou. Com <b>${c.meta} vendas</b> o aprendizado fica completo e ele responde igual a você. Não gasta IA para aprender.</p>
+      <div class="clone-progresso"><div class="barra-clone"><span style="width:${Math.round((feito / c.meta) * 100)}%"></span></div><b>${feito}/${c.meta}</b> conversas vendidas${c.completo ? ' · <span class="etiqueta ok">✓ aprendizado completo</span>' : ` · faltam ${c.meta - feito}`}</div>
+      <p class="rotulo" style="margin:6px 0 12px">${c.total} resposta(s) manual(is) aprendida(s)${c.midiasAprendidas ? ` · ${c.midiasAprendidas} mídia(s) na biblioteca` : ''}.</p>
+      <form id="f-clone" class="linha-form" style="flex-wrap:wrap;margin-bottom:10px"><input name="nome" maxlength="40" value="${esc(c.nome)}" placeholder="Nome do clone (ex.: Teodósio)"><button type="submit">Salvar nome</button></form>
+      ${interruptor('clone-responder', c.responder, `Responder igual ao operador${c.completo ? '' : ' (já usa o que aprendeu; fica 100% com ' + c.meta + ' vendas)'}`)}
+      <div class="acoes" style="margin-top:12px">
+        <a class="botao" href="api/empresas/${esc(id)}/clone/arquivo">⬇️ Baixar o arquivo do clone</a>
+        ${c.total ? '<button type="button" id="ver-clone">Ver o que aprendeu</button>' : ''}
+      </div>
     </div>`;
-  $('#modo-clone').onchange = async (e) => {
-    try {
-      await api(`empresas/${id}/clone`, { method: 'PUT', body: { ativo: e.target.checked } });
-      aviso(e.target.checked ? 'Modo clone ligado: a IA vai aprender com as suas respostas manuais.' : 'Modo clone desligado.');
-      cartaoClone(id);
-    } catch (err) { e.target.checked = !e.target.checked; aviso(err.message, true); }
+  const salvarClone = async (corpo, msg) => {
+    try { await api(`empresas/${id}/clone`, { method: 'PUT', body: corpo }); aviso(msg); cartaoClone(id); } catch (err) { aviso(err.message, true); cartaoClone(id); }
   };
+  $('#clone-ativo').onchange = (e) => salvarClone({ ativo: e.target.checked }, e.target.checked ? `Clone ligado: ${nome} está aprendendo com as suas vendas.` : 'Clone desligado.');
+  $('#clone-responder').onchange = (e) => salvarClone({ responder: e.target.checked, ...(e.target.checked ? { ativo: true } : {}) }, e.target.checked ? `A IA responde igual a ${nome}.` : 'A IA volta a responder no estilo normal.');
+  $('#f-clone').onsubmit = (e) => { e.preventDefault(); salvarClone({ nome: e.target.elements.nome.value }, 'Nome salvo.'); };
   $('#ver-clone')?.addEventListener('click', () => modalClone(id, () => cartaoClone(id)));
 }
 
@@ -4248,12 +4278,11 @@ async function paginaAprendizado(id) {
       <div class="barra"><a class="botao" href="api/empresas/${esc(id)}/aprendizado/arquivo">⬇️ Baixar arquivo</a><button type="button" class="primario" id="varrer" ${rodando || !emp.whatsapp?.configurado ? 'disabled' : ''}>🔍 Varrer agora</button></div>
     </div>
     <div class="chips atalhos-secao">
-      <button type="button" class="chip-filtro" data-ir="ap-clone">🧬 Modo clone</button>
       <button type="button" class="chip-filtro" data-ir="ap-site">🌐 Seu site</button>
       <button type="button" class="chip-filtro" data-ir="ap-anuncios">📣 Anúncios e campanhas</button>
       <button type="button" class="chip-filtro" data-ir="ap-conversas">💬 Conversas do WhatsApp</button>
+      <button type="button" class="chip-filtro" data-ir="ap-clone">🧬 Clone</button>
     </div>
-    <div id="ap-clone"><div class="card"><p class="rotulo">Carregando modo clone…</p></div></div>
     <div id="area-site"></div>
     <div id="area-anuncios"></div>
 
@@ -4289,6 +4318,8 @@ async function paginaAprendizado(id) {
       <textarea class="grande" name="texto" placeholder="Ainda vazio. Clique em &quot;Varrer agora&quot; para a IA ler as suas conversas.">${esc(a.texto || '')}</textarea>
       <div class="acoes"><button class="primario" type="submit">Salvar alterações</button></div>
     </form>
+
+    <div id="ap-clone"><div class="card"><p class="rotulo">Carregando o clone…</p></div></div>
 
     ${a.historico.length ? `
     <div class="card tabela-wrap">

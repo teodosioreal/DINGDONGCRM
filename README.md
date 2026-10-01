@@ -467,6 +467,14 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
 - Para quando o cliente responde (recomeça se ele sumir de novo); fila com cronômetro; "não enviar" na conversa encerra a sequência do cliente.
 - **Horário único** (8h–20h) no topo da página vale para o follow-up e todas as automações.
 
+### 🧬 Clone (Aprendizados da IA, junto do "O que a IA aprendeu")
+
+Aprende com as respostas **escritas à mão** (painel, celular, respostas rápidas, mídias e arquivos) nas conversas que **viraram venda** — lê direto das conversas, sem gastar IA. Barra de progresso até **10 vendas**: aí o aprendizado fica completo e, com **Responder igual ao operador** ligado, a IA segue 100% a linha de quem respondeu (tom, tamanho, preço, objeções, fechamento e as mesmas mídias). Dá para dar um nome ao clone, ligar/desligar, baixar o arquivo com tudo o que ele aprendeu, tirar exemplos ruins ou recomeçar do zero.
+
+### 📅 Aviso de agendamento
+
+Em IA do WhatsApp: cadastre um número e ligue. Todo agendamento **confirmado** (pela IA, pela equipe no painel ou combinado na conversa do WhatsApp) manda para esse número: cliente, telefone com link **wa.me** para chamar, dia e hora, serviço, carro/produto, endereço, preço e outras informações úteis tiradas da conversa (IA barata; sem IA, o básico). Um aviso por agendamento; botão para mandar um teste.
+
 ### 👤 Um cliente = uma conversa (número com/sem 9 e id escondido)
 
 O WhatsApp pode mandar o mesmo cliente pelo número (com ou sem o 9) ou por um id escondido (LID); a Evolution 2.3 ainda troca o LID pelo número antes de avisar o CRM. O `src/identidade.js` decide de quem é cada mensagem (recebida, enviada pelo celular ou importada) por **qualquer** desses endereços e, se o mesmo cliente estiver em duas conversas, junta as duas (mensagens, agendamentos, vendas, etiquetas, anotações). Também: ligações LID→número copiadas (só leitura) do banco da Evolution a cada deploy, consulta à Evolution quando um número desconhecido chega e ainda há conversas só com LID, e revisão de duplicadas ao ligar e a cada 20 min.

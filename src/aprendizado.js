@@ -276,4 +276,4 @@ function resumo(empresa) {
   };
 }
 
-module.exports = { varrer, verificarAgenda, zerar, resumo, configDa, guardar, progresso };
+module.exports = { varrer, verificarAgenda, zerar, resumo, configDa, guardar, progresso, vendaConcluida };

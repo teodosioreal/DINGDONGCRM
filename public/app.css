@@ -451,7 +451,8 @@ details.secao-avancada { margin-top: 16px; }
   .filtros .linha-form { max-width: none; }
 }
 @media (max-width: 768px) {
-  .grade-resumo { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grade-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .grade-resumo .numero { font-size: clamp(18px, 6vw, 26px); overflow-wrap: anywhere; }
   .grade-resumo .card { padding: 14px; }
 }
 
@@ -935,3 +936,9 @@ html.dark .etiqueta.fup { background: #0c4a6e; color: #bae6fd; }
 .perigo-aviso { background: var(--perigo-fundo); color: var(--perigo); }
 .lista-negra-tabela td { vertical-align: middle; }
 .passo-fup .tempo select { width: auto; }
+
+/* clone */
+.clone-card.ligado { border-color: color-mix(in srgb, var(--primario) 40%, var(--borda)); }
+.clone-progresso { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.barra-clone { flex: 1 1 180px; max-width: 320px; height: 10px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+.barra-clone span { display: block; height: 100%; background: var(--primario); border-radius: 999px; transition: width .3s; }
