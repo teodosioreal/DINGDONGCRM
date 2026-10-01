@@ -123,6 +123,10 @@ async function chamar(c, metodo, caminho, corpo, { tempo = 30000 } = {}) {
 }
 
 function evolution(empresa, metodo, caminho, corpo, opcoes) {
+  // lista negra: nenhuma mensagem sai para esse número, venha de onde vier
+  if (/^\/message\/send/i.test(caminho) && corpo?.number && leads.naListaNegra(empresa, corpo.number)) {
+    return Promise.reject(Object.assign(new Error('Este cliente está na lista negra: nada é enviado para ele. Tire da lista para voltar a mandar.'), { status: 403, listaNegra: true }));
+  }
   return chamar(configDa(empresa), metodo, caminho, corpo, opcoes);
 }
 
@@ -231,7 +235,7 @@ function ehNossoWebhook(empresa, url) {
 
 // Eventos que o CRM escuta: mensagens, conexão e conversa apagada no celular
 // MESSAGES_SET: histórico que o celular manda ao reconectar (entra nas conversas, sem a IA responder)
-const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE'];
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE', 'LABELS_EDIT', 'LABELS_ASSOCIATION'];
 
 // Confere o webhook da instância e conserta se for do CRM e estiver errado:
 // desligado, com endereço antigo (ex.: depois de reconectar), sem algum evento
@@ -667,8 +671,16 @@ async function receberWebhook(empresa, corpo) {
       empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora() };
       salvar();
       // voltou a conectar: busca o que chegou enquanto estava fora
-      if (st === 'open' && antes !== 'open') require('./sincronizar').aoReconectar(empresa);
+      if (st === 'open' && antes !== 'open') {
+        require('./sincronizar').aoReconectar(empresa);
+        require('./etiquetas-zap').carregar(empresa).catch(() => {});
+      }
     }
+    return;
+  }
+  // etiquetas do WhatsApp Business (criou/renomeou, marcou/desmarcou um cliente)
+  if (eventoDe(corpo) === 'labels.edit' || eventoDe(corpo) === 'labels.association') {
+    require('./etiquetas-zap').receberWebhook(empresa, eventoDe(corpo), corpo?.data);
     return;
   }
   // histórico que o celular manda ao reconectar: entra nas conversas, sem a IA responder
@@ -773,6 +785,13 @@ async function receberWebhook(empresa, corpo) {
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
     leads.aoChegarNoWhatsapp(lead, empresa);
+
+    // lista negra: a mensagem aparece em Conversas, mas ninguém (nem a IA) responde
+    if (leads.naListaNegra(empresa, lead)) {
+      lead.listaNegra = true;
+      salvar();
+      continue;
+    }
 
     // resposta "SAIR" a um disparo em massa: não recebe mais disparos
     if (lead.ultimoDisparoEm && pediuParaSair(texto)) {

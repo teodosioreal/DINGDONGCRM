@@ -539,7 +539,7 @@ router.put('/empresas/:id/etiquetas', (req, res) => {
     if (!nome || nova.some((x) => x.nome.toLowerCase() === nome.toLowerCase())) continue;
     const cor = /^#[0-9a-f]{6}$/i.test(t?.cor || '') ? t.cor : leads.CORES_ETIQUETA[nova.length % leads.CORES_ETIQUETA.length];
     const existente = atuais.find((x) => x.id === t?.id);
-    nova.push({ id: existente ? existente.id : novoId('tag'), nome, cor });
+    nova.push({ id: existente ? existente.id : novoId('tag'), nome, cor, ...(existente?.zapId ? { zapId: existente.zapId } : {}) });
   }
   empresa.etiquetas = nova;
   const validas = new Set(nova.map((x) => x.id));
@@ -1075,6 +1075,7 @@ function resumoLead(c) {
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
     etiquetas: c.etiquetas || [],
     naoDisparar: Boolean(c.naoDisparar),
+    listaNegra: leads.naListaNegra(null, c),
     iaStatus: c.iaStatus || null,
     arquivado: Boolean(c.arquivado),
     arquivadoPor: c.arquivadoPor || '',
@@ -1194,6 +1195,8 @@ router.get('/leads/:id', (req, res) => {
     proximosEnvios: automacoes.proximosEnvios(c, empresa),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
+    listaNegra: leads.naListaNegra(empresa, c),
+    erroEtiquetaZap: c.erroEtiquetaZap || null,
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
     botNome: bot?.nome || '—',
@@ -1408,10 +1411,16 @@ router.get('/empresas/:id/conversas', (req, res) => {
   // venda concluída (comprovante, IA ou equipe) ou lead em "Fechado": vai para "Vendas concluídas"
   const comVenda = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status !== 'cancelada' && v.leadId).map((v) => v.leadId));
   const fechado = (c) => comVenda.has(c.id) || /fechad|ganh|vendid/i.test(c.etapa || '');
+  const etiqueta = String(req.query.etiqueta || '');
+  const bloqueado = (c) => leads.naListaNegra(empresa, c);
   const lista = estado.conversas
     .filter((c) => c.empresaId === empresa.id && c.mensagens.length)
     .filter((c) => (filtro === 'arquivadas' ? c.arquivado : !c.arquivado))
-    .filter((c) => filtro !== 'todas' || !fechado(c))
+    // lista negra: só aparece no filtro 🚫
+    .filter((c) => (filtro === 'listaNegra' ? bloqueado(c) : !bloqueado(c)))
+    // filtrando por etiqueta (ex.: Agendado) mostra também as vendas concluídas
+    .filter((c) => !etiqueta || (c.etiquetas || []).includes(etiqueta))
+    .filter((c) => filtro !== 'todas' || etiqueta || !fechado(c))
     .filter((c) => filtro !== 'vendas' || fechado(c))
     .filter((c) => filtro !== 'naoLidas' || c.naoLidas > 0)
     .filter((c) => filtro !== 'equipe' || c.precisaHumano)
@@ -1472,6 +1481,72 @@ router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
 });
 
 // ---------------------------------------------------------------- follow-up
+// ---------------------------------------------------------------- lista negra
+router.get('/empresas/:id/lista-negra', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(leads.listaNegraDa(empresa).slice().reverse());
+});
+
+// por número (sem precisar ter conversa)
+router.post('/empresas/:id/lista-negra', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const chave = leads.chaveListaNegra(numeroWhatsapp(req.body?.numero) || req.body?.numero);
+  if (!chave) return res.status(400).json({ erro: 'Número inválido. Use DDD + número.' });
+  const lead = estado.conversas.find((c) => c.empresaId === empresa.id && [c.whatsappJid, c.telefone].map(leads.chaveListaNegra).includes(chave));
+  if (lead) leads.porNaListaNegra(empresa, lead, req.usuario.email, texto(req.body?.motivo, 200));
+  else if (!leads.naListaNegra(empresa, chave)) {
+    leads.listaNegraDa(empresa).push({ id: novoId('ln'), leadId: null, chaves: [chave], nome: texto(req.body?.nome, 80), telefone: chave, motivo: texto(req.body?.motivo, 200), por: req.usuario.email, em: agora() });
+    salvar();
+  }
+  res.status(201).json(leads.listaNegraDa(empresa).slice().reverse());
+});
+
+router.delete('/empresas/:id/lista-negra/:itemId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  leads.tirarDaListaNegra(empresa, { id: req.params.itemId });
+  res.json(leads.listaNegraDa(empresa).slice().reverse());
+});
+
+router.post('/leads/:id/lista-negra', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  leads.porNaListaNegra(empresa, c, req.usuario.email, texto(req.body?.motivo, 200));
+  res.json({ ok: true, listaNegra: true });
+});
+
+router.delete('/leads/:id/lista-negra', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  leads.tirarDaListaNegra(empresa, { leadId: c.id });
+  res.json({ ok: true, listaNegra: leads.naListaNegra(empresa, c) });
+});
+
+// ---------------------------------------------------------------- etiquetas do WhatsApp Business
+router.get('/empresas/:id/etiquetas-zap', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./etiquetas-zap').resumo(empresa));
+});
+
+router.post('/empresas/:id/etiquetas-zap/carregar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
+  res.json(await require('./etiquetas-zap').carregar(empresa));
+});
+
+router.put('/empresas/:id/etiquetas-zap', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  require('./etiquetas-zap').ligar(empresa, req.body?.ativo === true);
+  res.json(require('./etiquetas-zap').resumo(empresa));
+});
+
 router.get('/empresas/:id/followup', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

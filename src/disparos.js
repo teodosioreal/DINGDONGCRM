@@ -52,7 +52,7 @@ function destinatariosPara(empresa, filtroBruto) {
     if (filtro.etapas.length && !filtro.etapas.includes(c.etapa)) continue;
     if (filtro.etiquetas.length && !(c.etiquetas || []).some((t) => filtro.etiquetas.includes(t))) continue;
     if (filtro.origem !== 'todos' && (c.origem || 'site') !== filtro.origem) continue;
-    if (c.naoDisparar) {
+    if (c.naoDisparar || leads.naListaNegra(empresa, c)) {
       sairam++;
       continue;
     }
@@ -162,25 +162,33 @@ async function processar(id) {
   }
 
   const lead = estado.conversas.find((c) => c.id === item.leadId);
-  if (!lead || lead.naoDisparar) {
+  if (!lead || lead.naoDisparar || require('./leads').naListaNegra(null, lead)) {
     item.status = 'ignorado';
-    item.erro = lead ? 'Pediu para não receber' : 'Lead apagado';
+    item.erro = !lead ? 'Lead apagado' : lead.naoDisparar ? 'Pediu para não receber' : 'Na lista negra';
     item.em = agora();
     salvar();
     return agendar(d, 500);
   }
 
   const mensagem = montarMensagem(d.mensagem, lead, empresa) + (d.rodapeSair ? `\n\n${RODAPE_SAIR}` : '');
-  const midia = d.midiaId ? midias.midiasDa(empresa).find((m) => m.id === d.midiaId) : null;
+  const anexos = midiasDoDisparo(empresa, d);
+  const [primeira, ...resto] = anexos;
   try {
     let r;
-    if (midia && midia.tipo !== 'audio') {
+    if (primeira && primeira.tipo !== 'audio') {
       // foto/vídeo/PDF com o texto como legenda: uma mensagem só
-      r = await whatsapp.enviarMidia(empresa, item.destino, midia, mensagem);
+      r = await whatsapp.enviarMidia(empresa, item.destino, primeira, mensagem);
     } else {
       r = await whatsapp.enviarTexto(empresa, item.destino, mensagem);
-      if (midia) await whatsapp.enviarMidia(empresa, item.destino, midia);
+      if (primeira) await whatsapp.enviarMidia(empresa, item.destino, primeira);
     }
+    // as outras mídias vão em seguida (a mensagem já saiu: falha aqui não pausa o disparo)
+    const falharam = [];
+    for (const m of resto) {
+      await new Promise((ok) => setTimeout(ok, 1200));
+      await whatsapp.enviarMidia(empresa, item.destino, m).catch(() => falharam.push(m.nome));
+    }
+    if (falharam.length) item.erro = `Não foram: ${falharam.join(', ')}`.slice(0, 200);
     // o WhatsApp devolve o JID de verdade (ex.: sem o 9 extra em números antigos)
     const jidReal = r?.key?.remoteJid;
     if (!lead.whatsappJid && /@s\.whatsapp\.net$/.test(jidReal || '')) lead.whatsappJid = jidReal;
@@ -189,7 +197,7 @@ async function processar(id) {
     leads.adicionarMensagem(lead, {
       papel: 'equipe',
       canal: 'whatsapp',
-      texto: midia ? `${mensagem}\n[mídia: ${midia.nome}]` : mensagem,
+      texto: anexos.length ? `${mensagem}\n[mídia: ${anexos.map((m) => m.nome).join(', ')}]` : mensagem,
       disparoId: d.id
     });
     lead.ultimoDisparoEm = agora();
@@ -208,14 +216,31 @@ async function processar(id) {
   agendar(d, espera);
 }
 
+// Mídias que vão em cada mensagem (álbum vira as fotos dele), na ordem escolhida
+const MAX_MIDIAS = 5;
+function midiasDoDisparo(empresa, d) {
+  const ids = d.midiaIds || (d.midiaId ? [d.midiaId] : []);
+  const todas = midias.midiasDa(empresa);
+  const saida = [];
+  for (const id of ids) {
+    const m = todas.find((x) => x.id === id);
+    if (m) saida.push(m);
+    else if (midias.albunsDa(empresa).some((a) => a.id === id)) saida.push(...todas.filter((x) => x.albumId === id).slice(0, 10));
+  }
+  return [...new Set(saida)].filter((m) => !m.processando).slice(0, 20);
+}
+
 // ---------------------------------------------------------------- operações
 
 function criar(empresa, corpo, usuario) {
   const mensagem = texto(corpo.mensagem, 3000);
   if (!mensagem) throw erro('Escreva a mensagem.');
   if (!whatsapp.configurado(empresa)) throw erro('Conecte o WhatsApp da empresa antes de fazer disparos.');
-  const midiaId = texto(corpo.midiaId, 60);
-  if (midiaId && !midias.midiasDa(empresa).some((m) => m.id === midiaId)) throw erro('Mídia não encontrada.');
+  // várias mídias e álbuns (ids da biblioteca); "midiaId" é o formato antigo, de uma só
+  const pedidos = [...new Set([...(Array.isArray(corpo.midiaIds) ? corpo.midiaIds : []), corpo.midiaId].map((x) => texto(x, 60)).filter(Boolean))].slice(0, MAX_MIDIAS);
+  for (const mid of pedidos) {
+    if (!midias.midiasDa(empresa).some((m) => m.id === mid) && !midias.albunsDa(empresa).some((a) => a.id === mid)) throw erro('Mídia não encontrada. Atualize a página e escolha de novo.');
+  }
   const { filtro, destinatarios } = destinatariosPara(empresa, corpo.filtro);
   if (!destinatarios.length) throw erro('Nenhum lead com WhatsApp nesse filtro.');
   if (destinatarios.length > MAX_DESTINATARIOS) throw erro(`No máximo ${MAX_DESTINATARIOS} contatos por disparo. Filtre por etapa ou etiqueta.`);
@@ -232,7 +257,7 @@ function criar(empresa, corpo, usuario) {
     empresaId: empresa.id,
     nome: texto(corpo.nome, 100) || `Disparo de ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`,
     mensagem,
-    midiaId: midiaId || null,
+    midiaIds: pedidos,
     filtro,
     intervaloMin: Math.min(min, 600),
     intervaloMax: Math.min(max, 900),

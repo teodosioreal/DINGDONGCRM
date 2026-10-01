@@ -117,7 +117,55 @@ function garantirIdsDasMensagens(lead) {
 // "leu" o cliente). Contato importado/cadastrado à mão, sem conversa, ou
 // conversa na lixeira: a IA nunca manda nada (só a equipe, à mão ou por disparo).
 function iaPodeFalarCom(lead) {
-  return Boolean(lead && estado.conversas.includes(lead) && (lead.mensagens || []).some((m) => m.papel === 'visitante'));
+  return Boolean(lead && estado.conversas.includes(lead) && !naListaNegra(null, lead) && (lead.mensagens || []).some((m) => m.papel === 'visitante'));
+}
+
+// ---------------------------------------------------------------- lista negra
+// Número na lista negra não recebe NADA: nem IA, nem automação, follow-up,
+// disparo ou mensagem da equipe. Fica guardado na empresa (vale mesmo se a
+// conversa for apagada e o cliente escrever de novo). As mensagens dele ainda
+// aparecem em Conversas, só que ninguém responde.
+function chaveListaNegra(x) {
+  const s = String(x || '').trim();
+  if (/@lid$/.test(s)) return s;
+  let d = s.split('@')[0].replace(/\D/g, '');
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = d.slice(0, 4) + d.slice(5); // com ou sem o 9 é o mesmo celular
+  return d.length >= 10 ? d : '';
+}
+const chavesDoLead = (lead) => [...new Set([lead?.whatsappJid, lead?.telefone].map(chaveListaNegra).filter(Boolean))];
+
+function listaNegraDa(empresa) {
+  if (!Array.isArray(empresa.listaNegra)) empresa.listaNegra = [];
+  return empresa.listaNegra;
+}
+
+// aceita um lead ou um número/jid (empresa pode ser null quando é lead)
+function naListaNegra(empresa, alvo) {
+  const ehLead = alvo && typeof alvo === 'object';
+  const emp = empresa || (ehLead && estado.empresas.find((e) => e.id === alvo.empresaId));
+  if (!emp || !Array.isArray(emp.listaNegra) || !emp.listaNegra.length) return false;
+  const chaves = ehLead ? chavesDoLead(alvo) : [chaveListaNegra(alvo)].filter(Boolean);
+  return emp.listaNegra.some((b) => (ehLead && b.leadId === alvo.id) || b.chaves.some((k) => chaves.includes(k)));
+}
+
+function porNaListaNegra(empresa, lead, por = '', motivo = '') {
+  const lista = listaNegraDa(empresa);
+  if (naListaNegra(empresa, lead)) return false;
+  lista.push({ id: novoId('ln'), leadId: lead.id, chaves: chavesDoLead(lead), nome: lead.nome || '', telefone: lead.telefone || '', motivo: String(motivo || '').slice(0, 200), por, em: agora() });
+  lead.listaNegra = true;
+  // cancela o que estava programado para ele
+  for (const a of lead.agendadas || []) if (a.status === 'pendente') Object.assign(a, { status: 'cancelada', motivo: 'cliente na lista negra' });
+  salvar();
+  return true;
+}
+
+function tirarDaListaNegra(empresa, { leadId, id } = {}) {
+  const lead = leadId && estado.conversas.find((c) => c.id === leadId);
+  const antes = listaNegraDa(empresa).length;
+  empresa.listaNegra = listaNegraDa(empresa).filter((b) => !(b.id === id || (leadId && b.leadId === leadId) || (lead && b.chaves.some((k) => chavesDoLead(lead).includes(k)))));
+  for (const c of estado.conversas) if (c.empresaId === empresa.id && c.listaNegra && !naListaNegra(empresa, c)) delete c.listaNegra;
+  salvar();
+  return antes !== empresa.listaNegra.length;
 }
 
 function adicionarMensagem(lead, msg) {
@@ -214,6 +262,11 @@ module.exports = {
   criarLead,
   adicionarMensagem,
   iaPodeFalarCom,
+  naListaNegra,
+  porNaListaNegra,
+  tirarDaListaNegra,
+  listaNegraDa,
+  chaveListaNegra,
   registrarEnvioWhatsapp,
   garantirIdsDasMensagens,
   moverEtapa,

@@ -1033,6 +1033,7 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0 0 8px">Ligado, a IA <b>aprende com as suas respostas manuais</b> (painel, celular, respostas rápidas e arquivos que você manda) e passa a responder <b>do seu jeito</b>: mesmo tom, tamanho, emojis, jeito de passar preço e de fechar — e manda as <b>mesmas mídias</b> nas mesmas situações. Os arquivos que você manda entram na biblioteca como "aprendidos do clone". Suas instruções da empresa continuam valendo acima de tudo.</p>
       <p class="rotulo" style="margin:0">${w.clone?.total ? `Aprendeu com <b>${w.clone.total}</b> resposta(s) sua(s)${w.clone.midiasAprendidas ? ` e <b>${w.clone.midiasAprendidas}</b> mídia(s)` : ''}. <button type="button" class="link-botao" id="ver-clone">Ver o que aprendeu</button>` : 'Ainda não aprendeu nada: ligue e responda alguns clientes à mão.'}</p>
     </div>
+    ${w.configurado ? '<div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -1211,6 +1212,7 @@ async function paginaWhatsapp(id) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
+  if (w.configurado) { cartaoEtiquetasZap(id); cartaoListaNegra(id); }
   $('#modo-clone').onchange = async (e) => {
     try {
       await api(`empresas/${id}/clone`, { method: 'PUT', body: { ativo: e.target.checked } });
@@ -2417,10 +2419,34 @@ async function paginaDisparos(id) {
   }
 }
 
+// Sobe um arquivo para a biblioteca de mídias em pedaços (aceita vídeo grande). Entra em "a configurar".
+async function subirParaBiblioteca(empresaId, arq, progresso = () => {}) {
+  if (arq.size > 200 * 1024 * 1024) throw new Error(`${arq.name} tem ${(arq.size / 1048576).toFixed(0)} MB — o máximo é 200 MB`);
+  const ini = await api(`empresas/${empresaId}/midias/envio`, { method: 'POST', body: { arquivo: arq.name, tamanho: arq.size, tipo: arq.type || '' } });
+  for (let pos = 0; pos < arq.size; pos += ini.pedaco) {
+    let tentativa = 0;
+    for (;;) {
+      const r = await fetch(`api/empresas/${empresaId}/midias/envio/${ini.envioId}/parte?pos=${pos}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arq.slice(pos, pos + ini.pedaco) }).catch(() => ({ ok: false }));
+      if (r.ok) break;
+      if (++tentativa >= 3) throw new Error(r.status === 413 ? 'o servidor recusou o pedaço' : 'a conexão caiu');
+      await new Promise((ok) => setTimeout(ok, 1000 * tentativa));
+    }
+    progresso(Math.round((Math.min(arq.size, pos + ini.pedaco) / arq.size) * 100));
+  }
+  return api(`empresas/${empresaId}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
+}
+
 async function paginaNovoDisparo(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  const lista = await api(`empresas/${id}/midias`);
+  const [lista, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`)]);
+  const escolhidas = []; // ids de mídias e álbuns, na ordem
+  const itemDe = (mid) => {
+    const m = lista.find((x) => x.id === mid);
+    if (m) return { nome: m.nome, icone: ICONE_TIPO[m.tipo] || '📎', tipo: m.tipo, url: m.url, processando: m.processando };
+    const a = albuns.find((x) => x.id === mid);
+    return a ? { nome: `${a.nome} (álbum, ${a.quantidade})`, icone: '🗂️', tipo: 'album' } : null;
+  };
   let leadIds = [];
   try { leadIds = JSON.parse(sessionStorage.getItem('disparo_leads') || '[]'); sessionStorage.removeItem('disparo_leads'); } catch { leadIds = []; }
 
@@ -2446,7 +2472,14 @@ async function paginaNovoDisparo(id) {
             <textarea name="mensagem" required style="min-height:140px" placeholder="{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto no revestimento de volante. Quer que eu te mande as fotos?"></textarea>
             <small><code>{nome}</code> vira o primeiro nome do cliente. <code>{Oi|Olá}</code> sorteia uma das opções — mensagens diferentes ajudam a não ser bloqueado.</small>
           </div>
-          <div class="campo" style="margin-top:12px"><label>Anexar mídia (opcional)</label><select name="midiaId"><option value="">Sem mídia</option>${lista.map((m) => `<option value="${esc(m.id)}">${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</select><small>Foto, vídeo ou PDF vão com a mensagem como legenda. <a href="${rotaEmpresa(id, 'midias')}">Cadastrar mídias</a></small></div>
+          <div class="campo" style="margin-top:12px"><label>Fotos, vídeos e arquivos (opcional, até 5) ${ajuda('A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois. Álbum manda as fotos dele.')}</label>
+            <div class="midias-fup" id="disp-midias"></div>
+            <div class="linha-form" style="margin-top:6px;flex-wrap:wrap">
+              <select id="disp-add-midia"><option value="">+ Escolher da biblioteca…</option>${albuns.filter((a) => a.quantidade).length ? `<optgroup label="Álbuns">${albuns.filter((a) => a.quantidade).map((a) => `<option value="${esc(a.id)}">🗂️ ${esc(a.nome)} (${a.quantidade})</option>`).join('')}</optgroup>` : ''}<optgroup label="Mídias">${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}">${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</optgroup></select>
+              <label class="botao pequeno">📤 Enviar arquivo novo<input type="file" id="disp-novo" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
+            </div>
+            <div id="disp-envio" class="rotulo"></div>
+            <small>Arquivo novo fica guardado em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> (em "a configurar": a IA só usa depois que você configurar).</small></div>
         </div>
         <div class="card">
           <h2><span class="passo-num">3</span> Quando e como enviar</h2>
@@ -2489,11 +2522,11 @@ async function paginaNovoDisparo(id) {
       if (!form.isConnected) return;
       total = r.total;
       $('#contagem').innerHTML = r.total
-        ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber` : ''} (ficam de fora)</span>` : ''}`
+        ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber ou estão na lista negra` : ''} (ficam de fora)</span>` : ''}`
         : '<strong>Ninguém nesse filtro</strong><span class="rotulo">Mude as etapas ou etiquetas.</span>';
-      const midia = lista.find((m) => m.id === f.midiaId);
+      const itens = escolhidas.map(itemDe).filter(Boolean);
       $('#previa').innerHTML = r.exemplo
-        ? `${midia ? `<div class="msg bot midia-previa-msg">${midia.tipo === 'image' ? `<img src="${esc(midia.url)}" alt="">` : `${ICONE_TIPO[midia.tipo]} ${esc(midia.nome)}`}</div>` : ''}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
+        ? `${itens.map((m) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
         : '<div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div>';
       $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim());
       $('#enviar-disparo').textContent = r.total ? `📣 Enviar para ${r.total} ${r.total === 1 ? 'pessoa' : 'pessoas'}` : '📣 Iniciar disparo';
@@ -2503,6 +2536,35 @@ async function paginaNovoDisparo(id) {
     }
   }
   const agendarPrevia = () => { clearTimeout(espera); espera = setTimeout(atualizarPrevia, 350); };
+  function desenharEscolhidas() {
+    $('#disp-midias').innerHTML = escolhidas.map((mid, i) => { const m = itemDe(mid); return m ? `<span class="etiqueta">${m.icone} ${esc(m.nome)}${m.processando ? ' ⏳' : ''} <button type="button" class="x-chip" data-tirar-disp="${i}" title="Tirar">✕</button></span>` : ''; }).join('') || '<span class="rotulo">Nenhuma — vai só o texto.</span>';
+    $$('[data-tirar-disp]').forEach((b) => { b.onclick = () => { escolhidas.splice(Number(b.dataset.tirarDisp), 1); desenharEscolhidas(); agendarPrevia(); }; });
+    $('#disp-add-midia').disabled = escolhidas.length >= 5;
+  }
+  desenharEscolhidas();
+  $('#disp-add-midia').onchange = (e) => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (v && !escolhidas.includes(v) && escolhidas.length < 5) escolhidas.push(v);
+    desenharEscolhidas();
+    agendarPrevia();
+  };
+  $('#disp-novo').onchange = async (e) => {
+    const arquivos = [...e.target.files].slice(0, 5 - escolhidas.length);
+    e.target.value = '';
+    for (const arq of arquivos) {
+      try {
+        const nova = await subirParaBiblioteca(id, arq, (pct) => { $('#disp-envio').textContent = `Enviando ${arq.name}: ${pct}%`; });
+        lista.push(nova);
+        escolhidas.push(nova.id);
+        $('#disp-envio').textContent = nova.processando ? `✓ ${arq.name} enviado · 🎬 convertendo para o WhatsApp (sai assim que terminar)` : `✓ ${arq.name} enviado`;
+        desenharEscolhidas();
+        agendarPrevia();
+      } catch (err) {
+        $('#disp-envio').textContent = `✕ ${arq.name}: ${err.message}`;
+      }
+    }
+  };
   form.addEventListener('input', agendarPrevia);
   form.addEventListener('change', agendarPrevia);
   atualizarPrevia();
@@ -2537,7 +2599,7 @@ async function paginaNovoDisparo(id) {
         body: {
           nome: f.nome,
           mensagem: f.mensagem,
-          midiaId: f.midiaId,
+          midiaIds: escolhidas,
           filtro: filtro(),
           intervaloMin: min,
           intervaloMax: max,
@@ -2719,6 +2781,52 @@ async function subirEmPedacos(arquivo, ini, aoAvancar) {
 }
 
 // Buscar no WhatsApp as mensagens que não chegaram ao painel
+// 🏷️ etiquetas do WhatsApp Business ⇄ CRM (página IA do WhatsApp)
+async function cartaoEtiquetasZap(id) {
+  const el = $('#card-etq-zap');
+  if (!el) return;
+  let r;
+  try { r = await api(`empresas/${id}/etiquetas-zap`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🏷️ Etiquetas do WhatsApp Business</h2>${interruptor('etq-zap-ativo', r.ativo, r.ativo ? 'Ligado' : 'Desligado')}</div>
+    <p class="rotulo" style="margin:0 0 10px">Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Etiquetas com o <b>mesmo nome</b> ficam ligadas, e as que você cria no WhatsApp Business entram no CRM sozinhas. Funciona só em número <b>WhatsApp Business</b>.</p>
+    ${r.ativo ? `
+    <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ✓</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
+    ${r.soNoCrm.length ? `<p class="rotulo" style="margin:0 0 8px">Só no CRM (para ligar, crie no WhatsApp Business uma etiqueta com o mesmo nome): ${r.soNoCrm.map(esc).join(', ')}</p>` : ''}
+    ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
+    <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>` : ''}`;
+  $('#etq-zap-ativo').onchange = async (e) => {
+    try { await api(`empresas/${id}/etiquetas-zap`, { method: 'PUT', body: { ativo: e.target.checked } }); if (e.target.checked) await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
+  };
+  $('#etq-zap-ler')?.addEventListener('click', async (e) => {
+    try { await comEspera(e.target, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Lendo…'); aviso('Etiquetas lidas.'); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
+  });
+}
+
+// 🚫 lista negra (página IA do WhatsApp)
+async function cartaoListaNegra(id) {
+  const el = $('#card-lista-negra');
+  if (!el) return;
+  let lista;
+  try { lista = await api(`empresas/${id}/lista-negra`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <h2>🚫 Lista negra</h2>
+    <p class="rotulo" style="margin-top:-6px">Quem está aqui <b>não recebe nada</b>: nem IA, automações, follow-up, disparos ou mensagens da equipe. As mensagens deles continuam chegando (filtro 🚫 em Conversas). Também dá para pôr pelo botão 🚫 dentro da conversa.</p>
+    <form id="f-lista-negra" class="linha-form" style="flex-wrap:wrap"><input name="numero" placeholder="Número com DDD (ex.: 21 99999-9999)" required><input name="motivo" placeholder="Motivo (opcional)"><button type="submit" class="perigo">🚫 Bloquear</button></form>
+    ${lista.length ? `<div class="tabela-wrap" style="margin-top:10px"><table class="lista-negra-tabela"><thead><tr><th>Cliente</th><th class="esconde-mobile">Motivo</th><th class="esconde-mobile">Desde</th><th></th></tr></thead><tbody>${lista.map((b) => `<tr><td><b>${esc(b.nome || 'Sem nome')}</b><br><span class="rotulo">${esc(telefoneBonito(b.telefone) || (String(b.chaves?.[0] || '').endsWith('@lid') ? 'número oculto pelo WhatsApp' : b.chaves?.[0] || ''))}</span></td><td class="esconde-mobile rotulo">${esc(b.motivo || '—')}</td><td class="esconde-mobile rotulo">${esc(data(b.em))}</td><td><button type="button" class="pequeno" data-desbloquear="${esc(b.id)}">Desbloquear</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="rotulo" style="margin:10px 0 0">Ninguém na lista negra.</p>'}`;
+  $('#f-lista-negra').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api(`empresas/${id}/lista-negra`, { method: 'POST', body: formParaObjeto(e.target) }); aviso('Número bloqueado.'); cartaoListaNegra(id); } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-desbloquear]', el).forEach((b) => {
+    b.onclick = async () => {
+      try { await api(`empresas/${id}/lista-negra/${b.dataset.desbloquear}`, { method: 'DELETE', body: {} }); aviso('Desbloqueado.'); cartaoListaNegra(id); } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
 function modalSincronizar(empresaId, aoTerminar) {
   abrirModal(`
     <h2>🔄 Buscar mensagens do WhatsApp</h2>
@@ -3010,6 +3118,9 @@ async function paginaConversas(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   let filtro = 'todas';
+  let filtroEtiqueta = '';
+  try { filtroEtiqueta = sessionStorage.getItem(`conv_etiqueta_${id}`) || ''; } catch { /* ok */ }
+  if (filtroEtiqueta && !(emp.etiquetas || []).some((t) => t.id === filtroEtiqueta)) filtroEtiqueta = '';
   let busca = '';
   let abertoId = params.get('lead') || '';
   let lista = [];
@@ -3030,8 +3141,10 @@ async function paginaConversas(id, params) {
           <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
           <button type="button" class="chip-filtro" data-filtro="vendas">✅ Vendas concluídas</button>
           <button type="button" class="chip-filtro" data-filtro="arquivadas" title="Arquivadas ou apagadas no WhatsApp">🗄️</button>
+          <button type="button" class="chip-filtro" data-filtro="listaNegra" title="Lista negra: ninguém (nem a IA) manda nada para eles">🚫</button>
           <button type="button" class="chip-filtro" data-filtro="lixeira" title="Lixeira: conversas apagadas (dá para restaurar por 30 dias)">🗑️</button>
         </div>
+        ${(emp.etiquetas || []).length ? `<div class="inbox-filtros filtro-etiquetas">${emp.etiquetas.map((t) => `<button type="button" class="chip-filtro" style="--cor:${esc(t.cor)}" data-fetiqueta="${esc(t.id)}" title="Só conversas com a etiqueta ${esc(t.nome)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('')}</div>` : ''}
         <div id="lista-conversas" class="lista-conversas"><p class="rotulo" style="padding:16px">Carregando…</p></div>
       </aside>
       <section class="inbox-chat" id="inbox-chat">
@@ -3116,7 +3229,7 @@ async function paginaConversas(id, params) {
           </span>
         </button>
         </div>`).join('')
-      : `<p class="rotulo" style="padding:16px">${busca || filtro !== 'todas' ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
+      : `<p class="rotulo" style="padding:16px">${filtro === 'listaNegra' ? 'Ninguém na lista negra.' : busca || filtro !== 'todas' || filtroEtiqueta ? 'Nada encontrado.' : 'Nenhuma conversa ainda.'}</p>`;
     $$('.item-conversa', el).forEach((b) => { b.onclick = () => abrir(b.dataset.lead); });
     $$('[data-apagar-conversa]', el).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); apagarConversa(b.dataset.apagarConversa); }; });
     ligarRelogio();
@@ -3127,7 +3240,7 @@ async function paginaConversas(id, params) {
       const b = busca.toLowerCase();
       lista = (await api(`empresas/${id}/lixeira`)).filter((c) => !b || [c.nome, c.telefone, c.ultimaMensagem?.texto].join(' ').toLowerCase().includes(b));
     } else {
-      lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca })}`);
+      lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca, etiqueta: filtroEtiqueta })}`);
     }
     desenharLista();
   }
@@ -3144,8 +3257,13 @@ async function paginaConversas(id, params) {
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
         <span class="chat-acoes"><button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
+        <button type="button" class="pequeno ${l.listaNegra ? 'primario' : ''}" id="chat-lista-negra" title="${l.listaNegra ? 'Tirar da lista negra' : 'Lista negra: ninguém (nem a IA) manda mais nada para este cliente'}">${l.listaNegra ? '✅ Desbloquear' : '🚫 Lista negra'}</button>
         <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button></span>
       </header>
+      <div class="chat-etiquetas">🏷️ ${(l.etiquetas || []).map((tid) => emp.etiquetas.find((t) => t.id === tid)).filter(Boolean).map((t) => `<span class="chip-etq" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}<button type="button" class="x-chip" data-tirar-etq="${esc(t.id)}" title="Tirar etiqueta">✕</button></span>`).join('')}
+        ${emp.etiquetas.some((t) => !(l.etiquetas || []).includes(t.id)) ? `<select id="chat-add-etq" class="pequeno-select"><option value="">+ etiqueta</option>${emp.etiquetas.filter((t) => !(l.etiquetas || []).includes(t.id)).map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select>` : ''}
+        ${l.erroEtiquetaZap ? `<span class="rotulo aviso-texto" title="${esc(l.erroEtiquetaZap.msg)}">⚠️ não consegui marcar no WhatsApp</span>` : ''}</div>
+      ${l.listaNegra ? '<div class="chat-aviso perigo-aviso">🚫 <b>Na lista negra.</b> Nada é enviado para este cliente — nem pela IA, automações, follow-up, disparos ou por você. As mensagens dele continuam aparecendo aqui.</div>' : ''}
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
       ${htmlPedidos(l)}
@@ -3183,7 +3301,7 @@ async function paginaConversas(id, params) {
     desenharLista();
     history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
     leadAberto = await api(`leads/${leadId}`);
-    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}`;
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}`;
     if (rolar) desenharChat();
     if (leadAberto.naoLidas) {
       api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
@@ -3196,7 +3314,7 @@ async function paginaConversas(id, params) {
   async function recarregarAberto() {
     if (!abertoId) return;
     const l = await api(`leads/${abertoId}`);
-    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}`;
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}|${l.listaNegra}|${(l.etiquetas || []).join()}|${l.erroEtiquetaZap?.em || ''}`;
     if (assinatura === assinaturaAberta) return;
     // não apaga o que a pessoa está digitando
     const rascunho = $('#chat-texto')?.value || '';
@@ -3220,6 +3338,25 @@ async function paginaConversas(id, params) {
 
   function ligarChat() {
     $('#chat-apagar')?.addEventListener('click', () => apagarConversa(abertoId));
+    $('#chat-lista-negra')?.addEventListener('click', async (e) => {
+      const por = !leadAberto.listaNegra;
+      if (por && !(await confirmar({ titulo: 'Pôr na lista negra?', texto: `<b>${esc(nomeDoLead(leadAberto))}</b> não recebe mais nada: nem IA, automações, follow-up, disparos ou mensagens da equipe. Mensagens agendadas são canceladas. Dá para desfazer quando quiser.`, botao: '🚫 Pôr na lista negra', perigo: true }))) return;
+      try {
+        await comEspera(e.target, () => api(`leads/${abertoId}/lista-negra`, { method: por ? 'POST' : 'DELETE', body: {} }));
+        aviso(por ? 'Cliente na lista negra.' : 'Cliente fora da lista negra.');
+        await recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
+    const salvarEtiquetas = async (nova) => {
+      try {
+        await api(`leads/${abertoId}`, { method: 'PUT', body: { etiquetas: nova } });
+        await recarregarAberto();
+        carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#chat-add-etq')?.addEventListener('change', (e) => { if (e.target.value) salvarEtiquetas([...(leadAberto.etiquetas || []), e.target.value]); });
+    $$('[data-tirar-etq]').forEach((b) => { b.onclick = () => salvarEtiquetas((leadAberto.etiquetas || []).filter((t) => t !== b.dataset.tirarEtq)); });
     $('#chat-arquivar')?.addEventListener('click', async (e) => {
       const arquivar = !leadAberto.arquivado;
       try {
@@ -3418,6 +3555,16 @@ async function paginaConversas(id, params) {
       $$('[data-filtro]').forEach((x) => x.classList.toggle('ativo', x === b));
       carregarLista();
     };
+  });
+  // filtro por etiqueta (clicar de novo tira)
+  $$('[data-fetiqueta]').forEach((b) => {
+    b.onclick = () => {
+      filtroEtiqueta = filtroEtiqueta === b.dataset.fetiqueta ? '' : b.dataset.fetiqueta;
+      try { sessionStorage.setItem(`conv_etiqueta_${id}`, filtroEtiqueta); } catch { /* ok */ }
+      $$('[data-fetiqueta]').forEach((x) => x.classList.toggle('ativo', x.dataset.fetiqueta === filtroEtiqueta));
+      carregarLista();
+    };
+    b.classList.toggle('ativo', b.dataset.fetiqueta === filtroEtiqueta);
   });
   let espera = null;
   $('#busca-conversa').oninput = (e) => {
@@ -4706,7 +4853,11 @@ async function iniciar() {
     const b = e.target.closest('[data-reativar]');
     if (b) reativarEmpresa(b.dataset.reativar, b);
   });
-  window.addEventListener('hashchange', rotear);
+  window.addEventListener('hashchange', () => {
+    // trocou de página (link, voltar do navegador): janela aberta da página anterior fecha
+    $$('.fundo-modal').forEach((m) => m.remove());
+    rotear();
+  });
   $('#sino').onclick = abrirAlertas;
   window.addEventListener('hashchange', () => setTimeout(atualizarSino, 800));
   setInterval(atualizarSino, 60 * 1000);

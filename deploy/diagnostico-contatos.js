@@ -75,5 +75,18 @@ db.empresas.forEach((e, i) => {
     console.log(`        findMessages: HTTP ${m.status}, ${regs.length} msg, campos da chave: [${campos}] → número ${mRes || 'não veio'}`);
     console.log(`        findContacts: HTTP ${c.status}, campos: [${cCampos}]`);
     console.log(`        foto pelo id escondido: HTTP ${f.status} → ${f.j?.profilePictureUrl ? 'TEM foto' : 'sem foto'}`);
+    // etiquetas do WhatsApp Business (só nomes e quantidade; nada de cliente)
+    try {
+      const r = await fetch(`${base}/label/findLabels/${encodeURIComponent(e.whatsappConfig.instancia)}`, { headers: { apikey: e.whatsappConfig.apiKey }, signal: AbortSignal.timeout(15000) });
+      const j = await r.json().catch(() => null);
+      console.log(`        etiquetas (findLabels): HTTP ${r.status} → ${Array.isArray(j) ? `${j.length}: ${j.map((x) => x.name).join(', ')}` : 'formato desconhecido'}`);
+      const ch = await chamar('/chat/findChats/{i}', {});
+      const comLabels = Array.isArray(ch.j) ? ch.j.filter((x) => Array.isArray(x.labels) && x.labels.length).length : 0;
+      console.log(`        findChats: HTTP ${ch.status}, ${Array.isArray(ch.j) ? ch.j.length : 0} conversas, ${comLabels} com etiquetas, campo labels ${Array.isArray(ch.j) && ch.j[0] && 'labels' in ch.j[0] ? 'existe' : 'não existe'}`);
+    } catch (err) {
+      console.log(`        etiquetas: erro ${err.message}`);
+    }
+    const etq = e.etiquetasZap;
+    if (etq) console.log(`        CRM: etiquetas do zap ${Object.keys(etq.labels || {}).length}, lidas em ${etq.carregadoEm || 'nunca'}${etq.erro ? `, aviso: ${etq.erro}` : ''}`);
   }
 })();

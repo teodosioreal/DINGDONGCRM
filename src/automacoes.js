@@ -395,6 +395,11 @@ async function enviarAgendadas(empresa) {
         if (!destino) throw new Error('lead sem WhatsApp');
         let textoEnvio = a.texto;
         let midiasPedidas = [];
+        if (leads.naListaNegra(empresa, lead)) {
+          a.status = 'cancelada';
+          a.motivo = 'cliente na lista negra';
+          continue;
+        }
         if ((a.modo === 'ia' || a.criadoPor === 'IA') && !leads.iaPodeFalarCom(lead)) {
           a.status = 'cancelada';
           a.motivo = 'a IA só escreve para quem já conversou (está em Conversas)';

@@ -466,6 +466,20 @@ Página própria no menu. Quando o cliente para de responder, o CRM manda uma se
 - Fila com cronômetro na página e na conversa ("não enviar" encerra a sequência daquele cliente).
 - Com o follow-up ligado, as automações de "parou de responder" da Máquina de vendas ficam paradas (sem mensagem em dobro).
 
+### 🏷️ Etiquetas do WhatsApp Business ⇄ CRM
+
+Em IA do WhatsApp → "Etiquetas do WhatsApp Business" (ligado por padrão). Marcou **Agendado** num cliente no celular → aparece no CRM; marcou no CRM (conversa, lead, lote, IA) → o CRM marca no celular. Etiquetas com o mesmo nome ficam ligadas e as criadas no WhatsApp Business entram no CRM sozinhas (renomear lá renomeia aqui). A Evolution não cria etiqueta nova no WhatsApp: para ligar uma etiqueta que só existe no CRM, crie uma com o mesmo nome no WhatsApp Business. Só funciona em número WhatsApp Business (eventos `LABELS_EDIT` e `LABELS_ASSOCIATION`, que o CRM liga sozinho no webhook).
+
+Em Conversas, os botões de etiqueta filtram a lista (ex.: só os **Agendados**), e na conversa dá para pôr/tirar etiquetas direto.
+
+### 🚫 Lista negra
+
+Botão 🚫 na conversa, ou por número em IA do WhatsApp. Quem está na lista **não recebe nada** — IA, automações, follow-up, disparos e nem mensagem da equipe (o bloqueio fica no ponto por onde toda mensagem sai). As mensagens dele continuam chegando no filtro 🚫 de Conversas, sem a IA gastar token. Vale mesmo se a conversa for apagada e o cliente voltar; reconhece o número com ou sem o 9.
+
+### 📣 Disparos com mídias
+
+No disparo dá para anexar até 5 fotos, vídeos, PDFs ou álbuns da biblioteca — ou enviar um arquivo novo ali mesmo (fica guardado em Mídias). A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois.
+
 ### 🏷️ Assuntos das mídias
 
 Cada empresa cria seus próprios assuntos na página Mídias (ex.: *Completo*, *Arco*; numa clínica, *Limpeza*, *Clareamento*). Em cada mídia/álbum você marca o assunto e **onde usar**: "Conversa e follow-up" ou "Só no follow-up". A IA só manda mídia do assunto que está explicando; mídia sem assunto vale para tudo. Filtro por assunto e ações em lote na biblioteca.
