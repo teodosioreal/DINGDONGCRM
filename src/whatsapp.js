@@ -738,6 +738,8 @@ async function receberWebhook(empresa, corpo) {
     if (jaProcessada(msg.key.id)) continue;
     let texto = textoDa(msg);
     if (!texto) continue;
+    // número novo + conversas antigas só com id escondido: descobre se é o mesmo cliente
+    await require('./identidade').aprenderLidDaMensagem(empresa, msg).catch(() => null);
 
     if (msg.key.fromMe) {
       // enviada pelo próprio CRM (eco) → ignora; enviada pela equipe no celular → IA para

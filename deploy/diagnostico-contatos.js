@@ -80,6 +80,13 @@ db.empresas.forEach((e, i) => {
     console.log(`        findMessages: HTTP ${m.status}, ${regs.length} msg, campos da chave: [${campos}] → número ${mRes || 'não veio'}`);
     console.log(`        findContacts: HTTP ${c.status}, campos: [${cCampos}]`);
     console.log(`        foto pelo id escondido: HTTP ${f.status} → ${f.j?.profilePictureUrl ? 'TEM foto' : 'sem foto'}`);
+    // o número da empresa é WhatsApp Business? (só Business tem etiquetas)
+    const dono = String(e.whatsappConfig?.perfil?.numero || '').replace(/\D/g, '');
+    if (dono) {
+      const bp = await chamar('/chat/fetchBusinessProfile/{i}', { number: dono });
+      const campos = bp.j && typeof bp.j === 'object' ? Object.keys(bp.j).filter((k) => bp.j[k]) : [];
+      console.log(`        perfil comercial do número da empresa: HTTP ${bp.status} → ${campos.length ? 'WhatsApp Business (' + campos.slice(0, 6).join(',') + ')' : 'sem perfil comercial (WhatsApp comum?)'}`);
+    }
     // etiquetas do WhatsApp Business (só nomes e quantidade; nada de cliente)
     try {
       const r = await fetch(`${base}/label/findLabels/${encodeURIComponent(e.whatsappConfig.instancia)}`, { headers: { apikey: e.whatsappConfig.apiKey }, signal: AbortSignal.timeout(15000) });

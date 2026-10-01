@@ -97,6 +97,42 @@ function conversaDoEndereco(empresa, jid) {
   return lista.length ? principalDe(lista) : null;
 }
 
+// A Evolution 2.3 troca o id escondido pelo número ANTES de avisar o CRM (o LID some
+// do aviso). Quando chega um número que o CRM não conhece e ainda existem conversas
+// só com LID, pergunta à Evolution como a mensagem foi guardada (com o LID original).
+const semLidPorNumero = new Map(); // número → quando perguntou e não achou (não repete por 1 h)
+async function aprenderLidDaMensagem(empresa, msg) {
+  const e = enderecos(msg);
+  if (!e.fone || e.lid || !msg?.key?.id) return null;
+  if (conversasDoCliente(empresa, { fone: e.fone }).length) return null; // já conhece este cliente
+  const temSoLid = estado.conversas.some((c) => c.empresaId === empresa.id && ehLid(c.whatsappJid));
+  if (!temSoLid) return null;
+  const ultimo = semLidPorNumero.get(e.fone);
+  if (ultimo && Date.now() - ultimo < 3600 * 1000) return null;
+  const whatsapp = require('./whatsapp');
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const r = await whatsapp.evolution(empresa, 'POST', '/chat/findMessages/{instancia}', { where: { key: { id: msg.key.id } }, page: 1, offset: 3 }, { tempo: 6000 });
+      for (const m of r?.messages?.records || []) {
+        const k = m.key || {};
+        const lid = [k.remoteJid, k.remoteJidAlt, k.senderLid].find(ehLid);
+        const fone = [k.remoteJidAlt, k.remoteJid, k.senderPn].find(ehTelefone) || e.fone;
+        if (lid && chaveFone(fone) === chaveFone(e.fone)) {
+          mapaDa(empresa)[lid] = e.fone;
+          salvar();
+          return lid;
+        }
+      }
+      break; // respondeu e não tinha o LID: é cliente novo mesmo
+    } catch {
+      // a Evolution não respondeu: tenta mais uma vez
+      if (tentativa === 0) await new Promise((ok) => setTimeout(ok, 800));
+    }
+  }
+  semLidPorNumero.set(e.fone, Date.now());
+  return null;
+}
+
 // Endereço para guardar numa conversa nova (número de verdade quando souber)
 function jidPreferido(empresa, msg) {
   const e = enderecos(msg);
@@ -127,4 +163,4 @@ function repararDuplicadas(empresa) {
   return juntadas;
 }
 
-module.exports = { conversaDoEndereco, acharCliente, jidPreferido, repararDuplicadas, conversasDoCliente, chaveFone, enderecos, ehTelefone, ehLid };
+module.exports = { aprenderLidDaMensagem, conversaDoEndereco, acharCliente, jidPreferido, repararDuplicadas, conversasDoCliente, chaveFone, enderecos, ehTelefone, ehLid };
