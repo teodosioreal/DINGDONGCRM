@@ -54,6 +54,23 @@ for f in /opt/evolution*/.env /opt/evolution*/*/.env /root/evolution*/.env /root
   grep -E "$SEGURAS" "$f" | sed 's/^/       /'
 done
 
+# ---------- banco da Evolution (só leitura): etiquetas por número conectado
+PG="$(docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null | grep -i evolution | grep -i postgres | head -1 | cut -d'|' -f1)"
+if [ -n "$PG" ]; then
+  echo "    banco ($PG), só leitura:"
+  docker exec "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -At -F " | " -c "
+    SELECT i.name, i.\"connectionStatus\", CASE WHEN i.\"businessId\" IS NULL THEN '"'"'sem businessId'"'"' ELSE '"'"'business'"'"' END,
+      (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
+      (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id) AS conversas,
+      (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id AND c.labels IS NOT NULL AND jsonb_array_length(c.labels) > 0) AS conversas_com_etiqueta
+    FROM \"Instance\" i ORDER BY i.name;"' 2>&1 | sed 's/^/       instância: /' | head -20
+fi
+if [ -n "$CONTAINER" ]; then
+  for c in $CONTAINER; do
+    echo "    avisos de etiqueta no log da Evolution (48 h): $(docker logs "$c" --since 48h 2>&1 | grep -ciE 'labels? ?(edit|association)|LABELS_' || true)"
+  done
+fi
+
 if [ "$APLICAR" != "1" ]; then
   echo "    (só olhei; nada foi mudado)"
   exit 0
