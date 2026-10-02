@@ -1266,3 +1266,26 @@ html.dark .pi-tag.aviso { color: #fbbf24; }
 .op-pedido.desabilitada { cursor: not-allowed; opacity: .5; }
 .caixa-ok { padding: 10px 12px; border-radius: 8px; background: var(--ok-fundo, #dcfce7); color: var(--ok-texto, #15803d); }
 .ticket-trecho { display: block; font-size: 12.5px; font-style: italic; color: var(--suave); margin-top: 2px; }
+/* ---------- agendamentos (agenda simples) ---------- */
+.ag-abas { margin: 6px 0 14px; }
+.ag-lista { padding: 0; overflow: hidden; }
+.ag-dia { padding: 10px 18px; font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--suave); background: color-mix(in srgb, var(--borda) 25%, transparent); border-top: 1px solid var(--borda); }
+.ag-dia:first-child { border-top: 0; }
+.ag-dia.hoje { color: var(--acento); }
+.ag-linha { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 12px 18px; border-top: 1px solid var(--borda); }
+.ag-dia + .ag-linha { border-top: 0; }
+.ag-hora { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.ag-quem { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.ag-quem > div { display: flex; flex-direction: column; min-width: 0; }
+.ag-quem strong, .ag-quem .rotulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ag-acoes { display: flex; gap: 6px; }
+.ag-linha.passados .ag-hora, .ag-linha.cancelados .ag-hora { color: var(--suave); }
+.ag-linha.cancelados .ag-quem strong { text-decoration: line-through; color: var(--suave); }
+.contador-agenda { background: var(--acento) !important; }
+@media (max-width: 768px) {
+  .ag-linha { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .ag-tags { grid-column: 2 / -1; justify-content: flex-start; }
+  .ag-hora { font-size: 15px; }
+}
+.aviso-desligado { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #f59e0b 14%, transparent); font-size: 14px; }

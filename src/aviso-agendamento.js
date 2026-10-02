@@ -15,15 +15,33 @@ function configDa(empresa) {
 
 function salvarConfig(empresa, b = {}) {
   const c = configDa(empresa);
+  const estavaLigado = c.ativo === true;
   if (b.numero !== undefined) {
     const n = require('./util').numeroWhatsapp(b.numero);
     if (b.numero && n.length < 10) throw Object.assign(new Error('Número inválido. Use DDD + número.'), { status: 400 });
     c.numero = n;
+    // salvou um número: o aviso liga junto (antes ficava salvo e desligado, e nada chegava)
+    if (n && b.ativo === undefined) c.ativo = true;
   }
   if (b.ativo !== undefined) c.ativo = b.ativo === true;
   if (c.ativo && !c.numero) throw Object.assign(new Error('Cadastre o número que vai receber o aviso.'), { status: 400 });
   salvar();
-  return c;
+  // acabou de ligar: manda o aviso dos agendamentos que já estavam marcados (os próximos) e ficaram sem aviso
+  let pendentes = 0;
+  if (c.ativo && !estavaLigado) {
+    const lista = estado.conversas
+      .filter((l) => l.empresaId === empresa.id)
+      .flatMap((l) => (l.agendamentos || []).filter((a) => a.status === 'agendado' && !a.avisoEm && a.quando && new Date(a.quando).getTime() > Date.now()).map((a) => [l, a]))
+      .sort((x, y) => String(x[1].quando).localeCompare(String(y[1].quando)))
+      .slice(0, 10);
+    lista.forEach(([l, a], i) => {
+      a.avisoEm = agora();
+      setTimeout(() => enviar(empresa.id, l.id, a.id).catch(() => {}), ESPERA_MS + i * 4000).unref?.();
+    });
+    pendentes = lista.length;
+    if (pendentes) salvar();
+  }
+  return { ...c, pendentes };
 }
 
 const sem = (t) => String(t || '').trim();

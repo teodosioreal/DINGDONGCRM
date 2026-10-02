@@ -300,6 +300,7 @@ function empresaComExtras(e, req) {
     whatsapp: situacaoWhatsapp(e, req),
     totalMidias: midias.midiasDa(e).length,
     totalCatalogo: require('./catalogo').resumo(e).ativos,
+    agendaHoje: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? (c.agendamentos || []).filter((a) => a.status === 'agendado' && a.quando && new Date(a.quando).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) === new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })).length : 0), 0),
     chatNoSite: estado.conversas.some((c) => c.empresaId === e.id && c.origem === 'site'), // o código já está no site
     chaves: situacaoChavesEmpresa(e),
     assistentes: bots.length,
@@ -1385,6 +1386,38 @@ router.post('/leads/:id/pedido', async (req, res) => {
   } catch (err) {
     res.status(err.status || 502).json({ erro: err.message, jaEnviadoEm: err.jaEnviadoEm });
   }
+});
+
+// Agenda da empresa: todos os agendamentos (próximos, passados e cancelados) de forma simples
+router.get('/empresas/:id/agendamentos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const agora_ = Date.now();
+  const lista = [];
+  for (const c of estado.conversas) {
+    if (c.empresaId !== empresa.id) continue;
+    for (const a of c.agendamentos || []) {
+      const t = a.quando ? new Date(a.quando).getTime() : null;
+      const grupo = a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
+      lista.push({
+        id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
+        quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
+        avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', grupo, criadoEm: a.criadoEm
+      });
+    }
+  }
+  const ord = (x) => x.quando || x.criadoEm || '';
+  const resumo = {
+    hoje: lista.filter((x) => x.grupo === 'proximos' && x.quando && new Date(x.quando).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) === new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })).length,
+    semana: lista.filter((x) => x.grupo === 'proximos' && x.quando && new Date(x.quando).getTime() < agora_ + 7 * 86400000).length,
+    proximos: lista.filter((x) => x.grupo === 'proximos').length
+  };
+  res.json({
+    resumo,
+    proximos: lista.filter((x) => x.grupo === 'proximos').sort((a, b) => ord(a).localeCompare(ord(b))),
+    passados: lista.filter((x) => x.grupo === 'passados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200),
+    cancelados: lista.filter((x) => x.grupo === 'cancelados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200)
+  });
 });
 
 // Agendamento marcado pela equipe (aparece como aviso na conversa)

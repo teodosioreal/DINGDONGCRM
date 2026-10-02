@@ -182,6 +182,7 @@ const ICONES = {
   visao: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   conversas: I('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8 11h8M8 14h5"/>'),
   maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+  agenda: I('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 14h3"/>'),
   followup: I('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
   livro: I('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h5"/>'),
   dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>'),
@@ -233,6 +234,7 @@ function montarMenu(ativo) {
     // o dia a dia primeiro: conversas e máquina de vendas
     html += item(rotaEmpresa(id), 'inicio', 'Início', (d.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="ponto off" title="Algo precisa de atenção"></span>' : '');
     html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
+    html += item(rotaEmpresa(id, 'agenda'), 'agenda', 'Agendamentos', d.agendaHoje ? `<span class="contador contador-agenda" title="Agendamentos de hoje">${d.agendaHoje}</span>` : '');
     html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
     html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
     html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
@@ -815,6 +817,70 @@ function ligarConferirPrompt(form, botId, canal) {
       form._atualizarPainel?.();
     }
   };
+}
+
+// ---------------------------------------------------------------- empresa: agendamentos (agenda simples)
+
+async function paginaAgenda(id, params) {
+  const hashDaPagina = location.hash;
+  await definirEmpresaAtual(id);
+  const d = await api(`empresas/${id}/agendamentos`);
+  if (location.hash !== hashDaPagina) return;
+  let aba = params?.get('aba') || 'proximos';
+  const sp = (iso, o) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', ...o });
+  const chaveDia = (iso) => sp(iso, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const hoje = chaveDia(new Date().toISOString());
+  const amanha = chaveDia(new Date(Date.now() + 86400000).toISOString());
+  const tituloDia = (iso) => {
+    const k = chaveDia(iso);
+    const nome = sp(iso, { weekday: 'long', day: '2-digit', month: 'long' });
+    return k === hoje ? `Hoje · ${nome}` : k === amanha ? `Amanhã · ${nome}` : nome.charAt(0).toUpperCase() + nome.slice(1);
+  };
+  const QUEM = { ia: 'IA', equipe: 'equipe', cliente: 'cliente', detectado: '✨ percebido' };
+  const linha = (x) => `
+    <div class="ag-linha ${x.grupo}" data-ag="${esc(x.id)}">
+      <div class="ag-hora">${x.quando ? sp(x.quando, { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
+      <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
+      <div class="ag-tags">
+        <span class="etiqueta">${esc(QUEM[x.por] || x.por)}</span>
+        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}
+        ${x.avisoStatus === 'enviado' ? '<span class="etiqueta ok" title="O número de aviso recebeu">aviso ✓</span>' : x.avisoStatus === 'erro' ? `<span class="etiqueta aviso" title="${esc(x.avisoErro)}">aviso falhou</span>` : ''}
+      </div>
+      <div class="ag-acoes"><a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">Conversa</a>${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar">✕</button>` : ''}</div>
+    </div>`;
+  const desenhar = () => {
+    const itens = d[aba] || [];
+    let html = '';
+    if (!itens.length) html = `<div class="card vazio-grande"><div class="vazio-icone">📅</div><h2>${aba === 'proximos' ? 'Nenhum agendamento pela frente' : aba === 'passados' ? 'Nenhum agendamento passado' : 'Nenhum cancelado'}</h2><p class="rotulo">${aba === 'proximos' ? 'Quando você, a equipe ou a IA combinarem um horário com o cliente no WhatsApp, ele aparece aqui sozinho.' : ''}</p></div>`;
+    else {
+      let dia = '';
+      html = '<div class="card ag-lista">';
+      for (const x of itens) {
+        const k = x.quando ? chaveDia(x.quando) : 'sem-data';
+        if (k !== dia) { dia = k; html += `<div class="ag-dia ${k === hoje ? 'hoje' : ''}">${x.quando ? esc(tituloDia(x.quando)) : 'Data a combinar'}</div>`; }
+        html += linha(x);
+      }
+      html += '</div>';
+    }
+    $('#ag-conteudo').innerHTML = html;
+    $$('[data-ag-cancelar]').forEach((b) => {
+      b.onclick = async () => {
+        if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'Ele sai da agenda e o lead sai de "Agendou". Se o aviso de agendamento estiver ligado, o número cadastrado recebe o cancelamento. O cliente não recebe nada automático.', botao: 'Cancelar agendamento', perigo: true }))) return;
+        try { await api(`leads/${b.dataset.lead}/agendamentos/${b.dataset.agCancelar}`, { method: 'DELETE', body: {} }); aviso('Agendamento cancelado.'); paginaAgenda(id, new URLSearchParams({ aba })).then(() => montarMenu(rotaEmpresa(id, 'agenda'))); } catch (err) { aviso(err.message, true); }
+      };
+    });
+  };
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Agendamentos</h1><p class="sub">O que está marcado com os clientes. Entra sozinho quando um horário é combinado no WhatsApp.</p></div><a class="botao" href="${rotaEmpresa(id, 'whatsapp')}">Aviso no WhatsApp</a></div>
+    <div class="card cat-resumo">
+      <div><span class="rotulo">Hoje</span><b>${d.resumo.hoje}</b></div>
+      <div><span class="rotulo">Próximos 7 dias</span><b>${d.resumo.semana}</b></div>
+      <div><span class="rotulo">Todos à frente</span><b>${d.resumo.proximos}</b></div>
+    </div>
+    <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
+    <div id="ag-conteudo"></div>`;
+  $$('[data-ag-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.agAba; $$('[data-ag-aba]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
+  desenhar();
 }
 
 // ---------------------------------------------------------------- empresa: serviços e preços (catálogo)
@@ -3087,20 +3153,26 @@ async function cartaoAvisoAgendamento(id) {
   let c;
   try { c = await api(`empresas/${id}/aviso-agendamento`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
-  setTimeout(() => marcarPronto(el, c.ativo && c.numero ? 'ok' : 'off', c.ativo && c.numero ? `Ligado · ${telefoneBonito(c.numero)}` : 'Desligado: ninguém é avisado dos agendamentos'));
+  // número salvo mas desligado: fica aberto e avisa (é o caso em que "nada chega")
+  setTimeout(() => marcarPronto(el, c.ativo && c.numero ? 'ok' : c.numero ? null : 'off', c.ativo && c.numero ? `Ligado · ${telefoneBonito(c.numero)}` : 'Desligado: ninguém é avisado dos agendamentos'));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 Aviso de agendamento</h2>${interruptor('aviso-ag-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
     <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, carro, endereço, preço e outras informações importantes da conversa.</p>
+    ${c.numero && !c.ativo ? `<p class="aviso-desligado">⚠️ O número <b>${esc(telefoneBonito(c.numero))}</b> está salvo, mas o aviso está <b>DESLIGADO</b> — por isso nada chega. Ligue no botão acima.</p>` : ''}
     <form id="f-aviso-ag" class="linha-form" style="flex-wrap:wrap"><input name="numero" value="${esc(c.numero ? telefoneBonito(c.numero) : '')}" placeholder="WhatsApp que recebe o aviso (DDD + número)"><button type="submit" class="primario">Salvar número</button><button type="button" id="aviso-ag-teste" ${c.numero ? '' : 'disabled'}>Mandar um teste</button></form>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--borda)">${interruptor('agenda-auto', c.automatica, 'Perceber agendamentos sozinho na conversa')}<p class="rotulo" style="margin:4px 0 0">Quando você, a equipe ou a IA combinam um horário com o cliente (ex.: "sábado às 9h?" → "pode ser"), o CRM marca o agendamento, move o lead para Agendou e avisa no sininho. Se o cliente desmarcar ou trocar o horário, ele cancela ou remarca sozinho. Dá para desfazer na conversa.</p></div>`;
   $('#agenda-auto').onchange = async (e) => {
     try { await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: { automatica: e.target.checked } }); aviso(e.target.checked ? 'O CRM vai perceber os agendamentos sozinho.' : 'Agendamentos só pela IA e à mão.'); } catch (err) { aviso(err.message, true); }
   };
   const salvar_ = async (corpo, msg) => {
-    try { await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: corpo }); aviso(msg); cartaoAvisoAgendamento(id); } catch (err) { aviso(err.message, true); cartaoAvisoAgendamento(id); }
+    try {
+      const r = await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: corpo });
+      aviso(r.pendentes ? `${msg} Mandando o aviso de ${r.pendentes} agendamento(s) que já estavam marcados.` : msg);
+      cartaoAvisoAgendamento(id);
+    } catch (err) { aviso(err.message, true); cartaoAvisoAgendamento(id); }
   };
   $('#aviso-ag-ativo').onchange = (e) => salvar_({ ativo: e.target.checked, numero: $('#f-aviso-ag').elements.numero.value }, e.target.checked ? 'Aviso de agendamento ligado.' : 'Aviso de agendamento desligado.');
-  $('#f-aviso-ag').onsubmit = (e) => { e.preventDefault(); salvar_({ numero: e.target.elements.numero.value }, 'Número salvo.'); };
+  $('#f-aviso-ag').onsubmit = (e) => { e.preventDefault(); salvar_({ numero: e.target.elements.numero.value }, 'Número salvo e aviso ligado.'); };
   $('#aviso-ag-teste').onclick = async (e) => {
     try { await comEspera(e.target, () => api(`empresas/${id}/aviso-agendamento/testar`, { method: 'POST', body: {} }), 'Enviando…'); aviso('Teste enviado. Confira o WhatsApp do número cadastrado.'); } catch (err) { aviso(err.message, true); }
   };
@@ -5252,6 +5324,7 @@ async function rotear() {
         '': () => paginaEmpresa(id),
         leads: () => paginaLeads(id, params),
         conversas: () => paginaConversas(id, params),
+        agenda: () => paginaAgenda(id, params),
         faturamento: () => paginaFaturamento(id, params),
         aprendizado: () => paginaAprendizado(id),
         automacoes: () => paginaAutomacoes(id),
