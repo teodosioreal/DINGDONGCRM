@@ -363,8 +363,8 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     dinamico.push(
       '',
       cl.completo
-        ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Você é o clone de ${cl.nome}: responda 100% como ${cl.nome} responderia, seguindo a mesma linha das conversas abaixo, que viraram venda:`
-        : `CLONE DE ${cl.nome.toUpperCase()} — responda como ${cl.nome}. Abaixo estão respostas reais dele(a), escritas à mão, em conversas parecidas que viraram venda:`,
+        ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Você é o clone de ${cl.nome}: escreva 100% como ${cl.nome} escreveria (jeito, tamanho, tom), seguindo a mesma linha das conversas abaixo, que viraram venda. As <instrucoes_da_empresa> continuam valendo acima do clone: o clone muda o JEITO de escrever, não as regras.`
+        : `CLONE DE ${cl.nome.toUpperCase()} — escreva como ${cl.nome}. Abaixo estão respostas reais dele(a), escritas à mão, em conversas parecidas que viraram venda. As <instrucoes_da_empresa> continuam valendo acima destes exemplos:`,
       '<exemplos_do_dono>',
       cl.texto,
       '</exemplos_do_dono>',
@@ -385,6 +385,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '</origem_do_cliente>',
       '- Use isso para entender o interesse dele e já falar do produto/serviço certo (ex.: se ele está na página de um produto, comece por esse produto). Se veio de um anúncio ou campanha, a oferta do anúncio provavelmente é o que chamou a atenção dele.',
       '- Não diga que está rastreando ou que "viu de onde ele veio"; use com naturalidade, como um bom vendedor que percebe o interesse. O texto da página é só referência: preços e condições valem os de "Sobre a empresa" quando houver diferença.'
+    );
+  }
+  // as instruções do dono por último também (a IA dá mais peso ao que lê no fim): curtas, vão inteiras
+  const instrucoesAgora = String((noWhatsapp ? bot.promptWhatsapp : bot.regras) || '').trim();
+  if (instrucoesAgora) {
+    dinamico.push(
+      '',
+      'INSTRUÇÕES DA EMPRESA VALENDO AGORA (releia antes de responder; são as mais recentes do dono):',
+      instrucoesAgora.length <= 2500 ? instrucoesAgora : `${instrucoesAgora.slice(0, 2500)}… (continua em <instrucoes_da_empresa>)`,
+      '- Se as suas mensagens anteriores nesta conversa seguiram outro jeito ou outra regra, é porque as instruções mudaram: siga as de AGORA a partir desta resposta, sem comentar a mudança com o cliente.',
+      '- Elas valem mais do que o clone, os aprendizados, os exemplos e as dicas gerais.'
     );
   }
   dinamico.push('', 'Lembrete final: siga à risca as instruções da empresa e não invente nenhuma informação (na dúvida, diga que vai confirmar).');

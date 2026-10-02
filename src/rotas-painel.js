@@ -1068,6 +1068,19 @@ router.post('/bots/:id/testar', async (req, res) => {
   }
 });
 
+// Botão "Atualizar e conferir": testa se a IA lê e obedece as instruções salvas
+router.post('/bots/:id/conferir', async (req, res) => {
+  const bot = acharBot(req, res);
+  if (!bot) return;
+  const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
+  if (!empresa) return res.status(400).json({ erro: 'Este assistente não tem empresa.' });
+  try {
+    res.json(await require('./conferir-prompt').conferir(bot, empresa, req.body?.canal === 'site' ? 'site' : 'whatsapp'));
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.status ? err.message : `Não deu para testar agora: ${ia.descreverErroIa ? ia.descreverErroIa(err) : err.message}` });
+  }
+});
+
 // ---------------------------------------------------------------- leads
 
 function resumoLead(c) {

@@ -733,6 +733,44 @@ async function salvarBot(botId, form, mensagem = 'Salvo!') {
   aviso(mensagem);
 }
 
+// Botão "Atualizar e conferir": salva as instruções e testa a IA de verdade
+// (mensagens de cliente pensadas para as regras + um fiscal que confere cada uma)
+function ligarConferirPrompt(form, botId, canal) {
+  const acoes = form.querySelector(':scope > .acoes');
+  if (!acoes || acoes.querySelector('.conferir-prompt')) return;
+  const botao = document.createElement('button');
+  botao.type = 'button';
+  botao.className = 'conferir-prompt';
+  botao.textContent = '🔄 Atualizar e conferir';
+  botao.title = 'Salva e testa se a IA está lendo as instruções novas e obedecendo';
+  acoes.append(botao);
+  const area = document.createElement('div');
+  area.className = 'conferir-resultado';
+  acoes.after(area);
+  const ICONE = { sim: '<span class="cf-ok">✓</span>', nao: '<span class="cf-nao">✗</span>', nao_testada: '<span class="cf-nt">–</span>' };
+  botao.onclick = async () => {
+    try {
+      await salvarBot(botId, form, 'Instruções salvas. Testando a IA…');
+      area.innerHTML = '<p class="rotulo"><span class="girando"></span> A IA está respondendo mensagens de teste com as instruções novas e um fiscal está conferindo cada regra (leva uns 20 a 40 segundos)…</p>';
+      const r = await comEspera(botao, () => api(`bots/${botId}/conferir`, { method: 'POST', body: { canal } }), 'Testando…');
+      area.innerHTML = `
+        <div class="conferir-caixa ${r.nota}">
+          <div class="cf-topo"><strong>${r.lendo ? '✓ A IA está lendo as instruções novas' : '⚠️ A IA NÃO está lendo o texto salvo'}</strong><span class="etiqueta ${r.nota === 'ok' ? 'ok' : 'aviso'}">${esc(r.placar)}</span></div>
+          <p class="rotulo" style="margin:2px 0 10px">Salvas ${r.instrucoesSalvasEm ? `em ${esc(data(r.instrucoesSalvasEm))}` : 'agora'} · ${r.caracteres} caracteres · valem para todas as próximas mensagens, inclusive em conversas que já estavam abertas.</p>
+          <ul class="cf-regras">${r.regras.map((x) => `<li>${ICONE[x.resultado]}<div><b>${esc(x.regra)}</b>${x.porque ? `<span class="rotulo">${esc(x.porque)}</span>` : ''}</div></li>`).join('')}</ul>
+          ${r.resumo ? `<p style="margin:10px 0 0">${esc(r.resumo)}</p>` : ''}
+          ${r.sugestao ? `<p class="cf-sugestao">💡 <b>Para a IA obedecer melhor:</b> ${esc(r.sugestao)}</p>` : ''}
+          <details style="margin-top:10px"><summary>Ver as respostas do teste</summary>
+            ${r.conversas.map((c) => `<div class="cf-conversa"><p><span class="rotulo">Cliente:</span> ${esc(c.cliente)}</p><p><span class="rotulo">IA:</span> ${c.ia ? esc(c.ia) : `<span class="aviso-texto">${esc(c.erro || 'sem resposta')}</span>`}${c.acoes?.length ? ` <span class="rotulo">(${esc(c.acoes.join('; '))})</span>` : ''}</p></div>`).join('')}
+          </details>
+        </div>`;
+    } catch (err) {
+      area.innerHTML = '';
+      aviso(err.message, true);
+    }
+  };
+}
+
 // ---------------------------------------------------------------- empresa: sobre a empresa (cérebro)
 
 const MODELO_CONHECIMENTO = `SERVIÇOS E PREÇOS
@@ -911,6 +949,7 @@ async function paginaSite(id) {
     e.preventDefault();
     try { await salvarBot(bot.id, form); } catch (err) { aviso(err.message, true); }
   };
+  ligarConferirPrompt(form, bot.id, 'site');
   ligarChatTeste({ botId: bot.id, canal: 'site', rascunho: () => formParaObjeto(form), saudacao: () => form.elements.boasVindas.value });
 }
 
@@ -1334,6 +1373,7 @@ async function paginaWhatsapp(id) {
       e.preventDefault();
       try { await salvarBot(bot.id, form); } catch (err) { aviso(err.message, true); }
     };
+    ligarConferirPrompt(form, bot.id, 'whatsapp');
     ligarChatTeste({ botId: bot.id, canal: 'whatsapp', rascunho: () => formParaObjeto(form), saudacao: () => '' });
   }
 }
