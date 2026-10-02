@@ -631,7 +631,30 @@ const openaiSemTemperatura = (modelo) => /^(gpt-5|o\d)/i.test(modelo);
  * `anexo` = { base64, mime } (foto ou PDF) vai junto da última mensagem do cliente.
  * @returns {{ texto: string, recusado?: boolean }}
  */
-async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true, esforco = 'low' }) {
+// Os modelos que "pensam" antes de responder (Claude Opus/Sonnet atuais, GPT-5,
+// Gemini 2.5) gastam o pensamento DENTRO do limite de saída. Limite apertado =
+// a IA pensa até o fim do limite e devolve texto vazio. O piso abaixo dá folga
+// (só se paga o que for de fato gerado; o tamanho da resposta é o prompt que manda).
+const PISO_SAIDA = { anthropic: 16000, openai: 8000, gemini: 8192 };
+function limiteDeSaida(m, maxTokens) {
+  if (m.provedor === 'anthropic' && m.modelo === 'claude-haiku-4-5') return maxTokens; // não pensa
+  if (m.provedor === 'openai' && !openaiSemTemperatura(m.modelo)) return maxTokens; // modelo sem raciocínio
+  return Math.max(maxTokens, PISO_SAIDA[m.provedor] || maxTokens);
+}
+
+async function chamarMotor(empresa, m, opcoes) {
+  const r = await chamarMotorUmaVez(empresa, m, opcoes);
+  // pensou até o limite e não escreveu nada: tenta uma vez com mais folga e pensando menos
+  if (!r.recusado && !String(r.texto || '').trim() && r.cortado) {
+    // (até 20 mil: sem streaming o SDK do Claude recusa limites muito altos)
+    console.error(`[ia] ${m.provedor}/${m.modelo}: resposta vazia (limite de saída esgotado no pensamento); tentando de novo com mais folga`);
+    return chamarMotorUmaVez(empresa, m, { ...opcoes, maxTokens: Math.min(limiteDeSaida(m, opcoes.maxTokens || 4000) * 2, 20000), esforco: 'low', esforcoBaixo: true });
+  }
+  return r;
+}
+
+async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true, esforco = 'low' }) {
+  maxTokens = limiteDeSaida(m, maxTokens);
   const nivel = esforcoBaixo ? esforco : null; // quanto a IA "pensa" antes de responder
   const fixo = typeof sistema === 'string' ? sistema : sistema.fixo || '';
   const dinamico = typeof sistema === 'string' ? '' : sistema.dinamico || '';
@@ -667,7 +690,7 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
     const u = r.usage || {};
     registrarUso(empresa, 'anthropic', { entrada: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, cache: u.cache_read_input_tokens || 0 });
     if (r.stop_reason === 'refusal') return { texto: RESPOSTA_RECUSA, recusado: true };
-    return { texto: r.content.filter((b) => b.type === 'text').map((b) => b.text).join('') };
+    return { texto: r.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), cortado: r.stop_reason === 'max_tokens' };
   }
 
   if (m.provedor === 'openai') {
@@ -692,7 +715,7 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
     registrarUso(empresa, 'openai', { entrada: (u.prompt_tokens || 0) - emCache, saida: u.completion_tokens || 0, cache: emCache });
     const msg = dados.choices?.[0]?.message || {};
     if (msg.refusal) return { texto: RESPOSTA_RECUSA, recusado: true };
-    return { texto: typeof msg.content === 'string' ? msg.content : '' };
+    return { texto: typeof msg.content === 'string' ? msg.content : '', cortado: dados.choices?.[0]?.finish_reason === 'length' };
   }
 
   // Gemini
@@ -723,7 +746,7 @@ async function chamarMotor(empresa, m, { sistema = '', turnos, maxTokens = 4000,
   if (!texto.trim() && ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'].includes(candidato.finishReason)) {
     return { texto: RESPOSTA_RECUSA, recusado: true };
   }
-  return { texto };
+  return { texto, cortado: candidato.finishReason === 'MAX_TOKENS' };
 }
 
 // Tira da resposta as "ações" que a IA pediu ([[ETAPA: …]], [[MIDIA: …]],

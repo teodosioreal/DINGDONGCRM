@@ -69,7 +69,7 @@ diagnostico() {
   INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
   echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
   # teste do "Sugerir com IA" (uma vez), numa cópia do banco; erros aparecem abaixo
-  MARCA_SUG="$(dirname "$DB_CRM")/.teste-sugestao-1"
+  MARCA_SUG="$(dirname "$DB_CRM")/.teste-sugestao-2"
   if [ ! -f "$MARCA_SUG" ]; then
     echo "    Teste do Sugerir com IA (cópia do banco, nada é gravado):"
     touch "$MARCA_SUG"
