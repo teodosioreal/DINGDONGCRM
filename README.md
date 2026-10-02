@@ -455,6 +455,18 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
   segundos ele parar de digitar).
 - Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo.
 
+### Serviços e preços (catálogo)
+
+Em **Configurar → Serviços e preços** a empresa cadastra cada serviço ou
+produto com preço (valor único ou faixa "de… a…"), observação do preço ("no
+Pix", "a partir de"), duração/prazo, detalhes e as **mídias da biblioteca** que
+mostram aquele item. A IA recebe o catálogo em toda resposta e os preços dele
+valem acima de "Sobre a empresa", do site e de conversas antigas — trocou o
+preço, vale na próxima mensagem, sem mexer no prompt. Item desligado sai do que
+a IA oferece; mídia ligada a um item vai quando o cliente fala dele (mesmo que
+ainda esteja "a configurar"). O botão **Trazer de "Sobre a empresa"** usa a IA
+para separar os serviços e preços já escritos lá; a equipe confere antes de salvar.
+
 ### Funil padrão (etapas do lead)
 
 **Lead novo → Convertendo → Agendou → Vendi → Não fechou.** O lead entra em

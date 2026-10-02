@@ -184,7 +184,8 @@ const ICONES = {
   maquina: I('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
   followup: I('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
   livro: I('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h5"/>'),
-  dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>')
+  dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>'),
+  catalogo: I('<path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>')
 };
 
 // ---------------------------------------------------------------- tema e menu
@@ -241,6 +242,7 @@ function montarMenu(ativo) {
     const marca = (k) => (st[k] === 'ok' ? '<span class="marca-ok" title="Configurado">✓</span>' : st[k] === 'atencao' ? '<span class="marca-atencao" title="Precisa de atenção">!</span>' : '<span class="marca-off" title="Desligado">–</span>');
     const configs = [
       ['ia', 'cerebro', 'Sobre a empresa'],
+      ['catalogo', 'catalogo', 'Serviços e preços'],
       ['aprendizado', 'livro', 'Aprendizados da IA'],
       ['site', 'site', 'IA do site'],
       ['whatsapp', 'whatsapp', 'IA do WhatsApp'],
@@ -815,6 +817,173 @@ function ligarConferirPrompt(form, botId, canal) {
   };
 }
 
+// ---------------------------------------------------------------- empresa: serviços e preços (catálogo)
+
+const TIPO_CATALOGO = { servico: 'Serviço', produto: 'Produto' };
+const precoBonito = (x) => {
+  if (x.preco == null && x.precoAte == null) return x.precoObs || 'Sob consulta';
+  const faixa = x.preco != null && x.precoAte != null ? `${brl(x.preco)} – ${brl(x.precoAte)}` : brl(x.preco ?? x.precoAte);
+  return faixa;
+};
+
+// O que dá para ligar a um item: fotos/vídeos soltos, álbuns e pastas do Drive (pelo código)
+async function opcoesDeMidia(id, emp) {
+  const [todas, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`)]);
+  const capa = (filtro) => todas.find((m) => filtro(m) && m.tipo === 'image')?.url || '';
+  return [
+    ...todas.filter((m) => !m.pastaId && !m.albumId && m.codigo).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, capa: m.tipo === 'image' ? m.url : '', pronta: m.pronta !== false })),
+    ...albuns.filter((a) => a.codigo).map((a) => ({ codigo: a.codigo, nome: a.nome, tipo: 'album', capa: capa((m) => m.albumId === a.id), quantidade: todas.filter((m) => m.albumId === a.id).length, pronta: true })),
+    ...(emp.drivePastas || []).filter((p) => p.codigo).map((p) => ({ codigo: p.codigo, nome: p.nome, tipo: 'drive', capa: capa((m) => m.pastaId === p.id), pronta: true }))
+  ];
+}
+
+function miniaturaMidia(o, extra = '') {
+  const icone = o.tipo === 'album' ? '🗂️' : o.tipo === 'drive' ? '📁' : ICONE_TIPO[o.tipo] || '📎';
+  return `<span class="mini-midia ${extra}" title="${esc(o.nome)} · #${esc(o.codigo)}">${o.capa ? `<img src="${esc(o.capa)}" alt="" loading="lazy">` : `<span>${icone}</span>`}${o.tipo === 'video' ? '<i>▶</i>' : o.tipo === 'album' ? `<i>${o.quantidade || ''}</i>` : ''}</span>`;
+}
+
+async function paginaCatalogo(id) {
+  const hashDaPagina = location.hash;
+  const emp = await definirEmpresaAtual(id);
+  const [d, opcoes] = await Promise.all([api(`empresas/${id}/catalogo`), opcoesDeMidia(id, emp)]);
+  if (location.hash !== hashDaPagina) return;
+  const porCodigo = Object.fromEntries(opcoes.map((o) => [o.codigo, o]));
+  emp.catalogoCategorias = d.itens.map((x) => x.categoria).filter(Boolean);
+  let filtro = 'todos';
+  let busca = '';
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Serviços e preços</h1><p class="sub">O que a empresa vende. A IA consulta esta lista em toda resposta — mudou aqui, vale na próxima mensagem, sem mexer no prompt.</p></div>
+      <div class="acoes-topo"><button type="button" id="cat-importar">✨ Trazer de "Sobre a empresa"</button><button type="button" class="primario" id="cat-novo">+ Novo serviço ou produto</button></div></div>
+    ${balao('Como a IA usa isto', 'Os <b>preços daqui valem acima de qualquer outro texto</b> (Sobre a empresa, site, conversas antigas). Item sem preço = a IA diz que vai confirmar. As <b>mídias ligadas</b> a um item vão quando o cliente fala daquele serviço ou produto. Desligou um item? A IA para de oferecer na hora.')}
+    <div class="card cat-resumo">
+      <div><span class="rotulo">Na lista</span><b>${d.total}</b></div>
+      <div><span class="rotulo">A IA está oferecendo</span><b>${d.ativos}</b></div>
+      <div><span class="rotulo">Última mudança</span><b class="cat-data">${d.atualizadoEm ? esc(data(d.atualizadoEm)) : '—'}</b></div>
+    </div>
+    <div class="cat-filtros">
+      <input id="cat-busca" placeholder="🔎 Buscar serviço ou produto">
+      <div class="chips">${[['todos', 'Todos'], ['servico', 'Serviços'], ['produto', 'Produtos'], ['off', 'Desligados']].map(([k, r]) => `<button type="button" class="chip-filtro ${k === filtro ? 'ativo' : ''}" data-cat-filtro="${k}">${r}</button>`).join('')}</div>
+    </div>
+    <div id="cat-lista"></div>`;
+
+  const desenhar = () => {
+    const termo = busca.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const lista = d.itens
+      .filter((x) => filtro === 'todos' || (filtro === 'off' ? !x.ativo : x.tipo === filtro))
+      .filter((x) => !termo || `${x.nome} ${x.categoria} ${x.descricao}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(termo))
+      .sort((a, b) => (a.categoria || '').localeCompare(b.categoria || '') || a.nome.localeCompare(b.nome));
+    $('#cat-lista').innerHTML = !d.itens.length
+      ? `<div class="card vazio-grande"><div class="vazio-icone">🛍️</div><h2>Cadastre o que você vende</h2><p class="rotulo">Cada serviço ou produto com o preço e as fotos/vídeos que mostram ele. A IA passa a usar na hora.</p><div class="acoes" style="justify-content:center"><button type="button" class="primario" data-cat-novo>+ Novo serviço ou produto</button><button type="button" data-cat-importar>✨ Trazer de "Sobre a empresa"</button></div></div>`
+      : !lista.length
+        ? '<p class="rotulo">Nada encontrado com esse filtro.</p>'
+        : `<div class="cat-grade">${lista.map((x) => `
+          <div class="card cat-item ${x.ativo ? '' : 'desligado'}" data-cat-item="${esc(x.id)}">
+            <div class="cat-midias">${x.midias.length ? x.midias.slice(0, 4).map((c) => (porCodigo[c] ? miniaturaMidia(porCodigo[c]) : '')).join('') + (x.midias.length > 4 ? `<span class="mini-midia mais">+${x.midias.length - 4}</span>` : '') : '<span class="cat-sem-midia">sem mídia</span>'}</div>
+            <div class="cat-corpo">
+              <div class="cat-linha1"><span class="etiqueta ${x.tipo === 'produto' ? 'aviso' : 'ok'}">${TIPO_CATALOGO[x.tipo]}</span>${x.categoria ? `<span class="rotulo">${esc(x.categoria)}</span>` : ''}</div>
+              <strong class="cat-nome">${esc(x.nome)}</strong>
+              <div class="cat-preco">${esc(precoBonito(x))}${x.precoObs && (x.preco != null || x.precoAte != null) ? ` <span class="rotulo">${esc(x.precoObs)}</span>` : ''}</div>
+              ${x.duracao ? `<div class="rotulo">⏱ ${esc(x.duracao)}</div>` : ''}
+              ${x.descricao ? `<p class="cat-desc">${esc(x.descricao)}</p>` : ''}
+            </div>
+            <div class="cat-rodape">${interruptor(`cat-ativo-${x.id}`, x.ativo, x.ativo ? 'IA oferece' : 'Desligado')}<span class="cat-acoes"><button type="button" class="pequeno" data-cat-editar="${esc(x.id)}">Editar</button><button type="button" class="pequeno perigo" data-cat-apagar="${esc(x.id)}" title="Apagar">✕</button></span></div>
+          </div>`).join('')}</div>`;
+    $$('[data-cat-editar]').forEach((b) => { b.onclick = () => editorCatalogo(id, emp, opcoes, d.itens.find((x) => x.id === b.dataset.catEditar), recarregar); });
+    $$('[data-cat-novo]').forEach((b) => { b.onclick = () => editorCatalogo(id, emp, opcoes, null, recarregar); });
+    $$('[data-cat-importar]').forEach((b) => { b.onclick = () => importarCatalogo(id, recarregar); });
+    $$('[data-cat-apagar]').forEach((b) => {
+      b.onclick = async () => {
+        const x = d.itens.find((i) => i.id === b.dataset.catApagar);
+        if (!(await confirmar({ titulo: `Apagar "${x.nome}"?`, texto: 'A IA deixa de oferecer este item. As mídias continuam na biblioteca.', botao: 'Apagar', perigo: true }))) return;
+        try { await api(`empresas/${id}/catalogo/${x.id}`, { method: 'DELETE' }); aviso('Apagado.'); recarregar(); } catch (err) { aviso(err.message, true); }
+      };
+    });
+    for (const x of d.itens) {
+      const ch = $(`#cat-ativo-${x.id}`);
+      if (ch) ch.onchange = async (e) => {
+        try { await api(`empresas/${id}/catalogo/${x.id}`, { method: 'PUT', body: { ativo: e.target.checked } }); aviso(e.target.checked ? `A IA voltou a oferecer "${x.nome}".` : `A IA parou de oferecer "${x.nome}".`); recarregar(); } catch (err) { aviso(err.message, true); }
+      };
+    }
+  };
+  const recarregar = () => paginaCatalogo(id).then(() => montarMenu(rotaEmpresa(id, 'catalogo')));
+  $('#cat-novo').onclick = () => editorCatalogo(id, emp, opcoes, null, recarregar);
+  $('#cat-importar').onclick = () => importarCatalogo(id, recarregar);
+  $('#cat-busca').oninput = (e) => { busca = e.target.value; desenhar(); };
+  $$('[data-cat-filtro]').forEach((b) => { b.onclick = () => { filtro = b.dataset.catFiltro; $$('[data-cat-filtro]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
+  desenhar();
+}
+
+function editorCatalogo(id, emp, opcoes, item, depois) {
+  const x = item || { tipo: 'servico', nome: '', categoria: '', preco: null, precoAte: null, precoObs: '', duracao: '', descricao: '', midias: [], ativo: true };
+  const escolhidas = new Set(x.midias);
+  const num = (v) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const categorias = [...new Set((emp.catalogoCategorias || []))];
+  abrirModal(`
+    <h2>${item ? 'Editar' : 'Novo'} serviço ou produto</h2>
+    <form id="f-cat" class="form-cat">
+      <div class="segmentado"><label><input type="radio" name="tipo" value="servico" ${x.tipo !== 'produto' ? 'checked' : ''}><span>Serviço</span></label><label><input type="radio" name="tipo" value="produto" ${x.tipo === 'produto' ? 'checked' : ''}><span>Produto</span></label></div>
+      <div class="campos">
+        <div class="campo largo"><label>Nome *</label><input name="nome" required maxlength="100" value="${esc(x.nome)}" placeholder="Ex.: Revestimento de volante em couro"></div>
+        <div class="campo"><label>Preço (R$)</label><input name="preco" inputmode="decimal" value="${esc(num(x.preco))}" placeholder="350,00"></div>
+        <div class="campo"><label>Até (R$) <span class="rotulo">— se for faixa</span></label><input name="precoAte" inputmode="decimal" value="${esc(num(x.precoAte))}" placeholder="opcional"></div>
+        <div class="campo"><label>Sobre o preço</label><input name="precoObs" maxlength="120" value="${esc(x.precoObs)}" placeholder="a partir de · no Pix · em até 3x"></div>
+        <div class="campo"><label>${x.tipo === 'produto' ? 'Prazo de entrega' : 'Duração / prazo'}</label><input name="duracao" maxlength="80" value="${esc(x.duracao)}" placeholder="Ex.: 2 horas · fica pronto no mesmo dia"></div>
+        <div class="campo"><label>Categoria <span class="rotulo">— opcional</span></label><input name="categoria" maxlength="60" value="${esc(x.categoria)}" list="cat-categorias" placeholder="Ex.: Volantes"><datalist id="cat-categorias">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="campo largo"><label>Detalhes para a IA usar ${ajuda('O que está incluso, materiais, cores, garantia, condições. Só o que for verdade: a IA usa isto para responder.')}</label><textarea name="descricao" maxlength="1500" style="min-height:90px" placeholder="Ex.: Couro legítimo, costura à mão, cores preto e caramelo, garantia de 1 ano.">${esc(x.descricao)}</textarea></div>
+      </div>
+      <div class="campo">
+        <label>Mídias deste item <span class="rotulo" id="cat-qtd"></span> ${ajuda('Fotos, vídeos, álbuns ou pastas do Drive que mostram este serviço/produto. A IA manda quando o cliente falar dele.')}</label>
+        ${opcoes.length ? `<input id="cat-busca-midia" placeholder="🔎 Filtrar mídias" style="margin-bottom:8px">
+        <div class="seletor-midias">${opcoes.map((o) => `<button type="button" class="opcao-midia ${escolhidas.has(o.codigo) ? 'marcada' : ''}" data-codigo="${esc(o.codigo)}" data-busca="${esc(`${o.nome} ${o.codigo}`.toLowerCase())}">${miniaturaMidia(o)}<span class="opcao-nome">${esc(o.nome)}</span><span class="opcao-check">✓</span></button>`).join('')}</div>`
+        : `<p class="rotulo">Nenhuma mídia na biblioteca ainda. <a href="${rotaEmpresa(id, 'midias')}">Subir fotos e vídeos</a></p>`}
+      </div>
+      <label class="linha-check" style="margin-top:10px"><input type="checkbox" name="ativo" ${x.ativo ? 'checked' : ''}> A IA oferece este item</label>
+      <div class="acoes"><button type="submit" class="primario">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
+    </form>`, (m, fechar) => {
+    const qtd = () => { const q = $('#cat-qtd', m); if (q) q.textContent = escolhidas.size ? `· ${escolhidas.size} escolhida(s)` : ''; };
+    qtd();
+    $$('.opcao-midia', m).forEach((b) => {
+      b.onclick = () => { const c = b.dataset.codigo; if (escolhidas.has(c)) escolhidas.delete(c); else escolhidas.add(c); b.classList.toggle('marcada', escolhidas.has(c)); qtd(); };
+    });
+    $('#cat-busca-midia', m)?.addEventListener('input', (e) => { const t = e.target.value.toLowerCase(); $$('.opcao-midia', m).forEach((b) => { b.hidden = t && !b.dataset.busca.includes(t); }); });
+    $('#f-cat', m).onsubmit = async (e) => {
+      e.preventDefault();
+      const corpo = { ...formParaObjeto(e.target), midias: [...escolhidas] };
+      try {
+        await comEspera(e.submitter, () => api(item ? `empresas/${id}/catalogo/${item.id}` : `empresas/${id}/catalogo`, { method: item ? 'PUT' : 'POST', body: corpo }), 'Salvando…');
+        fechar();
+        aviso('Salvo. A IA já usa na próxima mensagem.');
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
+// "Trazer de Sobre a empresa": a IA lê o texto e sugere a lista; você escolhe o que entra
+async function importarCatalogo(id, depois) {
+  const fechar = abrirModal('<h2>Trazer de "Sobre a empresa"</h2><p class="rotulo"><span class="girando"></span> A IA está lendo o texto de "Sobre a empresa" e separando os serviços e preços…</p>');
+  let r;
+  try { r = await api(`empresas/${id}/catalogo/sugerir`, { method: 'POST', body: {} }); } catch (err) { fechar(); return aviso(err.message, true); }
+  fechar();
+  if (!r.itens.length) return aviso('Não achei serviços novos em "Sobre a empresa" (ou já estão todos no catálogo).');
+  abrirModal(`
+    <h2>Encontrei ${r.itens.length} ${r.itens.length === 1 ? 'item' : 'itens'}</h2>
+    <p class="rotulo" style="margin-top:-6px">Confira os preços e desmarque o que não quiser. Depois dá para editar cada um e ligar as mídias.</p>
+    <div class="lista-importar">${r.itens.map((x, i) => `<label class="linha-importar"><input type="checkbox" data-i="${i}" checked><span><b>${esc(x.nome)}</b> <span class="etiqueta ${x.tipo === 'produto' ? 'aviso' : 'ok'}">${TIPO_CATALOGO[x.tipo]}</span><br><span class="rotulo">${esc(precoBonito(x))}${x.precoObs && (x.preco != null || x.precoAte != null) ? ` · ${esc(x.precoObs)}` : ''}${x.duracao ? ` · ⏱ ${esc(x.duracao)}` : ''}</span></span></label>`).join('')}</div>
+    <div class="acoes"><button type="button" class="primario" id="imp-ok">Adicionar marcados</button><button type="button" data-fechar>Cancelar</button></div>`, (m, fecharLista) => {
+    $('#imp-ok', m).onclick = async (e) => {
+      const marcados = $$('[data-i]', m).filter((c) => c.checked).map((c) => r.itens[Number(c.dataset.i)]);
+      let ok = 0;
+      await comEspera(e.currentTarget, async () => {
+        for (const x of marcados) { try { await api(`empresas/${id}/catalogo`, { method: 'POST', body: x }); ok++; } catch { /* repetido: pula */ } }
+      }, 'Adicionando…');
+      fecharLista();
+      aviso(`${ok} ${ok === 1 ? 'item adicionado' : 'itens adicionados'}. A IA já usa.`);
+      depois?.();
+    };
+  });
+}
+
 // ---------------------------------------------------------------- empresa: sobre a empresa (cérebro)
 
 const MODELO_CONHECIMENTO = `SERVIÇOS E PREÇOS
@@ -854,7 +1023,7 @@ async function paginaCerebro(id) {
           <div class="campo largo">
             <label>Tudo o que a IA precisa saber *</label>
             <textarea class="grande" name="conhecimento">${esc(bot.conhecimento || MODELO_CONHECIMENTO)}</textarea>
-            <small>Dica: troque os "..." do modelo pelas informações reais. Quanto mais completo, melhor a IA atende.</small>
+            <small>Dica: troque os "..." do modelo pelas informações reais. Quanto mais completo, melhor a IA atende. <b>Preços e serviços:</b> cadastre em <a href="${rotaEmpresa(id, 'catalogo')}">Serviços e preços</a> — lá a IA sempre consulta e você muda sem mexer neste texto.</small>
           </div>
         </div>
         <p class="rotulo" style="margin:14px 0 0">🧠 A IA que responde (e as reservas, se ela falhar) fica em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
@@ -4990,6 +5159,7 @@ async function rotear() {
         automacoes: () => paginaAutomacoes(id),
         disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id)),
         ia: () => paginaCerebro(id),
+        catalogo: () => paginaCatalogo(id),
         site: () => paginaSite(id),
         whatsapp: () => paginaWhatsapp(id),
         midias: () => paginaMidias(id),

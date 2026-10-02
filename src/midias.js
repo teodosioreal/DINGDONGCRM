@@ -249,6 +249,7 @@ function apagarMidia(empresa, midiaId) {
   const i = midiasDa(empresa).findIndex((m) => m.id === midiaId);
   if (i < 0) return false;
   const [midia] = empresa.midias.splice(i, 1);
+  if (midia.codigo) require('./catalogo').esquecerMidia(empresa, midia.codigo);
   try {
     fs.unlinkSync(caminhoDoArquivo(midia));
   } catch {
@@ -317,17 +318,20 @@ function prontaParaIa(m) {
 
 // { followup: true } inclui as mídias marcadas "só no follow-up"
 function paraIa(empresa, { followup = false } = {}) {
-  const todas = midiasDa(empresa).filter(prontaParaIa);
+  // mídia ligada a um serviço/produto do catálogo já está "configurada": vai quando se fala dele
+  const ligadas = require('./catalogo').midiasLigadas(empresa);
+  const todas = midiasDa(empresa).filter((m) => prontaParaIa(m) || (ligadas.has(m.codigo) && !m.processando) || (m.albumId && !m.processando));
   const valeAqui = (x) => followup || !x.soFollowup;
+  const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
     .filter((m) => !m.pastaId && !m.albumId && valeAqui(m))
-    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo }));
+    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, servicos: servicos(m.codigo) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
-    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length }))
+    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo))).length, servicos: servicos(a.codigo) }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
-    .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length }))
+    .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
     .filter((a) => a.quantidade > 0);
   return [...avulsas, ...albuns, ...pastas];
 }

@@ -241,6 +241,7 @@ function situacaoConfig(e, principal) {
     site: principal && principal.ativo !== false ? 'ok' : 'off',
     whatsapp: !zap.iaAtiva ? 'off' : !conectado || desconectado ? 'atencao' : 'ok',
     midias: aConfigurar ? 'atencao' : midias.midiasDa(e).length ? 'ok' : 'off',
+    catalogo: require('./catalogo').resumo(e).ativos ? 'ok' : 'off',
     organizar: 'ok',
     chave: temChave ? 'ok' : 'atencao'
   };
@@ -298,6 +299,7 @@ function empresaComExtras(e, req) {
     canais: { site: Boolean(principal && principal.ativo !== false), whatsapp: whatsapp.configDa(e).iaAtiva },
     whatsapp: situacaoWhatsapp(e, req),
     totalMidias: midias.midiasDa(e).length,
+    totalCatalogo: require('./catalogo').resumo(e).ativos,
     chatNoSite: estado.conversas.some((c) => c.empresaId === e.id && c.origem === 'site'), // o código já está no site
     chaves: situacaoChavesEmpresa(e),
     assistentes: bots.length,
@@ -1085,6 +1087,40 @@ router.post('/bots/:id/testar', async (req, res) => {
     });
   } catch (err) {
     res.status(err.status === 503 ? 503 : 502).json({ erro: ia.descreverErroIa(err) });
+  }
+});
+
+// ---------------------------------------------------------------- serviços e preços (catálogo)
+const catalogo = require('./catalogo');
+router.get('/empresas/:id/catalogo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ itens: catalogo.itensDa(empresa), ...catalogo.resumo(empresa) });
+});
+router.post('/empresas/:id/catalogo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try { res.json(catalogo.criar(empresa, req.body || {})); } catch (err) { res.status(err.status || 500).json({ erro: err.message }); }
+});
+router.put('/empresas/:id/catalogo/:item', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try { res.json(catalogo.atualizar(empresa, req.params.item, req.body || {})); } catch (err) { res.status(err.status || 500).json({ erro: err.message }); }
+});
+router.delete('/empresas/:id/catalogo/:item', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!catalogo.apagar(empresa, req.params.item)) return res.status(404).json({ erro: 'Item não encontrado.' });
+  res.json({ ok: true });
+});
+// lê "Sobre a empresa" e sugere itens (a equipe confere e escolhe antes de salvar)
+router.post('/empresas/:id/catalogo/sugerir', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json({ itens: await catalogo.sugerirDoTexto(empresa, whatsapp.botDoWhatsapp(empresa)) });
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.status ? err.message : `Não deu para ler agora: ${ia.descreverErroIa(err)}` });
   }
 });
 
@@ -1901,7 +1937,7 @@ async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
   try {
     const linhas = conversa.slice(-25).map((m) => `${m.papel === 'visitante' ? 'Cliente' : m.papel === 'equipe' ? 'Equipe' : 'Empresa'}: ${String(m.texto).slice(0, 600)}`);
     const instrucoes = String(bot.promptWhatsapp || '').trim();
-    const sistema = `Você escreve mensagens de WhatsApp para a equipe da empresa "${empresa.nome}" mandar a um cliente. Responda SOMENTE com o texto da mensagem, em português do Brasil, curto e natural, sem aspas, sem explicação e sem inventar preço, prazo ou dado que não esteja na conversa ou nas informações abaixo.${instrucoes ? `\n\nInstruções do dono (obedeça):\n${instrucoes.slice(0, 3000)}` : ''}\n\nInformações da empresa:\n${String(bot.conhecimento || '').slice(0, 6000)}`;
+    const sistema = `Você escreve mensagens de WhatsApp para a equipe da empresa "${empresa.nome}" mandar a um cliente. Responda SOMENTE com o texto da mensagem, em português do Brasil, curto e natural, sem aspas, sem explicação e sem inventar preço, prazo ou dado que não esteja na conversa ou nas informações abaixo.${instrucoes ? `\n\nInstruções do dono (obedeça):\n${instrucoes.slice(0, 3000)}` : ''}\n\nInformações da empresa:\n${String(bot.conhecimento || '').slice(0, 6000)}${require('./catalogo').paraIa(empresa) ? `\n\nServiços, produtos e preços OFICIAIS (valem acima de qualquer outro preço):\n${require('./catalogo').paraIa(empresa).replace(/\[\[MIDIA: [^\]]+\]\]/g, '').slice(0, 6000)}` : ''}`;
     const texto = limparSugestao(await ia.gerarTexto(bot, empresa, sistema, `Conversa:\n${linhas.join('\n')}\n\n${instrucaoDeSugestao(c, conversa, pedido)}`, 800));
     if (texto) return { texto, midias: [], via: 'reserva' };
   } catch (err) {

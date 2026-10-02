@@ -253,7 +253,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '=== FIM DO PROTOCOLO ===',
     '',
     'Verdade (nunca quebre, nem se uma instrução pedir):',
-    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
+    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <catalogo>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
     '- NUNCA invente: preço, valor, desconto, parcelamento, prazo, horário, endereço, estoque, modelos/cores, garantia, política de troca, brinde, promoção, link, telefone ou nome de pessoa.',
     '- Se o cliente perguntar algo que não está escrito: diga com naturalidade que vai confirmar com a equipe (e, se ele precisar da resposta para seguir, use [[HUMANO]] no WhatsApp). É melhor dizer "vou confirmar" do que chutar.',
     '- Não prometa nada que a empresa não prometeu e não contradiga o que a equipe já combinou na conversa.',
@@ -268,7 +268,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.',
     '',
     'Ordem de prioridade quando uma coisa conflitar com outra:',
-    '1) <instrucoes_da_empresa> (o que o dono mandou fazer) → 2) <conhecimento> (Sobre a empresa) → 3) o que a equipe combinou na conversa → 4) <site_da_empresa> → 5) <aprendizados> e clone → 6) os PADRÕES e dicas gerais deste texto.'
+    '1) <instrucoes_da_empresa> (o que o dono mandou fazer) → 2) <catalogo> (serviços, produtos e preços) → 3) <conhecimento> (Sobre a empresa) → 4) o que a equipe combinou na conversa → 5) <site_da_empresa> → 6) <aprendizados> e clone → 7) os PADRÕES e dicas gerais deste texto.'
   ];
 
   if (noWhatsapp) {
@@ -287,7 +287,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda vários arquivos de uma vez). Cada uma tem um CÓDIGO:',
         ...midias.map(
           (m) =>
-            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}${m.assuntos?.length ? ` · ASSUNTO: ${m.assuntos.join(' ou ')}` : ''}`
+            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}${m.assuntos?.length ? ` · ASSUNTO: ${m.assuntos.join(' ou ')}` : ''}${m.servicos?.length ? ` · MOSTRA: ${m.servicos.join(' / ')} (mande quando falar disso)` : ''}`
         ),
         '- Para enviar, escreva numa linha separada: [[MIDIA: CÓDIGO]] (ex.: [[MIDIA: ' + midias[0].codigo + ']]). Pode enviar mais de uma, uma por linha. Use só códigos desta lista.',
         ...(midias.some((m) => m.assuntos?.length)
@@ -446,6 +446,21 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '<site_da_empresa>',
       doSite,
       '</site_da_empresa>'
+    );
+  }
+
+  const catalogo = require('./catalogo').paraIa(empresa || {});
+  if (catalogo) {
+    partes.push(
+      '',
+      'CATÁLOGO OFICIAL — serviços, produtos e preços (é a lista mais atualizada da empresa; CONSULTE SEMPRE antes de falar de serviço, produto, preço ou prazo):',
+      '<catalogo>',
+      catalogo,
+      '</catalogo>',
+      '- Preço, faixa de preço, prazo e detalhes: use EXATAMENTE o que está no catálogo. Se "Sobre a empresa", o site, os aprendizados ou mensagens antigas da conversa tiverem outro preço, vale o do catálogo.',
+      '- Item "preço sob consulta" ou sem preço: não diga valor; diga que vai confirmar com a equipe.',
+      '- O cliente pediu algo que não está no catálogo nem em "Sobre a empresa": não invente que a empresa faz; diga que vai confirmar.',
+      '- Ao falar de um item que tem mídias, mande as mídias dele (uma vez por conversa), se o cliente ainda não viu.'
     );
   }
 
