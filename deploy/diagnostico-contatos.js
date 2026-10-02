@@ -51,6 +51,15 @@ db.empresas.forEach((e, i) => {
   if (umLid && e.whatsappConfig?.instancia && e.whatsappConfig?.apiKey) sondas.push({ i, e, lid: umLid.whatsappJid });
   const s = e.whatsappConfig?.sincronia;
   if (s) console.log(`        última busca de mensagens: ${s.em} (${s.motivo}) importadas ${s.importadas}${s.erro ? ` ERRO ${s.erro}` : ''}`);
+  // aviso de agendamento: está ligado? para qual número (final)? os últimos foram enviados?
+  const av = e.avisoAgendamento || {};
+  const conectado = String(e.whatsappConfig?.perfil?.numero || '').replace(/\D/g, '');
+  const num = String(av.numero || '').replace(/\D/g, '');
+  const mesmo = (a, b) => a && b && a.replace(/^(55\d{2})9(\d{8})$/, '$1$2') === b.replace(/^(55\d{2})9(\d{8})$/, '$1$2');
+  console.log(`        aviso de agendamento: ${av.ativo ? 'LIGADO' : 'desligado'} · número ${num ? `final ${num.slice(-4)} (${num.length} díg.)` : 'nenhum'}${mesmo(num, conectado) ? ' · É O MESMO NÚMERO DO WHATSAPP CONECTADO' : ''} · perceber sozinho: ${e.agendaAutomatica === false ? 'desligado' : 'ligado'}`);
+  const ags = ls.flatMap((c) => (c.agendamentos || []).map((a) => ({ ...a, lead: c.id }))).sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  console.log(`        agendamentos: ${ags.length} · por quem: ${JSON.stringify(conta(ags, (a) => a.por || '?'))} · situação: ${JSON.stringify(conta(ags, (a) => a.status || '?'))}`);
+  for (const a of ags.slice(0, 6)) console.log(`        · criado ${a.criadoEm} por ${a.por}${a.detectadoPor ? `/${a.detectadoPor}` : ''} · ${a.status} · aviso: ${a.avisoStatus || (a.avisoEm ? 'na fila' : 'não disparado')}${a.avisoErro ? ` ERRO ${String(a.avisoErro).replace(/\d{6,}/g, '#').slice(0, 120)}` : ''}`);
 });
 
 // Sonda: para um contato com número escondido, qual caminho da Evolution devolve o número?
