@@ -68,6 +68,13 @@ diagnostico() {
   DB_CRM="$(ler_env CRM_DB_PATH .env || true)"; DB_CRM="${DB_CRM:-$PASTA/data.json}"
   INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
   echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
+  # teste pedido pelo dono (uma vez): reinicia só a instância do CRM e compara as etiquetas
+  MARCA_SUSTO="$(dirname "$DB_CRM")/.susto-etiquetas-1"
+  if [ -n "$INSTANCIAS" ] && [ ! -f "$MARCA_SUSTO" ]; then
+    echo "    Reiniciando só a instância do CRM na Evolution (teste das etiquetas):"
+    touch "$MARCA_SUSTO"
+    CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 150 node deploy/susto-etiquetas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 30 || true
+  fi
   EXPORTAR="$(dirname "$DB_CRM")/etiquetas-evolution.json" INSTANCIAS="$INSTANCIAS" timeout 60 bash deploy/evolution-etiquetas.sh 2>&1 | head -n 60 || true
   echo "    Últimos erros do app (números escondidos):"
   pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \

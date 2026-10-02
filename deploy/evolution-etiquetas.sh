@@ -71,6 +71,13 @@ if [ -n "$PG" ]; then
         (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id) AS conversas,
         (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id AND c.labels IS NOT NULL AND jsonb_typeof(c.labels) = '"'"'array'"'"' AND jsonb_array_length(c.labels) > 0) AS conversas_com_etiqueta
       FROM \"Instance\" i WHERE i.name = ANY(string_to_array('"'"'$INST'"'"', '"'"','"'"')) ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed -E 's/[0-9]{8,}/[núm]/g; s/^/       instância (do CRM): /' | head -20
+    # números ligados por instâncias criadas pelo CRM (nome crm-…): qual celular é qual (só os 4 últimos dígitos)
+    docker exec -e BD="$BD" -e ESQ="$ESQ" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$BD" -At -F " | " -c "
+      SET search_path TO \"$ESQ\";
+      SELECT i.name, i.\"connectionStatus\", '"'"'final '"'"' || right(split_part(coalesce(i.\"ownerJid\", '"'"''"'"'), '"'"'@'"'"', 1), 4),
+        (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
+        (SELECT max(l.\"updatedAt\") FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS ultima_etiqueta
+      FROM \"Instance\" i WHERE i.name LIKE '"'"'crm-%'"'"' ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed 's/^/       instância crm-*: /' | head -10
   done
 fi
 # ---------- cópia das etiquetas dos números DO CRM para o CRM importar (só leitura na Evolution)
