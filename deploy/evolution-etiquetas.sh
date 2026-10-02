@@ -78,7 +78,12 @@ if [ -n "$PG" ]; then
       SET search_path TO \"$ESQ\";
       SELECT i.name, i.\"connectionStatus\", '"'"'final '"'"' || right(split_part(coalesce(i.\"ownerJid\", '"'"''"'"'), '"'"'@'"'"', 1), 4),
         (SELECT count(*) FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS etiquetas,
-        (SELECT max(l.\"updatedAt\") FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS ultima_etiqueta
+        (SELECT max(l.\"updatedAt\") FROM \"Label\" l WHERE l.\"instanceId\" = i.id) AS ultima_etiqueta,
+        '"'"'historico_completo='"'"' || coalesce((SELECT s.\"syncFullHistory\"::text FROM \"Setting\" s WHERE s.\"instanceId\" = i.id), '"'"'?'"'"'),
+        '"'"'atualizada='"'"' || coalesce(i.\"updatedAt\"::text, '"'"'?'"'"'),
+        '"'"'conversas='"'"' || (SELECT count(*) FROM \"Chat\" c WHERE c.\"instanceId\" = i.id),
+        '"'"'contatos='"'"' || (SELECT count(*) FROM \"Contact\" c WHERE c.\"instanceId\" = i.id),
+        '"'"'msgs_24h='"'"' || (SELECT count(*) FROM \"Message\" m WHERE m.\"instanceId\" = i.id AND m.\"messageTimestamp\" > extract(epoch from now() - interval '"'"'24 hours'"'"'))
       FROM \"Instance\" i WHERE i.name LIKE '"'"'crm-%'"'"' ORDER BY i.name;"' 2>&1 | grep -v '^SET$' | sed 's/^/       instância crm-*: /' | head -10
   done
 fi
