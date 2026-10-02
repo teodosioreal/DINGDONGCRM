@@ -1874,22 +1874,42 @@ router.post('/leads/:id/sugerir', async (req, res) => {
     localizacao: localizacao.paraIa(c),
     origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa).catch(() => '')
   });
-  // tenta de novo uma vez: a IA às vezes devolve só comandos internos (texto vazio) ou falha por um instante
+  const resultado = await sugerirMensagem(empresa, bot, c, conversa, pedido, contexto);
+  if (resultado.texto) return res.json(resultado);
+  res.status(502).json({ erro: resultado.erro });
+});
+
+// 1º jeito: a IA de atendimento escreve (com mídias, etapas, instruções do dono);
+// 2º: de novo, pedindo texto puro; 3º (reserva): um pedido simples, só com a
+// conversa em texto, que funciona mesmo quando o atendimento completo falha.
+async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
   let ultimoErro = null;
+  const MARCADORES = ' Você está escrevendo uma SUGESTÃO para a equipe revisar: escreva só o texto da mensagem para o cliente; não use marcadores [[...]] (nada de HUMANO, RETOMAR, ETAPA) e não deixe vazio.';
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
-      const instrucao = instrucaoDeSugestao(c, conversa, pedido) + (tentativa ? ' IMPORTANTE: escreva o TEXTO da mensagem para o cliente (não use marcadores [[...]] e não deixe vazio).' : '');
+      const instrucao = instrucaoDeSugestao(c, conversa, pedido) + MARCADORES + (tentativa ? ' IMPORTANTE: a tentativa anterior veio vazia — escreva a mensagem agora.' : '');
       const r = await ia.escreverMensagem(bot, empresa, c.mensagens, instrucao, await contexto());
       const sugestao = limparSugestao(r.texto);
-      if (sugestao) return res.json({ texto: sugestao, midias: r.midias || [] });
-      ultimoErro = null;
+      if (sugestao) return { texto: sugestao, midias: r.midias || [], via: 'atendimento' };
+      console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1}: a IA devolveu texto vazio`);
     } catch (err) {
       ultimoErro = err;
-      if (err?.status && err.status < 500 && err.status !== 429) break; // chave inválida, sem crédito: não adianta repetir
+      console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1} falhou: ${err?.status || ''} ${String(err?.message || err).slice(0, 300)}`);
+      if (err?.status && err.status < 500 && err.status !== 429 && err.status !== 400) break; // chave inválida, sem crédito: não adianta repetir
     }
   }
-  res.status(502).json({ erro: ultimoErro ? ia.descreverErroIa(ultimoErro) : 'A IA não conseguiu escrever uma sugestão agora. Tente de novo.' });
-});
+  try {
+    const linhas = conversa.slice(-25).map((m) => `${m.papel === 'visitante' ? 'Cliente' : m.papel === 'equipe' ? 'Equipe' : 'Empresa'}: ${String(m.texto).slice(0, 600)}`);
+    const instrucoes = String(bot.promptWhatsapp || '').trim();
+    const sistema = `Você escreve mensagens de WhatsApp para a equipe da empresa "${empresa.nome}" mandar a um cliente. Responda SOMENTE com o texto da mensagem, em português do Brasil, curto e natural, sem aspas, sem explicação e sem inventar preço, prazo ou dado que não esteja na conversa ou nas informações abaixo.${instrucoes ? `\n\nInstruções do dono (obedeça):\n${instrucoes.slice(0, 3000)}` : ''}\n\nInformações da empresa:\n${String(bot.conhecimento || '').slice(0, 6000)}`;
+    const texto = limparSugestao(await ia.gerarTexto(bot, empresa, sistema, `Conversa:\n${linhas.join('\n')}\n\n${instrucaoDeSugestao(c, conversa, pedido)}`, 800));
+    if (texto) return { texto, midias: [], via: 'reserva' };
+  } catch (err) {
+    ultimoErro = err;
+    console.error(`[sugerir ${c.id}] reserva falhou: ${err?.status || ''} ${String(err?.message || err).slice(0, 300)}`);
+  }
+  return { erro: ultimoErro ? ia.descreverErroIa(ultimoErro) : 'A IA não conseguiu escrever uma sugestão agora. Tente de novo.' };
+}
 
 // Tira o que a IA às vezes põe em volta: "Sugestão:", aspas, marcadores que sobraram
 function limparSugestao(t) {
@@ -2598,3 +2618,5 @@ router.delete('/usuarios/:id', auth.exigirAdmin, (req, res) => {
 });
 
 module.exports = router;
+module.exports.sugerirMensagem = sugerirMensagem;
+module.exports.instrucaoDeSugestao = instrucaoDeSugestao;
