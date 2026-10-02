@@ -586,7 +586,29 @@ async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario
   return { texto };
 }
 
+// Situação dos pedidos pós-venda de um cliente: tem link? a automação está ligada? em quanto tempo manda?
+function posVenda(empresa, lead) {
+  const bot = whatsapp.botDoWhatsapp(empresa);
+  const feitos = pedidosFeitos(lead, empresa);
+  const info = (tipo, link) => {
+    const regra = automacoesDa(empresa).find((r) => r.receita === tipo && r.ativa);
+    return { link: Boolean(link), automatica: Boolean(regra), horas: regra?.gatilho?.horas ?? null, jaPedido: feitos[tipo] };
+  };
+  return { avaliacao: info('avaliacao', bot?.linkAvaliacao), comentario: info('comentario', bot?.linkAnuncio) };
+}
+
+// "Não mandar" para este cliente: a automação do pedido não manda para ele
+function naoMandarPedido(empresa, lead, tipo, usuario = '') {
+  for (const r of automacoesDa(empresa).filter((x) => x.receita === tipo)) {
+    const h = lead.automacoes?.[r.id] || { enviados: 0 };
+    lead.automacoes = { ...(lead.automacoes || {}), [r.id]: { ...h, enviados: Math.max(h.enviados || 0, r.maxPorLead), puladoEm: agora(), puladoPor: usuario } };
+  }
+  salvar();
+}
+
 module.exports = {
+  posVenda,
+  naoMandarPedido,
   noHorarioComercial,
   proximosEnvios,
   agendarFollowupDaIa,

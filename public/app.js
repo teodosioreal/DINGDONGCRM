@@ -2381,6 +2381,10 @@ async function paginaLeads(id, params) {
         const leadId = e.dataTransfer.getData('text/plain');
         const lead = lista.find((l) => l.id === leadId);
         if (!lead || lead.etapa === col.dataset.etapa) return;
+        if (ehEtapaDeVenda(col.dataset.etapa) && !ehEtapaDeVenda(lead.etapa)) {
+          if (await modalVendaConcluida(leadId, id)) { lead.etapa = col.dataset.etapa; desenharQuadro(); }
+          return;
+        }
         try {
           await api(`leads/${leadId}`, { method: 'PUT', body: { etapa: col.dataset.etapa } });
           lead.etapa = col.dataset.etapa;
@@ -2562,7 +2566,14 @@ async function paginaLead(leadId) {
       paginaLead(leadId);
     } catch (err) { aviso(err.message, true); }
   };
-  $('#etapa').onchange = (e) => atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
+  $('#etapa').onchange = async (e) => {
+    if (ehEtapaDeVenda(e.target.value) && !l.vendaConcluida) {
+      if (await modalVendaConcluida(l.id, l.empresaId)) paginaLead(l.id);
+      else e.target.value = l.etapa;
+      return;
+    }
+    atualizar({ etapa: e.target.value }, 'Etapa atualizada.');
+  };
   $('#atualizar-foto')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     e.target.textContent = '⏳ buscando…';
@@ -3311,9 +3322,75 @@ function ligarProximos(raiz, leadId, depois) {
   });
 }
 
+// É a etapa de "vendeu"? (Vendi, Fechado, Ganho…)
+const ehEtapaDeVenda = (e) => /fechad|ganh|vendi/i.test(String(e || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+
+// ✅ Venda concluída: pede o valor (lança a venda no Faturamento) e o que fazer
+// com os pedidos de avaliação no Google e de comentário no anúncio.
+// Resolve true se concluiu, false se cancelou.
+async function modalVendaConcluida(leadId, empresaId) {
+  const [l, cat] = await Promise.all([api(`leads/${leadId}`), api(`empresas/${empresaId}/catalogo`).catch(() => ({ itens: [] }))]);
+  const itens = (cat.itens || []).filter((x) => x.ativo && x.preco != null);
+  const pv = l.posVenda || {};
+  const ja = l.ultimaVenda && l.ultimaVenda.status !== 'conferir' && l.ultimaVenda.valor > 0;
+  const linhaPedido = (tipo, titulo, ondeLink) => {
+    const p = pv[tipo] || {};
+    const dias = p.horas != null ? (p.horas >= 24 ? `${Math.round(p.horas / 24)} dia(s)` : `${p.horas} h`) : '';
+    const padrao = p.jaPedido ? 'nao' : p.automatica ? 'auto' : p.link ? 'agora' : 'nao';
+    const op = (v, rotulo, ok = true, dica = '') => `<label class="op-pedido ${ok ? '' : 'desabilitada'}" ${dica ? `title="${esc(dica)}"` : ''}><input type="radio" name="p-${tipo}" value="${v}" ${v === padrao ? 'checked' : ''} ${ok ? '' : 'disabled'}><span>${rotulo}</span></label>`;
+    return `<div class="linha-pedido"><div><b>${titulo}</b>${p.jaPedido ? `<span class="rotulo"> · já pedido em ${esc(data(p.jaPedido))}</span>` : ''}${!p.link ? `<span class="rotulo"> · sem link salvo (<a href="${rotaEmpresa(empresaId, 'automacoes')}">${ondeLink}</a>)</span>` : ''}</div>
+      <div class="ops-pedido">${op('agora', 'Mandar agora', p.link, p.link ? '' : 'Salve o link na Máquina de vendas')}${op('auto', p.automatica ? `Automático em ${dias}` : 'Automático (desligado)', p.automatica && p.link, p.automatica ? '' : 'Ligue a automação na Máquina de vendas')}${op('nao', 'Não mandar')}</div></div>`;
+  };
+  return new Promise((resolve) => {
+    let feito = false;
+    const fechar = abrirModal(`
+      <h2>✅ Venda concluída${l.nome ? ` — ${esc(l.nome)}` : ''}</h2>
+      <form id="f-concluir">
+        ${ja ? `<p class="caixa-ok">Venda já lançada: <b>${brl(l.ultimaVenda.valor)}</b>${l.ultimaVenda.descricao ? ` · ${esc(l.ultimaVenda.descricao)}` : ''} (${esc(data(l.ultimaVenda.data))}).</p>` : `
+        <p class="rotulo" style="margin-top:-4px">A venda entra no Faturamento na hora, igual à venda automática.</p>
+        ${itens.length ? `<div class="campo"><label>O que foi vendido</label><select id="conc-item"><option value="">— escolher do catálogo —</option>${itens.map((x) => `<option value="${esc(x.id)}">${esc(x.nome)} · ${brl(x.preco)}</option>`).join('')}</select></div>` : ''}
+        <div class="campos" style="margin-top:10px">
+          <div class="campo"><label>Valor (R$) *</label><input name="valor" required inputmode="decimal" placeholder="350,00" value="${l.ultimaVenda?.valor ? esc(String(l.ultimaVenda.valor).replace('.', ',')) : ''}"></div>
+          <div class="campo"><label>Forma de pagamento</label><select name="forma">${['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].map((f) => `<option>${f}</option>`).join('')}</select></div>
+          <div class="campo largo"><label>Descrição (opcional)</label><input name="descricao" maxlength="200" value="${esc(l.ultimaVenda?.descricao || '')}" placeholder="Ex.: revestimento de volante"></div>
+        </div>`}
+        <h3 style="margin:16px 0 6px">Depois da venda</h3>
+        ${l.noWhatsapp === false ? '<p class="rotulo">Este cliente não tem WhatsApp: os pedidos não podem ser enviados.</p>' : `${linhaPedido('avaliacao', '⭐ Avaliação no Google', 'salvar o link')}${linhaPedido('comentario', '💬 Comentário no anúncio', 'salvar o link')}`}
+        <div class="acoes"><button type="submit" class="primario">Concluir venda</button><button type="button" data-fechar>Cancelar</button></div>
+      </form>`, (m, fecharModal) => {
+      $('#conc-item', m)?.addEventListener('change', (e) => {
+        const x = itens.find((i) => i.id === e.target.value);
+        if (!x) return;
+        m.querySelector('[name=valor]').value = Number(x.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        m.querySelector('[name=descricao]').value = x.nome;
+      });
+      new MutationObserver((_, obs) => { if (!m.isConnected) { obs.disconnect(); if (!feito) resolve(false); } }).observe(document.body, { childList: true });
+      $('#f-concluir', m).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = formParaObjeto(e.target);
+        const pedidos = {};
+        for (const t of ['avaliacao', 'comentario']) { const r = m.querySelector(`[name=p-${t}]:checked`); if (r) pedidos[t] = r.value; }
+        try {
+          const r = await comEspera(e.submitter, () => api(`leads/${leadId}/venda-concluida`, { method: 'POST', body: { concluida: true, ...(ja ? {} : { valor: f.valor, forma: f.forma, descricao: f.descricao }), pedidos } }), 'Concluindo…');
+          feito = true;
+          fecharModal();
+          const partes = [r.venda ? `Venda de ${brl(r.venda.valor)} lançada` : 'Venda concluída'];
+          for (const [t, nome] of [['avaliacao', 'avaliação'], ['comentario', 'comentário']]) {
+            if (r.pedidos?.[t] === 'enviado') partes.push(`pedido de ${nome} enviado`);
+            else if (/^não enviado/.test(r.pedidos?.[t] || '')) partes.push(`${nome}: ${r.pedidos[t]}`);
+          }
+          aviso(`${partes.join(' · ')}.`, Object.values(r.pedidos || {}).some((x) => /^não enviado/.test(x)));
+          resolve(true);
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    void fechar;
+  });
+}
+
 // Depois da venda: botões para pedir a avaliação do Google e o comentário no anúncio
 function htmlPedidos(l) {
-  const vendeu = (l.tickets || []).some((t) => t.tipo === 'venda');
+  const vendeu = l.vendaConcluida || (l.tickets || []).some((t) => t.tipo === 'venda');
   if (!vendeu || !l.podeReceber) return '';
   const botao = (tipo, rotulo, temLink) => {
     const ja = l.pedidos?.[tipo];
@@ -3648,10 +3725,14 @@ async function paginaConversas(id, params) {
     $$('[data-tirar-etq]').forEach((b) => { b.onclick = () => salvarEtiquetas((leadAberto.etiquetas || []).filter((t) => t !== b.dataset.tirarEtq)); });
     $('#chat-concluida')?.addEventListener('click', async (e) => {
       const concluir = !leadAberto.vendaConcluida;
-      if (!concluir && !(await confirmar({ titulo: 'Tirar de Vendas concluídas?', texto: 'A conversa volta para a lista normal (e para a etapa em que estava).', botao: 'Tirar' }))) return;
+      if (concluir) {
+        if (await modalVendaConcluida(abertoId, id)) { assinaturaAberta = ''; await recarregarAberto(); carregarLista(); }
+        return;
+      }
+      if (!(await confirmar({ titulo: 'Tirar de Vendas concluídas?', texto: 'A conversa volta para a lista normal (e para a etapa em que estava).', botao: 'Tirar' }))) return;
       try {
         await comEspera(e.currentTarget, () => api(`leads/${abertoId}/venda-concluida`, { method: 'POST', body: { concluida: concluir } }));
-        aviso(concluir ? 'Movida para Vendas concluídas.' : 'Voltou para a lista de conversas.');
+        aviso('Voltou para a lista de conversas.');
         assinaturaAberta = '';
         await recarregarAberto();
         carregarLista();
@@ -3685,6 +3766,11 @@ async function paginaConversas(id, params) {
       } catch (err) { aviso(err.message, true); }
     });
     $('#chat-etapa')?.addEventListener('change', async (e) => {
+      if (ehEtapaDeVenda(e.target.value) && !leadAberto.vendaConcluida) {
+        if (!(await modalVendaConcluida(abertoId, id))) e.target.value = leadAberto.etapa;
+        assinaturaAberta = ''; await recarregarAberto(); carregarLista();
+        return;
+      }
       try {
         await api(`leads/${abertoId}`, { method: 'PUT', body: { etapa: e.target.value } });
         aviso('Etapa atualizada.');

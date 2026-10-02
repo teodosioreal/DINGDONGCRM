@@ -125,7 +125,7 @@ function acharEtapaAgendamento(empresa) {
 }
 
 // Venda entendida pela IA (ou marcada pela equipe no chat)
-function registrarVenda(empresa, lead, { valor, descricao, por = 'ia' }) {
+function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = 'Dinheiro' }) {
   const v = valorDe(valor);
   const desc = String(descricao || '').trim().slice(0, 200);
   // já tem venda deste cliente nas últimas 24h (ex.: comprovante): não duplica
@@ -135,6 +135,7 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia' }) {
   if (recente) {
     if (!recente.descricao && desc) recente.descricao = desc;
     if (!recente.valor && v) recente.valor = v;
+    if (v && recente.status === 'conferir' && por !== 'ia') Object.assign(recente, { valor: v, status: 'confirmada', confirmadaEm: agora(), motivoConferir: '' }); // a equipe confirmou o valor
     lead.atualizadoEm = agora();
     salvar();
     return { venda: recente, nova: false };
@@ -142,7 +143,7 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia' }) {
   const { venda } = comprovantes.registrar(
     empresa,
     lead,
-    { valor: v || 0, forma: 'Dinheiro', pagador: lead.nome || '' },
+    { valor: v || 0, forma, pagador: lead.nome || '' },
     { origem: por === 'ia' ? 'ia' : 'manual', lidoPor: por === 'ia' ? 'ia-conversa' : 'manual', descricao: desc }
   );
   if (por === 'ia') {

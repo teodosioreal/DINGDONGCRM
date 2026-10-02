@@ -1276,6 +1276,8 @@ router.get('/leads/:id', (req, res) => {
     pedidos: automacoes.pedidosFeitos(c, empresa),
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
     temLinkAnuncio: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAnuncio),
+    posVenda: automacoes.posVenda(empresa, c),
+    ultimaVenda: (() => { const v = (estado.vendas || []).filter((x) => x.leadId === c.id && x.status !== 'cancelada').pop(); return v ? { id: v.id, valor: v.valor, status: v.status, data: v.data, descricao: v.descricao || '' } : null; })(),
     tickets: tickets.ticketsDoLead(c),
     proximosEnvios: automacoes.proximosEnvios(c, empresa),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
@@ -1626,18 +1628,43 @@ router.delete('/empresas/:id/lista-negra/:itemId', (req, res) => {
 });
 
 // Mover à mão para "Vendas concluídas" (e desfazer)
-router.post('/leads/:id/venda-concluida', (req, res) => {
+router.post('/leads/:id/venda-concluida', async (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   const etapaFechado = leads.etapasDa(empresa).find((e) => /fechad|ganh|vendi/i.test(e.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+  let venda = null;
+  const pedidos = {};
   if (req.body?.concluida !== false) {
+    // a equipe informou o valor: a venda já entra no Faturamento (igual à venda automática)
+    const valor = req.body?.valor !== undefined && req.body?.valor !== '' ? require('./catalogo').lerPreco(req.body.valor) : null;
+    if (req.body?.valor !== undefined && req.body?.valor !== '' && !(valor > 0)) return res.status(400).json({ erro: 'Informe o valor da venda (ex.: 350,00).' });
+    if (valor > 0) {
+      const FORMAS = ['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'];
+      venda = tickets.registrarVenda(empresa, c, { valor, descricao: texto(req.body?.descricao, 200), por: 'equipe', forma: FORMAS.includes(req.body?.forma) ? req.body.forma : 'Pix' }).venda;
+      venda.registradaPor = req.usuario.email;
+    }
     c.vendaConcluidaManual = true;
     c.vendaConcluidaEm = agora();
     c.vendaConcluidaPor = req.usuario.email;
     if (etapaFechado && c.etapa !== etapaFechado) {
       c.etapaAntesDaVenda = c.etapa;
       leads.moverEtapa(c, empresa, etapaFechado, 'equipe');
+    }
+    // pedidos pós-venda: mandar agora, deixar a automação mandar ou não mandar
+    for (const tipo of ['avaliacao', 'comentario']) {
+      const quer = req.body?.pedidos?.[tipo];
+      if (quer === 'agora') {
+        try {
+          await automacoes.enviarPedidoManual(empresa, c, tipo, { usuario: req.usuario.email });
+          pedidos[tipo] = 'enviado';
+        } catch (err) {
+          pedidos[tipo] = `não enviado: ${err.message}`;
+        }
+      } else if (quer === 'nao') {
+        automacoes.naoMandarPedido(empresa, c, tipo, req.usuario.email);
+        pedidos[tipo] = 'não vai mandar';
+      } else if (quer === 'auto') pedidos[tipo] = 'automação';
     }
   } else {
     if ((estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada')) {
@@ -1650,7 +1677,7 @@ router.post('/leads/:id/venda-concluida', (req, res) => {
   }
   c.atualizadoEm = agora();
   salvar();
-  res.json({ ok: true, vendaConcluida: c.vendaConcluidaManual === true });
+  res.json({ ok: true, vendaConcluida: c.vendaConcluidaManual === true, venda: venda ? { id: venda.id, valor: venda.valor, status: venda.status } : null, pedidos });
 });
 
 router.post('/leads/:id/lista-negra', (req, res) => {
