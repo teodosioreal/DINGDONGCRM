@@ -343,8 +343,9 @@ function cardOrigem(o, l) {
 }
 
 // "Precisa de atenção": dicas geradas por regras (sem IA) para configurar e resolver
-function htmlDicas(emp, id) {
-  const lista = (emp.dicas || []).filter((d) => !/pausada|Modo teste/.test(d.texto));
+function htmlDicas(emp, id, pular = []) {
+  // não repete o que já está nos "Primeiros passos"
+  const lista = (emp.dicas || []).filter((d) => !/pausada|Modo teste/.test(d.texto) && !(d.nivel !== 'erro' && pular.includes(d.sub)));
   if (!lista.length) return '';
   const ICONE = { erro: '🔴', aviso: '🟡', dica: '💡' };
   const ordem = { erro: 0, aviso: 1, dica: 2 };
@@ -604,7 +605,7 @@ async function paginaEmpresa(id) {
     </div>`}
 
     ${faixaPausada(emp)}
-    ${htmlDicas(emp, id)}
+    ${htmlDicas(emp, id, tudoPronto ? [] : lista.filter((p) => !p.feito).map((p) => p.href.split('/').pop()))}
     ${zap.modoTeste ? balao('🧪 Modo teste ligado', `A IA do WhatsApp só está respondendo: <b>${esc((zap.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))}</b>. Os outros clientes não recebem resposta automática. <button type="button" class="pequeno" data-desligar-teste="${esc(id)}">Desligar o modo teste</button>`, 'aviso') : ''}
     <h2>Seus atendentes de IA</h2>
     ${balao('Duas IAs, um atendimento só', 'A <b>IA do site</b> tira as dúvidas no chat do site e, quando o cliente quer avançar, manda ele para o WhatsApp. Lá a <b>IA do WhatsApp</b> continua a mesma conversa, de onde parou. Pode usar as duas juntas ou só uma delas — é só ligar ou desligar aqui.')}
@@ -618,7 +619,7 @@ async function paginaEmpresa(id) {
     </div>
     <div class="card maquina-card">
       <div class="maquina-topo"><span class="canal-icone maquina">${ICONES.maquina}</span><div><h2 style="margin:0">Máquina de vendas</h2><p class="rotulo" style="margin:2px 0 0">Mensagens automáticas: recuperar quem sumiu, pedir avaliação no Google, reativar quem desistiu.</p></div><a class="botao primario pequeno" href="${rotaEmpresa(id, 'automacoes')}">${emp.followupAtivo || (emp.automacoes || []).some((a) => a.ativa) ? 'Ver automações' : 'Ligar agora'}</a></div>
-      <div class="automacao-numeros"><span><b>${r.automaticas7d}</b> mensagens automáticas (7 dias)</span><span><b>${r.recuperados7d}</b> clientes responderam depois</span><span><b>${emp.naoLidas || 0}</b> mensagens não lidas · <a href="${rotaEmpresa(id, 'conversas')}">abrir conversas</a></span></div>
+      <div class="automacao-numeros"><span><b>${r.automaticas7d}</b> mensagens automáticas (7 dias)</span><span><b>${r.recuperados7d}</b> clientes responderam depois</span></div>
     </div>
     ${r.aguardandoEquipe ? balao(`${r.aguardandoEquipe} ${r.aguardandoEquipe === 1 ? 'cliente está' : 'clientes estão'} esperando alguém da equipe`, `A IA passou o atendimento para vocês. <a href="${rotaEmpresa(id, 'leads')}">Ver leads</a>`, 'aviso') : ''}
 
@@ -835,7 +836,7 @@ async function paginaSite(id) {
     <div class="cabecalho"><div><h1>IA do site</h1><p class="sub">Um chat estilo WhatsApp no seu site, respondendo 24h</p></div>${interruptor('ligar-site', ligado, ligado ? 'Ligada' : 'Desligada')}</div>
     ${ligado ? '' : balao('A IA do site está desligada', 'O chat não aparece no site. Ligue no botão acima quando quiser usar.', 'aviso')}
 
-    <div class="card">
+    <div class="card" data-cfg="codigo-site" data-pronto="${emp.chatNoSite ? 'ok' : ''}" data-resumo="O chat já está no seu site (chegaram conversas por ele)">
       <h2>1. Coloque o chat no seu site</h2>
       ${passos([
         '<b>Copie o código</b> abaixo.',
@@ -1351,7 +1352,7 @@ async function paginaMidias(id) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Mídias e links</h1><p class="sub">Fotos, vídeos, PDFs e links que a IA do WhatsApp manda para vender mais</p></div></div>
+    <div class="cabecalho"><div><h1>Mídias e respostas</h1><p class="sub">Fotos, vídeos, PDFs, links e respostas rápidas que a IA do WhatsApp manda para vender mais</p></div></div>
     ${balao('Como fazer a IA mandar a foto certa na hora certa', passos([
       '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 200 MB cada, na qualidade original). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
       'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Convertendo").',
@@ -1818,6 +1819,7 @@ async function paginaOrganizar(id) {
       <div class="linha-editavel">
         <input type="color" value="${esc(t.cor)}" data-cor="${i}" title="Cor">
         <input value="${esc(t.nome)}" data-nome="${i}" placeholder="Nome da etiqueta" maxlength="40">
+        ${t.zapId ? '<span class="etq-no-zap" title="Ligada ao WhatsApp Business do celular: marcou lá, aparece aqui (e vice-versa)">📱 no celular</span>' : ''}
         <button type="button" class="pequeno perigo" data-tirar="${i}" title="Remover">✕</button>
       </div>`).join('') || '<p class="rotulo">Nenhuma etiqueta.</p>';
     $$('[data-cor]').forEach((el) => { el.oninput = () => { etiquetas[el.dataset.cor].cor = el.value; }; });
@@ -1885,10 +1887,14 @@ async function paginaChave(id) {
       : c.usaPadrao
         ? '<span class="etiqueta aviso">Usando a chave do administrador (custo na conta dele)</span>'
         : '<span class="etiqueta off">Sem chave — cadastre a da empresa</span>';
+    // pronto (tem chave) ou opcional (não é a IA principal): vira uma linha; a principal sem chave fica aberta
+    const principalSemChave = !c.propria && !c.usaPadrao && provedor === (bot?.provedor || 'anthropic');
+    const pronto = c.propria || c.usaPadrao ? 'ok' : principalSemChave ? '' : 'off';
+    const resumo = c.propria ? `Chave da empresa · termina em ${c.final}` : c.usaPadrao ? 'Usando a chave do administrador' : 'Sem chave · opcional (para usar como reserva)';
     return `
-      <div class="card">
+      <div class="card" data-cfg="chave-${provedor}" data-titulo="${esc(NOME_PROVEDOR[provedor])}" data-pronto="${pronto}" data-resumo="${esc(resumo)}">
         <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${NOME_PROVEDOR[provedor]} ${extra}</h2>${situacao}</div>
-        <details ${c.propria ? '' : 'open'}><summary>Como conseguir a chave</summary>${passos(passosCriar)}</details>
+        <details ${principalSemChave ? 'open' : ''}><summary>Como conseguir a chave</summary>${passos(passosCriar)}</details>
         <form data-provedor="${provedor}" style="margin-top:12px">
           <div class="campo"><label>${c.propria ? 'Trocar chave' : 'Cole a chave aqui'}</label><input name="${campo}" type="password" autocomplete="off" placeholder="${esc(dica)}"></div>
           <div class="acoes">
@@ -2782,7 +2788,16 @@ async function cartaoEtiquetasZap(id) {
     ${r.soNoCrm.length ? `<p class="rotulo" style="margin:0 0 8px">Só no CRM (para ligar, crie no WhatsApp Business uma etiqueta com o mesmo nome): ${r.soNoCrm.map(esc).join(', ')}</p>` : ''}
     ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
     ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
+    <p class="rotulo" style="margin:0 0 10px">📱 Celular ligado a esta empresa: <b>${r.numero ? `${esc(telefoneBonito(r.numero))} (final ${esc(r.numero.slice(-4))})` : 'número não lido ainda'}</b> · última etiqueta recebida do celular: <b>${r.ultimoEventoEm ? esc(data(r.ultimoEventoEm)) : 'nenhuma até agora'}</b>.<br>Para testar: neste celular, abra uma conversa e coloque uma etiqueta — ela aparece aqui em segundos. Se você coloca as etiquetas em <b>outro celular</b>, é ele que precisa estar conectado aqui.</p>
     <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>` : ''}`;
+  // enquanto a tela está aberta, confere se chegou etiqueta nova (teste ao vivo)
+  clearTimeout(cartaoEtiquetasZap.vigia);
+  const vigiar = async () => {
+    if (!el.isConnected) return;
+    const n = await api(`empresas/${id}/etiquetas-zap`).catch(() => null);
+    if (n && (n.ultimoEventoEm !== r.ultimoEventoEm || n.noZap.length !== r.noZap.length)) { aviso('Etiqueta recebida do celular.'); cartaoEtiquetasZap(id); } else if (el.isConnected) cartaoEtiquetasZap.vigia = setTimeout(vigiar, 8000);
+  };
+  if (r.ativo) cartaoEtiquetasZap.vigia = setTimeout(vigiar, 8000);
   $('#etq-zap-ativo').onchange = async (e) => {
     try { await api(`empresas/${id}/etiquetas-zap`, { method: 'PUT', body: { ativo: e.target.checked } }); if (e.target.checked) await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
   };
@@ -4086,7 +4101,7 @@ async function paginaFaturamento(id, params) {
   const maxDia = Math.max(...r.porDia.map((x) => x.total), 0);
   const topo = maxDia ? Math.ceil(maxDia / 10 ** Math.floor(Math.log10(maxDia))) * 10 ** Math.floor(Math.log10(maxDia)) : 100;
   const iMaior = r.porDia.findIndex((x) => x.total === maxDia && maxDia > 0);
-  const ROTULO_ORIGEM = { texto: '📄 lido do PDF', ocr: '📷 lido da foto', ia: '✨ lido pela IA', manual: '✍️ lançada à mão' };
+  const ROTULO_ORIGEM = { texto: '📄 lido do PDF', ocr: '📷 lido da foto', ia: '✨ lido pela IA', manual: '✍️ lançada à mão', 'ia-conversa': '🤖 fechada pela IA na conversa', equipe: '👤 marcada pela equipe' };
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
@@ -4322,7 +4337,7 @@ async function paginaAprendizado(id) {
     ${rodando ? `<div class="card varredura-andamento"><span class="girando"></span> <b>${esc(rodando.etapa)}</b><div class="rotulo">${rodando.lidas} de ${rodando.conversas} conversas verificadas · ${rodando.mensagens} mensagens novas · ${rodando.lotes} ${rodando.lotes === 1 ? 'parte estudada' : 'partes estudadas'}</div></div>` : ''}
 
     <div class="grade-resumo">
-      ${numeroCard('Última varredura', a.ultimaVarredura ? data(a.ultimaVarredura) : 'nunca')}
+      ${numeroCard('Última varredura', a.ultimaVarredura ? data(a.ultimaVarredura) : 'nunca', 'numero-texto')}
       ${numeroCard('Conversas acompanhadas', a.conversasConhecidas)}
       ${numeroCard('Vendas concluídas (não lê mais)', a.conversasConcluidas)}
       ${numeroCard('Ficou para a próxima', a.pendentes || 0)}
@@ -4842,7 +4857,7 @@ function marcarPronto(card, estado, resumo = '') {
     barra.className = 'cfg-barra';
     card.prepend(barra);
   }
-  const titulo = (card.querySelector('h2')?.textContent || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  const titulo = card.dataset.titulo || (card.querySelector('h2')?.textContent || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
   const desenhar = () => {
     const rec = card.classList.contains('recolhido');
     barra.innerHTML = `<span class="cfg-ok ${estado === 'off' ? 'off' : ''}">${estado === 'off' ? '○' : '✓'}</span><span class="cfg-titulo">${esc(titulo)}</span><span class="cfg-resumo">${rec ? esc(resumo || (estado === 'off' ? 'Desligado' : 'Configurado')) : ''}</span><span class="cfg-abrir">${rec ? (estado === 'off' ? 'Configurar' : 'Editar') : 'Recolher'}</span>`;
@@ -4931,7 +4946,7 @@ async function rotear() {
 async function iniciar() {
   ajustarBotaoTema();
   $('#tema').onclick = alternarTema;
-  $('#tema-menu').onchange = alternarTema;
+  $('#tema-menu')?.addEventListener('change', alternarTema);
   $('#abrir-menu').onclick = () => document.body.classList.add('menu-aberto');
   $('#cortina').onclick = fecharMenu;
   try {

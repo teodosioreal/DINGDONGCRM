@@ -1164,3 +1164,14 @@ details.fup-editar > .acoes { margin-bottom: 14px; }
   .cfg-barra .cfg-titulo { flex: 1 1 0; min-width: 0; }
   .card.cfg-pronto.recolhido { padding: 12px 14px; }
 }
+/* funil: as 5 etapas padrão cabem na tela sem rolar para o lado */
+.coluna { flex: 1 1 0; min-width: 180px; }
+#f-busca { flex: 0 1 380px; min-width: 0; }
+.filtros { flex-wrap: wrap; }
+/* barra lateral: rodapé compacto e sombra quando o menu tem mais itens para baixo */
+.lateral .rodape-menu { padding: 8px 12px 10px; border-top: 1px solid var(--borda); }
+.lateral .rodape-menu .item-menu { padding-top: 6px; padding-bottom: 6px; }
+.lateral .versao { margin: 4px 8px 0; font-size: 11px; }
+.lateral nav { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); padding-bottom: 24px; }
+.etq-no-zap { flex: none; font-size: 12px; font-weight: 600; color: var(--ok-texto, #15803d); background: var(--ok-fundo, #dcfce7); border-radius: 999px; padding: 3px 8px; white-space: nowrap; }
+.numero-card.numero-texto .numero { font-size: 17px; line-height: 1.3; padding-top: 6px; }

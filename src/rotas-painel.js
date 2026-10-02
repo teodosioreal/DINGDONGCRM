@@ -298,6 +298,7 @@ function empresaComExtras(e, req) {
     canais: { site: Boolean(principal && principal.ativo !== false), whatsapp: whatsapp.configDa(e).iaAtiva },
     whatsapp: situacaoWhatsapp(e, req),
     totalMidias: midias.midiasDa(e).length,
+    chatNoSite: estado.conversas.some((c) => c.empresaId === e.id && c.origem === 'site'), // o código já está no site
     chaves: situacaoChavesEmpresa(e),
     assistentes: bots.length,
     principalBotId: principal?.id || null

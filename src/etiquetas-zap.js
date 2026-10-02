@@ -172,6 +172,7 @@ function associar(empresa, jid, labelId, tipo) {
 
 function receberWebhook(empresa, evento, data) {
   if (configDa(empresa).ativo === false) return;
+  configDa(empresa).ultimoEventoEm = agora(); // o painel mostra: prova de que o celular está mandando
   if (evento === 'labels.edit') {
     for (const l of Array.isArray(data) ? data : [data]) registrarLabel(empresa, l);
   } else if (evento === 'labels.association') {
@@ -308,6 +309,8 @@ function resumo(empresa) {
   return {
     ativo: cfg.ativo !== false,
     carregadoEm: cfg.carregadoEm || null,
+    ultimoEventoEm: cfg.ultimoEventoEm || null,
+    numero: String(empresa.whatsappConfig?.perfil?.numero || ''),
     erro: cfg.erro || '',
     noZap: Object.values(cfg.labels).map((l) => ({ ...l, cor: corDoZap(l.cor) })),
     soNoCrm: crm.filter((t) => !t.zapId || !cfg.labels[t.zapId]).map((t) => t.nome)
