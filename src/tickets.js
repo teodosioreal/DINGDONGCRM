@@ -163,7 +163,7 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) 
   const desc = String(descricao || '').trim().slice(0, 200);
   lead.agendamentos = Array.isArray(lead.agendamentos) ? lead.agendamentos : [];
   // o mesmo horário de novo (ou remarcação no mesmo dia): atualiza em vez de duplicar
-  const mesmo = lead.agendamentos.find((a) => a.status !== 'cancelado' && ((iso && a.quando === iso) || (!iso && !a.quando && a.descricao === desc)));
+  const mesmo = lead.agendamentos.find((a) => a.status === 'agendado' && ((iso && a.quando === iso) || (!iso && !a.quando && a.descricao === desc)));
   if (mesmo) {
     if (desc) mesmo.descricao = desc;
     salvar();
@@ -183,11 +183,30 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) 
   return { agendamento: ag, novo: true };
 }
 
-function cancelarAgendamento(lead, id) {
+// Cancela (ou marca como remarcado). Sem outro agendamento ativo, o lead sai de
+// "Agendou" e volta para a etapa de antes; quem recebeu o aviso é avisado também.
+function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado = false, empresa = null } = {}) {
   const ag = (lead.agendamentos || []).find((a) => a.id === id);
   if (!ag) return null;
-  ag.status = 'cancelado';
+  if (ag.status !== 'agendado') return ag;
+  ag.status = remarcado ? 'remarcado' : 'cancelado';
   ag.canceladoEm = agora();
+  ag.canceladoPor = por;
+  if (motivo) ag.motivoCancelamento = String(motivo).slice(0, 200);
+  const emp = empresa || estado.empresas.find((e) => e.id === lead.empresaId);
+  if (emp && !remarcado) {
+    const etapa = acharEtapaAgendamento(emp);
+    const outroAtivo = (lead.agendamentos || []).some((a) => a.status === 'agendado');
+    if (etapa && lead.etapa === etapa && !outroAtivo) {
+      const anterior = [...(lead.etapaHistorico || [])].reverse().find((h) => h.para === etapa)?.de;
+      const etapas = leads.etapasDa(emp);
+      let volta = anterior && etapas.includes(anterior) && etapas.indexOf(anterior) < etapas.indexOf(etapa) ? anterior : etapas[Math.max(0, etapas.indexOf(etapa) - 1)];
+      // quem já combinou horário conversou: não volta para a 1ª etapa ("Lead novo"), fica na de antes de Agendou
+      if (volta === etapas[0] && etapas.indexOf(etapa) > 1) volta = etapas[etapas.indexOf(etapa) - 1];
+      leads.moverEtapa(lead, emp, volta, por === 'ia' ? 'ia-whatsapp' : por === 'detectado' ? 'sistema' : 'equipe');
+    }
+    require('./aviso-agendamento').agendamentoCancelado?.(emp, lead, ag);
+  }
   lead.atualizadoEm = agora();
   salvar();
   return ag;
@@ -198,7 +217,7 @@ function ticketsDoLead(lead) {
   const vendas = (estado.vendas || [])
     .filter((v) => v.leadId === lead.id && v.status !== 'cancelada')
     .map((v) => ({ id: v.id, tipo: 'venda', em: v.criadoEm, valor: v.valor, descricao: v.descricao || '', forma: v.forma, status: v.status, origem: v.origem, lidoPor: v.lidoPor }));
-  const ags = (lead.agendamentos || []).map((a) => ({ id: a.id, tipo: 'agendamento', em: a.criadoEm, quando: a.quando, quandoTexto: a.quandoTexto, descricao: a.descricao, por: a.por, status: a.status }));
+  const ags = (lead.agendamentos || []).map((a) => ({ id: a.id, tipo: 'agendamento', em: a.criadoEm, quando: a.quando, quandoTexto: a.quandoTexto, descricao: a.descricao, por: a.por, status: a.status, detectadoPor: a.detectadoPor || '', trecho: a.trecho || '', canceladoPor: a.canceladoPor || '', motivoCancelamento: a.motivoCancelamento || '' }));
   return [...vendas, ...ags].sort((a, b) => (a.em < b.em ? -1 : 1));
 }
 
@@ -223,8 +242,8 @@ function paraIa(lead) {
     .map((x) =>
       x.tipo === 'venda'
         ? `- Venda já registrada${x.valor ? ` (${comprovantes.brl(x.valor)})` : ''}${x.descricao ? `: ${x.descricao}` : ''}.`
-        : x.status === 'cancelado'
-          ? `- Agendamento cancelado: ${x.quando ? fmt(x.quando) : x.quandoTexto}.`
+        : x.status === 'cancelado' || x.status === 'remarcado'
+          ? `- Agendamento ${x.status === 'remarcado' ? 'trocado por outro horário' : 'cancelado'}: ${x.quando ? fmt(x.quando) : x.quandoTexto}.`
           : `- Agendamento já registrado: ${x.quando ? fmt(x.quando) : x.quandoTexto}${x.descricao ? ` — ${x.descricao}` : ''}.`
     )
     .join('\n');
@@ -233,8 +252,18 @@ function paraIa(lead) {
 // Aplica o que a IA marcou na resposta
 function aplicarDaIa(empresa, lead, r) {
   const feitos = [];
+  if (r?.desmarcar) {
+    const ativo = (lead.agendamentos || []).filter((a) => a.status === 'agendado').sort((a, b) => String(a.quando).localeCompare(String(b.quando)))[0];
+    if (ativo) feitos.push({ tipo: 'cancelamento', agendamento: cancelarAgendamento(lead, ativo.id, { por: 'ia', motivo: 'o cliente desmarcou na conversa', empresa }) });
+  }
   if (r?.venda) feitos.push({ tipo: 'venda', ...registrarVenda(empresa, lead, { ...r.venda, por: 'ia' }) });
-  if (r?.agendamento) feitos.push({ tipo: 'agendamento', ...registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' }) });
+  if (r?.agendamento) {
+    const antes = (lead.agendamentos || []).filter((a) => a.status === 'agendado');
+    const novo = registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' });
+    // trocou de dia/horário: o anterior vira "remarcado"
+    if (novo.novo) for (const a of antes) if (a.id !== novo.agendamento.id) cancelarAgendamento(lead, a.id, { por: 'ia', motivo: 'remarcado', remarcado: true, empresa });
+    feitos.push({ tipo: 'agendamento', ...novo });
+  }
   return feitos;
 }
 

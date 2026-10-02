@@ -15,6 +15,7 @@ const automacoes = require('./src/automacoes');
 
 garantirAdmin();
 migrarLeads();
+require('./src/detector-agenda').revisarRecentes(); // agendamentos combinados enquanto o CRM estava fora
 
 const app = express();
 app.disable('x-powered-by');

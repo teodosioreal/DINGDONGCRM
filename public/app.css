@@ -1265,3 +1265,4 @@ html.dark .pi-tag.aviso { color: #fbbf24; }
 .op-pedido input:focus-visible + span { outline: 2px solid var(--acento); outline-offset: 2px; }
 .op-pedido.desabilitada { cursor: not-allowed; opacity: .5; }
 .caixa-ok { padding: 10px 12px; border-radius: 8px; background: var(--ok-fundo, #dcfce7); color: var(--ok-texto, #15803d); }
+.ticket-trecho { display: block; font-size: 12.5px; font-style: italic; color: var(--suave); margin-top: 2px; }

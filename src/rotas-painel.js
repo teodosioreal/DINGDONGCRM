@@ -1400,7 +1400,7 @@ router.post('/leads/:id/agendamentos', (req, res) => {
 router.delete('/leads/:id/agendamentos/:agId', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
-  if (!tickets.cancelarAgendamento(c, req.params.agId)) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  if (!tickets.cancelarAgendamento(c, req.params.agId, { por: 'equipe', motivo: texto(req.body?.motivo, 200) || 'cancelado pela equipe' })) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
   res.json({ ok: true });
 });
 
@@ -1574,14 +1574,17 @@ router.post('/leads/:id/anexos/:arquivo/entender', async (req, res) => {
 router.get('/empresas/:id/aviso-agendamento', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(require('./aviso-agendamento').configDa(empresa));
+  res.json({ ...require('./aviso-agendamento').configDa(empresa), automatica: empresa.agendaAutomatica !== false });
 });
 
 router.put('/empresas/:id/aviso-agendamento', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
-    res.json(require('./aviso-agendamento').salvarConfig(empresa, req.body || {}));
+    // perceber agendamentos sozinho na conversa (código + IA)
+    if (req.body?.automatica !== undefined) { empresa.agendaAutomatica = req.body.automatica === true; salvar(); }
+    const c = req.body?.ativo !== undefined || req.body?.numero !== undefined ? require('./aviso-agendamento').salvarConfig(empresa, req.body || {}) : require('./aviso-agendamento').configDa(empresa);
+    res.json({ ...c, automatica: empresa.agendaAutomatica !== false });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }

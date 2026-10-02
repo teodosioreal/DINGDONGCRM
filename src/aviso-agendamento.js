@@ -81,7 +81,7 @@ async function resumoDaConversa(empresa, lead, ag) {
 
 function montarAviso(empresa, lead, ag, r) {
   const tel = telefoneDoCliente(lead);
-  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente (na conversa)' };
+  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente (na conversa)', detectado: 'na conversa (o CRM percebeu sozinho)' };
   const linhas = [
     `📅 *Novo agendamento confirmado* — ${empresa.nome}`,
     '',
@@ -130,6 +130,25 @@ async function enviar(empresaId, leadId, agId) {
   salvar();
 }
 
+// Agendamento que já tinha sido avisado foi cancelado: avisa o mesmo número
+function agendamentoCancelado(empresa, lead, ag) {
+  const c = configDa(empresa);
+  if (!c.ativo || !c.numero || !ag?.avisoEm || ag.avisoCanceladoEm) return;
+  ag.avisoCanceladoEm = agora();
+  salvar();
+  const tel = telefoneDoCliente(lead);
+  const texto = [
+    `❌ *Agendamento CANCELADO* — ${empresa.nome}`,
+    '',
+    `👤 *Cliente:* ${lead.nome || 'Sem nome'}`,
+    tel ? `📞 ${telefoneBonito(tel)} · https://wa.me/${tel}` : '',
+    `🕒 *Era:* ${quandoBonito(ag)}`,
+    ag.descricao ? `🔧 ${ag.descricao}` : '',
+    ag.motivoCancelamento && ag.motivoCancelamento !== 'remarcado' ? `📝 ${ag.motivoCancelamento}` : ''
+  ].filter(Boolean).join('\n');
+  require('./whatsapp').enviarTexto(empresa, c.numero, texto).catch((err) => console.error('[aviso-agendamento] cancelamento:', err.message));
+}
+
 // Botão "Mandar um teste"
 async function testar(empresa) {
   const c = configDa(empresa);
@@ -144,4 +163,4 @@ async function testar(empresa) {
   return true;
 }
 
-module.exports = { configDa, salvarConfig, agendamentoNovo, testar, montarAviso, enviar };
+module.exports = { configDa, salvarConfig, agendamentoNovo, agendamentoCancelado, testar, montarAviso, enviar };

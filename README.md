@@ -455,6 +455,19 @@ anúncio, salvo na mesma tela) pedindo para o cliente comentar como foi.
   segundos ele parar de digitar).
 - Quem chega direto no WhatsApp (sem passar pelo site) vira um lead novo.
 
+### Agendamentos percebidos sozinhos
+
+Toda mensagem do WhatsApp (cliente, equipe pelo celular ou painel, IA) passa
+pelo detector de agenda (`src/detector-agenda.js`): o código marca na hora
+"proposta de dia/hora" + "pode sim/fechado/ok" do outro lado, e uma IA barata
+lê o fim da conversa uns segundos depois para pegar o resto (marcou, trocou o
+horário ou desmarcou). O agendamento entra como "✨ percebido na conversa",
+move o lead para Agendou, avisa no sininho e no número de aviso; remarcação
+deixa o antigo como "horário trocado"; cancelamento devolve o lead para a etapa
+anterior e avisa o número cadastrado. A equipe desfaz/cancela na conversa. Liga
+e desliga em IA do WhatsApp → Aviso de agendamento. Ao subir, o CRM confere as
+conversas dos últimos 2 dias.
+
 ### Serviços e preços (catálogo)
 
 Em **Configurar → Serviços e preços** a empresa cadastra cada serviço ou

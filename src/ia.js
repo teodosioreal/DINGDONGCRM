@@ -369,6 +369,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '- A data e a hora de agora estão em "Contexto desta conversa", no fim. Use para transformar "amanhã", "sábado" etc. em data.',
     '- Quando o cliente CONFIRMAR a compra (fechou o pedido e combinou o pagamento, ou avisou que pagou), escreva numa linha separada: [[VENDA: valor | o que ele comprou]] — ex.: [[VENDA: 350,00 | Volante em couro]]. Sem valor certo, deixe o valor vazio: [[VENDA: | Volante em couro]].',
     '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | Instalação do volante]].',
+    '- Quando o cliente DESMARCAR ou cancelar um agendamento já registrado (sem marcar outro), escreva numa linha separada: [[DESMARCAR]]. Se ele trocar de dia/horário, use [[AGENDAMENTO: …]] com o horário novo (o antigo sai sozinho).',
     '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.',
     '',
     'Localização do cliente (a equipe vê como etiqueta 📍 na conversa):',
@@ -795,6 +796,11 @@ function extrairAcoes(bruto) {
     agendamento = { quando: (quando || '').trim(), descricao: resto.join('|').trim() };
     return '';
   });
+  let desmarcar = false;
+  texto = texto.replace(/\[\[\s*DESMARCAR\s*\]\]/gi, () => {
+    desmarcar = true;
+    return '';
+  });
   texto = texto.replace(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
     etiquetas.push(nome.trim());
     return '';
@@ -818,7 +824,7 @@ function extrairAcoes(bruto) {
     texto = texto.slice(0, marcador.index);
   }
   texto = texto.replace(/\n{3,}/g, '\n\n').trim();
-  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local };
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local, desmarcar };
 }
 
 /**

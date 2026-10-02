@@ -3091,7 +3091,11 @@ async function cartaoAvisoAgendamento(id) {
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 Aviso de agendamento</h2>${interruptor('aviso-ag-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
     <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, carro, endereço, preço e outras informações importantes da conversa.</p>
-    <form id="f-aviso-ag" class="linha-form" style="flex-wrap:wrap"><input name="numero" value="${esc(c.numero ? telefoneBonito(c.numero) : '')}" placeholder="WhatsApp que recebe o aviso (DDD + número)"><button type="submit" class="primario">Salvar número</button><button type="button" id="aviso-ag-teste" ${c.numero ? '' : 'disabled'}>Mandar um teste</button></form>`;
+    <form id="f-aviso-ag" class="linha-form" style="flex-wrap:wrap"><input name="numero" value="${esc(c.numero ? telefoneBonito(c.numero) : '')}" placeholder="WhatsApp que recebe o aviso (DDD + número)"><button type="submit" class="primario">Salvar número</button><button type="button" id="aviso-ag-teste" ${c.numero ? '' : 'disabled'}>Mandar um teste</button></form>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--borda)">${interruptor('agenda-auto', c.automatica, 'Perceber agendamentos sozinho na conversa')}<p class="rotulo" style="margin:4px 0 0">Quando você, a equipe ou a IA combinam um horário com o cliente (ex.: "sábado às 9h?" → "pode ser"), o CRM marca o agendamento, move o lead para Agendou e avisa no sininho. Se o cliente desmarcar ou trocar o horário, ele cancela ou remarca sozinho. Dá para desfazer na conversa.</p></div>`;
+  $('#agenda-auto').onchange = async (e) => {
+    try { await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: { automatica: e.target.checked } }); aviso(e.target.checked ? 'O CRM vai perceber os agendamentos sozinho.' : 'Agendamentos só pela IA e à mão.'); } catch (err) { aviso(err.message, true); }
+  };
   const salvar_ = async (corpo, msg) => {
     try { await api(`empresas/${id}/aviso-agendamento`, { method: 'PUT', body: corpo }); aviso(msg); cartaoAvisoAgendamento(id); } catch (err) { aviso(err.message, true); cartaoAvisoAgendamento(id); }
   };
@@ -3229,11 +3233,15 @@ function htmlTicket(t) {
       <small>${quem} · ${hora}${t.status === 'conferir' ? ' · <span class="ticket-conferir">a conferir no Faturamento</span>' : ''}</small></div>
     </div>`;
   }
-  const cancelado = t.status === 'cancelado';
+  const cancelado = t.status === 'cancelado' || t.status === 'remarcado';
+  const QUEM = { ia: 'marcado pela IA', cliente: 'o cliente confirmou na conversa', detectado: `✨ percebido na conversa${t.detectadoPor === 'ia' ? ' pela IA' : ''}` };
+  const QUEM_CANCELOU = { ia: 'a IA desmarcou', detectado: 'desmarcado na conversa', equipe: 'cancelado pela equipe' };
+  const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO';
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
-    <span class="ticket-icone" aria-hidden="true">📅</span>
-    <div class="ticket-corpo"><b>${cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO'}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
-    <small>${t.por === 'ia' ? 'marcado pela IA' : t.por === 'cliente' ? 'o cliente confirmou na conversa' : 'marcado pela equipe'} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}">cancelar</button>`}</small></div>
+    <span class="ticket-icone" aria-hidden="true">${cancelado ? '🗓️' : '📅'}</span>
+    <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
+    ${!cancelado && t.trecho ? `<span class="ticket-trecho">“${esc(t.trecho)}”</span>` : ''}
+    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
   </div>`;
 }
 
@@ -3448,9 +3456,13 @@ function modalAgendamento(leadId, depois) {
 function ligarCancelarAgendamento(raiz, leadId, depois) {
   $$('[data-cancelar-ag]', raiz).forEach((b) => {
     b.onclick = async () => {
-      if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'O aviso fica na conversa como cancelado.', botao: 'Cancelar agendamento', perigo: true }))) return;
+      const desfazer = b.dataset.detectado === '1';
+      if (!(await confirmar(desfazer
+        ? { titulo: 'Desfazer este agendamento?', texto: 'O CRM tinha entendido que um horário foi combinado. Ele sai da agenda (o cliente não recebe nada).', botao: 'Desfazer' }
+        : { titulo: 'Cancelar este agendamento?', texto: 'O aviso fica na conversa como cancelado e o lead sai de "Agendou". Se o aviso de agendamento estiver ligado, o número cadastrado recebe o cancelamento. O cliente não recebe nada automático.', botao: 'Cancelar agendamento', perigo: true }))) return;
       try {
-        await api(`leads/${leadId}/agendamentos/${b.dataset.cancelarAg}`, { method: 'DELETE' });
+        await api(`leads/${leadId}/agendamentos/${b.dataset.cancelarAg}`, { method: 'DELETE', body: { motivo: desfazer ? 'detectado por engano (desfeito)' : '' } });
+        aviso(desfazer ? 'Desfeito.' : 'Agendamento cancelado.');
         depois?.();
       } catch (err) { aviso(err.message, true); }
     };

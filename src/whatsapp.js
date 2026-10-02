@@ -761,6 +761,7 @@ async function receberWebhook(empresa, corpo) {
       const textoEquipe = anexo ? legenda || `[enviou ${NOME_TIPO[anexo.anexo.tipo] || 'um arquivo'}]` : texto;
       leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: textoEquipe, anexo: anexo?.anexo, wid: msg.key.id });
       require('./tickets').agendamentoDaMensagem(empresa, lead, textoEquipe, 'equipe');
+      require('./detector-agenda').observar(empresa, lead); // marcou/desmarcou pelo celular
       // modo clone: aprende com o que você respondeu pelo celular (texto e arquivo)
       if (anexo?.anexo) require('./clone').aprenderAnexo(empresa, lead, anexo.anexo, legenda);
       else require('./clone').registrar(empresa, lead, { texto: textoEquipe });
@@ -801,6 +802,7 @@ async function receberWebhook(empresa, corpo) {
     leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
     require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
     require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
+    require('./detector-agenda').observar(empresa, lead); // "pode ser", "vou ter que desmarcar"…
     origem.aplicarAnuncio(empresa, lead);
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;
@@ -1136,6 +1138,7 @@ async function responderLead(empresaId, leadId) {
     }
     leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto });
     if (!r.agendamento) require('./tickets').agendamentoDaMensagem(empresa, lead, r.texto, 'ia');
+    if (!r.agendamento && !r.desmarcar) require('./detector-agenda').observar(empresa, lead);
   }
   await enviarMidiasPedidas(empresa, lead, r.midias);
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
@@ -1174,6 +1177,7 @@ async function enviarRespostaRapida(empresa, lead, resposta) {
     await enviarTexto(empresa, destino, resposta.texto, { digitando: false });
     leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: resposta.texto, respostaRapida: resposta.atalho });
     require('./tickets').agendamentoDaMensagem(empresa, lead, resposta.texto, 'equipe');
+    require('./detector-agenda').observar(empresa, lead);
     require('./clone').registrar(empresa, lead, { texto: resposta.texto, midias: resposta.midia ? [midias.resolverPedido(empresa, resposta.midia).alvo?.codigo] : [] });
   }
   if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe');
@@ -1308,6 +1312,7 @@ async function enviarPelaEquipe(empresa, lead, texto) {
   await enviarTexto(empresa, destino, texto, { digitando: false });
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto });
   require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'equipe'); // "agendado sábado 9h" → ticket AGENDADO
+  require('./detector-agenda').observar(empresa, lead);
   require('./clone').registrar(empresa, lead, { texto }); // modo clone: aprende com a sua resposta
   pausarPorMensagemManual(empresa, lead, 'A equipe respondeu pelo painel');
   salvar();
