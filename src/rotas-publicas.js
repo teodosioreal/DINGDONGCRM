@@ -58,7 +58,7 @@ function enviarConfig(res, bot, empresa) {
     nomeAssistente: bot.nomeAssistente || empresa.nome,
     avatarUrl: bot.avatarUrl || (empresa.logo ? `${config.urlPublica}/logo/${empresa.id}?v=${encodeURIComponent(empresa.logo.v)}` : ''),
     cor: bot.cor || '#008069',
-    boasVindas: bot.boasVindas || `Olá! Sou o assistente virtual da ${empresa.nome}. Como posso ajudar?`,
+    boasVindas: bot.boasVindas || `Olá! Seja bem-vindo(a) à ${empresa.nome}. Como posso ajudar?`,
     chamada: bot.chamada || '',
     whatsappUrl: linkWhatsapp(numeroWhatsapp(bot, empresa), bot.mensagemWhatsappPadrao || ''),
     posicao: bot.posicao === 'esquerda' ? 'esquerda' : 'direita'

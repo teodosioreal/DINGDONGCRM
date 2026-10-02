@@ -856,7 +856,7 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
     nomeAssistente: empresa.nome,
     cor: '#008069',
     posicao: 'direita',
-    boasVindas: `Olá! 👋 Sou o assistente virtual da ${empresa.nome}. Como posso te ajudar?`,
+    boasVindas: `Olá! 👋 Seja bem-vindo(a) à ${empresa.nome}. Como posso te ajudar?`,
     chamada: '',
     tom: '',
     conhecimento: empresa.nicho ? `Ramo: ${empresa.nicho}\n` : '',
@@ -968,7 +968,26 @@ function ajustarPrincipal(bot, empresaAnterior) {
 function botComExtras(bot) {
   const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
   const uso = estado.uso[bot.id]?.data === hoje() ? estado.uso[bot.id].mensagens : 0;
-  return { ...bot, empresaNome: empresa?.nome || '—', mensagensHoje: uso };
+  const obediencia = require('./obediencia');
+  // regras que o CRM confere sozinho antes de mandar (o painel mostra ao lado das instruções)
+  const conferidas = (t) => obediencia.regrasDe(t || '').map((r) => (r.tipo === 'identidade' ? 'Não se apresentar como assistente virtual, IA ou robô' : `Não usar "${r.termo}"`));
+  return { ...bot, empresaNome: empresa?.nome || '—', mensagensHoje: uso, regrasConferidas: { site: conferidas(bot.regras), whatsapp: conferidas(bot.promptWhatsapp) } };
+}
+
+// Guarda cada versão das instruções (site e WhatsApp): quando mudou, quem mudou e o texto
+function registrarMudancaInstrucoes(bot, dados, req) {
+  const quem = req.usuario?.nome || req.usuario?.email || '';
+  for (const [campo, canal] of [['regras', 'site'], ['promptWhatsapp', 'whatsapp']]) {
+    if (!(campo in dados) || String(dados[campo] || '') === String(bot[campo] || '')) continue;
+    bot.instrucoesEditadas = bot.instrucoesEditadas || {};
+    bot.instrucoesEditadas[canal] = { em: agora(), por: quem, caracteres: String(dados[campo] || '').length };
+    const hist = (bot.historicoInstrucoes = bot.historicoInstrucoes || []);
+    if (bot[campo]) hist.unshift({ canal, texto: String(bot[campo]).slice(0, 20000), ate: agora(), por: quem }); // a versão que saiu
+    const doCanal = hist.filter((h) => h.canal === canal);
+    if (doCanal.length > 10) bot.historicoInstrucoes = hist.filter((h) => h.canal !== canal || doCanal.indexOf(h) < 10);
+    // conferência antiga não vale para o texto novo
+    if (bot.ultimaConferencia?.[canal]) bot.ultimaConferencia[canal].antiga = true;
+  }
 }
 
 router.get('/bots', (req, res) => {
@@ -1014,6 +1033,7 @@ router.put('/bots/:id', (req, res) => {
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) delete dados[c];
   else if (dados.empresaId && !estado.empresas.some((e) => e.id === dados.empresaId)) return res.status(400).json({ erro: 'Escolha a empresa.' });
   const empresaAntes = bot.empresaId;
+  registrarMudancaInstrucoes(bot, dados, req);
   Object.assign(bot, dados, { atualizadoEm: agora() });
   ajustarPrincipal(bot, empresaAntes);
   // conversas antigas acompanham a empresa do assistente
@@ -1075,7 +1095,11 @@ router.post('/bots/:id/conferir', async (req, res) => {
   const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
   if (!empresa) return res.status(400).json({ erro: 'Este assistente não tem empresa.' });
   try {
-    res.json(await require('./conferir-prompt').conferir(bot, empresa, req.body?.canal === 'site' ? 'site' : 'whatsapp'));
+    const canal = req.body?.canal === 'site' ? 'site' : 'whatsapp';
+    const r = await require('./conferir-prompt').conferir(bot, empresa, canal);
+    bot.ultimaConferencia = { ...(bot.ultimaConferencia || {}), [canal]: { em: agora(), placar: r.placar, nota: r.nota, lendo: r.lendo } };
+    salvar();
+    res.json(r);
   } catch (err) {
     res.status(err.status || 502).json({ erro: err.status ? err.message : `Não deu para testar agora: ${ia.descreverErroIa ? ia.descreverErroIa(err) : err.message}` });
   }

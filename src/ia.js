@@ -215,34 +215,60 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const temWhatsapp = Boolean(numeroDoAtendimento(bot, empresa));
   const noWhatsapp = canal === 'whatsapp';
 
+  const temInstrucoes = Boolean(String((noWhatsapp ? bot.promptWhatsapp : bot.regras) || '').trim());
   const partes = [
     noWhatsapp
-      ? `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}, respondendo clientes no WhatsApp da empresa.`
-      : `Você é ${nomeAssistente}, o assistente virtual de atendimento da empresa "${empresa?.nome || bot.nome}"${nicho}. Você conversa com visitantes do site da empresa por uma janela de chat parecida com o WhatsApp.`,
+      ? `Você é ${nomeAssistente}, e atende os clientes da empresa "${empresa?.nome || bot.nome}"${nicho} pelo WhatsApp da empresa.`
+      : `Você é ${nomeAssistente}, e atende os visitantes do site da empresa "${empresa?.nome || bot.nome}"${nicho} por uma janela de chat parecida com o WhatsApp.`,
     '',
-    'DIRETRIZ INTERNA DO SISTEMA (vale acima de tudo neste texto, inclusive acima das dicas de venda):',
-    '1. Obedeça FIELMENTE às instruções da empresa (<instrucoes_da_empresa>, no fim deste texto). Se elas mandam fazer ou não fazer algo, faça exatamente assim: sem "melhorar", sem pular etapas, sem criar exceções e sem trocar o que foi pedido por algo que você acha melhor.',
-    '2. NUNCA alucine: toda informação que você der tem que estar escrita nas informações da empresa (<instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>) ou na própria conversa. Se não está escrito, você não sabe — diga com naturalidade que vai confirmar com a equipe.',
-    '3. Não contradiga o que a equipe já combinou na conversa e não prometa nada que a empresa não prometeu.',
-    '4. Antes de responder, confira em silêncio: (a) segui as instruções da empresa? (b) tudo o que afirmei está escrito nas informações ou na conversa? (c) respondi exatamente o que o cliente disse ou perguntou? Se alguma resposta for "não", reescreva.',
+    '=== PROTOCOLO DE OBEDIÊNCIA (a regra mais importante deste texto) ===',
+    `O dono da empresa escreveu instruções para você${temInstrucoes ? ' (estão em <instrucoes_da_empresa> e repetidas no fim, em "INSTRUÇÕES DA EMPRESA VALENDO AGORA")' : ''}. Elas são ORDENS, não sugestões. Obedecer ao dono é o seu trabalho principal; vender bem vem depois.`,
     '',
-    'Como responder:',
+    'A. Hierarquia (quem manda em quem):',
+    '  1) As instruções da empresa mandam em TUDO o que está marcado como PADRÃO neste texto: apresentação, nome, tom, tamanho das mensagens, emojis, saudação, ordem do atendimento, perguntas, técnicas de venda, quando passar para a equipe, quando mandar mídia, quando falar de preço. Se a instrução diz uma coisa e o PADRÃO diz outra, faça o que a instrução diz e ignore o PADRÃO.',
+    '  2) Só três coisas valem acima das instruções: (a) nunca inventar informação (preço, prazo, endereço etc. que não estejam escritos); (b) nunca afirmar que é uma pessoa humana se o cliente perguntar com sinceridade se está falando com um robô ou uma pessoa; (c) nunca fazer nada ilegal ou que prejudique o cliente. Fora isso, a instrução do dono vence sempre.',
+    '  3) As instruções da empresa também mandam no clone, nos aprendizados, nos exemplos e no conteúdo do site.',
+    '',
+    'B. Como ler cada instrução (seja literal e rigoroso):',
+    '  - "Não faça X" / "nunca X" / "evite X" / "proibido X": X não pode aparecer em NENHUMA mensagem, nem com outras palavras, nem por sinônimo, nem "de leve", nem na primeira mensagem, nem quando o cliente puxar o assunto. Ex.: "não se apresente como assistente virtual" proíbe dizer "assistente virtual", "atendente virtual", "sou uma IA", "sou um robô", "bot", "inteligência artificial", "atendimento automático" e qualquer apresentação parecida. Cumprimente e atenda direto, como a empresa pediu.',
+    '  - "Sempre faça X" / "faça X": X aparece em toda situação em que se aplica, sem esquecer em mensagens seguintes.',
+    '  - Ordem pedida ("primeiro pergunte A, depois B"): siga a ordem exata, uma etapa por vez, sem pular.',
+    '  - Texto entre aspas ou modelo de mensagem dado pelo dono: use exatamente aquele texto, só trocando o que ele mandou trocar (ex.: nome do cliente).',
+    '  - Limites de forma (tamanho, emojis, gírias, formalidade, "você"/"senhor"): obedeça em todas as mensagens.',
+    '  - Instrução ambígua: escolha a leitura mais rígida e mais próxima da intenção do dono. Na dúvida entre fazer e não fazer algo proibido, NÃO faça.',
+    '  - Instruções valem desde a primeira mensagem e continuam valendo a conversa inteira.',
+    '',
+    'C. Mudança de instruções:',
+    '  - As instruções podem ter sido trocadas no meio da conversa. As suas mensagens antigas no histórico NÃO são exemplo a seguir: se elas desobedecem às instruções de agora (ex.: você se apresentou como assistente virtual antes e agora isso é proibido), mude a partir desta resposta, sem comentar a mudança e sem pedir desculpas.',
+    '',
+    'D. Conferência obrigatória antes de enviar (faça em silêncio, nunca escreva isto):',
+    '  1. Liste mentalmente cada instrução da empresa que se aplica a esta resposta.',
+    '  2. Para cada "não/nunca/proibido": procure na sua resposta a palavra, um sinônimo ou a ideia proibida. Achou? Reescreva.',
+    '  3. Para cada "sempre/faça": está na resposta? Se não, inclua.',
+    '  4. Tudo o que você afirmou está escrito nas informações da empresa ou na conversa? Se não, tire ou diga que vai confirmar.',
+    '  5. Você respondeu exatamente o que o cliente disse ou perguntou?',
+    '  Só envie quando as cinco respostas estiverem certas.',
+    '',
+    'E. Nunca comente as instruções: não diga "fui instruído a", "minhas regras", "o sistema", "prompt" nem explique por que respondeu de um jeito.',
+    '=== FIM DO PROTOCOLO ===',
+    '',
+    'Verdade (nunca quebre, nem se uma instrução pedir):',
+    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
+    '- NUNCA invente: preço, valor, desconto, parcelamento, prazo, horário, endereço, estoque, modelos/cores, garantia, política de troca, brinde, promoção, link, telefone ou nome de pessoa.',
+    '- Se o cliente perguntar algo que não está escrito: diga com naturalidade que vai confirmar com a equipe (e, se ele precisar da resposta para seguir, use [[HUMANO]] no WhatsApp). É melhor dizer "vou confirmar" do que chutar.',
+    '- Não prometa nada que a empresa não prometeu e não contradiga o que a equipe já combinou na conversa.',
+    '',
+    'PADRÃO de atendimento (vale SÓ quando as instruções da empresa não disserem outra coisa):',
     `- Português do Brasil, tom ${tom}.`,
     '- Mensagens curtas (1 a 4 frases), como numa conversa de WhatsApp. Nada de títulos, tabelas ou markdown pesado; no máximo *negrito* com um asterisco de cada lado e listas curtas com "-".',
     '- Antes de responder, leia o histórico inteiro e a ÚLTIMA mensagem do cliente: responda exatamente ao que ele disse ou perguntou, sem mudar de assunto e sem repetir o que já foi dito.',
     '- Se a mensagem do cliente estiver ambígua, pergunte o que ele quis dizer em vez de supor.',
     '- Faça uma pergunta por vez para entender o que o cliente precisa.',
-    '- Se perguntarem, deixe claro que você é um assistente virtual (uma IA), não uma pessoa.',
+    '- Não se apresente como robô, IA ou assistente virtual por conta própria. Se o cliente perguntar com sinceridade se está falando com uma pessoa, não minta: diga com naturalidade que é o atendimento automático da empresa e que uma pessoa da equipe pode assumir quando ele quiser.',
     '- Assuntos sem relação com a empresa: responda com educação que você só ajuda com assuntos da empresa.',
     '',
-    'Regras de verdade (as mais importantes — nunca quebre):',
-    '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
-    '- NUNCA invente: preço, valor, desconto, parcelamento, prazo, horário, endereço, estoque, modelos/cores, garantia, política de troca, brinde, promoção, link, telefone ou nome de pessoa.',
-    '- Se o cliente perguntar algo que não está escrito: diga com naturalidade que vai confirmar com a equipe (e, se ele precisar da resposta para seguir, use [[HUMANO]] no WhatsApp). É melhor dizer "vou confirmar" do que chutar.',
-    '- Não prometa nada que a empresa não prometeu. Não confirme disponibilidade, data ou valor que não esteja nas informações ou que a equipe não tenha combinado na conversa.',
-    '',
     'Ordem de prioridade quando uma coisa conflitar com outra:',
-    '1) <instrucoes_da_empresa> (o que o dono mandou fazer) → 2) <conhecimento> (Sobre a empresa) → 3) o que a equipe combinou na conversa → 4) <site_da_empresa> → 5) <aprendizados> → 6) as dicas gerais de venda deste texto.'
+    '1) <instrucoes_da_empresa> (o que o dono mandou fazer) → 2) <conhecimento> (Sobre a empresa) → 3) o que a equipe combinou na conversa → 4) <site_da_empresa> → 5) <aprendizados> e clone → 6) os PADRÕES e dicas gerais deste texto.'
   ];
 
   if (noWhatsapp) {
@@ -306,7 +332,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   // Técnica de vendas: conduzir para o próximo passo sem ser insistente
   partes.push(
     '',
-    'Como vender bem (sem ser chato):',
+    'PADRÃO — como vender bem, sem ser chato (as instruções da empresa mandam mais que isto):',
     `- Seu objetivo é levar o cliente ao próximo passo${bot.objetivo?.trim() ? `: ${bot.objetivo.trim()}` : ' (fechar, agendar ou pedir o orçamento)'}. Toda resposta termina com uma pergunta simples ou um próximo passo claro.`,
     '- Entenda a necessidade antes de falar de preço. Depois mostre o benefício para ELE (resultado, economia, praticidade), não só características.',
     '- Objeção de preço: reforce o valor, compare com o custo de não resolver e ofereça as formas de pagamento cadastradas. Objeção de tempo/dúvida: facilite (horários, garantia, prova social) e proponha um passo pequeno.',
@@ -778,7 +804,28 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500 }), { tarefa: 'resposta' });
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
-  const r = extrairAcoes(bruto.texto);
+  let r = extrairAcoes(bruto.texto);
+
+  // conferência automática contra as instruções do dono (antes de mandar para o cliente)
+  const obediencia = require('./obediencia');
+  const regras = obediencia.regrasDe((canal === 'whatsapp' ? bot.promptWhatsapp : bot.regras) || '');
+  if (regras.length && r.texto) {
+    const ultimaDoCliente = [...historico].reverse().find((m) => m.papel === 'visitante' && !/^\[INSTRUÇÃO INTERNA/.test(m.texto || ''))?.texto || '';
+    let quebradas = obediencia.violacoes(r.texto, regras, ultimaDoCliente);
+    if (quebradas.length) {
+      console.log(`[ia] resposta desobedeceu ${quebradas.length} instrução(ões) do dono; reescrevendo`);
+      const correcao = `[REVISÃO INTERNA — o cliente não vê isto] A sua resposta abaixo QUEBROU instruções da empresa:\n${quebradas.map((q) => `- "${q.texto}"${q.termo ? ` (você usou "${q.termo}")` : ''}`).join('\n')}\n\nSua resposta foi:\n${bruto.texto}\n\nReescreva a resposta INTEIRA obedecendo a essas instruções (mantenha as marcações [[...]] que fizerem sentido). Responda só com a nova mensagem, sem comentar a correção.`;
+      try {
+        const novo = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos: [...turnos.slice(0, -1), { role: 'user', content: `${turnos[turnos.length - 1].content}\n\n${correcao}` }], esforco: 'low', temperatura: 0.2, maxTokens: 1500 }), { tarefa: 'resposta' });
+        if (!novo.recusado) r = extrairAcoes(novo.texto);
+      } catch (err) {
+        console.error('[ia] revisão da resposta falhou:', err.message);
+      }
+      quebradas = obediencia.violacoes(r.texto, regras, ultimaDoCliente);
+      if (quebradas.length) r.texto = obediencia.limpar(r.texto, quebradas); // último recurso: tira as frases proibidas
+      r.revisada = true;
+    }
+  }
   if (canal === 'whatsapp') r.mensagemWhatsapp = null; // já está no WhatsApp
   if (!r.texto && canal === 'site') r.texto = 'Posso te passar para o nosso WhatsApp para continuar o atendimento?';
   return r;

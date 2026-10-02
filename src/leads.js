@@ -302,6 +302,14 @@ function migrarFunilPadrao() {
 // Leads criados por versões antigas (antes do funil) ganham os campos novos
 function migrarLeads() {
   migrarFunilPadrao();
+  // boas-vindas padrão antiga ("Sou o assistente virtual da…") vira a nova; texto escrito pelo dono não é mexido
+  for (const b of estado.bots || []) {
+    const emp = estado.empresas.find((e) => e.id === b.empresaId);
+    if (emp && b.boasVindas === `Olá! 👋 Sou o assistente virtual da ${emp.nome}. Como posso te ajudar?`) {
+      b.boasVindas = `Olá! 👋 Seja bem-vindo(a) à ${emp.nome}. Como posso te ajudar?`;
+      salvar();
+    }
+  }
   let mudou = false;
   for (const c of estado.conversas) {
     if (c.codigo && c.etapa) continue;

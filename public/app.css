@@ -1192,3 +1192,20 @@ html.dark .cf-nao { background: #450a0a; color: #fca5a5; }
 .cf-sugestao { margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #f59e0b 12%, transparent); font-size: 14px; }
 .cf-conversa { border-top: 1px solid var(--borda); padding: 8px 0; font-size: 14px; }
 .cf-conversa p { margin: 2px 0; }
+/* painel ao lado das instruções da IA */
+.painel-instr { margin: -4px 0 14px; border: 1px solid var(--borda); border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--borda) 15%, var(--superficie)); font-size: 13.5px; }
+.pi-linhas { display: flex; flex-direction: column; gap: 7px; }
+.pi-linha { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: baseline; }
+.pi-rot { color: var(--suave); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.pi-tag { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--hover); color: var(--suave); }
+.pi-tag.ok { background: var(--ok-fundo, #dcfce7); color: var(--ok-texto, #15803d); }
+.pi-tag.aviso { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309; }
+html.dark .pi-tag.aviso { color: #fbbf24; }
+.pi-regra { display: inline-block; margin: 0 6px 4px 0; font-size: 12.5px; padding: 2px 8px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); }
+.pi-hist { margin-top: 10px; }
+.pi-hist summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.pi-versao { border-top: 1px solid var(--borda); padding: 8px 0; }
+.pi-versao pre { white-space: pre-wrap; font-family: inherit; font-size: 13px; margin: 4px 0 6px; max-height: 140px; overflow: auto; }
+@media (max-width: 768px) { .pi-linha { grid-template-columns: 1fr; gap: 2px; } }
+.campos > .painel-instr { grid-column: 1 / -1; }
+.pi-linha > span:last-child { min-width: 0; }

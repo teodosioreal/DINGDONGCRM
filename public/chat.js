@@ -409,7 +409,7 @@
 
     var corpo = el('div', 'corpo');
     corpo.setAttribute('aria-live', 'polite');
-    corpo.appendChild(el('div', 'aviso', 'Você está conversando com um assistente virtual. Para falar com uma pessoa, use o botão do WhatsApp.'));
+    corpo.appendChild(el('div', 'aviso', 'Atendimento 24h. Para falar com uma pessoa da equipe, use o botão do WhatsApp.'));
 
     var rodape = el('form', 'rodape');
     var campo = document.createElement('textarea');

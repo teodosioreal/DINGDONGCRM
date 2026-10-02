@@ -731,6 +731,48 @@ function ligarChatTeste({ botId, canal, rascunho, saudacao }) {
 async function salvarBot(botId, form, mensagem = 'Salvo!') {
   await api(`bots/${botId}`, { method: 'PUT', body: formParaObjeto(form) });
   aviso(mensagem);
+  form._atualizarPainel?.();
+}
+
+// Painel ao lado das instruções: última mudança, se a IA está usando, última
+// conferência, alterações não salvas, regras conferidas sozinhas e histórico
+function painelInstrucoes(form, botId, canal) {
+  const campo = canal === 'whatsapp' ? 'promptWhatsapp' : 'regras';
+  const area = form.elements[campo];
+  if (!area) return;
+  let painel = form.querySelector('.painel-instr');
+  if (!painel) {
+    painel = document.createElement('div');
+    painel.className = 'painel-instr';
+    area.closest('.campo').after(painel);
+  }
+  let bot = null;
+  const desenhar = () => {
+    if (!bot) return;
+    const ed = bot.instrucoesEditadas?.[canal];
+    const conf = bot.ultimaConferencia?.[canal];
+    const salvo = String(bot[campo] || '');
+    const mudou = area.value !== salvo;
+    const hist = (bot.historicoInstrucoes || []).filter((h) => h.canal === canal);
+    const regras = bot.regrasConferidas?.[canal] || [];
+    painel.innerHTML = `
+      <div class="pi-linhas">
+        <div class="pi-linha"><span class="pi-rot">Última mudança</span><span>${ed ? `<b>${esc(data(ed.em))}</b>${ed.por ? ` · ${esc(ed.por)}` : ''} · ${ed.caracteres} caracteres` : salvo ? 'antes do histórico começar' : '<span class="rotulo">nenhuma instrução salva</span>'}</span></div>
+        <div class="pi-linha"><span class="pi-rot">Situação</span><span>${mudou ? '<span class="pi-tag aviso">● Alterações não salvas — a IA ainda usa a versão anterior</span>' : salvo ? '<span class="pi-tag ok">● Em uso pela IA</span> <span class="rotulo">vale na próxima mensagem de qualquer conversa</span>' : '<span class="pi-tag">● Sem instruções — a IA segue só o padrão</span>'}</span></div>
+        <div class="pi-linha"><span class="pi-rot">Última conferência</span><span>${conf ? `${conf.antiga ? '<span class="pi-tag aviso">desatualizada (o texto mudou depois)</span> ' : `<span class="pi-tag ${conf.nota === 'ok' ? 'ok' : 'aviso'}">${esc(conf.placar)}</span> `}<span class="rotulo">${esc(data(conf.em))}</span>` : '<span class="rotulo">nunca — clique em <b>Atualizar e conferir</b></span>'}</span></div>
+        ${regras.length ? `<div class="pi-linha"><span class="pi-rot">Conferido antes de enviar</span><span>${regras.map((r) => `<span class="pi-regra">🛡️ ${esc(r)}</span>`).join(' ')}<br><span class="rotulo">Se a IA quebrar uma destas, o CRM faz ela reescrever antes de mandar.</span></span></div>` : ''}
+      </div>
+      ${hist.length ? `<details class="pi-hist"><summary>Versões anteriores (${hist.length})</summary>${hist.map((h, i) => `<div class="pi-versao"><div class="rotulo">Usada até ${esc(data(h.ate))}${h.por ? ` · trocada por ${esc(h.por)}` : ''}</div><pre>${esc(h.texto.length > 400 ? `${h.texto.slice(0, 400)}…` : h.texto)}</pre><button type="button" class="pequeno" data-restaurar="${i}">Usar esta versão</button></div>`).join('')}</details>` : ''}`;
+    $$('[data-restaurar]', painel).forEach((b) => {
+      b.onclick = () => { area.value = hist[Number(b.dataset.restaurar)].texto; desenhar(); area.focus(); aviso('Versão antiga colocada no campo. Clique em Salvar ou em Atualizar e conferir para usar.'); };
+    });
+  };
+  const atualizar = async () => {
+    try { bot = await api(`bots/${botId}`); desenhar(); } catch { /* o painel é só informativo */ }
+  };
+  area.addEventListener('input', () => { clearTimeout(area._pi); area._pi = setTimeout(desenhar, 250); });
+  form._atualizarPainel = atualizar;
+  atualizar();
 }
 
 // Botão "Atualizar e conferir": salva as instruções e testa a IA de verdade
@@ -764,9 +806,11 @@ function ligarConferirPrompt(form, botId, canal) {
             ${r.conversas.map((c) => `<div class="cf-conversa"><p><span class="rotulo">Cliente:</span> ${esc(c.cliente)}</p><p><span class="rotulo">IA:</span> ${c.ia ? esc(c.ia) : `<span class="aviso-texto">${esc(c.erro || 'sem resposta')}</span>`}${c.acoes?.length ? ` <span class="rotulo">(${esc(c.acoes.join('; '))})</span>` : ''}</p></div>`).join('')}
           </details>
         </div>`;
+      form._atualizarPainel?.();
     } catch (err) {
       area.innerHTML = '';
       aviso(err.message, true);
+      form._atualizarPainel?.();
     }
   };
 }
@@ -950,6 +994,7 @@ async function paginaSite(id) {
     try { await salvarBot(bot.id, form); } catch (err) { aviso(err.message, true); }
   };
   ligarConferirPrompt(form, bot.id, 'site');
+  painelInstrucoes(form, bot.id, 'site');
   ligarChatTeste({ botId: bot.id, canal: 'site', rascunho: () => formParaObjeto(form), saudacao: () => form.elements.boasVindas.value });
 }
 
@@ -1374,6 +1419,7 @@ async function paginaWhatsapp(id) {
       try { await salvarBot(bot.id, form); } catch (err) { aviso(err.message, true); }
     };
     ligarConferirPrompt(form, bot.id, 'whatsapp');
+    painelInstrucoes(form, bot.id, 'whatsapp');
     ligarChatTeste({ botId: bot.id, canal: 'whatsapp', rascunho: () => formParaObjeto(form), saudacao: () => '' });
   }
 }
