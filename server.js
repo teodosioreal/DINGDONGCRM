@@ -150,12 +150,21 @@ const servidor = app.listen(config.port, config.host, () => {
     }
   }, 8000).unref?.();
   // webhooks antigos: passam a avisar também quando uma conversa é apagada no celular
+  // (e, nas instâncias já em uso que ainda não tinham, liga o histórico
+  // completo -- mensagens, contatos e etiquetas do WhatsApp Business -- e dá
+  // uma cutucada no socket pra resincronizar mais rápido, sem apagar sessão
+  // nem pedir QR de novo)
   setTimeout(async () => {
     const { estado } = require('./src/db');
     const whatsapp = require('./src/whatsapp');
     for (const e of estado.empresas) {
       if (!whatsapp.configurado(e)) continue;
       await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
+      const ligouAgora = await whatsapp.garantirSyncFullHistory(e).catch(() => false);
+      if (ligouAgora) {
+        console.log(`[whatsapp ${e.id}] syncFullHistory ligado (instância já em uso) -- reiniciando o socket pra resincronizar`);
+        await whatsapp.reiniciarSocket(e);
+      }
     }
   }, 15000).unref();
   // pastas do Google Drive: sincroniza sozinho a cada 6 horas

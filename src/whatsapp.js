@@ -259,6 +259,39 @@ async function arquivarNoWhatsapp(empresa, lead, arquivar) {
   return true;
 }
 
+// Liga syncFullHistory na instância (preservando o resto das configurações)
+// pra Evolution puxar o histórico completo do número ao conectar/reconectar:
+// mensagens antigas, contatos, conversas e etiquetas do WhatsApp Business
+// (sem isso, só o que acontece DEPOIS de conectar entra). Idempotente: só
+// muda de verdade na primeira vez (devolve true), nas próximas é um no-op
+// (devolve false) -- tanto pra instância nova (criarInstancia/conectar)
+// quanto pras antigas já em uso (revisão periódica no server.js).
+async function garantirSyncFullHistory(empresa) {
+  try {
+    const atual = await evolution(empresa, 'GET', '/settings/find/{instancia}');
+    const base = atual?.settings || atual || {};
+    if (base.syncFullHistory === true) return false;
+    await evolution(empresa, 'POST', '/settings/set/{instancia}', { ...base, syncFullHistory: true });
+    return true;
+  } catch (err) {
+    console.error(`[whatsapp ${empresa.id}] syncFullHistory:`, err.message);
+    return false;
+  }
+}
+
+// Reinicia o socket da instância (Baileys reconecta sozinho; NÃO apaga a
+// sessão nem pede QR novo) -- usado só depois de ligar syncFullHistory numa
+// instância que já estava em uso, pra ajudar a resincronizar o estado atual
+// (etiquetas incluídas) mais rápido, sem esperar a próxima queda/reconexão
+// natural.
+async function reiniciarSocket(empresa) {
+  try {
+    await evolution(empresa, 'POST', '/instance/restart/{instancia}');
+  } catch (err) {
+    console.error(`[whatsapp ${empresa.id}] restart:`, err.message);
+  }
+}
+
 // Aponta o webhook da instância para o CRM.
 // Se a instância já manda mensagens para OUTRO sistema, não substitui sem
 // confirmação: trocar o webhook desliga o outro sistema.
@@ -326,6 +359,7 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
     salvar();
     throw err;
   }
+  await garantirSyncFullHistory(empresa); // etiquetas e histórico completo também numa instância já existente
   empresa.whatsappConfig.webhookLigadoEm = agora();
   // número movido de outra empresa deste CRM (você confirmou): ela deixa de usar este WhatsApp
   if (dona) {
@@ -421,6 +455,10 @@ async function criarInstancia(empresa) {
   salvar();
   // garante o webhook (versões antigas ignoram o webhook no create)
   await configurarWebhook(empresa, { forcar: false });
+  // puxa o histórico completo (mensagens, contatos e etiquetas do WhatsApp
+  // Business) desde a primeira conexão -- sem isso, só entra o que acontece
+  // DEPOIS de escanear o QR.
+  await garantirSyncFullHistory(empresa);
   const qr = await qrCode(empresa).catch(() => ({ conectado: false, base64: null }));
   // logo depois de criar, o connect às vezes ainda não tem o QR: usa o do create
   if (!qr.base64 && qrDoCreate) qr.base64 = qrDoCreate;
@@ -1369,6 +1407,8 @@ module.exports = {
   diagnostico,
   evolutionUrlGlobal,
   liberadoNoModoTeste,
+  garantirSyncFullHistory,
+  reiniciarSocket,
   numerosDeTeste,
   evolucao: evolution,
   textoDa,

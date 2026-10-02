@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Etiquetas do WhatsApp Business na Evolution API (servidor que o CRM e o
-# DingDong Tracking usam). Por padrão SÓ OLHA: mostra onde a Evolution está
-# instalada e as opções DATABASE_SAVE_* (true/false). Nunca mostra chaves,
-# senhas nem o endereço do banco.
+# DingDong Tracking usam). SÓ OLHA: mostra onde a Evolution está instalada e
+# as opções DATABASE_SAVE_* (true/false). Nunca mostra chaves, senhas nem o
+# endereço do banco. Não muda nada (não existe modo "aplicar" aqui).
 #
-# Com APLICAR=1 liga DATABASE_SAVE_DATA_LABELS=true (a Evolution passa a
-# guardar as etiquetas e o CRM consegue lê-las), fazendo backup do arquivo de
-# configuração antes e reiniciando só a Evolution. Se algo não bater com o
-# esperado, não mexe em nada.
+# Investigação de 02/10: DATABASE_SAVE_DATA_LABELS já estava "true" (não era
+# a causa). A causa real era a instância nunca ter pedido o histórico
+# completo (syncFullHistory) -- sem isso, a Evolution só vê o que acontece
+# DEPOIS de conectar, etiquetas antigas incluídas. Corrigido no próprio CRM
+# (src/whatsapp.js: garantirSyncFullHistory), automático tanto pra instância
+# nova quanto pras já em uso (revisão periódica no server.js) -- não precisa
+# mais rodar nada à mão aqui por causa disso.
 set -uo pipefail
 
-APLICAR="${APLICAR:-0}"
 SEGURAS='^(DATABASE_(ENABLED|PROVIDER|SAVE_[A-Z_]+|DELETE_[A-Z_]+)|SERVER_TYPE|CACHE_(REDIS|LOCAL)_ENABLED)='
-echo "==> Evolution API: etiquetas (APLICAR=$APLICAR)"
+echo "==> Evolution API: etiquetas (só diagnóstico)"
 
 # ---------- Docker
 CONTAINER=""
@@ -120,8 +122,4 @@ if [ -n "$CONTAINER" ] && [ -n "${INSTANCIAS:-}" ]; then
   done
 fi
 
-if [ "$APLICAR" != "1" ]; then
-  echo "    (só olhei; nada foi mudado)"
-  exit 0
-fi
-echo "    APLICAR ainda não implementado nesta versão: nada foi mudado."
+echo "    (só olhei; nada foi mudado)"
