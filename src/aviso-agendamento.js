@@ -97,25 +97,40 @@ async function resumoDaConversa(empresa, lead, ag) {
   }
 }
 
+// Data em destaque: "Sábado, 03/10" e "09:00" separados (lê-se de relance no celular)
+function diaEHora(ag) {
+  if (!ag.quando) return { dia: ag.quandoTexto || 'Data a combinar', hora: '' };
+  const d = new Date(ag.quando);
+  const dia = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit' });
+  const hora = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  return { dia: dia.charAt(0).toUpperCase() + dia.slice(1), hora };
+}
+
+const LINHA = '━━━━━━━━━━━━━━━';
+
 function montarAviso(empresa, lead, ag, r) {
   const tel = telefoneDoCliente(lead);
-  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente (na conversa)', detectado: 'na conversa (o CRM percebeu sozinho)' };
-  const linhas = [
-    `📅 *Novo agendamento confirmado* — ${empresa.nome}`,
-    '',
-    `👤 *Cliente:* ${lead.nome || 'Sem nome'}`,
-    tel ? `📞 *Telefone:* ${telefoneBonito(tel)}\n💬 Chamar: https://wa.me/${tel}` : '📞 *Telefone:* número oculto pelo WhatsApp (responda pelo CRM)',
-    `🕒 *Quando:* ${quandoBonito(ag)}`,
-    r.servico ? `🔧 *Serviço:* ${r.servico}` : '',
-    r.veiculo ? `🚗 *Carro/produto:* ${r.veiculo}` : '',
-    r.endereco ? `📍 *Endereço:* ${r.endereco}` : '',
-    r.preco ? `💰 *Preço:* ${r.preco}` : '',
-    r.outras ? `📝 *Outras informações:* ${r.outras}` : '',
-    '',
-    `Agendado ${POR[ag.por] || 'pelo CRM'}.`,
-    `🔗 Ver no CRM: ${require('./config').urlPublica}/#/leads/${lead.id}`
+  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente', detectado: 'na conversa (o CRM percebeu sozinho)' };
+  const { dia, hora } = diaEHora(ag);
+  const blocoCliente = [
+    `👤 *${lead.nome || 'Cliente sem nome'}*`,
+    tel ? `📞 ${telefoneBonito(tel)}` : '📞 número oculto pelo WhatsApp (responda pelo CRM)',
+    tel ? `💬 https://wa.me/${tel}` : ''
   ];
-  return linhas.filter((l) => l !== '').join('\n').replace(/\n{3,}/g, '\n\n');
+  const blocoServico = [
+    r.servico ? `🔧 *Serviço:* ${r.servico}` : '',
+    r.veiculo ? `🚗 *Veículo/produto:* ${r.veiculo}` : '',
+    r.endereco ? `📍 *Endereço:* ${r.endereco}` : '',
+    r.preco ? `💰 *Valor:* ${r.preco}` : ''
+  ];
+  const blocos = [
+    [`📅 *NOVO AGENDAMENTO* · ${empresa.nome}`, LINHA, `🗓️ *${dia}*${hora ? `  ⏰ *${hora}*` : ''}`, LINHA],
+    blocoCliente,
+    blocoServico,
+    r.outras ? [`📝 *Observações:* ${r.outras}`] : [],
+    [LINHA, `✅ Agendado ${POR[ag.por] || 'pelo CRM'}`, `🔗 ${require('./config').urlPublica}/#/leads/${lead.id}`]
+  ];
+  return blocos.map((b) => b.filter(Boolean)).filter((b) => b.length).map((b) => b.join('\n')).join('\n\n').replace(new RegExp(`${LINHA}\n\n`, 'g'), `${LINHA}\n`);
 }
 
 // Chamado quando um agendamento novo é registrado (qualquer origem)
@@ -155,14 +170,17 @@ function agendamentoCancelado(empresa, lead, ag) {
   ag.avisoCanceladoEm = agora();
   salvar();
   const tel = telefoneDoCliente(lead);
+  const { dia, hora } = diaEHora(ag);
   const texto = [
-    `❌ *Agendamento CANCELADO* — ${empresa.nome}`,
-    '',
-    `👤 *Cliente:* ${lead.nome || 'Sem nome'}`,
-    tel ? `📞 ${telefoneBonito(tel)} · https://wa.me/${tel}` : '',
-    `🕒 *Era:* ${quandoBonito(ag)}`,
-    ag.descricao ? `🔧 ${ag.descricao}` : '',
-    ag.motivoCancelamento && ag.motivoCancelamento !== 'remarcado' ? `📝 ${ag.motivoCancelamento}` : ''
+    `❌ *AGENDAMENTO CANCELADO* · ${empresa.nome}`,
+    LINHA,
+    `🗓️ ~${dia}${hora ? ` às ${hora}` : ''}~`,
+    LINHA,
+    `👤 *${lead.nome || 'Cliente sem nome'}*`,
+    tel ? `📞 ${telefoneBonito(tel)}` : '',
+    tel ? `💬 https://wa.me/${tel}` : '',
+    ag.descricao ? `\n🔧 ${ag.descricao}` : '',
+    ag.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(ag.motivoCancelamento) ? `📝 *Motivo:* ${ag.motivoCancelamento}` : ''
   ].filter(Boolean).join('\n');
   require('./whatsapp').enviarTexto(empresa, c.numero, texto).catch((err) => console.error('[aviso-agendamento] cancelamento:', err.message));
 }

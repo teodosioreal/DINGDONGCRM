@@ -1289,3 +1289,33 @@ html.dark .pi-tag.aviso { color: #fbbf24; }
   .ag-hora { font-size: 15px; }
 }
 .aviso-desligado { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #f59e0b 14%, transparent); font-size: 14px; }
+/* ---------- funil desenhado (Leads) ---------- */
+.leads-layout { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 16px; align-items: start; }
+.leads-layout .coluna { min-width: 165px; }
+.funil-lateral { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.funil-card { margin: 0; padding: 16px; }
+.funil-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.camada-funil { cursor: pointer; outline: none; }
+.camada-funil path { fill: var(--acento); transition: filter .15s, transform .15s; transform-origin: center; transform-box: fill-box; }
+.camada-funil:hover path, .camada-funil:focus-visible path { filter: brightness(1.12) saturate(1.1); transform: scale(1.02); }
+.funil-num { fill: #fff; font-size: 19px; font-weight: 800; text-anchor: middle; font-variant-numeric: tabular-nums; pointer-events: none; }
+.funil-nome { fill: rgba(255,255,255,.92); font-size: 10.5px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+.funil-conv { margin: 12px 0 0; text-align: center; }
+.funil-perda { margin: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; width: 100%; border-style: dashed; color: #b91c1c; background: color-mix(in srgb, #ef4444 6%, var(--superficie)); font-weight: 600; text-align: left; }
+.funil-perda b { font-size: 20px; }
+html.dark .funil-perda { color: #fca5a5; }
+.coluna.piscar { animation: piscar-coluna 1.2s ease; }
+@keyframes piscar-coluna { 0%, 100% { box-shadow: none; } 30% { box-shadow: 0 0 0 3px var(--acento); } }
+@media (max-width: 1100px) {
+  .leads-layout { grid-template-columns: 1fr; }
+  .funil-lateral { position: static; order: -1; flex-direction: row; flex-wrap: wrap; }
+  .funil-card { flex: 1 1 260px; }
+  .funil-perda { flex: 0 0 auto; width: auto; align-self: flex-start; gap: 14px; }
+}
+.funil-perda span { display: flex; flex-direction: column; gap: 2px; }
+.funil-perda small { font-weight: 500; font-size: 11.5px; color: var(--suave); }
+.funil-perda.alvo { outline: 2px dashed #ef4444; outline-offset: 2px; }
+.lista-perdidos { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; margin: 6px 0; }
+.linha-perdido { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; color: var(--texto); text-decoration: none; }
+.linha-perdido:hover { background: var(--hover); }
+.linha-perdido > span { display: flex; flex-direction: column; min-width: 0; }

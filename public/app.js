@@ -2423,13 +2423,80 @@ async function paginaLeads(id, params) {
       </div>
     </div>
     ${lista.length === 0 && !busca && !etiqueta ? balao('Ainda não tem leads', `Eles aparecem aqui sozinhos quando alguém conversar com a IA no site ou chamar no WhatsApp. Você também pode <b>adicionar</b> ou <b>importar</b> contatos no botão "+ Adicionar".`) : ''}
-    <div id="area-leads"></div>`;
+    <div class="leads-layout"><div id="area-leads"></div><aside class="funil-lateral" id="funil-lateral" aria-label="Funil de vendas"></aside></div>`;
+
+  // Funil desenhado (lado direito): quantos clientes em cada etapa; "Não fechou" fica à parte
+  const ehPerda = (e) => /nao fech|perdid|desist|cancel/i.test(String(e).normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+  function desenharFunil() {
+    const el = $('#funil-lateral');
+    if (!el) return;
+    const etapas = emp.etapas.filter((e) => !ehPerda(e));
+    const perdas = emp.etapas.filter(ehPerda);
+    const qtd = (e) => lista.filter((l) => l.etapa === e).length;
+    const total = lista.length || 1;
+    const L = 240, H = 58, G = 5, topo = 240, base = 96;
+    const passo = etapas.length > 1 ? (topo - base) / etapas.length : 0;
+    const camadas = etapas.map((e, i) => {
+      const w1 = topo - passo * i, w2 = topo - passo * (i + 1);
+      const y = i * (H + G);
+      const x1 = (L - w1) / 2, x2 = (L - w2) / 2;
+      const n = qtd(e);
+      const nomes = lista.filter((l) => l.etapa === e).slice(0, 12).map((l) => l.nome || l.telefone || 'Cliente').join(', ');
+      return `<g class="camada-funil" data-funil-etapa="${esc(e)}" tabindex="0" role="button" aria-label="${esc(e)}: ${n}">
+        <title>${esc(e)}: ${n} cliente(s)${nomes ? ` — ${esc(nomes)}${n > 12 ? '…' : ''}` : ''}</title>
+        <path d="M${x1},${y} L${x1 + w1},${y} L${x2 + w2},${y + H} L${x2},${y + H} Z" style="opacity:${(1 - i * (0.42 / Math.max(1, etapas.length - 1))).toFixed(2)}"/>
+        <text x="${L / 2}" y="${y + 24}" class="funil-num">${n}</text>
+        <text x="${L / 2}" y="${y + 43}" class="funil-nome">${esc(e.length > 18 ? e.slice(0, 17) + '…' : e)} · ${Math.round((n / total) * 100)}%</text>
+      </g>`;
+    }).join('');
+    const alturaSvg = etapas.length * (H + G) - G;
+    el.innerHTML = `
+      <div class="card funil-card">
+        <h2 style="margin:0 0 2px">Funil</h2>
+        <p class="rotulo" style="margin:0 0 12px">${lista.length} ${lista.length === 1 ? 'cliente' : 'clientes'}${busca || etiqueta ? ' neste filtro' : ''} · clique numa etapa</p>
+        <svg viewBox="0 0 ${L} ${alturaSvg}" class="funil-svg" role="img" aria-label="Funil de vendas">${camadas}</svg>
+        ${etapas.length > 1 ? `<p class="rotulo funil-conv">De <b>${esc(etapas[0])}</b> até <b>${esc(etapas[etapas.length - 1])}</b>: <b>${lista.length ? Math.round((qtd(etapas[etapas.length - 1]) / total) * 100) : 0}%</b></p>` : ''}
+      </div>
+      ${perdas.map((e) => `<button type="button" class="card funil-perda" data-funil-etapa="${esc(e)}" title="Clique para ver · arraste um cartão aqui"><span>✕ ${esc(e)}<small>arraste um cartão aqui</small></span><b>${qtd(e)}</b></button>`).join('')}`;
+    // "Não fechou": arrastar um cartão para a caixa move o lead; clicar mostra quem está lá
+    $$('.funil-perda', el).forEach((cx) => {
+      cx.ondragover = (ev) => { ev.preventDefault(); cx.classList.add('alvo'); };
+      cx.ondragleave = () => cx.classList.remove('alvo');
+      cx.ondrop = async (ev) => {
+        ev.preventDefault();
+        cx.classList.remove('alvo');
+        const lead = lista.find((l) => l.id === ev.dataTransfer.getData('text/plain'));
+        if (!lead || lead.etapa === cx.dataset.funilEtapa) return;
+        try { await api(`leads/${lead.id}`, { method: 'PUT', body: { etapa: cx.dataset.funilEtapa } }); lead.etapa = cx.dataset.funilEtapa; aviso(`${lead.nome || 'Lead'} foi para "${cx.dataset.funilEtapa}".`); (modoLeads === 'lista' ? desenharLista : desenharQuadro)(); } catch (err) { aviso(err.message, true); }
+      };
+      cx.onclick = () => {
+        const etapa = cx.dataset.funilEtapa;
+        const deles = lista.filter((l) => l.etapa === etapa);
+        abrirModal(`<h2>✕ ${esc(etapa)} (${deles.length})</h2>
+          ${deles.length ? `<div class="lista-perdidos">${deles.map((l) => `<a class="linha-perdido" href="#/leads/${esc(l.id)}">${avatarLead(l)}<span><b>${esc(l.nome || telefoneBonito(l.telefone) || 'Cliente')}</b><span class="rotulo">${esc((l.ultimaMensagem?.texto || '').slice(0, 80))}</span></span></a>`).join('')}</div>` : '<p class="rotulo">Ninguém aqui. Arraste um cartão para a caixa quando o cliente não fechar.</p>'}
+          <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`);
+      };
+    });
+    $$('.camada-funil', el).forEach((g) => {
+      const ir = () => {
+        const etapa = g.dataset.funilEtapa;
+        if (modoLeads !== 'quadro') return;
+        const col = [...$$('.coluna')].find((c) => c.dataset.etapa === etapa);
+        if (!col) return;
+        col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        col.classList.remove('piscar'); void col.offsetWidth; col.classList.add('piscar');
+      };
+      g.onclick = ir;
+      g.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ir(); } };
+    });
+  }
 
   function desenharQuadro() {
+    desenharFunil();
     $('#area-leads').innerHTML = `
       <p class="rotulo dica-arrastar">Arraste um cartão para outra coluna para mudar a etapa.</p>
       <div class="quadro">
-        ${emp.etapas.map((etapa) => {
+        ${emp.etapas.filter((e) => !ehPerda(e)).map((etapa) => {
           const daEtapa = lista.filter((l) => l.etapa === etapa);
           return `<section class="coluna" data-etapa="${esc(etapa)}"><header><span>${esc(etapa)}</span><span class="etiqueta">${daEtapa.length}</span></header>${daEtapa.map((l) => cartaoLead(l, etiquetas)).join('') || '<p class="rotulo vazio-coluna">—</p>'}</section>`;
         }).join('')}
@@ -2461,6 +2528,7 @@ async function paginaLeads(id, params) {
   }
 
   function desenharLista() {
+    desenharFunil();
     $('#area-leads').innerHTML = `
       <div class="barra-lote" id="barra-lote" hidden>
         <strong id="qtd-sel"></strong>
