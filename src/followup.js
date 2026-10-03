@@ -423,8 +423,38 @@ function paraPainel(empresa) {
   };
 }
 
+// 📤 Teste: manda passo(s) do follow-up para um número qualquer, igual chega no cliente
+// (texto com {nome} trocado e uma variação, mídias na ordem escolhida). Não grava nada.
+async function testar(empresa, { numero, passos, variacao = null, nome = '' } = {}) {
+  const whatsapp = require('./whatsapp');
+  const midias = require('./midias');
+  const { numeroWhatsapp } = require('./util');
+  if (!whatsapp.configurado(empresa)) throw Object.assign(new Error('Conecte o WhatsApp da empresa primeiro.'), { status: 400 });
+  const destino = numeroWhatsapp(numero);
+  if (!destino || destino.length < 12) throw Object.assign(new Error('Digite o número com DDD (ex.: 21 99999-9999).'), { status: 400 });
+  const lista = (Array.isArray(passos) ? passos : []).slice(0, MAX_PASSOS);
+  if (!lista.length) throw Object.assign(new Error('Nada para enviar.'), { status: 400 });
+  const falso = { nome: limpar(nome, 60) || 'Cliente' };
+  const enviados = [];
+  for (const [i, p] of lista.entries()) {
+    const textos = (Array.isArray(p.textos) ? p.textos : []).map((t) => limpar(t, 2000)).filter(Boolean);
+    const codigos = (Array.isArray(p.midias) ? p.midias : []).slice(0, 5);
+    if (!textos.length && !codigos.length) continue;
+    const v = textos.length ? (variacao !== null && textos[variacao] ? Number(variacao) : Math.floor(Math.random() * textos.length)) : null;
+    const texto = v !== null ? require('./disparos').montarMensagem(textos[v], falso, empresa) : '';
+    const mandarTexto = async () => { if (texto) await whatsapp.enviarTexto(empresa, destino, texto, { digitando: false }); };
+    const mandarMidias = async () => {
+      for (const c of codigos) for (const m of midias.resolverPedido(empresa, c).itens) await whatsapp.enviarMidia(empresa, destino, m);
+    };
+    if (lista.length > 1) await whatsapp.enviarTexto(empresa, destino, `🧪 Teste do follow-up · mensagem ${i + 1}${textos.length > 1 ? ` (variação ${v + 1} de ${textos.length})` : ''}`, { digitando: false });
+    if (p.midiaPrimeiro) { await mandarMidias(); await mandarTexto(); } else { await mandarTexto(); await mandarMidias(); }
+    enviados.push({ passo: i + 1, variacao: v === null ? null : v + 1, midias: codigos.length });
+  }
+  return { ok: true, enviados };
+}
+
 // Compatibilidade: migração antiga das automações "parou de responder"
 const PADRAO = RECOMENDADO;
 const RESERVAS = RECOMENDADO().map((p) => p.textos[0]);
 
-module.exports = { jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };
+module.exports = { testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };

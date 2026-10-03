@@ -1760,6 +1760,17 @@ router.get('/empresas/:id/followup', (req, res) => {
   res.json({ ...require('./followup').paraPainel(empresa), etapas: leads.etapasDa(empresa) });
 });
 
+// 📤 Enviar follow-up de teste para um número
+router.post('/empresas/:id/followup/teste', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(await require('./followup').testar(empresa, req.body || {}));
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: `Não enviei: ${err.message}` });
+  }
+});
+
 router.put('/empresas/:id/followup', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

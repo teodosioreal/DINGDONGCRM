@@ -1331,10 +1331,53 @@ html.dark .funil-perda { color: #fca5a5; }
 .sug-midia-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sug-midia-txt b, .sug-midia-txt .rotulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 🔁 follow-up: sequências e variações */
-.fup-seq { border: 1px solid var(--borda); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; background: var(--superficie); }
-.fup-seq.desligada { opacity: .75; }
-.fup-seq > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
-.variacao-fup { display: grid; grid-template-columns: 1fr auto; gap: 4px 6px; align-items: start; margin-bottom: 6px; }
-.variacao-fup > .rotulo { grid-column: 1 / -1; margin: 0; font-size: 12px; }
-.variacao-fup textarea { width: 100%; }
+/* 🔁 follow-up: lista simples, editor com prévia do WhatsApp */
+.lista-seq-fup { display: grid; gap: 8px; margin-top: 10px; }
+.seq-fup-linha { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px; background: var(--superficie); flex-wrap: wrap; }
+.seq-fup-linha.desligada { opacity: .7; }
+.seq-fup-info { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.seq-fup-midias { display: flex; gap: 4px; }
+.seq-fup-midias img, .seq-fup-midias .mini-icone { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; }
+.mini-icone { display: inline-grid; place-items: center; background: var(--hover); font-size: 18px; border-radius: 6px; }
+.fup-editor-colunas { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+.fup-editor-dir { position: sticky; top: 12px; }
+@media (max-width: 960px) { .fup-editor-colunas { grid-template-columns: minmax(0, 1fr); } .fup-editor-dir { position: static; } }
+.msg-fup { border: 1px solid var(--borda); border-radius: 10px; padding: 10px; margin-bottom: 8px; background: var(--superficie); }
+.msg-fup-topo { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.msg-fup-topo > b { width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--acento); color: #fff; font-size: 13px; }
+.msg-fup-topo input[type=number] { width: 64px; flex: none; }
+.msg-fup-topo select { width: auto; flex: none; }
+.msg-fup-acoes { margin-left: auto; display: flex; gap: 2px; }
+.icone-botao { border: 0; background: transparent; cursor: pointer; padding: 4px 6px; border-radius: 6px; font-size: 14px; color: var(--texto); }
+.icone-botao:hover { background: var(--hover); }
+.icone-botao.perigo:hover { background: #fee2e2; }
+.var-fup { display: grid; grid-template-columns: 1fr auto; gap: 2px 4px; margin-bottom: 6px; }
+.var-fup-rotulo { grid-column: 1 / -1; font-size: 11px; color: var(--suave); }
+.var-fup textarea { width: 100%; }
+.msg-fup-midias { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mini-escolhida { position: relative; }
+.mini-escolhida img, .mini-escolhida .mini-icone { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; display: block; }
+.mini-escolhida button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: #111827; color: #fff; font-size: 11px; cursor: pointer; }
+.mini-add { width: 52px; height: 52px; border-radius: 8px; border: 1px dashed var(--borda-campo); background: transparent; cursor: pointer; font-size: 12px; color: var(--suave); }
+.grade-escolha-midia { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; max-height: 55vh; overflow: auto; }
+.item-escolha-midia { position: relative; border: 2px solid transparent; border-radius: 10px; padding: 4px; background: var(--hover); cursor: pointer; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.item-escolha-midia img, .item-escolha-midia .mini-icone { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; font-size: 30px; }
+.item-escolha-midia.marcada { border-color: var(--acento); }
+.nome-mini { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-mini { position: absolute; top: 8px; right: 8px; background: var(--acento); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; }
+/* prévia estilo WhatsApp (cores do app) */
+.wa-celular-fup { border: 1px solid var(--borda); border-radius: 16px; overflow: hidden; background: #efeae2; }
+.wa-topo-fup { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #008069; color: #fff; }
+.wa-topo-fup small { display: block; opacity: .85; font-size: 11px; }
+.wa-corpo-fup { padding: 10px; min-height: 300px; max-height: 62vh; overflow: auto; display: flex; flex-direction: column; gap: 4px; color: #111b21; }
+.wa-sep-fup { align-self: center; background: #fff; color: #54656f; font-size: 11px; padding: 2px 8px; border-radius: 6px; margin: 8px 0 2px; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+.wa-var-fup { align-self: flex-end; display: flex; gap: 4px; }
+.wa-var-fup button { border: 0; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: rgba(255,255,255,.7); color: #54656f; cursor: pointer; }
+.wa-var-fup button.ativo { background: #008069; color: #fff; }
+.wa-bolha-fup { align-self: flex-end; max-width: 85%; background: #d9fdd3; border-radius: 8px 0 8px 8px; padding: 6px 8px 14px; position: relative; font-size: 14px; line-height: 1.35; box-shadow: 0 1px .5px rgba(0,0,0,.13); word-wrap: break-word; }
+.wa-bolha-fup.midia { padding: 3px; }
+.wa-bolha-fup.midia img { display: block; max-width: 220px; max-height: 220px; border-radius: 6px; }
+.wa-arquivo-fup { padding: 10px; font-size: 13px; }
+.wa-hora-fup { position: absolute; right: 6px; bottom: 2px; font-size: 10px; color: #667781; }
+.wa-rodape-fup { background: #f0f2f5; padding: 6px 10px; font-size: 12px; color: #54656f; }
+.wa-rodape-fup input { width: 120px; margin-left: 4px; padding: 2px 6px; font-size: 12px; }
