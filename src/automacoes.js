@@ -349,8 +349,9 @@ function agendarFollowupDaIa(empresa, lead, { quando, assunto, mensagem }) {
   if (new Date(iso).getTime() > Date.now() + 60 * 24 * HORA) return null; // no máximo 60 dias
   lead.agendadas = (lead.agendadas || []).map((a) => (a.status === 'pendente' && a.criadoPor === 'IA' ? { ...a, status: 'cancelada', motivo: 'a IA remarcou' } : a));
   // a IA já escreveu a mensagem na hora em que combinou: na hora marcada só envia (sem gastar tokens de novo)
-  const pronta = texto(mensagem, 1000);
-  const a = { id: novoId('agd'), modo: pronta ? 'texto' : 'ia', instrucao: texto(assunto, 300) || 'retomar a conversa de onde parou', texto: pronta, quando: iso, status: 'pendente', criadoPor: 'IA', criadoEm: agora() };
+  // sem a mensagem pronta: vai um texto fixo (follow-up nunca gasta token na hora de enviar)
+  const pronta = texto(mensagem, 1000) || require('./disparos').montarMensagem('{Oi|Olá} {nome}! Conforme combinamos, passando para retomar nossa conversa 😊', lead, empresa);
+  const a = { id: novoId('agd'), modo: 'texto', instrucao: texto(assunto, 300) || 'retomar a conversa de onde parou', texto: pronta, quando: iso, status: 'pendente', criadoPor: 'IA', criadoEm: agora() };
   lead.agendadas.push(a);
   salvar();
   return a;

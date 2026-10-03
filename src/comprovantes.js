@@ -159,7 +159,9 @@ function configDa(empresa) {
     ativo: c.ativo !== false,
     usarIa: c.usarIa !== false,
     recebedores: String(c.recebedores || ''),
-    moverParaFechado: c.moverParaFechado !== false
+    moverParaFechado: c.moverParaFechado !== false,
+    vendaPorFrase: c.vendaPorFrase !== false,
+    frasesVenda: String(c.frasesVenda ?? 'obrigado pela preferência, obrigada pela preferência')
   };
 }
 

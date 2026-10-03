@@ -1,42 +1,89 @@
-// followup.js — FOLLOW-UP automático em passos, para qualquer nicho.
+// followup.js — FOLLOW-UP automático SEM IA (não gasta token nenhum).
 //
-// Quando o cliente para de responder (a última mensagem é nossa), o CRM manda,
-// em sequência, até 5 passos configuráveis (ex.: 1 dia, 3 dias, 7 dias). Cada
-// passo pode ser escrito pela IA lendo AQUELA conversa (padrão) ou um texto fixo
-// ({nome} vira o nome do cliente), e pode levar mídias da biblioteca.
+// A empresa cadastra SEQUÊNCIAS de mensagens prontas. Cada sequência tem:
+//   - quando começa: o cliente parou de responder (padrão), recebeu uma etiqueta
+//     do WhatsApp (ex.: "Achou caro") ou entrou numa etapa do funil;
+//   - para quem: todos, ou só quem tem certas etiquetas / está em certas etapas;
+//   - passos: depois de X horas/dias, manda uma das VARIAÇÕES de texto (sorteada;
+//     {nome} e {Oi|Olá} funcionam) e/ou mídias da biblioteca, na ordem escolhida.
+// Já vem uma sequência recomendada, ligada para todos os leads. Dá para desligar
+// tudo, uma sequência, ou o follow-up de UM cliente (lead.followupDesligado).
 //
-// Para sozinho quando: o cliente responde (a sequência recomeça do zero na
-// próxima vez que ele sumir), compra, vai para uma etapa de "fechado/perdido",
-// pede uma pessoa, pediu SAIR, a equipe está atendendo (se escolhido) ou a IA
-// já combinou um horário para retomar ([[RETOMAR]]). Só fala com quem está em
-// Conversas, em horário comercial, e não dispara para conversa antiga ao ligar.
+// Para sozinho quando o cliente responde (a sequência recomeça quando ele sumir de
+// novo), compra, agenda, pede uma pessoa, pede para sair, está na lista negra ou
+// numa etapa de fechado/perdido. Só em horário comercial (se ligado) e nunca
+// manda atrasado para conversa antiga.
 
 const { estado, salvar, novoId, agora } = require('./db');
 
 const HORA = Number(process.env.FOLLOWUP_HORA_MS) || 3600 * 1000; // (testes encurtam a hora)
 const JANELA_HORAS = 72; // passou do horário há mais que isso (ex.: CRM desligado): não manda atrasado
-const POR_CICLO = 2;
-const MAX_PASSOS = 5;
+const POR_CICLO = 3;
+const MAX_PASSOS = 10;
+const MAX_SEQUENCIAS = 10;
+const MAX_VARIACOES = 6;
+const FEITO = 999; // sequência encerrada para este ciclo ("Não enviar")
 
-// Mensagens genéricas de reserva: saem se a IA falhar (sem chave, sem crédito, fora do ar)
-const RESERVAS = [
+const sem = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const limpar = (v, n) => String(v ?? '').trim().slice(0, n);
+
+// Recomendado (serve para qualquer ramo): 3 mensagens com variações, 1, 3 e 7 dias
+const RECOMENDADO = () => [
+  {
+    id: novoId('fup'),
+    horas: 24,
+    textos: [
+      '{Oi|Olá} {nome}! Tudo bem? Passando para saber se ficou alguma dúvida. Posso te ajudar? 😊',
+      '{nome}, conseguiu ver as informações que te mandei? Qualquer dúvida é só me chamar!',
+      '{Oi|Olá} {nome}! Ficou alguma dúvida? Estou por aqui para te ajudar 🙂'
+    ],
+    midias: [],
+    midiaPrimeiro: false
+  },
+  {
+    id: novoId('fup'),
+    horas: 72,
+    textos: [
+      '{nome}, ainda dá tempo! Quer que eu veja um horário ou uma condição especial para você?',
+      '{Oi|Olá} {nome}! Muita gente fecha depois de tirar uma dúvida rápida — quer que eu te explique melhor?'
+    ],
+    midias: [],
+    midiaPrimeiro: false
+  },
+  {
+    id: novoId('fup'),
+    horas: 168,
+    textos: [
+      '{Oi|Olá} {nome}, vou deixar nossa conversa por aqui para não incomodar. Quando quiser, é só me chamar! 🙌',
+      '{nome}, fico à disposição! Quando for o momento, me chama aqui. 😉'
+    ],
+    midias: [],
+    midiaPrimeiro: false
+  }
+];
+
+function sequenciaPadrao(passos = RECOMENDADO()) {
+  return { id: 'seq_padrao', nome: 'Recomendado — quem parou de responder', ativa: true, ativadaEm: agora(), inicio: { tipo: 'sem_resposta' }, soEtiquetas: [], soEtapas: [], pararAoResponder: true, passos };
+}
+
+// mensagens de reserva que vinham prontas na versão com IA (não foram escritas pela empresa)
+const RESERVAS_ANTIGAS = [
   '{Oi|Olá} {nome}! Tudo bem? Passando para saber se ficou alguma dúvida. Posso te ajudar a agendar? 😊',
   '{nome}, ainda dá tempo de garantir o seu horário! Quer que eu veja as opções disponíveis para você?',
   '{Oi|Olá} {nome}, vou deixar nossa conversa por aqui para não incomodar. Quando quiser agendar, é só me chamar! 🙌'
 ];
-const reservaPadrao = (i) => RESERVAS[Math.min(i, RESERVAS.length - 1)];
 
-// Pré-configurado: 3 follow-ups, um a cada 48 h, escritos pela IA para cada conversa
-const PADRAO = () => [
-  { id: novoId('fup'), horas: 48, modo: 'ia', instrucao: 'Retome a conversa de forma leve: lembre do que o cliente queria, tire uma possível dúvida e convide para agendar com uma pergunta fácil de responder.', texto: '', reserva: RESERVAS[0], midias: [] },
-  { id: novoId('fup'), horas: 48, modo: 'ia', instrucao: 'Traga um benefício, resultado ou prova (depoimento, garantia, trabalho feito) ligado ao que o cliente queria e convide de novo para agendar.', texto: '', reserva: RESERVAS[1], midias: [] },
-  { id: novoId('fup'), horas: 48, modo: 'ia', instrucao: 'Última tentativa, bem educada: diga que vai deixar a conversa aberta e que, quando ele quiser agendar, é só chamar.', texto: '', reserva: RESERVAS[2], midias: [] }
-];
+// Passo antigo (com IA) → passo sem IA: o texto fixo, a reserva que a empresa escreveu ou as variações recomendadas
+function converterPasso(p, i) {
+  const rec = RECOMENDADO();
+  const reservaPropria = p.reserva && !RESERVAS_ANTIGAS.includes(p.reserva);
+  const textos = Array.isArray(p.textos) ? p.textos : p.modo === 'texto' && p.texto ? [p.texto] : reservaPropria ? [p.reserva] : rec[Math.min(i, rec.length - 1)].textos;
+  return { id: p.id || novoId('fup'), horas: Number(p.horas) || 24, textos: textos.map((t) => limpar(t, 2000)).filter(Boolean), midias: Array.isArray(p.midias) ? p.midias : [], midiaPrimeiro: p.midiaPrimeiro === true };
+}
 
-// Quem já agendou não entra no follow-up (ticket de agendamento, etapa ou etiqueta "Agendado")
-const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Quem já agendou não entra no follow-up de "parou de responder"
 function jaAgendou(empresa, lead) {
-  if ((lead.agendamentos || []).some((a) => a.status !== 'cancelado')) return true;
+  if ((lead.agendamentos || []).some((a) => a.status === 'agendado')) return true;
   if (/agendou|agendad|marcad/.test(sem(lead.etapa))) return true;
   const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, sem(t.nome)]));
   return (lead.etiquetas || []).some((id) => /agendad/.test(nomes.get(id) || ''));
@@ -49,34 +96,44 @@ function etiquetaIndeciso(empresa) {
 }
 
 function configDa(empresa) {
-  // já vem LIGADO e pré-configurado (dá para desligar); só pega conversas que pararem a partir de agora
-  if (!empresa.followup) empresa.followup = { ativo: true, ativadoEm: agora(), passos: PADRAO(), incluirPausados: false, pararEtapas: null, etiquetaIndeciso: true, padraoV2: true };
+  // já vem LIGADO e com a sequência recomendada (dá para desligar)
+  if (!empresa.followup) empresa.followup = { ativo: true, ativadoEm: agora(), incluirPausados: true, pararEtapas: null, etiquetaIndeciso: true, semIa: true, sequencias: [sequenciaPadrao()] };
   const f = empresa.followup;
-  if (!Array.isArray(f.passos)) f.passos = PADRAO();
-  if (!f.padraoV2) {
-    // empresas que não mexeram no follow-up recebem o novo padrão (3 × 48 h, ligado)
-    if (!f.editadoEm && !empresa.followupMigradoEm) {
-      f.passos = PADRAO();
-      if (!f.ativo) f.ativadoEm = agora();
-      f.ativo = true;
-    }
-    f.passos.forEach((p, i) => { if (p.modo === 'ia' && !p.reserva) p.reserva = reservaPadrao(i); });
-    if (f.etiquetaIndeciso === undefined) f.etiquetaIndeciso = true;
-    f.padraoV2 = true;
-    salvar();
+  let mudou = false;
+  if (!f.etiquetasDesdeInicio) { f.etiquetasDesdeInicio = agora(); mudou = true; } // a partir daqui o CRM anota quando cada etiqueta entra
+  // versão antiga (passos escritos pela IA): vira sequência sem IA
+  if (!f.semIa || Array.isArray(f.passos)) {
+    const antigos = Array.isArray(f.passos) ? f.passos : [];
+    const passos = antigos.length && f.editadoEm ? antigos.map(converterPasso).filter((p) => p.textos.length || p.midias.length) : RECOMENDADO();
+    const atual = Array.isArray(f.sequencias) ? f.sequencias : [];
+    const padrao = atual.find((s) => s.id === 'seq_padrao');
+    if (padrao) padrao.passos = passos.length ? passos : RECOMENDADO();
+    else atual.unshift(sequenciaPadrao(passos.length ? passos : RECOMENDADO()));
+    f.sequencias = atual;
+    delete f.passos;
+    if (!f.semIa) f.incluirPausados = true; // agora vale para todos os leads (dá para desligar por cliente)
+    f.semIa = true;
+    mudou = true;
+  }
+  if (!Array.isArray(f.sequencias)) { f.sequencias = [sequenciaPadrao()]; mudou = true; }
+  for (const s of f.sequencias) {
+    if (!s.inicio) s.inicio = { tipo: 'sem_resposta' };
+    if (!Array.isArray(s.passos)) s.passos = [];
+    if (!s.ativadaEm) s.ativadaEm = f.ativadoEm || agora();
   }
   if (!Array.isArray(f.pararEtapas)) {
     // padrão: para em etapas de fechado/perdido (pelo nome, serve para qualquer nicho)
-    f.pararEtapas = require('./leads').etapasDa(empresa).filter((e) => /fechad|ganh|vendi|conclu|perdid|desist|cancel|nao fech/i.test(e.normalize('NFD').replace(/[̀-ͯ]/g, '')));
+    f.pararEtapas = require('./leads').etapasDa(empresa).filter((e) => /fechad|ganh|vendi|conclu|perdid|desist|cancel|nao fech/i.test(sem(e)));
+    mudou = true;
   }
+  if (mudou) salvar();
   return f;
 }
-
-const limpar = (v, n) => String(v ?? '').trim().slice(0, n);
 
 // Salva a configuração vinda do painel
 function salvarConfig(empresa, b = {}) {
   const f = configDa(empresa);
+  const leads = require('./leads');
   if (b.ativo !== undefined) {
     if (b.ativo === true && !f.ativo) f.ativadoEm = agora(); // não dispara para conversa parada antes de ligar
     f.ativo = b.ativo === true;
@@ -86,115 +143,206 @@ function salvarConfig(empresa, b = {}) {
   if (b.incluirPausados !== undefined) f.incluirPausados = b.incluirPausados === true;
   if (b.etiquetaIndeciso !== undefined) f.etiquetaIndeciso = b.etiquetaIndeciso === true;
   if (Array.isArray(b.pararEtapas)) f.pararEtapas = b.pararEtapas.map((e) => limpar(e, 60)).filter(Boolean);
-  if (Array.isArray(b.passos)) {
+  // formato antigo (só "passos"): vira a sequência recomendada
+  if (Array.isArray(b.passos) && !Array.isArray(b.sequencias)) {
+    b.sequencias = f.sequencias.map((s) => (s.id === 'seq_padrao' ? { ...s, passos: b.passos.map((p, i) => ({ ...p, textos: Array.isArray(p.textos) ? p.textos : [p.modo === 'texto' ? p.texto : p.reserva || ''] })) } : s));
+    if (!b.sequencias.some((s) => s.id === 'seq_padrao')) b.sequencias.unshift({ ...sequenciaPadrao(), passos: b.passos.map((p) => ({ ...p, textos: [p.texto || p.reserva || ''] })) });
+  }
+  if (Array.isArray(b.sequencias)) {
     const md = require('./midias');
     const codigos = new Set([...md.midiasDa(empresa), ...md.albunsDa(empresa), ...md.pastasDa(empresa)].map((m) => m.codigo).filter(Boolean));
-    const passos = b.passos.slice(0, MAX_PASSOS).map((p) => ({
-      id: p.id && String(p.id).startsWith('fup') ? String(p.id) : novoId('fup'),
-      horas: Math.max(1, Math.min(24 * 60, Number(p.horas) || 24)),
-      modo: p.modo === 'texto' ? 'texto' : 'ia',
-      instrucao: limpar(p.instrucao, 500),
-      texto: limpar(p.texto, 2000),
-      reserva: limpar(p.reserva, 1000),
-      midias: (Array.isArray(p.midias) ? p.midias : []).map((c) => limpar(c, 40)).filter((c) => codigos.has(c)).slice(0, 5)
-    }));
-    for (const p of passos) {
-      if (p.modo === 'texto' && !p.texto) throw Object.assign(new Error('Passo com texto fixo precisa do texto da mensagem.'), { status: 400 });
-    }
-    f.passos = passos;
+    const etiquetas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
+    const etapas = new Set(leads.etapasDa(empresa));
+    const antigas = new Map(f.sequencias.map((s) => [s.id, s]));
+    f.sequencias = b.sequencias.slice(0, MAX_SEQUENCIAS).map((s, si) => {
+      const antiga = antigas.get(s.id);
+      const tipo = ['sem_resposta', 'etiqueta', 'etapa'].includes(s.inicio?.tipo) ? s.inicio.tipo : 'sem_resposta';
+      const inicio = { tipo };
+      if (tipo === 'etiqueta') {
+        inicio.etiqueta = etiquetas.has(s.inicio?.etiqueta) ? s.inicio.etiqueta : '';
+        if (!inicio.etiqueta) throw Object.assign(new Error(`Sequência ${si + 1}: escolha a etiqueta que começa a sequência.`), { status: 400 });
+      }
+      if (tipo === 'etapa') {
+        inicio.etapa = etapas.has(s.inicio?.etapa) ? s.inicio.etapa : '';
+        if (!inicio.etapa) throw Object.assign(new Error(`Sequência ${si + 1}: escolha a etapa que começa a sequência.`), { status: 400 });
+      }
+      const ativa = s.ativa !== false;
+      const passos = (Array.isArray(s.passos) ? s.passos : []).slice(0, MAX_PASSOS).map((p) => ({
+        id: p.id && String(p.id).startsWith('fup') ? String(p.id) : novoId('fup'),
+        horas: Math.max(1, Math.min(24 * 90, Math.round(Number(p.horas) || 24))),
+        textos: (Array.isArray(p.textos) ? p.textos : [p.texto]).map((t) => limpar(t, 2000)).filter(Boolean).slice(0, MAX_VARIACOES),
+        midias: (Array.isArray(p.midias) ? p.midias : []).map((c) => limpar(c, 40)).filter((c) => codigos.has(c)).slice(0, 5),
+        midiaPrimeiro: p.midiaPrimeiro === true
+      }));
+      passos.forEach((p, i) => {
+        if (!p.textos.length && !p.midias.length) throw Object.assign(new Error(`Sequência ${si + 1}, passo ${i + 1}: escreva pelo menos um texto ou escolha uma mídia.`), { status: 400 });
+      });
+      return {
+        id: antiga ? antiga.id : s.id === 'seq_padrao' ? 'seq_padrao' : novoId('seq'),
+        nome: limpar(s.nome, 60) || `Sequência ${si + 1}`,
+        ativa,
+        // ligou agora: só vale para quem parar/receber a etiqueta/entrar na etapa a partir de agora
+        ativadaEm: ativa && (!antiga || !antiga.ativa) ? agora() : antiga?.ativadaEm || agora(),
+        inicio,
+        soEtiquetas: (Array.isArray(s.soEtiquetas) ? s.soEtiquetas : []).filter((id) => etiquetas.has(id)),
+        soEtapas: (Array.isArray(s.soEtapas) ? s.soEtapas : []).filter((e) => etapas.has(e)),
+        pararAoResponder: s.pararAoResponder !== false,
+        passos
+      };
+    });
   }
   f.editadoEm = agora();
   salvar();
   return f;
 }
 
-// Situação do follow-up de UM cliente: qual passo vem e quando (ou por que não)
-function situacao(empresa, lead, agoraMs = Date.now()) {
-  const f = configDa(empresa);
+// ---------------------------------------------------------------- quando cada etiqueta entrou no lead
+// Guarda a hora em que o cliente recebeu cada etiqueta (para "X dias depois de cair em tal etiqueta").
+// Etiquetas que já estavam lá antes de o CRM começar a anotar ficam com hora "antiga" (não disparam).
+function anotarEtiquetas(lead, inicio = '') {
+  const atuais = lead.etiquetas || [];
+  // cliente que já existia antes de o CRM começar a anotar: as etiquetas dele são "antigas"
+  const primeira = !lead.etiquetasDesde && (!inicio || String(lead.criadoEm || '') < inicio);
+  const d = lead.etiquetasDesde || {};
+  let mudou = primeira;
+  for (const id of atuais) if (!d[id]) { d[id] = primeira ? '1970-01-01T00:00:00.000Z' : agora(); mudou = true; }
+  for (const id of Object.keys(d)) if (!atuais.includes(id)) { delete d[id]; mudou = true; }
+  lead.etiquetasDesde = d;
+  return mudou;
+}
+
+function entrouNaEtapa(lead, etapa) {
+  if (lead.etapa !== etapa) return null;
+  const h = [...(lead.etapaHistorico || [])].reverse().find((x) => x.para === etapa);
+  return h?.em || null;
+}
+
+// ---------------------------------------------------------------- situação de UM cliente
+function motivoGeral(empresa, lead, f) {
   const leads = require('./leads');
   const whatsapp = require('./whatsapp');
-  if (!f.ativo || !f.passos.length) return { motivo: 'desligado' };
-  if (empresa.ativa === false || !whatsapp.configurado(empresa)) return { motivo: 'empresa sem WhatsApp' };
-  if (!leads.iaPodeFalarCom(lead)) return { motivo: 'nunca conversou' };
-  if (lead.historicoImportado) return { motivo: 'conversa antiga recuperada' };
-  if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return { motivo: 'modo teste' };
-  if (lead.naoDisparar) return { motivo: 'pediu para não receber' };
-  if (lead.precisaHumano) return { motivo: 'esperando a equipe' };
-  if (lead.iaPausada && !f.incluirPausados) return { motivo: 'equipe atendendo' };
-  if (f.pararEtapas.includes(lead.etapa)) return { motivo: `etapa ${lead.etapa}` };
-  if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return { motivo: 'já tem mensagem agendada' };
-  if (lead.vendaConcluidaManual || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada')) return { motivo: 'já comprou' };
-  if (jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
+  if (!f.ativo) return 'desligado';
+  if (empresa.ativa === false || !whatsapp.configurado(empresa)) return 'empresa sem WhatsApp';
+  if (lead.followupDesligado) return 'follow-up desligado para este cliente';
+  if (!leads.iaPodeFalarCom(lead)) return 'nunca conversou';
+  if (lead.historicoImportado) return 'conversa antiga recuperada';
+  if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return 'modo teste';
+  if (lead.naoDisparar) return 'pediu para não receber';
+  if (leads.naListaNegra?.(empresa, lead)) return 'lista negra';
+  if (lead.precisaHumano) return 'esperando a equipe';
+  if (lead.iaPausada && !f.incluirPausados) return 'equipe atendendo';
+  if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return 'já tem mensagem agendada';
+  return null;
+}
+
+function estadoDe(lead, seq) {
+  const todos = lead.followups || {};
+  // clientes que já estavam no follow-up antigo continuam de onde pararam
+  if (!todos[seq.id] && seq.id === 'seq_padrao' && lead.followup?.ciclo) return { ...lead.followup };
+  return todos[seq.id] || null;
+}
+
+// Uma sequência para um cliente: qual passo vem e quando (ou por que não)
+function situacaoNa(empresa, lead, seq, f, agoraMs) {
+  if (!seq.ativa) return { motivo: 'sequência desligada' };
+  if (!seq.passos.length) return { motivo: 'sequência sem passos' };
+  if (seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
+  if (seq.soEtapas?.length && !seq.soEtapas.includes(lead.etapa)) return { motivo: 'fora das etapas da sequência' };
   const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada);
   const ultima = msgs[msgs.length - 1];
-  if (!ultima || ultima.papel === 'visitante') return { motivo: 'cliente falou por último' };
   const ultimaDoCliente = [...msgs].reverse().find((m) => m.papel === 'visitante');
-  if (!ultimaDoCliente) return { motivo: 'cliente nunca respondeu' };
-  // a sequência recomeça quando o cliente responde
-  const estadoLead = lead.followup && lead.followup.ciclo === ultimaDoCliente.em ? lead.followup : { ciclo: ultimaDoCliente.em, feitos: 0 };
-  const passo = f.passos[estadoLead.feitos];
-  if (!passo) return { motivo: 'sequência concluída', feitos: estadoLead.feitos };
-  // não começa sequência para quem já estava parado antes de ligar o follow-up
-  if (estadoLead.feitos === 0 && f.ativadoEm && ultima.em < f.ativadoEm) return { motivo: 'parado antes de ligar o follow-up' };
-  // conta a partir da nossa última mensagem (o passo anterior também conta)
-  let quandoMs = new Date(ultima.em).getTime() + passo.horas * HORA;
+  let ciclo;
+  let base; // a partir de quando conta o passo 1
+  if (seq.inicio.tipo === 'sem_resposta') {
+    if (f.pararEtapas.includes(lead.etapa)) return { motivo: `etapa ${lead.etapa}` };
+    if (lead.vendaConcluidaManual || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada')) return { motivo: 'já comprou' };
+    if (jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
+    if (!ultima || ultima.papel === 'visitante') return { motivo: 'cliente falou por último' };
+    if (!ultimaDoCliente) return { motivo: 'cliente nunca respondeu' };
+    ciclo = ultimaDoCliente.em;
+    base = ultima.em;
+    const st0 = estadoDe(lead, seq);
+    if ((!st0 || st0.ciclo !== ciclo) && f.ativadoEm && ultima.em < f.ativadoEm) return { motivo: 'parado antes de ligar o follow-up' };
+    if ((!st0 || st0.ciclo !== ciclo) && seq.ativadaEm && ultima.em < seq.ativadaEm) return { motivo: 'parado antes de ligar a sequência' };
+  } else {
+    const desde = seq.inicio.tipo === 'etiqueta' ? lead.etiquetasDesde?.[seq.inicio.etiqueta] : entrouNaEtapa(lead, seq.inicio.etapa);
+    if (!desde) return { motivo: seq.inicio.tipo === 'etiqueta' ? 'não tem a etiqueta' : 'não está na etapa' };
+    if (desde < (seq.ativadaEm || '')) return { motivo: 'entrou antes de ligar a sequência' };
+    ciclo = `${seq.inicio.tipo}:${desde}`;
+    base = desde;
+  }
+  const st = estadoDe(lead, seq);
+  const atual = st && st.ciclo === ciclo ? st : { ciclo, feitos: 0 };
+  const passo = seq.passos[atual.feitos];
+  if (!passo) return { motivo: atual.feitos >= FEITO ? 'encerrado ("Não enviar")' : 'sequência concluída', feitos: atual.feitos };
+  // cada passo conta a partir do anterior (o passo 1, do início da sequência)
+  const desdeIso = atual.feitos ? atual.ultimoEm || base : base;
+  if (seq.inicio.tipo !== 'sem_resposta' && seq.pararAoResponder !== false && ultima?.papel === 'visitante' && ultima.em > desdeIso) return { motivo: 'cliente respondeu' };
+  let quandoMs = new Date(desdeIso).getTime() + passo.horas * HORA;
   if (agoraMs - quandoMs > JANELA_HORAS * HORA) return { motivo: 'antigo demais' };
-  if (require('./automacoes').horarioAutomatico(empresa)) quandoMs = require('./automacoes').noHorarioComercial(quandoMs);
-  return { motivo: null, passo, indice: estadoLead.feitos, quando: new Date(quandoMs).toISOString(), ciclo: ultimaDoCliente.em, pronto: quandoMs <= agoraMs };
+  const auto = require('./automacoes');
+  if (auto.horarioAutomatico(empresa)) quandoMs = auto.noHorarioComercial(quandoMs);
+  return { motivo: null, seq, passo, indice: atual.feitos, quando: new Date(quandoMs).toISOString(), ciclo, pronto: quandoMs <= agoraMs };
+}
+
+// A próxima mensagem de follow-up deste cliente (a sequência que vence primeiro)
+function situacao(empresa, lead, agoraMs = Date.now()) {
+  const f = configDa(empresa);
+  const geral = motivoGeral(empresa, lead, f);
+  if (geral) return { motivo: geral };
+  let melhor = null;
+  let motivo = 'nenhuma sequência vale para este cliente';
+  for (const seq of f.sequencias) {
+    const s = situacaoNa(empresa, lead, seq, f, agoraMs);
+    if (s.motivo) {
+      if (f.sequencias.length === 1) motivo = s.motivo;
+      continue;
+    }
+    if (!melhor || s.quando < melhor.quando) melhor = s;
+  }
+  return melhor || { motivo };
 }
 
 // Para o cronômetro do painel
 function proximo(empresa, lead) {
   const s = situacao(empresa, lead);
   if (s.motivo) return null;
-  const n = configDa(empresa).passos.length;
-  return { tipo: 'followup', id: s.passo.id, quando: s.quando, titulo: `Follow-up ${s.indice + 1} de ${n}`, detalhe: s.passo.modo === 'ia' ? 'a IA escreve na hora, lendo a conversa' : s.passo.texto.slice(0, 120), porIa: s.passo.modo === 'ia' };
+  const n = s.seq.passos.length;
+  const p = s.passo;
+  const detalhe = [p.textos[0] ? p.textos[0].slice(0, 120) + (p.textos.length > 1 ? ` (+${p.textos.length - 1} variação${p.textos.length > 2 ? 'ões' : ''})` : '') : '', p.midias.length ? `🖼️ ${p.midias.length} mídia(s)` : ''].filter(Boolean).join(' · ');
+  return { tipo: 'followup', id: p.id, quando: s.quando, titulo: `Follow-up ${s.indice + 1} de ${n}${configDa(empresa).sequencias.length > 1 ? ` · ${s.seq.nome}` : ''}`, detalhe, porIa: false };
 }
 
 async function enviar(empresa, lead, s) {
   const whatsapp = require('./whatsapp');
   const leads = require('./leads');
-  const ia = require('./ia');
-  const midias = require('./midias');
   const destino = lead.whatsappJid || whatsapp.destinoDoLead(lead);
-  let texto = '';
-  let pedidas = [];
-  let reserva = false;
-  if (s.passo.modo === 'texto') {
-    texto = require('./disparos').montarMensagem(s.passo.texto, lead, empresa);
-  } else {
-    try {
-      const bot = whatsapp.botDoWhatsapp(empresa);
-      if (!bot) throw new Error('empresa sem assistente');
-      const total = configDa(empresa).passos.length;
-      const r = await ia.escreverMensagem(
-        bot,
-        empresa,
-        lead.mensagens,
-        `Follow-up ${s.indice + 1} de ${total}: o cliente parou de responder. ${s.passo.instrucao || 'Retome a conversa de forma leve.'} Leia a conversa inteira e fale do que ELE queria, sem repetir mensagens anteriores e sem pressionar. Mensagem curta.`,
-        { etapas: leads.etapasDa(empresa), etapaAtual: lead.etapa, midias: midias.paraIa(empresa, { followup: true }), links: midias.linksDa(empresa), clone: require('./clone').paraIa(empresa, lead), tickets: require('./tickets').paraIa(lead) }
-      );
-      texto = r.texto;
-      pedidas = r.midias || [];
-      if (!texto) throw new Error('a IA não escreveu a mensagem');
-    } catch (err) {
-      // a IA falhou: vai a mensagem genérica de reserva (o cliente não fica sem o follow-up)
-      texto = require('./disparos').montarMensagem(s.passo.reserva || reservaPadrao(s.indice), lead, empresa);
-      pedidas = [];
-      reserva = true;
-      require('./alertas').registrar(empresa, 'automacao', `A IA não escreveu o follow-up ${s.indice + 1} para ${lead.nome || 'um cliente'} (${err.message}). Mandei a mensagem genérica de reserva.`, { nivel: 'aviso', leadId: lead.id });
-    }
-  }
-  if (!texto && !s.passo.midias.length) throw new Error('mensagem vazia');
-  if (texto) {
+  const p = s.passo;
+  // sorteia uma das variações (evita repetir a que este cliente recebeu por último)
+  const ultimaVar = lead.followups?.[s.seq.id]?.variacao;
+  const opcoes = p.textos.map((_, i) => i).filter((i) => p.textos.length === 1 || i !== ultimaVar);
+  const variacao = p.textos.length ? opcoes[Math.floor(Math.random() * opcoes.length)] : null;
+  const texto = variacao !== null ? require('./disparos').montarMensagem(p.textos[variacao], lead, empresa) : '';
+  if (!texto && !p.midias.length) throw new Error('mensagem vazia');
+  const mandarTexto = async () => {
+    if (!texto) return;
     await whatsapp.enviarTexto(empresa, destino, texto);
-    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto, followupPasso: s.indice + 1, ...(reserva ? { followupReserva: true } : {}) });
+    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto, followupPasso: s.indice + 1, followupSequencia: s.seq.id });
+  };
+  const mandarMidias = async () => {
+    if (p.midias.length) await whatsapp.enviarMidiasPedidas(empresa, lead, p.midias, 'equipe', { papelMensagem: 'assistente' });
+  };
+  if (p.midiaPrimeiro) {
+    await mandarMidias();
+    await mandarTexto();
+  } else {
+    await mandarTexto();
+    await mandarMidias();
   }
-  // mídias escolhidas para o passo (podem ser "a configurar": foram escolhidas à mão) + as que a IA pediu
-  if (s.passo.midias.length) await whatsapp.enviarMidiasPedidas(empresa, lead, s.passo.midias, 'equipe', { papelMensagem: 'assistente' });
-  if (pedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, pedidas, 'assistente', { followup: true });
-  lead.followup = { ciclo: s.ciclo, feitos: s.indice + 1, ultimoEm: agora() };
-  if (configDa(empresa).etiquetaIndeciso !== false) {
+  lead.followups = lead.followups || {};
+  lead.followups[s.seq.id] = { ciclo: s.ciclo, feitos: s.indice + 1, ultimoEm: agora(), variacao };
+  if (s.seq.id === 'seq_padrao') delete lead.followup; // estado antigo já migrado
+  if (configDa(empresa).etiquetaIndeciso !== false && s.seq.inicio.tipo === 'sem_resposta') {
     const t = etiquetaIndeciso(empresa);
     if (t && !(lead.etiquetas || []).includes(t.id)) lead.etiquetas = [...(lead.etiquetas || []), t.id];
   }
@@ -206,27 +354,37 @@ async function enviar(empresa, lead, s) {
 function pular(empresa, lead, por = '') {
   const s = situacao(empresa, lead);
   if (s.motivo) return false;
-  lead.followup = { ciclo: s.ciclo, feitos: MAX_PASSOS, puladoEm: agora(), puladoPor: por };
+  lead.followups = lead.followups || {};
+  lead.followups[s.seq.id] = { ciclo: s.ciclo, feitos: FEITO, puladoEm: agora(), puladoPor: por };
   salvar();
   return true;
+}
+
+// Liga/desliga o follow-up de UM cliente
+function ligarParaLead(lead, ligado) {
+  if (ligado) delete lead.followupDesligado;
+  else lead.followupDesligado = true;
+  salvar();
 }
 
 // Chamado pelo ciclo das automações (a cada minuto)
 const ocupados = new Set();
 async function processar(empresa) {
   const f = configDa(empresa);
-  if (!f.ativo || ocupados.has(empresa.id)) return 0;
+  if (ocupados.has(empresa.id)) return 0;
   ocupados.add(empresa.id);
   let enviados = 0;
   try {
     const indeciso = etiquetaIndeciso(empresa);
+    let mudou = false;
     for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id)) {
+      if (anotarEtiquetas(lead, f.etiquetasDesdeInicio)) mudou = true;
       // agendou ou comprou: deixa de ser "Indeciso"
       if (indeciso && (lead.etiquetas || []).includes(indeciso.id) && (jaAgendou(empresa, lead) || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada'))) {
         lead.etiquetas = lead.etiquetas.filter((t) => t !== indeciso.id);
-        salvar();
+        mudou = true;
       }
-      if (enviados >= POR_CICLO) continue;
+      if (!f.ativo || enviados >= POR_CICLO) continue;
       const s = situacao(empresa, lead);
       if (s.motivo || !s.pronto) continue;
       try {
@@ -234,11 +392,13 @@ async function processar(empresa) {
         enviados++;
       } catch (err) {
         // não fica tentando de novo sem parar: marca o passo como feito e avisa
-        lead.followup = { ciclo: s.ciclo, feitos: s.indice + 1, ultimoEm: agora(), erro: String(err.message).slice(0, 200) };
+        lead.followups = lead.followups || {};
+        lead.followups[s.seq.id] = { ciclo: s.ciclo, feitos: s.indice + 1, ultimoEm: agora(), erro: String(err.message).slice(0, 200) };
         salvar();
-        require('./alertas').registrar(empresa, 'automacao', `O follow-up ${s.indice + 1} não foi enviado para ${lead.nome || 'um cliente'}: ${err.message}`, { leadId: lead.id });
+        require('./alertas').registrar(empresa, 'automacao', `O follow-up ${s.indice + 1} ("${s.seq.nome}") não foi enviado para ${lead.nome || 'um cliente'}: ${err.message}`, { leadId: lead.id });
       }
     }
+    if (mudou) salvar();
   } finally {
     ocupados.delete(empresa.id);
   }
@@ -248,16 +408,23 @@ async function processar(empresa) {
 function paraPainel(empresa) {
   const f = configDa(empresa);
   const naFila = estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => ({ c, s: situacao(empresa, c) })).filter((x) => !x.s.motivo);
+  const hoje = new Date().toISOString().slice(0, 10);
   return {
     ...f,
     horarioComercial: require('./automacoes').horarioAutomatico(empresa),
     naFila: naFila.length,
+    porSequencia: Object.fromEntries(f.sequencias.map((s) => [s.id, naFila.filter((x) => x.s.seq.id === s.id).length])),
+    desligadosPorCliente: estado.conversas.filter((c) => c.empresaId === empresa.id && c.followupDesligado).length,
     proximos: naFila
       .sort((a, b) => (a.s.quando < b.s.quando ? -1 : 1))
       .slice(0, 20)
-      .map(({ c, s }) => ({ leadId: c.id, nome: c.nome || c.telefone || 'Cliente', passo: s.indice + 1, quando: s.quando })),
-    enviadosHoje: estado.conversas.filter((c) => c.empresaId === empresa.id).reduce((n, c) => n + (c.mensagens || []).filter((m) => m.followupPasso && m.em >= new Date().toISOString().slice(0, 10)).length, 0)
+      .map(({ c, s }) => ({ leadId: c.id, nome: c.nome || c.telefone || 'Cliente', passo: s.indice + 1, sequencia: s.seq.nome, quando: s.quando })),
+    enviadosHoje: estado.conversas.filter((c) => c.empresaId === empresa.id).reduce((n, c) => n + (c.mensagens || []).filter((m) => m.followupPasso && m.em >= hoje).length, 0)
   };
 }
 
-module.exports = { jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, PADRAO };
+// Compatibilidade: migração antiga das automações "parou de responder"
+const PADRAO = RECOMENDADO;
+const RESERVAS = RECOMENDADO().map((p) => p.textos[0]);
+
+module.exports = { jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };

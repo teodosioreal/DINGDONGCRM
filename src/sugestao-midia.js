@@ -45,12 +45,12 @@ const palavras = (t) => semAcento(t).split(/[^a-z0-9]+/).filter((p) => p.length 
 function candidatos(empresa) {
   const midias = require('./midias');
   const ligadas = require('./catalogo').midiasLigadas(empresa);
-  const todas = midias.midiasDa(empresa).filter((m) => !m.processando);
+  const todas = midias.midiasDa(empresa).filter((m) => !m.processando && !m.soFollowup); // "só follow-up" nunca é sugerida na conversa
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const item = (x, extra) => ({ codigo: x.codigo, nome: x.nome || '', descricao: x.descricao || '', assuntos: x.assuntos || [], servicos: servicos(x.codigo), ...extra });
   return [
     ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => item(m, { tipo: m.tipo })),
-    ...midias.albunsDa(empresa).map((a) => item(a, { album: true, quantidade: todas.filter((m) => m.albumId === a.id).length })).filter((a) => a.quantidade),
+    ...midias.albunsDa(empresa).filter((a) => !a.soFollowup).map((a) => item(a, { album: true, quantidade: todas.filter((m) => m.albumId === a.id).length })).filter((a) => a.quantidade),
     ...midias.pastasDa(empresa).map((p) => item(p, { album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length })).filter((a) => a.quantidade)
   ].filter((c) => c.codigo);
 }

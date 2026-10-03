@@ -124,6 +124,7 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/lixeira').iniciar();
   require('./src/sincronizar').iniciar();
   require('./src/etiquetas-zap').iniciar();
+  require('./src/varredura-vendas').iniciar(); // de hora em hora: vendas pela frase da equipe e comprovantes que ficaram para trás (sem gastar IA)
   // mesmo cliente em duas conversas (número com/sem 9, id escondido): junta ao ligar e a cada 20 min
   const revisarDuplicadas = () => {
     for (const e of require('./src/db').estado.empresas) {
@@ -173,7 +174,6 @@ const servidor = app.listen(config.port, config.host, () => {
       }
     }
     whatsapp.recuperarAnexosRecentes(); // comprovantes de mensagens que chegaram durante uma queda
-    whatsapp.relerComprovantesRecentes().catch((err) => console.error('[whatsapp] reler comprovantes:', err.message));
   }, 15000).unref();
   // pastas do Google Drive: sincroniza sozinho a cada 6 horas
   setInterval(async () => {

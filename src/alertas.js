@@ -23,6 +23,7 @@ const DICAS = {
   site: 'O CRM não conseguiu ler o site. Confira o link em Aprendizados → Seu site ou cole a copy.',
   aprendizado: 'A varredura das conversas falhou. Tente "Varrer agora" de novo mais tarde.',
   comprovante: 'Um comprovante não pôde ser lido. Registre a venda à mão em Faturamento se precisar.',
+  'venda-sem-valor': 'Abra Faturamento, ache a venda "a conferir" e coloque o valor.',
   sistema: 'Erro interno do CRM. Se repetir, avise o suporte com o horário.',
   humano: 'O cliente pediu para falar com uma pessoa. Responda em Conversas (a IA ficou pausada nele).',
   backup: 'O backup automático falhou. Confira o espaço em disco da VPS.'

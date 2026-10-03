@@ -1325,6 +1325,8 @@ router.put('/leads/:id', (req, res) => {
     c.anuncioId = a ? a.id : null;
     c.anuncioPor = 'equipe'; // escolhido à mão: o CRM não troca mais sozinho
   }
+  // follow-up automático deste cliente: liga/desliga (vale até ligar de novo)
+  if (b.followupLigado !== undefined) require('./followup').ligarParaLead(c, b.followupLigado === true);
   if (b.iaPausada !== undefined) {
     c.iaPausada = b.iaPausada === true;
     c.iaPausadaMotivo = c.iaPausada ? 'Pausada pela equipe no painel' : '';
@@ -1670,6 +1672,7 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
   let venda = null;
   const pedidos = {};
   if (req.body?.concluida !== false) {
+    const etapaAntes = c.etapa; // para o "desfazer" (a venda abaixo já pode mover a etapa)
     // a equipe informou o valor: a venda já entra no Faturamento (igual à venda automática)
     const valor = req.body?.valor !== undefined && req.body?.valor !== '' ? require('./catalogo').lerPreco(req.body.valor) : null;
     if (req.body?.valor !== undefined && req.body?.valor !== '' && !(valor > 0)) return res.status(400).json({ erro: 'Informe o valor da venda (ex.: 350,00).' });
@@ -1681,11 +1684,10 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
     c.vendaConcluidaManual = true;
     c.vendaConcluidaEm = agora();
     c.vendaConcluidaPor = req.usuario.email;
+    // guarda a etapa de antes (para "desfazer") ANTES de mover
+    if (etapaFechado && etapaAntes !== etapaFechado && !c.etapaAntesDaVenda) c.etapaAntesDaVenda = etapaAntes;
+    if (etapaFechado && c.etapa !== etapaFechado) leads.moverEtapa(c, empresa, etapaFechado, 'equipe');
     comprovantes.aoVender(empresa, c); // sai de "agendado": etiqueta do WhatsApp e agenda
-    if (etapaFechado && c.etapa !== etapaFechado) {
-      c.etapaAntesDaVenda = c.etapa;
-      leads.moverEtapa(c, empresa, etapaFechado, 'equipe');
-    }
     // pedidos pós-venda: mandar agora, deixar a automação mandar ou não mandar
     for (const tipo of ['avaliacao', 'comentario']) {
       const quer = req.body?.pedidos?.[tipo];
@@ -2448,6 +2450,15 @@ router.get('/empresas/:id/faturamento', (req, res) => {
   res.json({ resumo: comprovantes.resumo(empresa), vendas: lista, config: comprovantes.configDa(empresa) });
 });
 
+// Procurar vendas agora (a mesma varredura de hora em hora, sem IA)
+router.post('/empresas/:id/varredura-vendas', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const r = await require('./varredura-vendas').varrer();
+  if (r.emAndamento) return res.status(409).json({ erro: 'Já estou procurando. Aguarde um pouco.' });
+  res.json(r);
+});
+
 router.put('/empresas/:id/faturamento/config', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
@@ -2457,7 +2468,9 @@ router.put('/empresas/:id/faturamento/config', (req, res) => {
     ...(b.ativo !== undefined ? { ativo: b.ativo === true } : {}),
     ...(b.usarIa !== undefined ? { usarIa: b.usarIa === true } : {}),
     ...(b.moverParaFechado !== undefined ? { moverParaFechado: b.moverParaFechado === true } : {}),
-    ...(b.recebedores !== undefined ? { recebedores: texto(b.recebedores, 500) } : {})
+    ...(b.recebedores !== undefined ? { recebedores: texto(b.recebedores, 500) } : {}),
+    ...(b.vendaPorFrase !== undefined ? { vendaPorFrase: b.vendaPorFrase === true } : {}),
+    ...(b.frasesVenda !== undefined ? { frasesVenda: texto(b.frasesVenda, 500) } : {})
   };
   salvar();
   res.json(comprovantes.configDa(empresa));
