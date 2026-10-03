@@ -76,6 +76,13 @@ function marcarLidos(empresaIds, { todos = false } = {}) {
   salvar();
 }
 
+// O problema acabou (ex.: WhatsApp conectou de novo): fecha os alertas abertos desse tipo
+function resolverTipo(empresa, tipo) {
+  let mudou = false;
+  for (const a of estado.alertas || []) if (a.empresaId === empresa?.id && a.tipo === tipo && !a.resolvido) { a.resolvido = true; mudou = true; }
+  if (mudou) salvar();
+}
+
 function resolver(id) {
   const a = (estado.alertas || []).find((x) => x.id === id);
   if (a) {
@@ -109,4 +116,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { registrar, listar, naoLidos, marcarLidos, resolver, iniciar, vigiar, DICAS };
+module.exports = { registrar, listar, naoLidos, marcarLidos, resolver, resolverTipo, iniciar, vigiar, DICAS };

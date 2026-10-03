@@ -722,8 +722,11 @@ async function receberWebhook(empresa, corpo) {
       const antes = empresa.whatsappConfig.perfil?.estado;
       empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora() };
       salvar();
+      // caiu (o WhatsApp encerrou a sessão do aparelho): avisa no sininho na hora
+      if (st === 'close' && antes !== 'close') require('./alertas').registrar(empresa, 'whatsapp-desconectado', 'O WhatsApp da empresa desconectou (o celular encerrou a conexão). A IA não recebe nem responde mensagens até conectar de novo em IA do WhatsApp.');
       // voltou a conectar: busca o que chegou enquanto estava fora
       if (st === 'open' && antes !== 'open') {
+        require('./alertas').resolverTipo(empresa, 'whatsapp-desconectado');
         require('./sincronizar').aoReconectar(empresa);
         require('./etiquetas-zap').carregar(empresa).catch(() => {});
         // ao conectar, o celular manda as etiquetas aos poucos: lê de novo depois

@@ -106,9 +106,18 @@ function jidReal(empresa, msg) {
     consertarLid(empresa, rj, alt);
     return alt;
   }
-  // sem o número na mensagem: só entra se já conhecemos esse contato
+  // ligação id escondido → número que o CRM já aprendeu
+  const doMapa = empresa.mapaLid?.[rj];
+  if (ehTelefone(doMapa)) {
+    consertarLid(empresa, rj, doMapa);
+    return doMapa;
+  }
   const conhecido = estado.conversas.find((c) => c.empresaId === empresa.id && (c.lidJid === rj || c.whatsappJid === rj));
-  return conhecido ? conhecido.whatsappJid : null;
+  if (conhecido) return conhecido.whatsappJid;
+  // contato novo com número escondido: entra com o id escondido (igual à mensagem ao
+  // vivo) — perder a mensagem (ex.: um comprovante) é pior; o CRM troca pelo número
+  // de verdade quando descobrir e junta as conversas
+  return rj;
 }
 
 // Conversas antigas que ficaram com o id interno e já têm o telefone: corrige na hora
@@ -309,7 +318,17 @@ function iniciar() {
   const rodada = async () => {
     for (const e of estado.empresas) await sincronizarEmpresa(e, { motivo: 'automática' }).catch(() => {});
   };
-  setTimeout(rodada, 60 * 1000).unref?.(); // ao ligar (pega o que chegou durante o deploy)
+  // ao ligar (pega o que chegou durante o deploy). Uma vez: repescagem dos últimos 3 dias
+  // (mensagens de números escondidos que ficaram de fora antes da correção)
+  setTimeout(async () => {
+    for (const e of estado.empresas) {
+      if (e.whatsappConfig && e.whatsappConfig.repescagem !== 'lid-1' && whatsapp().configurado(e)) {
+        e.whatsappConfig.repescagem = 'lid-1';
+        await sincronizarEmpresa(e, { dias: 3, motivo: 'repescagem' }).catch(() => {});
+      }
+    }
+    await rodada();
+  }, 60 * 1000).unref?.();
   timer = setInterval(rodada, A_CADA_MS);
   timer.unref?.();
 }
