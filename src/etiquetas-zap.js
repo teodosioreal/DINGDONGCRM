@@ -1,11 +1,11 @@
 // etiquetas-zap.js — etiquetas do WhatsApp Business ⇄ etiquetas do CRM.
+// O CRM só tem as etiquetas do WhatsApp (não existe etiqueta só do CRM).
 //
-// - Etiqueta criada/renomeada no WhatsApp Business vira etiqueta do CRM (mesmo nome).
+// - Etiqueta criada/renomeada no WhatsApp Business vira etiqueta do CRM (mesmo nome);
+//   apagada no WhatsApp, some do CRM.
 // - Marcou/desmarcou um cliente no celular → muda no CRM na hora (webhook).
 // - Marcou/desmarcou no CRM (painel, lote, IA) → o CRM marca no WhatsApp.
-// - As duas ligam pelo NOME (sem acento/maiúscula). A Evolution não cria etiqueta
-//   nova no WhatsApp: etiqueta que só existe no CRM fica só no CRM até você criar
-//   uma com o mesmo nome no WhatsApp Business.
+// - Etiqueta nova se cria no WhatsApp Business (a Evolution não cria etiqueta lá).
 // Só funciona em número de WhatsApp Business (o WhatsApp comum não tem etiquetas).
 
 const { estado, salvar, novoId, agora } = require('./db');
@@ -73,6 +73,19 @@ function etiquetaDoCrm(empresa, label, criar = true) {
   return t || null;
 }
 
+// Etiqueta apagada no WhatsApp: sai da lista e dos leads
+function tirarEtiqueta(empresa, zapId) {
+  const lista = require('./leads').etiquetasDa(empresa);
+  const fora = new Set(lista.filter((t) => t.zapId === zapId).map((t) => t.id));
+  if (!fora.size) return;
+  empresa.etiquetas = lista.filter((t) => !fora.has(t.id));
+  for (const c of estado.conversas) {
+    if (c.empresaId !== empresa.id) continue;
+    if (c.etiquetas?.some((x) => fora.has(x))) c.etiquetas = c.etiquetas.filter((x) => !fora.has(x));
+    if (c.etiquetasZap?.some((x) => fora.has(x))) c.etiquetasZap = c.etiquetasZap.filter((x) => !fora.has(x));
+  }
+}
+
 // Uma etiqueta do WhatsApp chegou (lista inicial ou edição)
 function registrarLabel(empresa, l) {
   const cfg = configDa(empresa);
@@ -80,7 +93,7 @@ function registrarLabel(empresa, l) {
   if (!id) return;
   if (l.deleted) {
     delete cfg.labels[id];
-    for (const t of require('./leads').etiquetasDa(empresa)) if (t.zapId === id) delete t.zapId; // a do CRM continua
+    tirarEtiqueta(empresa, id); // apagou no celular: some do CRM também
     return;
   }
   let nome = String(l.name || l.nome || '').trim();
@@ -305,15 +318,13 @@ async function varrer() {
 
 function resumo(empresa) {
   const cfg = configDa(empresa);
-  const crm = require('./leads').etiquetasDa(empresa);
   return {
     ativo: cfg.ativo !== false,
     carregadoEm: cfg.carregadoEm || null,
     ultimoEventoEm: cfg.ultimoEventoEm || null,
     numero: String(empresa.whatsappConfig?.perfil?.numero || ''),
     erro: cfg.erro || '',
-    noZap: Object.values(cfg.labels).map((l) => ({ ...l, cor: corDoZap(l.cor) })),
-    soNoCrm: crm.filter((t) => !t.zapId || !cfg.labels[t.zapId]).map((t) => t.nome)
+    noZap: Object.values(cfg.labels).map((l) => ({ ...l, cor: corDoZap(l.cor) }))
   };
 }
 

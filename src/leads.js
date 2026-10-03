@@ -224,25 +224,40 @@ function aoConversar(lead, empresa) {
 }
 
 // ---------------------------------------------------------------- etiquetas
-// Cada empresa tem as suas etiquetas (ex.: "Quente", "Orçamento enviado").
-// O lead guarda só os ids; a equipe e as IAs podem marcar.
+// As etiquetas são SÓ as do WhatsApp Business: o CRM não cria etiqueta própria.
+// Criou/renomeou/apagou no celular → aparece/muda/some aqui (etiquetas-zap.js).
+// O lead guarda só os ids; a equipe e as IAs podem marcar (e o CRM marca no celular).
 
 const CORES_ETIQUETA = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
-const ETIQUETAS_PADRAO = [
-  { nome: 'Quente', cor: '#ef4444' },
-  { nome: 'Morno', cor: '#f59e0b' },
-  { nome: 'Frio', cor: '#3b82f6' },
-  { nome: 'Cliente', cor: '#10b981' }
-];
-
 function etiquetasDa(empresa) {
   if (!empresa) return [];
-  if (!Array.isArray(empresa.etiquetas)) {
-    empresa.etiquetas = ETIQUETAS_PADRAO.map((e) => ({ id: novoId('tag'), ...e }));
-    salvar();
-  }
+  if (!Array.isArray(empresa.etiquetas)) empresa.etiquetas = [];
   return empresa.etiquetas;
+}
+
+// Tira as etiquetas que não vieram do WhatsApp (as antigas "Quente", "Morno",
+// "Frio", "Cliente", "Indeciso" e as criadas no painel) e desmarca dos leads.
+function soEtiquetasDoZap() {
+  let tiradas = 0;
+  for (const empresa of estado.empresas) {
+    const lista = etiquetasDa(empresa);
+    const locais = new Set(lista.filter((t) => !t.zapId).map((t) => t.id));
+    if (!locais.size) continue;
+    empresa.etiquetas = lista.filter((t) => !locais.has(t.id));
+    for (const c of estado.conversas) {
+      if (c.empresaId !== empresa.id) continue;
+      if (c.etiquetas?.some((id) => locais.has(id))) c.etiquetas = c.etiquetas.filter((id) => !locais.has(id));
+      if (c.etiquetasZap?.some((id) => locais.has(id))) c.etiquetasZap = c.etiquetasZap.filter((id) => !locais.has(id));
+    }
+    for (const r of Array.isArray(empresa.automacoes) ? empresa.automacoes : []) if (r.filtro?.etiquetas?.length) r.filtro.etiquetas = r.filtro.etiquetas.filter((id) => !locais.has(id));
+    tiradas += locais.size;
+  }
+  if (tiradas) {
+    salvar();
+    console.log(`[etiquetas] ${tiradas} etiqueta(s) do CRM removida(s): agora só as do WhatsApp`);
+  }
+  return tiradas;
 }
 
 function limparNome(s) {
@@ -332,6 +347,7 @@ module.exports = {
   migrarFunilPadrao,
   CORES_ETIQUETA,
   etiquetasDa,
+  soEtiquetasDoZap,
   aplicarEtiqueta,
   etapasDa,
   acharEtapa,

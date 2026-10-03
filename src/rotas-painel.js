@@ -541,28 +541,10 @@ router.put('/empresas/:id/canais', (req, res) => {
   res.json(empresaComExtras(empresa, req));
 });
 
-// Etiquetas da empresa: lista completa { id?, nome, cor }. As que saírem da
-// lista somem dos leads também.
+// Etiquetas: só as do WhatsApp Business (criar, renomear e apagar é no celular)
 router.put('/empresas/:id/etiquetas', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  const atuais = leads.etiquetasDa(empresa);
-  const entrada = Array.isArray(req.body?.etiquetas) ? req.body.etiquetas : [];
-  const nova = [];
-  for (const t of entrada.slice(0, 40)) {
-    const nome = texto(t?.nome, 40);
-    if (!nome || nova.some((x) => x.nome.toLowerCase() === nome.toLowerCase())) continue;
-    const cor = /^#[0-9a-f]{6}$/i.test(t?.cor || '') ? t.cor : leads.CORES_ETIQUETA[nova.length % leads.CORES_ETIQUETA.length];
-    const existente = atuais.find((x) => x.id === t?.id);
-    nova.push({ id: existente ? existente.id : novoId('tag'), nome, cor, ...(existente?.zapId ? { zapId: existente.zapId } : {}) });
-  }
-  empresa.etiquetas = nova;
-  const validas = new Set(nova.map((x) => x.id));
-  for (const c of estado.conversas) {
-    if (c.empresaId === empresa.id && c.etiquetas?.length) c.etiquetas = c.etiquetas.filter((id) => validas.has(id));
-  }
-  salvar();
-  res.json(empresaComExtras(empresa, req));
+  if (!acharEmpresa(req, res)) return;
+  res.status(400).json({ erro: 'As etiquetas vêm do WhatsApp Business: crie, renomeie ou apague no celular que elas mudam aqui.' });
 });
 
 // ---------------------------------------------------------------- disparos em massa

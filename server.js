@@ -7,7 +7,7 @@ const { garantirAdmin } = require('./src/auth');
 const { salvarAgora } = require('./src/db');
 const rotasPublicas = require('./src/rotas-publicas');
 const rotasPainel = require('./src/rotas-painel');
-const { migrarLeads } = require('./src/leads');
+const { migrarLeads, soEtiquetasDoZap } = require('./src/leads');
 const midias = require('./src/midias');
 const { tipoDeArquivoSeguro } = require('./src/util');
 const disparos = require('./src/disparos');
@@ -15,6 +15,7 @@ const automacoes = require('./src/automacoes');
 
 garantirAdmin();
 migrarLeads();
+soEtiquetasDoZap(); // etiquetas: só as do WhatsApp Business
 require('./src/detector-agenda').revisarRecentes(); // agendamentos combinados enquanto o CRM estava fora
 
 const app = express();

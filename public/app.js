@@ -2113,19 +2113,18 @@ async function paginaMidias(id) {
 async function paginaOrganizar(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  let etiquetas = emp.etiquetas.map((t) => ({ ...t }));
+  let etiquetas = emp.etiquetas.slice();
   let etapas = emp.etapas.slice();
-  const CORES = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Etiquetas e etapas</h1><p class="sub">Como os seus leads ficam organizados</p></div></div>
     <div class="duas-colunas">
       <div class="card">
-        <h2>Etiquetas</h2>
-        ${balao('Para que servem?', 'Marcam o lead com uma característica: <i>Quente</i>, <i>Orçamento enviado</i>, <i>Cliente VIP</i>… Você filtra os leads por elas e escolhe <b>para quem fazer disparos</b>. As IAs também podem colocar etiquetas sozinhas.')}
-        <div id="lista-etiquetas" class="lista-editavel"></div>
-        <div class="acoes"><button type="button" id="add-etiqueta">+ Nova etiqueta</button><button type="button" class="primario" id="salvar-etiquetas">Salvar etiquetas</button></div>
+        <h2>Etiquetas do WhatsApp</h2>
+        ${balao('Vêm do seu WhatsApp Business', 'As etiquetas são as mesmas do celular conectado: <b>crie, renomeie ou apague no WhatsApp Business</b> e elas mudam aqui sozinhas. Marcou um cliente no celular, aparece aqui; marcou aqui, aparece no celular. Você filtra os leads por elas e escolhe <b>para quem fazer disparos</b>.')}
+        <div id="lista-etiquetas" class="chips" style="margin-bottom:8px"></div>
+        <div class="acoes"><button type="button" id="atualizar-etiquetas">🔄 Atualizar do WhatsApp</button><a class="botao" href="${rotaEmpresa(id, 'whatsapp')}">Ver no WhatsApp</a></div>
       </div>
       <div class="card">
         <h2>Etapas do funil</h2>
@@ -2136,16 +2135,8 @@ async function paginaOrganizar(id) {
     </div>`;
 
   function desenharEtiquetas() {
-    $('#lista-etiquetas').innerHTML = etiquetas.map((t, i) => `
-      <div class="linha-editavel">
-        <input type="color" value="${esc(t.cor)}" data-cor="${i}" title="Cor">
-        <input value="${esc(t.nome)}" data-nome="${i}" placeholder="Nome da etiqueta" maxlength="40">
-        ${t.zapId ? '<span class="etq-no-zap" title="Ligada ao WhatsApp Business do celular: marcou lá, aparece aqui (e vice-versa)">📱 no celular</span>' : ''}
-        <button type="button" class="pequeno perigo" data-tirar="${i}" title="Remover">✕</button>
-      </div>`).join('') || '<p class="rotulo">Nenhuma etiqueta.</p>';
-    $$('[data-cor]').forEach((el) => { el.oninput = () => { etiquetas[el.dataset.cor].cor = el.value; }; });
-    $$('[data-nome]').forEach((el) => { el.oninput = () => { etiquetas[el.dataset.nome].nome = el.value; }; });
-    $$('[data-tirar]').forEach((el) => { el.onclick = () => { etiquetas.splice(Number(el.dataset.tirar), 1); desenharEtiquetas(); }; });
+    $('#lista-etiquetas').innerHTML = etiquetas.map((t) => `<span class="chip-etq" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</span>`).join('') ||
+      '<p class="rotulo" style="margin:0">Nenhuma etiqueta chegou do WhatsApp ainda. Crie etiquetas no WhatsApp Business do celular conectado e clique em <b>Atualizar do WhatsApp</b>.</p>';
   }
   function desenharEtapas() {
     $('#lista-etapas').innerHTML = etapas.map((e, i) => `
@@ -2164,23 +2155,20 @@ async function paginaOrganizar(id) {
   }
   desenharEtiquetas();
   desenharEtapas();
-  $('#add-etiqueta').onclick = () => {
-    etiquetas.push({ nome: '', cor: CORES[etiquetas.length % CORES.length] });
-    desenharEtiquetas();
-    $$('[data-nome]').pop()?.focus();
-  };
   $('#add-etapa').onclick = () => {
     etapas.push('');
     desenharEtapas();
     $$('[data-etapa]').pop()?.focus();
   };
-  $('#salvar-etiquetas').onclick = async () => {
+  $('#atualizar-etiquetas').onclick = async (e) => {
+    e.target.disabled = true;
     try {
-      const r = await api(`empresas/${id}/etiquetas`, { method: 'PUT', body: { etiquetas: etiquetas.filter((t) => t.nome.trim()) } });
-      etiquetas = r.etiquetas.map((t) => ({ ...t }));
+      const r = await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} });
+      etiquetas = (await api(`empresas/${id}`)).etiquetas.slice();
       desenharEtiquetas();
-      aviso('Etiquetas salvas.');
+      aviso(r.erro ? r.erro : `${etiquetas.length} etiqueta(s) do WhatsApp.`, !!r.erro);
     } catch (err) { aviso(err.message, true); }
+    e.target.disabled = false;
   };
   $('#salvar-etapas').onclick = async () => {
     const limpas = etapas.map((e) => e.trim()).filter(Boolean);
@@ -2672,7 +2660,7 @@ async function paginaLead(leadId) {
         <div class="card">
           <div class="campo"><label>Etapa</label><select id="etapa">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></div>
           <div class="campo" style="margin-top:12px"><label>Etiquetas</label>
-            <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || `<a class="rotulo" href="${rotaEmpresa(l.empresaId, 'organizar')}">Criar etiquetas</a>`}</div>
+            <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || '<span class="rotulo">Nenhuma etiqueta — crie no WhatsApp Business do celular.</span>'}</div>
           </div>
           <div class="campo" style="margin-top:12px"><label>Nome</label><input id="nome" value="${esc(l.nome)}" placeholder="Nome do cliente"></div>
           <div class="campo" style="margin-top:12px"><label>📍 Localização ${ajuda('O CRM lê a conversa: quando o cliente diz de onde é ("sou de Petrópolis", "moro em Itaipava"), aparece aqui sozinho. Pode corrigir à mão; vazio = volta a ler da conversa.')}</label><input id="localizacao" value="${esc(l.local?.texto || '')}" placeholder="Ex.: Petrópolis - RJ (aparece quando o cliente disser)"></div>
@@ -2850,7 +2838,7 @@ async function paginaNovoDisparo(id) {
           <h2><span class="passo-num">1</span> Quem vai receber</h2>
           ${leadIds.length ? `${balao(`${leadIds.length} leads escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : `
           <div class="campo"><label>Etapas ${ajuda('Nenhuma marcada = todas as etapas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}"><span>${esc(e)}</span></label>`).join('')}</div></div>
-          <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta criada.</span>'}</div></div>
+          <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta do WhatsApp ainda.</span>'}</div></div>
           <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>`}
           <div class="contagem" id="contagem">Calculando…</div>
         </div>
@@ -3182,10 +3170,9 @@ async function cartaoEtiquetasZap(id) {
   setTimeout(() => marcarPronto(el, !r.ativo ? 'off' : r.noZap.length ? 'ok' : null, !r.ativo ? 'Desligado' : `${r.noZap.length} etiqueta(s) ligadas ao celular`));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🏷️ Etiquetas do WhatsApp Business</h2>${interruptor('etq-zap-ativo', r.ativo, r.ativo ? 'Ligado' : 'Desligado')}</div>
-    <p class="rotulo" style="margin:0 0 10px">Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Etiquetas com o <b>mesmo nome</b> ficam ligadas, e as que você cria no WhatsApp Business entram no CRM sozinhas. Funciona só em número <b>WhatsApp Business</b>.</p>
+    <p class="rotulo" style="margin:0 0 10px">As etiquetas do CRM são <b>só as do WhatsApp Business</b>: criou, renomeou ou apagou no celular, muda aqui. Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Funciona só em número <b>WhatsApp Business</b>.</p>
     ${r.ativo ? `
     <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ✓</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
-    ${r.soNoCrm.length ? `<p class="rotulo" style="margin:0 0 8px">Só no CRM (para ligar, crie no WhatsApp Business uma etiqueta com o mesmo nome): ${r.soNoCrm.map(esc).join(', ')}</p>` : ''}
     ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
     ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
     <p class="rotulo" style="margin:0 0 10px">📱 Celular ligado a esta empresa: <b>${r.numero ? `${esc(telefoneBonito(r.numero))} (final ${esc(r.numero.slice(-4))})` : 'número não lido ainda'}</b> · última etiqueta recebida do celular: <b>${r.ultimoEventoEm ? esc(data(r.ultimoEventoEm)) : 'nenhuma até agora'}</b>.<br>Para testar: neste celular, abra uma conversa e coloque uma etiqueta — ela aparece aqui em segundos. Se você coloca as etiquetas em <b>outro celular</b>, é ele que precisa estar conectado aqui.</p>

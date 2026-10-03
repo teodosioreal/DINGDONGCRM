@@ -42,15 +42,10 @@ function jaAgendou(empresa, lead) {
   return (lead.etiquetas || []).some((id) => /agendad/.test(nomes.get(id) || ''));
 }
 
-// Etiqueta "Indeciso": entra quando o follow-up começa, sai quando ele agenda ou compra
-function etiquetaIndeciso(empresa, criar) {
-  const lista = require('./leads').etiquetasDa(empresa);
-  let t = lista.find((x) => sem(x.nome) === 'indeciso');
-  if (!t && criar) {
-    t = { id: novoId('tag'), nome: 'Indeciso', cor: '#f59e0b' };
-    lista.push(t);
-  }
-  return t || null;
+// Etiqueta "Indeciso": entra quando o follow-up começa, sai quando ele agenda ou compra.
+// Só se existir no WhatsApp Business (o CRM não cria etiqueta própria).
+function etiquetaIndeciso(empresa) {
+  return require('./leads').etiquetasDa(empresa).find((x) => sem(x.nome) === 'indeciso') || null;
 }
 
 function configDa(empresa) {
@@ -200,8 +195,8 @@ async function enviar(empresa, lead, s) {
   if (pedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, pedidas, 'assistente', { followup: true });
   lead.followup = { ciclo: s.ciclo, feitos: s.indice + 1, ultimoEm: agora() };
   if (configDa(empresa).etiquetaIndeciso !== false) {
-    const t = etiquetaIndeciso(empresa, true);
-    if (!(lead.etiquetas || []).includes(t.id)) lead.etiquetas = [...(lead.etiquetas || []), t.id];
+    const t = etiquetaIndeciso(empresa);
+    if (t && !(lead.etiquetas || []).includes(t.id)) lead.etiquetas = [...(lead.etiquetas || []), t.id];
   }
   lead.ultimaAutomacaoEm = agora(); // entra nos números da Máquina de vendas
   salvar();
@@ -224,7 +219,7 @@ async function processar(empresa) {
   ocupados.add(empresa.id);
   let enviados = 0;
   try {
-    const indeciso = etiquetaIndeciso(empresa, false);
+    const indeciso = etiquetaIndeciso(empresa);
     for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id)) {
       // agendou ou comprou: deixa de ser "Indeciso"
       if (indeciso && (lead.etiquetas || []).includes(indeciso.id) && (jaAgendou(empresa, lead) || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada'))) {
