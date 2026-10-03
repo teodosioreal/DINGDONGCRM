@@ -162,11 +162,16 @@ const servidor = app.listen(config.port, config.host, () => {
       if (!whatsapp.configurado(e)) continue;
       await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
       const ligouAgora = await whatsapp.garantirSyncFullHistory(e).catch(() => false);
-      if (ligouAgora) {
-        console.log(`[whatsapp ${e.id}] syncFullHistory ligado (instância já em uso) -- reiniciando o socket pra resincronizar`);
+      // reinicia o socket NO MÁXIMO UMA VEZ por número: se a Evolution não guardar a
+      // opção, reiniciar a cada deploy derrubava o WhatsApp à toa
+      if (ligouAgora && !e.whatsappConfig.socketReiniciadoEm) {
+        e.whatsappConfig.socketReiniciadoEm = new Date().toISOString();
+        require('./src/db').salvar();
+        console.log(`[whatsapp ${e.id}] syncFullHistory ligado (instância já em uso) -- reiniciando o socket uma vez pra resincronizar`);
         await whatsapp.reiniciarSocket(e);
       }
     }
+    whatsapp.recuperarAnexosRecentes(); // comprovantes de mensagens que chegaram durante uma queda
   }, 15000).unref();
   // pastas do Google Drive: sincroniza sozinho a cada 6 horas
   setInterval(async () => {

@@ -233,7 +233,8 @@ function registrar(empresa, lead, dados, extra = {}) {
   const confere = recebedorConfere(empresa, extra.textoCompleto || '', dados.recebedor);
   if (confere === false) motivos.push('o recebedor do comprovante não é a empresa');
   if (dados.data && Date.now() - new Date(dados.data).getTime() > 3 * 24 * 3600 * 1000) motivos.push('comprovante com data antiga');
-  if (extra.lidoPor === 'ia') motivos.push('lido pela IA (confira o valor)');
+  // lido pela IA: só fica "a conferir" se não deu para ver que o Pix foi para a empresa
+  if (extra.lidoPor === 'ia' && confere !== true) motivos.push('lido pela IA (confira o valor)');
   const venda = {
     id: novoId('vnd'),
     empresaId: empresa.id,
@@ -258,6 +259,9 @@ function registrar(empresa, lead, dados, extra = {}) {
   if (venda.status === 'confirmada') venda.confirmadaEm = venda.criadoEm;
   estado.vendas.push(venda);
   if (lead && venda.status === 'confirmada') aoVender(empresa, lead);
+  // o cliente mandou o comprovante: a etiqueta do WhatsApp já troca (Agendado → Pago…),
+  // mesmo que o valor ainda fique para a equipe conferir
+  else if (lead && venda.origem === 'comprovante') trocarEtiquetaDeVenda(empresa, lead);
   salvar();
   return { venda, repetida: false };
 }
@@ -267,7 +271,27 @@ function aoVender(empresa, lead) {
   const cfg = configDa(empresa);
   const fechado = etapaFechado(empresa);
   if (cfg.moverParaFechado && fechado) leads.moverEtapa(lead, empresa, fechado, 'sistema');
-  leads.aplicarEtiqueta(lead, empresa, 'Cliente');
+  trocarEtiquetaDeVenda(empresa, lead);
+}
+
+// Etiquetas do WhatsApp: a venda entra → sai "Agendado" (e "Orçamento", "Negociando"…)
+// e entra a etiqueta de venda que existir no celular ("Pago", "Vendido", "Venda
+// concluída", "Cliente"…). O CRM espelha no WhatsApp sozinho.
+const ETIQUETA_VENDA = [/^pag[oa]s?\b|^pagamento (ok|confirmado|feito)/, /^vend(id|a)/, /conclu/, /^fechad/, /^finaliz|^entregue/, /^client/];
+const ETIQUETA_ANTES_DA_VENDA = /^(agendad|orcament|negocia|aguardando pag|pendente|interessad|novo cliente|lead)/;
+function trocarEtiquetaDeVenda(empresa, lead) {
+  const tags = leads.etiquetasDa(empresa);
+  let alvo = null;
+  for (const re of ETIQUETA_VENDA) {
+    alvo = tags.find((t) => re.test(limpar(t.nome).trim()));
+    if (alvo) break;
+  }
+  if (!alvo) return false;
+  const tirar = new Set(tags.filter((t) => ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim())).map((t) => t.id));
+  const antes = (lead.etiquetas || []).join();
+  lead.etiquetas = [...new Set([...(lead.etiquetas || []).filter((id) => !tirar.has(id)), alvo.id])];
+  if (lead.etiquetas.join() !== antes) lead.atualizadoEm = new Date().toISOString();
+  return true;
 }
 
 function hashDe(buffer) {
@@ -359,6 +383,7 @@ module.exports = {
   vendasDa,
   registrar,
   aoVender,
+  trocarEtiquetaDeVenda,
   processarArquivo,
   resumo,
   brl

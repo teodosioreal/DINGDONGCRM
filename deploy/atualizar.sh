@@ -83,6 +83,12 @@ diagnostico() {
     CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 150 node deploy/susto-etiquetas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 30 || true
   fi
   EXPORTAR="$(dirname "$DB_CRM")/etiquetas-evolution.json" INSTANCIAS="$INSTANCIAS" timeout 60 bash deploy/evolution-etiquetas.sh 2>&1 | head -n 60 || true
+  echo "    Últimas 30 h (conexão, fotos/comprovantes, vendas, etiquetas — anônimo, só leitura):"
+  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
+  echo "    Log do app (conexão, comprovantes, etiquetas):"
+  pm2 logs "$NOME_PM2" --out --lines 1500 --nostream --raw 2>/dev/null \
+    | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex" \
+    | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 50 | sed 's/^/      /' || true
   echo "    Últimos erros do app (números escondidos):"
   pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
     | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true

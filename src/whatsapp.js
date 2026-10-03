@@ -928,6 +928,64 @@ const TIPO_DA_MENSAGEM = [
   ['documentWithCaptionMessage', 'document']
 ];
 
+// Mensagens que chegaram SEM passar pelo webhook (recuperadas depois de uma queda
+// do WhatsApp): baixa a foto/PDF do cliente e lê o comprovante, igual à mensagem ao
+// vivo. Uma de cada vez, para não sobrecarregar a Evolution.
+const filaAnexos = [];
+let processandoAnexos = false;
+function anexoAtrasado(empresa, lead, msg, mensagem, opcoes = {}) {
+  if (!mensagem || mensagem.anexo || mensagem.anexoTentado) return;
+  mensagem.anexoTentado = true;
+  filaAnexos.push({ empresaId: empresa.id, leadId: lead.id, msg, mensagemId: mensagem.id, opcoes });
+  if (!processandoAnexos) processarFilaAnexos();
+}
+async function processarFilaAnexos() {
+  processandoAnexos = true;
+  while (filaAnexos.length) {
+    const t = filaAnexos.shift();
+    const empresa = estado.empresas.find((e) => e.id === t.empresaId);
+    const lead = estado.conversas.find((c) => c.id === t.leadId);
+    const mensagem = lead?.mensagens.find((m) => m.id === t.mensagemId);
+    if (!empresa || !lead || !mensagem || !configurado(empresa)) continue;
+    try {
+      const r = await baixarAnexo(empresa, lead, t.msg, { entender: false, comprovante: true, soChave: t.opcoes.soChave });
+      if (r?.anexo) {
+        mensagem.anexo = r.anexo;
+        if (r.entendido) mensagem.texto = r.entendido;
+        lead.atualizadoEm = lead.atualizadoEm || agora();
+        salvar();
+        if (r.anexo.vendaId) console.log(`[whatsapp ${lead.id}] comprovante recuperado de mensagem atrasada`);
+      }
+    } catch (err) {
+      console.error(`[whatsapp ${lead.id}] anexo atrasado:`, err.message);
+    }
+    await new Promise((ok) => setTimeout(ok, 400));
+  }
+  processandoAnexos = false;
+}
+
+// Ao subir: fotos/PDFs de clientes dos últimos 3 dias que entraram sem o arquivo
+// (vieram da busca depois de uma queda): baixa e lê os comprovantes que faltaram
+function recuperarAnexosRecentes() {
+  const limite = Date.now() - 3 * 86400000;
+  let n = 0;
+  for (const empresa of estado.empresas) {
+    if (!configurado(empresa) || empresa.ativa === false) continue;
+    for (const lead of estado.conversas) {
+      if (lead.empresaId !== empresa.id || !lead.whatsappJid) continue;
+      for (const m of lead.mensagens || []) {
+        if (m.papel !== 'visitante' || m.anexo || m.anexoTentado || !m.wid || new Date(m.em).getTime() < limite) continue;
+        const tipo = /^\[o cliente enviou uma imagem\]/.test(m.texto || '') ? 'imageMessage' : /^\[o cliente enviou um documento\]/.test(m.texto || '') ? 'documentMessage' : '';
+        if (!tipo) continue;
+        anexoAtrasado(empresa, lead, { key: { id: m.wid, remoteJid: lead.whatsappJid, fromMe: false }, message: { [tipo]: {} } }, m, { soChave: true });
+        n++;
+      }
+    }
+  }
+  if (n) console.log(`[whatsapp] ${n} foto(s)/PDF(s) de clientes recuperada(s) para ler comprovantes`);
+  return n;
+}
+
 // Baixa o arquivo da mensagem pela Evolution e guarda no lead. Com `entender`,
 // transcreve áudio e descreve foto para a IA responder ao conteúdo.
 // A IA vai responder este cliente? (senão não vale gastar tokens entendendo foto/áudio)
@@ -935,7 +993,7 @@ function iaVaiResponder(empresa, lead) {
   return Boolean(configDa(empresa).iaAtiva && empresa.ativa !== false && !lead.iaPausada && liberadoNoModoTeste(empresa, lead));
 }
 
-async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante = entender } = {}) {
+async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante = entender, soChave = false } = {}) {
   const m = msg.message || {};
   const achado = TIPO_DA_MENSAGEM.find(([campo]) => m[campo]);
   if (!achado) return null;
@@ -943,8 +1001,9 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
   const info = campo === 'documentWithCaptionMessage' ? m[campo]?.message?.documentMessage || {} : m[campo];
   const tamanho = Number(info?.fileLength?.low ?? info?.fileLength ?? 0);
   if (tamanho > midias.TAMANHO_MAXIMO) return null;
+  // soChave: mensagem antiga (só sabemos o id): a Evolution acha o arquivo no banco dela
   const r = await evolution(empresa, 'POST', '/chat/getBase64FromMediaMessage/{instancia}', {
-    message: { key: msg.key, message: msg.message },
+    message: soChave ? { key: msg.key } : { key: msg.key, message: msg.message },
     convertToMp4: false
   });
   if (!r?.base64) return null;
@@ -1405,6 +1464,8 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  anexoAtrasado,
+  recuperarAnexosRecentes,
   diagnostico,
   evolutionUrlGlobal,
   liberadoNoModoTeste,

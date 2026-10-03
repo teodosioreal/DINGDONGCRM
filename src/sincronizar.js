@@ -173,7 +173,7 @@ function importarMensagem(empresa, msg) {
     if (!existente.wid && !existente.wids) existente.wid = wid; // da próxima vez acha pelo id
     return false;
   }
-  lead.mensagens.push({
+  const nova = {
     id: require('./db').novoId('msg'),
     em: new Date(emMs).toISOString(),
     papel: saida ? 'equipe' : 'visitante',
@@ -181,7 +181,13 @@ function importarMensagem(empresa, msg) {
     texto,
     wid,
     importada: true
-  });
+  };
+  lead.mensagens.push(nova);
+  // foto/PDF do cliente dos últimos 3 dias: baixa e lê o comprovante (como ao vivo)
+  const conteudo = msg.message || {};
+  if (!saida && Date.now() - emMs < 3 * 86400000 && (conteudo.imageMessage || conteudo.documentMessage || conteudo.documentWithCaptionMessage)) {
+    whatsapp().anexoAtrasado(empresa, lead, msg, nova);
+  }
   if (!saida) require('./localizacao').lerMensagem(lead, texto);
   require('./fotos-clientes').agendar(lead); // foto de perfil (se ainda não tem)
   lead.mensagens.sort((a, b) => (a.em < b.em ? -1 : a.em > b.em ? 1 : 0));

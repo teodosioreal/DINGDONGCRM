@@ -257,7 +257,9 @@ function aplicarDaIa(empresa, lead, r) {
     if (ativo) feitos.push({ tipo: 'cancelamento', agendamento: cancelarAgendamento(lead, ativo.id, { por: 'ia', motivo: 'o cliente desmarcou na conversa', empresa }) });
   }
   if (r?.venda) feitos.push({ tipo: 'venda', ...registrarVenda(empresa, lead, { ...r.venda, por: 'ia' }) });
-  if (r?.agendamento) {
+  // horário que já passou (a IA errou o dia): não marca nem avisa
+  const iso = r?.agendamento ? quandoDe(r.agendamento.quando) : null;
+  if (r?.agendamento && !(iso && new Date(iso).getTime() < Date.now() - 3600 * 1000)) {
     const antes = (lead.agendamentos || []).filter((a) => a.status === 'agendado');
     const novo = registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' });
     // trocou de dia/horário: o anterior vira "remarcado"
