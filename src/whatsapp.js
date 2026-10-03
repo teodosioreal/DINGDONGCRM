@@ -967,6 +967,47 @@ async function processarFilaAnexos() {
   processandoAnexos = false;
 }
 
+// Ao subir (uma vez por foto): fotos/PDFs de clientes dos últimos 2 dias que já estão
+// guardados mas não viraram venda — relê com a IA (antes ela só olhava quando ia
+// responder o cliente; com a equipe atendendo, o Pix passava batido)
+async function relerComprovantesRecentes() {
+  const limite = Date.now() - 2 * 86400000;
+  let lidos = 0;
+  for (const empresa of estado.empresas) {
+    if (!configurado(empresa) || empresa.ativa === false || !comprovantes.configDa(empresa).ativo) continue;
+    for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id)) {
+      for (const m of lead.mensagens || []) {
+        const a = m.anexo;
+        if (m.papel !== 'visitante' || !a || a.vendaId || a.comprovanteRevisto || new Date(m.em).getTime() < limite) continue;
+        if (!(a.tipo === 'image' || /pdf/i.test(a.mimetype || ''))) continue;
+        a.comprovanteRevisto = true;
+        const caminho = midias.caminhoAnexo(lead.id, a.arquivo);
+        let buffer;
+        try {
+          buffer = fs.readFileSync(caminho);
+        } catch {
+          continue;
+        }
+        const base64 = buffer.toString('base64');
+        const comp = await comprovantes
+          .processarArquivo(empresa, lead, { buffer, mimetype: a.mimetype, anexo: a, forcarIa: true, lerComIa: () => ia.lerComprovante(botDoWhatsapp(empresa), empresa, base64, a.mimetype) })
+          .catch((err) => {
+            console.error(`[whatsapp ${lead.id}] reler comprovante:`, err.message);
+            return null;
+          });
+        if (comp && !comp.texto.includes('mandou de novo')) {
+          a.vendaId = comp.venda.id;
+          a.descricao = `Comprovante ${comp.venda.forma} de ${comprovantes.brl(comp.venda.valor)}`;
+          lidos++;
+        }
+        salvar();
+      }
+    }
+  }
+  if (lidos) console.log(`[whatsapp] ${lidos} comprovante(s) encontrado(s) relendo as fotos dos últimos 2 dias`);
+  return lidos;
+}
+
 // Ao subir: fotos/PDFs de clientes dos últimos 3 dias que entraram sem o arquivo
 // (vieram da busca depois de uma queda): baixa e lê os comprovantes que faltaram
 function recuperarAnexosRecentes() {
@@ -1019,11 +1060,14 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
   if (comprovante) {
     // comprovante de Pix (foto ou PDF) → venda no Faturamento (lê sem IA primeiro)
     if (tipo === 'image' || /pdf/i.test(mimetype)) {
+      // foto que a leitura simples não entendeu: a IA confere se é comprovante, MESMO
+      // quando a IA não responde este cliente (a equipe atendendo é quando mais vende)
       const comp = await comprovantes
         .processarArquivo(empresa, lead, {
           buffer,
           mimetype,
           anexo,
+          forcarIa: tipo === 'image',
           lerComIa: () => ia.lerComprovante(botDoWhatsapp(empresa), empresa, r.base64, mimetype)
         })
         .catch((err) => {
@@ -1469,6 +1513,7 @@ async function diagnostico(empresa) {
 module.exports = {
   anexoAtrasado,
   recuperarAnexosRecentes,
+  relerComprovantesRecentes,
   diagnostico,
   evolutionUrlGlobal,
   liberadoNoModoTeste,

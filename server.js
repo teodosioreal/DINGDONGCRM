@@ -172,6 +172,7 @@ const servidor = app.listen(config.port, config.host, () => {
       }
     }
     whatsapp.recuperarAnexosRecentes(); // comprovantes de mensagens que chegaram durante uma queda
+    whatsapp.relerComprovantesRecentes().catch((err) => console.error('[whatsapp] reler comprovantes:', err.message));
   }, 15000).unref();
   // pastas do Google Drive: sincroniza sozinho a cada 6 horas
   setInterval(async () => {

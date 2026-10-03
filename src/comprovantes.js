@@ -233,8 +233,8 @@ function registrar(empresa, lead, dados, extra = {}) {
   const confere = recebedorConfere(empresa, extra.textoCompleto || '', dados.recebedor);
   if (confere === false) motivos.push('o recebedor do comprovante não é a empresa');
   if (dados.data && Date.now() - new Date(dados.data).getTime() > 3 * 24 * 3600 * 1000) motivos.push('comprovante com data antiga');
-  // lido pela IA: só fica "a conferir" se não deu para ver que o Pix foi para a empresa
-  if (extra.lidoPor === 'ia' && confere !== true) motivos.push('lido pela IA (confira o valor)');
+  // lido pela IA vale igual ao lido sem IA: com recebedores cadastrados, só confirma
+  // se o Pix foi para a empresa (o "recebedor não é a empresa" acima já cuida disso)
   const venda = {
     id: novoId('vnd'),
     empresaId: empresa.id,
