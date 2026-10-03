@@ -54,7 +54,7 @@ function porCodigo(empresa, lead) {
 // ---------------------------------------------------------------- 2. IA (alguns segundos depois)
 async function porIa(empresa, lead) {
   const bot = require('./whatsapp').botDoWhatsapp(empresa);
-  if (!bot) return null;
+  if (!bot || !require('./ia').motoresDa(empresa, bot).length) return null; // sem chave de IA: só o código percebe
   const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const conversa = (lead.mensagens || [])
     .filter((m) => m.texto && !m.apagada)

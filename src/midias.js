@@ -128,8 +128,8 @@ function midiasDa(empresa) {
 }
 
 // ---------------------------------------------------------------- códigos
-// Cada mídia, álbum e pasta do Drive tem um CÓDIGO curto e único (ex.: FOTO-VOLANTE).
-// A IA pede a mídia pelo código ([[MIDIA: FOTO-VOLANTE]]), então nunca manda a errada.
+// Cada mídia, álbum e pasta do Drive tem um CÓDIGO curto e único (ex.: FOTO-ANTES-DEPOIS).
+// A IA pede a mídia pelo código ([[MIDIA: FOTO-ANTES-DEPOIS]]), então nunca manda a errada.
 
 function slugCodigo(v) {
   return String(v || '')
@@ -164,7 +164,7 @@ function novoCodigo(empresa, base, excetoId = null) {
 // Código escolhido pela pessoa: limpa e confere se já existe
 function validarCodigo(empresa, codigo, excetoId) {
   const c = slugCodigo(codigo);
-  if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números (ex.: TABELA, FOTO-VOLANTE).'), { status: 400 });
+  if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números (ex.: TABELA, FOTO-ANTES-DEPOIS).'), { status: 400 });
   if (codigosEmUso(empresa, excetoId).has(c)) throw Object.assign(new Error(`O código ${c} já está em uso. Escolha outro.`), { status: 400 });
   return c;
 }

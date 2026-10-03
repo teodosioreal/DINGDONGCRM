@@ -1,4 +1,5 @@
-// sugestao-midia.js — o cliente mandou a foto do volante ou disse qual é o carro:
+// sugestao-midia.js — o cliente mandou uma foto (o volante, o celular, a roupa…) ou disse
+// o que tem/quer ("tenho um Civic", "iPhone 13", "tamanho M"):
 // o CRM sugere para a equipe, na conversa, a mídia certa da biblioteca para mandar
 // (pelo nome, código, descrição, assuntos e serviços do catálogo ligados à mídia).
 //
@@ -19,7 +20,7 @@ const timers = new Map(); // leadId → timeout
 
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-// palavras que não dizem nada sobre o carro/serviço
+// palavras que não dizem nada sobre o item/serviço
 const VAZIAS = new Set(('a o e de da do das dos em no na nos nas um uma uns umas que se por para pra pro com sem meu minha seu sua ele ela eu voce vc ' +
   'oi ola bom boa dia tarde noite tudo bem obrigado obrigada valeu sim nao ok blz beleza quero queria gostaria qual quais quanto quanta ' +
   'custa preco valor fica ficaria tem teria pode poderia faz fazem fazer foto fotos video videos imagem manda mande envia ' +
@@ -61,7 +62,7 @@ function porCodigo(lista, textoCliente) {
   const doCliente = new Set(palavras(textoCliente));
   if (!doCliente.size || !lista.length) return [];
   const dePalavras = lista.map((c) => new Set(palavras(textoDo(c))));
-  // palavra que aparece em muitas mídias ("volante", "couro") não diferencia nada
+  // palavra que aparece em muitas mídias (ex.: "volante" numa loja de volantes) não diferencia nada
   const freq = new Map();
   for (const s of dePalavras) for (const p of s) freq.set(p, (freq.get(p) || 0) + 1);
   const limite = Math.max(2, Math.ceil(lista.length * 0.34));
@@ -77,12 +78,13 @@ function porCodigo(lista, textoCliente) {
 }
 
 // ---------------------------------------------------------------- 2. IA (foto ou texto)
-// Vale chamar a IA? foto do cliente, ou fala de carro/modelo/ano/marca
-const PISTA_CARRO = /\b(carro|veiculo|modelo|ano|volante|painel|banco|bancos|meu e (um|uma)|tenho (um|uma)|fiat|vw|volks|volkswagen|chevrolet|chevr|gm|ford|toyota|honda|hyundai|renault|nissan|jeep|peugeot|citroen|mitsubishi|kia|bmw|audi|mercedes|byd|caoa|chery|suzuki|land rover|volvo|ram|dodge|(19|20)\d{2})\b/;
+// Vale chamar a IA? foto do cliente, pediu fotos/exemplos, ou falou de modelo/marca/ano/tamanho
+// (serve para qualquer ramo: carro, celular, roupa, móvel, pet, procedimento…)
+const PISTA_ITEM = /\b(foto|fotos|video|videos|imagem|imagens|exemplo|exemplos|trabalhos|catalogo|modelo|modelos|marca|versao|ano|tamanho|medida|cor|tipo|meu e|minha e|tenho (um|uma)|o meu|a minha|carro|moto|veiculo|celular|iphone|samsung|motorola|xiaomi|fiat|vw|volks|volkswagen|chevrolet|gm|ford|toyota|honda|hyundai|renault|nissan|jeep|peugeot|citroen|mitsubishi|kia|bmw|audi|mercedes|byd|caoa|chery|suzuki|volvo|(19|20)\d{2})\b/;
 
 async function porIa(empresa, lead, lista, fotos) {
   const bot = require('./whatsapp').botDoWhatsapp(empresa);
-  if (!bot) return [];
+  if (!bot || !require('./ia').motoresDa(empresa, bot).length) return []; // sem chave de IA: fica só a busca por palavras
   const conversa = (lead.mensagens || [])
     .filter((m) => (m.texto || m.anexo) && !m.apagada)
     .slice(-10)
@@ -94,10 +96,10 @@ async function porIa(empresa, lead, lista, fotos) {
     .join('\n');
   const pedido =
     `Mídias cadastradas pela empresa (código | tipo | nome | descrição):\n${catalogo}\n\nFim da conversa no WhatsApp:\n${conversa}\n\n` +
-    (fotos ? 'A foto anexada é a última que o cliente mandou (ex.: o volante, o painel ou o carro dele). Identifique o carro/modelo/peça pela foto.\n' : '') +
-    `Tarefa: escolha até ${MAX_SUGESTOES} mídias da lista que a equipe deveria mandar AGORA para este cliente, porque mostram o carro/modelo/peça/serviço que ele tem ou pediu. ` +
-    'Só escolha quando o nome ou a descrição da mídia combinar de verdade com o que o cliente disse ou mostrou (mesmo modelo, mesma marca, mesmo tipo de peça ou serviço). Se nada combinar, devolva lista vazia. Não invente códigos.\n' +
-    'Responda SOMENTE com JSON: {"carro": "o que você entendeu (modelo/ano) ou vazio", "midias": [{"codigo": "...", "porque": "frase curta"}]}';
+    (fotos ? 'A foto anexada é a última que o cliente mandou. Identifique pela foto o item, modelo, peça ou situação que ela mostra.\n' : '') +
+    `Tarefa: escolha até ${MAX_SUGESTOES} mídias da lista que a equipe deveria mandar AGORA para este cliente, porque mostram o item, modelo, produto ou serviço que ele tem ou pediu. ` +
+    'Só escolha quando o nome ou a descrição da mídia combinar de verdade com o que o cliente disse ou mostrou (mesmo modelo, mesma marca, mesmo tipo de produto, peça ou serviço). Se nada combinar, devolva lista vazia. Não invente códigos.\n' +
+    'Responda SOMENTE com JSON: {"item": "o que você entendeu que o cliente tem ou quer (ex.: modelo e ano) ou vazio", "midias": [{"codigo": "...", "porque": "frase curta"}]}';
   const ia = require('./ia');
   const r = fotos
     ? await ia.perguntarComImagem(bot, empresa, 'Você ajuda uma empresa a escolher a foto/vídeo certo da biblioteca para mandar a um cliente. Responda só com JSON.', pedido, fotos, 600)
@@ -106,12 +108,12 @@ async function porIa(empresa, lead, lista, fotos) {
   if (!m) return [];
   const j = JSON.parse(m[0]);
   const validos = new Set(lista.map((c) => c.codigo));
-  const carro = String(j.carro || '').trim().slice(0, 80);
+  const item = String(j.item || '').trim().slice(0, 80);
   return (Array.isArray(j.midias) ? j.midias : [])
-    .map((x) => ({ codigo: String(x?.codigo || '').trim().toUpperCase(), motivo: String(x?.porque || '').trim().slice(0, 160) || (carro ? `cliente: ${carro}` : '') }))
+    .map((x) => ({ codigo: String(x?.codigo || '').trim().toUpperCase(), motivo: String(x?.porque || '').trim().slice(0, 160) || (item ? `cliente: ${item}` : '') }))
     .filter((x) => validos.has(x.codigo))
     .slice(0, MAX_SUGESTOES)
-    .map((x) => ({ ...x, carro }));
+    .map((x) => ({ ...x, item }));
 }
 
 // última foto do cliente (desde a última conferência), para a IA olhar
@@ -144,7 +146,7 @@ async function conferir(empresa, lead) {
   // foto nova do cliente: a IA olha a foto primeiro; senão, palavras primeiro (sem gastar IA)
   const foto = novas.some((m) => m.anexo?.tipo === 'image') ? fotoDoCliente(lead, desde) : null;
   let achadas = foto ? [] : porCodigo(lista, recentes);
-  if (!achadas.length && (foto || PISTA_CARRO.test(semAcento(textoNovo)))) {
+  if (!achadas.length && (foto || PISTA_ITEM.test(semAcento(textoNovo)))) {
     try {
       achadas = (await porIa(empresa, lead, lista, foto)).map((x) => ({ ...x, por: 'ia' }));
     } catch (err) {
@@ -160,7 +162,7 @@ async function conferir(empresa, lead) {
     id: novoId('sm'),
     em: agora(),
     por: achadas[0].por || 'codigo',
-    carro: achadas.find((x) => x.carro)?.carro || '',
+    item: achadas.find((x) => x.item)?.item || '',
     itens: achadas.map(({ codigo, motivo }) => ({ codigo, motivo }))
   };
   salvar();
@@ -198,7 +200,7 @@ function paraPainel(empresa, lead) {
       return { codigo: x.codigo, motivo: x.motivo, nome: r.alvo.nome, tipo: album ? 'album' : r.alvo.tipo, quantidade: r.itens.length, capa: capa ? midias.urlPublica(capa) : '' };
     })
     .filter(Boolean);
-  return itens.length ? { id: s.id, em: s.em, por: s.por, carro: s.carro, itens } : null;
+  return itens.length ? { id: s.id, em: s.em, por: s.por, item: s.item || s.carro || '', itens } : null;
 }
 
 function dispensar(lead, codigo) {

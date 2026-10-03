@@ -1291,6 +1291,7 @@ html.dark .pi-tag.aviso { color: #fbbf24; }
 .aviso-desligado { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #f59e0b 14%, transparent); font-size: 14px; }
 /* ---------- funil desenhado (Leads) ---------- */
 .leads-layout { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 16px; align-items: start; }
+.leads-layout > * { min-width: 0; }
 .leads-layout .coluna { min-width: 165px; }
 .funil-lateral { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; }
 .funil-card { margin: 0; padding: 16px; }
@@ -1307,7 +1308,7 @@ html.dark .funil-perda { color: #fca5a5; }
 .coluna.piscar { animation: piscar-coluna 1.2s ease; }
 @keyframes piscar-coluna { 0%, 100% { box-shadow: none; } 30% { box-shadow: 0 0 0 3px var(--acento); } }
 @media (max-width: 1100px) {
-  .leads-layout { grid-template-columns: 1fr; }
+  .leads-layout { grid-template-columns: minmax(0, 1fr); }
   .funil-lateral { position: static; order: -1; flex-direction: row; flex-wrap: wrap; }
   .funil-card { flex: 1 1 260px; }
   .funil-perda { flex: 0 0 auto; width: auto; align-self: flex-start; gap: 14px; }

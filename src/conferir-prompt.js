@@ -53,7 +53,7 @@ async function conferir(bot, empresa, canal = 'whatsapp') {
       empresa,
       'Você prepara um teste de obediência para um atendente virtual. Responda SOMENTE com JSON, sem texto antes ou depois.',
       `Instruções que o dono da empresa escreveu para o atendente (${canal === 'whatsapp' ? 'WhatsApp' : 'chat do site'}):\n<instrucoes>\n${instrucoes}\n</instrucoes>\n\n` +
-        `Faça: (a) até ${MAX_REGRAS} regras curtas e concretas tiradas dessas instruções, que dá para conferir lendo uma resposta (ex.: "Pergunta o modelo do carro antes de passar preço"); ` +
+        `Faça: (a) até ${MAX_REGRAS} regras curtas e concretas tiradas dessas instruções, que dá para conferir lendo uma resposta (ex.: "Pergunta o que o cliente precisa antes de passar preço"); ` +
         `(b) ${MAX_TESTES} mensagens curtas e realistas de um cliente chegando agora, cada uma pensada para testar uma ou mais regras (escreva como cliente de verdade escreve no WhatsApp).\n` +
         'JSON: {"regras": ["..."], "mensagens": ["..."]}',
       1200,

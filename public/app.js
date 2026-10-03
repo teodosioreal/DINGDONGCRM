@@ -405,31 +405,6 @@ function numeroCard(rotulo, valor, classe = '') {
   return `<div class="card numero-card ${classe}"><div class="rotulo">${esc(rotulo)}</div><div class="numero">${valor}</div></div>`;
 }
 
-function tabelaEmpresas(lista) {
-  const canal = (ligado, rotulo) => `<span class="etiqueta ${ligado ? 'ok' : ''}">${rotulo} ${ligado ? 'ligada' : 'desligada'}</span>`;
-  return `
-    <div class="card tabela-wrap">
-      <table>
-        <thead><tr><th>Empresa</th><th class="esconde-mobile">Nicho</th><th>IAs</th><th>Status</th></tr></thead>
-        <tbody>
-          ${lista.length ? lista.map((e) => `
-            <tr class="clicavel" data-empresa="${esc(e.id)}">
-              <td><strong>${esc(e.nome)}</strong></td>
-              <td class="esconde-mobile">${esc(e.nicho) || '—'}</td>
-              <td>${canal(e.canais?.site, 'Site')} ${canal(e.canais?.whatsapp && e.whatsapp?.configurado, 'WhatsApp')}</td>
-              <td>${e.ativa ? '<span class="etiqueta ok">Ativa</span>' : '<span class="etiqueta off">Pausada</span>'}</td>
-            </tr>`).join('') : '<tr><td colspan="4" class="vazio">Nenhuma empresa ainda. Clique em "+ Nova empresa".</td></tr>'}
-        </tbody>
-      </table>
-    </div>`;
-}
-
-function ligarTabelaEmpresas() {
-  $$('tr[data-empresa]', conteudo).forEach((tr) => {
-    tr.onclick = () => { location.hash = rotaEmpresa(tr.dataset.empresa); };
-  });
-}
-
 async function paginaEmpresas() {
   const hashDaPagina = location.hash;
   const lista = await api('empresas');
@@ -561,7 +536,8 @@ async function paginaEmpresa(id) {
 
   const lista = [
     { feito: temChave, texto: 'Cadastre a chave de IA', dica: 'É o "motor" das IAs. Grátis para começar no Gemini.', href: rotaEmpresa(id, 'chave') },
-    { feito: Boolean(principal && (principal.conhecimento || '').replace(/\.\.\.|R\$ \.\.\./g, '').trim().length > 150), texto: 'Conte para a IA sobre a sua empresa', dica: 'Serviços, preços, horários, dúvidas comuns.', href: rotaEmpresa(id, 'ia') }
+    { feito: Boolean(principal && (principal.conhecimento || '').replace(/\.\.\.|R\$ \.\.\./g, '').trim().length > 150), texto: 'Conte para a IA sobre a sua empresa', dica: 'Como vocês atendem, horários, região, dúvidas comuns.', href: rotaEmpresa(id, 'ia') },
+    { feito: emp.totalCatalogo > 0, texto: 'Cadastre seus serviços e preços', dica: 'A IA consulta esta lista em toda resposta — mudou o preço, vale na hora.', href: rotaEmpresa(id, 'catalogo') }
   ];
   if (siteLigado) lista.push({ feito: Object.keys(r.porEtapa).length > 0 || r.totalLeads > 0, texto: 'Coloque o chat no seu site', dica: 'Copie e cole um código uma vez só.', href: rotaEmpresa(id, 'site') });
   if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Clique em Gerar QR code e escaneie com o celular.', href: rotaEmpresa(id, 'whatsapp') });
@@ -989,12 +965,12 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
     <form id="f-cat" class="form-cat">
       <div class="segmentado"><label><input type="radio" name="tipo" value="servico" ${x.tipo !== 'produto' ? 'checked' : ''}><span>Serviço</span></label><label><input type="radio" name="tipo" value="produto" ${x.tipo === 'produto' ? 'checked' : ''}><span>Produto</span></label></div>
       <div class="campos">
-        <div class="campo largo"><label>Nome *</label><input name="nome" required maxlength="100" value="${esc(x.nome)}" placeholder="Ex.: Revestimento de volante em couro"></div>
+        <div class="campo largo"><label>Nome *</label><input name="nome" required maxlength="100" value="${esc(x.nome)}" placeholder="Ex.: Limpeza completa, Corte masculino, Consulta"></div>
         <div class="campo"><label>Preço (R$)</label><input name="preco" inputmode="decimal" value="${esc(num(x.preco))}" placeholder="350,00"></div>
         <div class="campo"><label>Até (R$) <span class="rotulo">— se for faixa</span></label><input name="precoAte" inputmode="decimal" value="${esc(num(x.precoAte))}" placeholder="opcional"></div>
         <div class="campo"><label>Sobre o preço</label><input name="precoObs" maxlength="120" value="${esc(x.precoObs)}" placeholder="a partir de · no Pix · em até 3x"></div>
         <div class="campo"><label>${x.tipo === 'produto' ? 'Prazo de entrega' : 'Duração / prazo'}</label><input name="duracao" maxlength="80" value="${esc(x.duracao)}" placeholder="Ex.: 2 horas · fica pronto no mesmo dia"></div>
-        <div class="campo"><label>Categoria <span class="rotulo">— opcional</span></label><input name="categoria" maxlength="60" value="${esc(x.categoria)}" list="cat-categorias" placeholder="Ex.: Volantes"><datalist id="cat-categorias">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="campo"><label>Categoria <span class="rotulo">— opcional</span></label><input name="categoria" maxlength="60" value="${esc(x.categoria)}" list="cat-categorias" placeholder="Ex.: Serviços, Produtos, Pacotes"><datalist id="cat-categorias">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
         <div class="campo largo"><label>Detalhes para a IA usar ${ajuda('O que está incluso, materiais, cores, garantia, condições. Só o que for verdade: a IA usa isto para responder.')}</label><textarea name="descricao" maxlength="1500" style="min-height:90px" placeholder="Ex.: Couro legítimo, costura à mão, cores preto e caramelo, garantia de 1 ano.">${esc(x.descricao)}</textarea></div>
       </div>
       <div class="campo">
@@ -1082,7 +1058,7 @@ async function paginaCerebro(id) {
     <div class="editor">
       <form id="f-bot" class="card">
         <div class="campos">
-          <div class="campo"><label>Nome do atendente virtual ${ajuda('Como a IA se apresenta. Ex.: "Ana, da Madara Volantes" ou só o nome da empresa.')}</label><input name="nomeAssistente" value="${esc(bot.nomeAssistente)}" placeholder="${esc(emp.nome)}"></div>
+          <div class="campo"><label>Nome do atendente virtual ${ajuda('Como a IA se apresenta. Ex.: "Ana, da Loja Exemplo" ou só o nome da empresa.')}</label><input name="nomeAssistente" value="${esc(bot.nomeAssistente)}" placeholder="${esc(emp.nome)}"></div>
           <div class="campo"><label>Jeito de falar ${ajuda('Ex.: simpático e descontraído; formal e objetivo; animado, com emojis.')}</label><input name="tom" value="${esc(bot.tom)}" placeholder="simpático, próximo e profissional"></div>
           <div class="campo"><label>Objetivo da conversa ${ajuda('Onde a IA deve levar o cliente. Ex.: agendar uma visita, fechar o pedido, marcar a avaliação gratuita.')}</label><input name="objetivo" value="${esc(bot.objetivo || '')}" placeholder="Ex.: agendar o serviço"></div>
           <div class="campo"><label>Oferta e diferenciais ${ajuda('O que faz o cliente escolher você: garantia, parcelamento, promoção do mês, atendimento a domicílio… Só coisas verdadeiras — a IA não inventa.')}</label><input name="oferta" value="${esc(bot.oferta || '')}" placeholder="Ex.: 12x sem juros, garantia de 1 ano"></div>
@@ -1178,7 +1154,7 @@ async function paginaSite(id) {
         <h2>2. Como a IA do site atende</h2>
         ${balao('O papel da IA do site', 'Ela tira as dúvidas, entende o que o cliente quer e, quando ele estiver pronto (quer orçamento, agendar, comprar), oferece o botão <b>"Continuar no WhatsApp"</b> com a mensagem já escrita. Lá a IA do WhatsApp continua.')}
         <div class="campos">
-          <div class="campo largo"><label>Instruções da IA do site ${ajuda('Diga o que ela deve descobrir e quando mandar para o WhatsApp.')}</label><textarea name="regras" placeholder="Ex.: Descubra o modelo do carro e o serviço que o cliente quer. Quando ele pedir preço final ou quiser agendar, mande para o WhatsApp.">${esc(bot.regras)}</textarea></div>
+          <div class="campo largo"><label>Instruções da IA do site ${ajuda('Diga o que ela deve descobrir e quando mandar para o WhatsApp.')}</label><textarea name="regras" placeholder="Ex.: Descubra o que o cliente precisa. Quando ele pedir preço final ou quiser agendar, mande para o WhatsApp.">${esc(bot.regras)}</textarea></div>
           <div class="campo largo"><label>Mensagem de boas-vindas</label><input name="boasVindas" value="${esc(bot.boasVindas)}" placeholder="Olá! 👋 Como posso te ajudar?"></div>
           <div class="campo largo"><label>Balão de chamada (opcional) ${ajuda('Aparece ao lado do botão alguns segundos depois de a pessoa abrir o site, para chamar atenção.')}</label><input name="chamada" value="${esc(bot.chamada)}" placeholder="Tire suas dúvidas por aqui! 💬"></div>
         </div>
@@ -1676,7 +1652,7 @@ async function paginaMidias(id) {
     <div class="cabecalho"><div><h1>Mídias e respostas</h1><p class="sub">Fotos, vídeos, PDFs, links e respostas rápidas que a IA do WhatsApp manda para vender mais</p></div></div>
     ${balao('Como fazer a IA mandar a foto certa na hora certa', passos([
       '<b>Adicione</b> as fotos e vídeos (pode escolher vários de uma vez, até 200 MB cada, na qualidade original). Eles entram em <b>"A configurar"</b> — a IA ainda não usa.',
-      'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do volante de couro"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Convertendo").',
+      'Em cada um, clique em <b>Configurar</b> e diga <b>quando enviar</b> (ex.: <i>"quando o cliente perguntar do serviço X ou pedir fotos"</i>). Se quiser, escolha a <b>etapa</b> (ex.: só em "Convertendo").',
       'Marque <b>Pronta</b>. Pronto: a IA manda sozinha na hora certa.',
       'Vende mais de uma coisa? Crie <b>assuntos</b> (ex.: <i>Completo</i>, <i>Arco</i> — ou os do seu ramo) e marque em cada mídia: a IA só manda a mídia do assunto que está explicando. Mídias de <b>follow-up</b> ficam guardadas para o <a href="' + rotaEmpresa(id, 'automacoes') + '">Follow-up (Máquina de vendas)</a>.',
       'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
@@ -1684,7 +1660,7 @@ async function paginaMidias(id) {
 
     <div class="card" id="card-sugestao-midia">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">💡 Sugerir a mídia certa na conversa</h2>${interruptor('sug-midia-ativo', sugMidia.ativo, sugMidia.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0">Quando o cliente <b>manda a foto do volante</b> ou <b>diz qual é o carro</b> (ex.: <i>"tenho um Civic 2019"</i>), o CRM procura nas suas mídias pelo <b>nome, descrição, assuntos e serviços</b> e mostra na conversa: <b>📸 Sugestão: mandar "Volante Civic"</b>, com o botão <b>Mandar</b>. Nada é enviado sozinho. Dica: coloque o modelo do carro no nome ou na descrição de cada mídia.</p>
+      <p class="rotulo" style="margin:0">Quando o cliente <b>manda uma foto</b> ou <b>diz o que tem ou quer</b> (ex.: <i>"tenho um Civic 2019"</i>, <i>"é um iPhone 13"</i>, <i>"quero o vestido azul"</i>), o CRM procura nas suas mídias pelo <b>nome, descrição, assuntos e serviços</b> e mostra na conversa: <b>📸 Sugestão para mandar</b> com a mídia que combina e o botão <b>Mandar</b>. Nada é enviado sozinho. Dica: coloque o modelo/tipo no nome ou na descrição de cada mídia (ex.: <i>"Volante Civic"</i>, <i>"Capinha iPhone 13"</i>).</p>
     </div>
 
     <div class="card" id="biblioteca">
@@ -1708,8 +1684,8 @@ async function paginaMidias(id) {
       ])}</details>
       <form id="f-drive" class="campos" style="margin-top:12px">
         <div class="campo largo"><label>Link da pasta</label><input name="link" required placeholder="https://drive.google.com/drive/folders/…"></div>
-        <div class="campo"><label>Nome do álbum</label><input name="nome" placeholder="Ex.: Volantes em couro"></div>
-        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando pedir fotos do couro"></div>
+        <div class="campo"><label>Nome do álbum</label><input name="nome" placeholder="Ex.: Trabalhos feitos"></div>
+        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando pedir fotos de trabalhos feitos"></div>
         <div class="campo largo"><div class="acoes" style="margin-top:0"><button class="primario" type="submit">Conectar pasta</button></div></div>
       </form>
       <div class="lista-pastas">
@@ -1987,7 +1963,7 @@ async function paginaMidias(id) {
   }
   // campos iguais para mídia e álbum: quando enviar + etapas
   const camposQuando = (item) => `
-    <div class="campo" style="margin-top:12px"><label>Quando a IA deve enviar ${ajuda('Escreva como falaria para um funcionário. A IA segue isto à risca.')}</label><textarea name="descricao" rows="2" placeholder="Ex.: quando o cliente perguntar do volante de couro ou pedir fotos do acabamento">${esc(item?.descricao || '')}</textarea>
+    <div class="campo" style="margin-top:12px"><label>Quando a IA deve enviar ${ajuda('Escreva como falaria para um funcionário. A IA segue isto à risca.')}</label><textarea name="descricao" rows="2" placeholder="Ex.: quando o cliente perguntar desse serviço ou pedir fotos do resultado">${esc(item?.descricao || '')}</textarea>
       <small>Exemplos: <i>quando pedir o preço</i> · <i>logo depois de mandar o orçamento</i> · <i>quando perguntar onde fica a loja</i></small></div>
     ${ETAPAS.length ? `<div class="campo" style="margin-top:12px"><label>Só enviar nestas etapas (opcional) ${ajuda('Nenhuma marcada = qualquer etapa. Marcada = a IA só manda quando o cliente estiver nessa etapa do funil.')}</label><div class="chips">${ETAPAS.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}" ${(item?.etapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
     <div class="campo" style="margin-top:12px"><label>Assunto — enviar ao explicar… ${ajuda('Nenhum marcado = vale para qualquer assunto. Marcado = a IA só manda quando estiver explicando esse assunto. Crie os assuntos do seu negócio na página Mídias.')}</label>${ASSUNTOS.length ? `<div class="chips">${ASSUNTOS.map((a) => `<label class="chip-check"><input type="checkbox" name="assunto" value="${esc(a)}" ${(item?.assuntos || []).includes(a) ? 'checked' : ''}><span>${esc(a)}</span></label>`).join('')}</div>` : '<small>Nenhum assunto criado ainda — crie em "🏷️ Assuntos", acima da biblioteca (ex.: Completo, Arco).</small>'}</div>
@@ -2031,8 +2007,8 @@ async function paginaMidias(id) {
       <h2>${a ? 'Editar álbum' : 'Novo álbum'}</h2>
       <form id="f-album">
         <div class="campos">
-          <div class="campo"><label>Nome do álbum</label><input name="nome" required value="${esc(a?.nome || '')}" placeholder="Ex.: Volantes em couro"></div>
-          <div class="campo"><label>Código ${ajuda('Vazio = o CRM cria a partir do nome.')}</label><input name="codigo" value="${esc(a?.codigo || '')}" placeholder="VOLANTES-COURO" style="text-transform:uppercase"></div>
+          <div class="campo"><label>Nome do álbum</label><input name="nome" required value="${esc(a?.nome || '')}" placeholder="Ex.: Trabalhos feitos"></div>
+          <div class="campo"><label>Código ${ajuda('Vazio = o CRM cria a partir do nome.')}</label><input name="codigo" value="${esc(a?.codigo || '')}" placeholder="TRABALHOS-FEITOS" style="text-transform:uppercase"></div>
         </div>
         ${camposQuando(a)}
         ${novasMidias?.length ? `<p class="rotulo" style="margin-top:10px">${novasMidias.length} mídia(s) selecionada(s) entram neste álbum.</p>` : ''}
@@ -2860,7 +2836,7 @@ async function paginaNovoDisparo(id) {
           <div class="campo" style="margin-top:12px">
             <label>Mensagem *</label>
             <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{nome}">+ Nome do cliente</button><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}">+ Variação de saudação</button></div>
-            <textarea name="mensagem" required style="min-height:140px" placeholder="{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto no revestimento de volante. Quer que eu te mande as fotos?"></textarea>
+            <textarea name="mensagem" required style="min-height:140px" placeholder="{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?"></textarea>
             <small><code>{nome}</code> vira o primeiro nome do cliente. <code>{Oi|Olá}</code> sorteia uma das opções — mensagens diferentes ajudam a não ser bloqueado.</small>
           </div>
           <div class="campo" style="margin-top:12px"><label>Fotos, vídeos e arquivos (opcional, até 5) ${ajuda('A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois. Álbum manda as fotos dele.')}</label>
@@ -3224,7 +3200,7 @@ async function cartaoAvisoAgendamento(id) {
   setTimeout(() => marcarPronto(el, c.ativo && c.numero ? 'ok' : c.numero ? null : 'off', c.ativo && c.numero ? `Ligado · ${telefoneBonito(c.numero)}` : 'Desligado: ninguém é avisado dos agendamentos'));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 Aviso de agendamento</h2>${interruptor('aviso-ag-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
-    <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, carro, endereço, preço e outras informações importantes da conversa.</p>
+    <p class="rotulo" style="margin:0 0 10px">Todo agendamento <b>confirmado</b> — pela IA, por você no painel ou combinado na conversa do WhatsApp — manda um resumo para este número: cliente, telefone com link para chamar (wa.me), dia e hora, serviço, item do cliente (carro, aparelho…), endereço, preço e outras informações importantes da conversa.</p>
     ${c.numero && !c.ativo ? `<p class="aviso-desligado">⚠️ O número <b>${esc(telefoneBonito(c.numero))}</b> está salvo, mas o aviso está <b>DESLIGADO</b> — por isso nada chega. Ligue no botão acima.</p>` : ''}
     <form id="f-aviso-ag" class="linha-form" style="flex-wrap:wrap"><input name="numero" value="${esc(c.numero ? telefoneBonito(c.numero) : '')}" placeholder="WhatsApp que recebe o aviso (DDD + número)"><button type="submit" class="primario">Salvar número</button><button type="button" id="aviso-ag-teste" ${c.numero ? '' : 'disabled'}>Mandar um teste</button></form>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--borda)">${interruptor('agenda-auto', c.automatica, 'Perceber agendamentos sozinho na conversa')}<p class="rotulo" style="margin:4px 0 0">Quando você, a equipe ou a IA combinam um horário com o cliente (ex.: "sábado às 9h?" → "pode ser"), o CRM marca o agendamento, move o lead para Agendou e avisa no sininho. Se o cliente desmarcar ou trocar o horário, ele cancela ou remarca sozinho. Dá para desfazer na conversa.</p></div>`;
@@ -3499,7 +3475,7 @@ async function modalVendaConcluida(leadId, empresaId) {
         <div class="campos" style="margin-top:10px">
           <div class="campo"><label>Valor (R$) *</label><input name="valor" required inputmode="decimal" placeholder="350,00" value="${l.ultimaVenda?.valor ? esc(String(l.ultimaVenda.valor).replace('.', ',')) : ''}"></div>
           <div class="campo"><label>Forma de pagamento</label><select name="forma">${['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].map((f) => `<option>${f}</option>`).join('')}</select></div>
-          <div class="campo largo"><label>Descrição (opcional)</label><input name="descricao" maxlength="200" value="${esc(l.ultimaVenda?.descricao || '')}" placeholder="Ex.: revestimento de volante"></div>
+          <div class="campo largo"><label>Descrição (opcional)</label><input name="descricao" maxlength="200" value="${esc(l.ultimaVenda?.descricao || '')}" placeholder="Ex.: o que foi vendido"></div>
         </div>`}
         <h3 style="margin:16px 0 6px">Depois da venda</h3>
         ${l.noWhatsapp === false ? '<p class="rotulo">Este cliente não tem WhatsApp: os pedidos não podem ser enviados.</p>' : `${linhaPedido('avaliacao', '⭐ Avaliação no Google', 'salvar o link')}${linhaPedido('comentario', '💬 Comentário no anúncio', 'salvar o link')}`}
@@ -3577,7 +3553,7 @@ function modalAgendamento(leadId, depois) {
     <p class="rotulo" style="margin-top:-4px">Aparece como aviso na conversa. A IA também marca sozinha quando o cliente confirma dia e horário.</p>
     <form id="f-ag">
       <div class="campo"><label>Dia e horário</label><input type="datetime-local" name="quando" value="${local}" required></div>
-      <div class="campo" style="margin-top:10px"><label>O que foi agendado</label><input name="descricao" maxlength="200" placeholder="Ex.: Instalação do volante"></div>
+      <div class="campo" style="margin-top:10px"><label>O que foi agendado</label><input name="descricao" maxlength="200" placeholder="Ex.: Avaliação, instalação, consulta"></div>
       <div class="acoes"><button class="primario" type="submit">Marcar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {
     $('#f-ag', m).onsubmit = async (e) => {
@@ -3630,12 +3606,12 @@ function avatarLead(l, classe = '') {
   return `<span class="avatar ${classe}"><img src="${esc(l.fotoUrl)}" alt="" loading="lazy" onerror="this.remove()"><span class="avatar-letra">${letra}</span></span>`;
 }
 
-// 📸 mídia sugerida pelo que o cliente disse/mostrou (foto do volante, modelo do carro)
+// 📸 mídia sugerida pelo que o cliente disse/mostrou (foto, modelo, item)
 function htmlSugestaoMidia(l) {
   const s = l.sugestaoMidia;
   if (!s?.itens?.length || !l.podeReceber) return '';
   return `<div class="sug-midia">
-    <div class="sug-midia-topo"><b>📸 Sugestão para mandar${s.carro ? ` · ${esc(s.carro)}` : ''}</b><span class="rotulo">${s.por === 'ia' ? '✨ a IA olhou a conversa' : 'pelo que o cliente escreveu'}</span>${s.itens.length > 1 ? '<button type="button" class="pequeno" data-sug-tirar="">Dispensar todas</button>' : ''}</div>
+    <div class="sug-midia-topo"><b>📸 Sugestão para mandar${s.item ? ` · ${esc(s.item)}` : ''}</b><span class="rotulo">${s.por === 'ia' ? '✨ a IA olhou a conversa' : 'pelo que o cliente escreveu'}</span>${s.itens.length > 1 ? '<button type="button" class="pequeno" data-sug-tirar="">Dispensar todas</button>' : ''}</div>
     <div class="sug-midia-itens">${s.itens.map((x) => `
       <div class="sug-midia-item">
         ${x.capa ? `<img src="${esc(x.capa)}" alt="" loading="lazy">` : `<span class="sug-midia-icone">${x.tipo === 'album' ? '📁' : ICONE_TIPO[x.tipo] || '📎'}</span>`}
@@ -3814,7 +3790,7 @@ async function paginaConversas(id, params) {
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
           <button type="button" class="pequeno" id="chat-agendar" title="Mandar uma mensagem mais tarde">🕒 Mandar depois</button>
-          <button type="button" class="pequeno" id="chat-venda" title="Marcar venda concluída">✅ Venda</button>
+          ${l.vendaConcluida ? '<button type="button" class="pequeno" id="chat-venda" title="Lançar outra venda deste cliente (compra repetida)">➕ Outra venda</button>' : ''}
           <button type="button" class="pequeno" id="chat-agendamento" title="Marcar agendamento com o cliente">📅 Agendamento</button>
         </div>
         <div class="rapida-pendente" id="rapida-pendente" hidden></div>
@@ -4083,7 +4059,7 @@ async function paginaConversas(id, params) {
     });
     $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
     const recarregarJa = () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); };
-    $('#chat-venda').onclick = () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome });
+    $('#chat-venda')?.addEventListener('click', () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome }));
     $('#chat-agendamento').onclick = () => modalAgendamento(abertoId, recarregarJa);
     $('#chat-sugerir').onclick = async (e) => {
       try {
@@ -4701,7 +4677,7 @@ async function paginaFaturamento(id, params) {
     <details class="card secao-avancada" ${cfg.recebedores ? '' : 'open'}>
       <summary>Configurações da leitura de comprovantes</summary>
       <form id="f-cfg-fat" style="margin-top:12px">
-        <div class="campo"><label>Quem recebe os pagamentos ${ajuda('Nome da empresa como aparece no comprovante, CNPJ/CPF e/ou chave Pix. Separe por vírgula. Comprovante para outra pessoa fica "A conferir".')}</label><input name="recebedores" value="${esc(cfg.recebedores)}" placeholder="Ex.: MADARA VOLANTES, 12.345.678/0001-90, pix@madara.com"></div>
+        <div class="campo"><label>Quem recebe os pagamentos ${ajuda('Nome da empresa como aparece no comprovante, CNPJ/CPF e/ou chave Pix. Separe por vírgula. Comprovante para outra pessoa fica "A conferir".')}</label><input name="recebedores" value="${esc(cfg.recebedores)}" placeholder="Ex.: NOME DA EMPRESA, 12.345.678/0001-90, pix@empresa.com"></div>
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="ativo" ${cfg.ativo ? 'checked' : ''}> Registrar vendas pelos comprovantes que chegam no WhatsApp</label>
         <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="usarIa" ${cfg.usarIa ? 'checked' : ''}> Se não der para ler sem IA (foto ruim), deixar a IA tentar ${ajuda('Gasta um pouco de crédito da IA só nesses casos. Desmarcado = nunca usa IA para comprovantes.')}</label>
         <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="moverParaFechado" ${cfg.moverParaFechado ? 'checked' : ''}> Mover o lead para "Vendi" quando pagar (e colocar a etiqueta "Cliente")</label>
@@ -4774,7 +4750,7 @@ function modalVenda(emp, v, leadId, depois, padrao = {}) {
         <div class="campo"><label>Forma de pagamento</label><select name="forma">${['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].map((f) => `<option ${f === (v?.forma || 'Pix') ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
         <div class="campo"><label>Data</label><input type="datetime-local" name="data" value="${local}"></div>
         <div class="campo"><label>Cliente</label><input name="cliente" value="${esc(v?.cliente || padrao.cliente || '')}" placeholder="Nome do cliente"></div>
-        <div class="campo largo"><label>O que foi vendido (opcional)</label><input name="descricao" value="${esc(v?.descricao || '')}" placeholder="Ex.: revestimento de volante"></div>
+        <div class="campo largo"><label>O que foi vendido (opcional)</label><input name="descricao" value="${esc(v?.descricao || '')}" placeholder="Ex.: o que foi vendido"></div>
       </div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button>${v ? '<button type="button" class="perigo" id="apagar-venda" style="margin-left:auto">Apagar</button>' : ''}</div>
     </form>`, (m, fechar) => {
@@ -5102,7 +5078,7 @@ function htmlSugestoesUtm() {
       ${linha('Conta → Configurações da conta → <b>Modelo de acompanhamento</b> (ou em cada campanha → Opções de URL da campanha)', '{lpurl}?utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_content={creative}&utm_term={keyword}', 'O Google troca {campaignid}, {keyword} etc. sozinho. O gclid também é reconhecido automaticamente.')}
       <h4>Meta Ads (Facebook e Instagram)</h4>
       ${linha('Gerenciador de Anúncios → no <b>anúncio</b> → Rastreamento → <b>Parâmetros de URL</b>', 'utm_source={{site_source_name}}&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}', 'O Meta preenche o nome da campanha e do anúncio. {{site_source_name}} vira fb ou ig.')}
-      ${linha('Anúncio de <b>clique para WhatsApp</b>: nada para configurar', '(o CRM lê o título do anúncio sozinho na 1ª mensagem)', 'Dica: na mensagem pronta do anúncio, use algo único, ex.: "Oi! Vi o anúncio do volante" — e cadastre "anúncio do volante" nas palavras abaixo.')}
+      ${linha('Anúncio de <b>clique para WhatsApp</b>: nada para configurar', '(o CRM lê o título do anúncio sozinho na 1ª mensagem)', 'Dica: na mensagem pronta do anúncio, use algo único, ex.: "Oi! Vi a promoção de inverno" — e cadastre "promoção de inverno" nas palavras abaixo.')}
       <h4>Links que não são anúncio</h4>
       ${linha('Link da <b>bio do Instagram</b>', `?utm_source=instagram&utm_medium=bio&utm_campaign=${nome}`, 'Coloque depois do endereço do site. Ex.: https://seusite.com.br/?utm_source=instagram…')}
       ${linha('Botão do <b>Google Meu Negócio</b> (site)', `?utm_source=google&utm_medium=perfil-empresa&utm_campaign=${nome}`, '')}
@@ -5130,12 +5106,12 @@ async function montarAnuncios(id, alvo) {
   const itemHtml = (a, i) => `
     <div class="anuncio-item" data-i="${i}">
       <div class="anuncio-topo">
-        <input data-campo="nome" value="${esc(a.nome)}" placeholder="Nome do anúncio (ex.: Promoção volante de couro)" aria-label="Nome do anúncio">
+        <input data-campo="nome" value="${esc(a.nome)}" placeholder="Nome do anúncio (ex.: Promoção de inverno)" aria-label="Nome do anúncio">
         ${a.id ? `<span class="rotulo" style="white-space:nowrap">${a.leads30d || 0} ${a.leads30d === 1 ? 'lead' : 'leads'} em 30 dias</span>` : '<span class="etiqueta">novo</span>'}
         <button type="button" class="pequeno perigo" data-remover="${i}" aria-label="Remover anúncio">Remover</button>
       </div>
-      <div class="campo"><label>Palavras para reconhecer ${ajuda('O CRM liga o cliente a este anúncio quando alguma destas palavras aparece: no título do anúncio do Instagram/Facebook, no utm_campaign do link, no endereço da página ou na mensagem pronta do anúncio. Separe por vírgula.')}</label><input data-campo="palavras" value="${esc(a.palavras)}" placeholder="Ex.: promo-volante, volante em promoção"></div>
-      <div class="campo"><label>O que a IA precisa saber sobre este anúncio ${ajuda('A oferta, o preço anunciado, a condição, para quem é e como a IA deve puxar a conversa. Ex.: “Anúncio do volante de couro por R$ 299 em 3x só este mês. Pergunte o modelo do carro e ofereça horário.”')}</label><textarea data-campo="info" rows="3" placeholder="Ex.: Oferta do volante de couro por R$ 299 em 3x até o fim do mês. Pergunte o modelo do carro e ofereça um horário para instalar.">${esc(a.info)}</textarea></div>
+      <div class="campo"><label>Palavras para reconhecer ${ajuda('O CRM liga o cliente a este anúncio quando alguma destas palavras aparece: no título do anúncio do Instagram/Facebook, no utm_campaign do link, no endereço da página ou na mensagem pronta do anúncio. Separe por vírgula.')}</label><input data-campo="palavras" value="${esc(a.palavras)}" placeholder="Ex.: promo-inverno, vi a promoção"></div>
+      <div class="campo"><label>O que a IA precisa saber sobre este anúncio ${ajuda('A oferta, o preço anunciado, a condição, para quem é e como a IA deve puxar a conversa. Ex.: “Anúncio do serviço X por R$ 299 em 3x só este mês. Pergunte o que o cliente precisa e ofereça horário.”')}</label><textarea data-campo="info" rows="3" placeholder="Ex.: Oferta do serviço X por R$ 299 em 3x até o fim do mês. Pergunte o que o cliente precisa e ofereça um horário.">${esc(a.info)}</textarea></div>
     </div>`;
 
   const desenhar = () => {
@@ -5146,7 +5122,7 @@ async function montarAnuncios(id, alvo) {
         <details ${lista.length ? '' : 'open'}><summary>Como o CRM sabe de qual anúncio o cliente veio?</summary>${passos([
           '<b>Anúncio de clique para WhatsApp</b> (Instagram/Facebook): o CRM lê o título do anúncio sozinho. Ele aparece abaixo em “Anúncios que chegaram” — é só clicar em <b>Cadastrar</b>.',
           '<b>Anúncio que leva para o site</b>: no link do anúncio, coloque <code>?utm_campaign=nome-da-campanha</code> e use esse nome nas palavras. O Google Ads e o Facebook Ads já são reconhecidos como anúncio sozinhos.',
-          '<b>Mensagem pronta do anúncio</b> (ex.: “Quero o volante em promoção”): use um pedaço dela nas palavras.',
+          '<b>Mensagem pronta do anúncio</b> (ex.: “Quero a promoção de inverno”): use um pedaço dela nas palavras.',
           'Errou? No lead, em <b>De onde veio</b>, a equipe escolhe o anúncio certo à mão.'
         ])}</details>
         ${htmlSugestoesUtm()}

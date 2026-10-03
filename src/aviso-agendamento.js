@@ -1,7 +1,7 @@
 // aviso-agendamento.js — quando um agendamento é CONFIRMADO (pela IA, pela equipe
 // no painel ou combinado na conversa do WhatsApp), o CRM manda uma mensagem para
 // um número cadastrado (ex.: do técnico ou do dono) com o resumo do serviço:
-// cliente, telefone com link wa.me, quando, serviço, carro/produto, endereço,
+// cliente, telefone com link wa.me, quando, serviço, item do cliente (carro, aparelho…), endereço,
 // preço e outras informações importantes da conversa. Liga/desliga na IA do WhatsApp.
 
 const { estado, salvar, agora } = require('./db');
@@ -84,7 +84,7 @@ async function resumoDaConversa(empresa, lead, ag) {
     .join('\n');
   try {
     const sistema =
-      'Você extrai dados de um agendamento a partir de uma conversa de WhatsApp entre uma empresa e um cliente. Responda SOMENTE com um JSON, sem texto antes ou depois: {"servico": "o que vai ser feito/vendido", "veiculo": "carro/moto/produto do cliente (marca, modelo, ano, cor) se houver", "endereco": "endereço, bairro ou cidade do atendimento se houver", "preco": "preço combinado com R$ se houver", "outras": "outras informações úteis para quem vai atender (forma de pagamento, observações, pedidos especiais), curtas"}. Use "" quando não souber. Não invente nada que não esteja na conversa.';
+      'Você extrai dados de um agendamento a partir de uma conversa de WhatsApp entre uma empresa e um cliente. Responda SOMENTE com um JSON, sem texto antes ou depois: {"servico": "o que vai ser feito/vendido", "veiculo": "o item do cliente ligado ao atendimento, se houver (ex.: carro/moto com marca, modelo, ano e cor; aparelho; modelo/tamanho do produto; pet) — vazio se não fizer sentido no ramo", "endereco": "endereço, bairro ou cidade do atendimento se houver", "preco": "preço combinado com R$ se houver", "outras": "outras informações úteis para quem vai atender (forma de pagamento, observações, pedidos especiais), curtas"}. Use "" quando não souber. Não invente nada que não esteja na conversa.';
     const pedido = `Agendamento: ${quandoBonito(ag)}${ag.descricao ? ` — ${ag.descricao}` : ''}\n\nConversa:\n${conversa}`;
     const t = await require('./ia').gerarTexto(bot, empresa, sistema, pedido, 600, { barato: true });
     const json = JSON.parse((t.match(/\{[\s\S]*\}/) || ['{}'])[0]);
@@ -119,7 +119,7 @@ function montarAviso(empresa, lead, ag, r) {
   ];
   const blocoServico = [
     r.servico ? `🔧 *Serviço:* ${r.servico}` : '',
-    r.veiculo ? `🚗 *Veículo/produto:* ${r.veiculo}` : '',
+    r.veiculo ? `📦 *Item do cliente:* ${r.veiculo}` : '',
     r.endereco ? `📍 *Endereço:* ${r.endereco}` : '',
     r.preco ? `💰 *Valor:* ${r.preco}` : ''
   ];
@@ -193,7 +193,7 @@ async function testar(empresa) {
     empresa,
     { id: 'teste', nome: 'Cliente de exemplo', telefone: '5521999999999' },
     { quando: new Date(Date.now() + 864e5).toISOString(), por: 'ia' },
-    { servico: 'Revestimento de volante em couro', veiculo: 'Onix 2020 prata', endereco: 'Centro, Petrópolis', preco: 'R$ 350,00', outras: 'Paga no Pix na hora' }
+    { servico: require('./catalogo').itensDa(empresa).find((x) => x.ativo)?.nome || 'Serviço de exemplo', veiculo: '', endereco: 'Centro', preco: 'R$ 350,00', outras: 'Paga no Pix na hora' }
   );
   await require('./whatsapp').enviarTexto(empresa, c.numero, `🧪 *TESTE do aviso de agendamento*\n\n${exemplo}`);
   return true;

@@ -141,16 +141,6 @@ async function carregar(empresa) {
 function acharLead(empresa, jid) {
   return require('./identidade').conversaDoEndereco(empresa, jid);
 }
-function acharLeadAntigo(empresa, jid) {
-  const d = digitos(jid);
-  const da = estado.conversas.filter((c) => c.empresaId === empresa.id);
-  return (
-    da.find((c) => c.whatsappJid === jid) ||
-    (/@lid$/.test(jid) ? null : da.find((c) => d.length >= 10 && (digitos(c.whatsappJid) === d || String(c.telefone || '').replace(/\D/g, '') === d))) ||
-    null
-  );
-}
-
 // Marcou/desmarcou no WhatsApp
 function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   const cfg = configDa(empresa);
