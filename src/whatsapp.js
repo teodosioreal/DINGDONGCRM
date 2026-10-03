@@ -841,6 +841,7 @@ async function receberWebhook(empresa, corpo) {
     require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
     require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
     require('./detector-agenda').observar(empresa, lead); // "pode ser", "vou ter que desmarcar"…
+    require('./sugestao-midia').observar(empresa, lead); // foto do volante / "meu carro é um civic" → sugere a mídia
     origem.aplicarAnuncio(empresa, lead);
     require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
     lead.naoLidas = (lead.naoLidas || 0) + 1;

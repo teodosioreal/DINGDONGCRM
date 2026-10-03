@@ -1234,8 +1234,10 @@ router.post('/empresas/:id/leads/lote', (req, res) => {
   } else {
     for (const c of alvo) {
       if (b.etapa) leads.moverEtapa(c, empresa, b.etapa, 'equipe');
+      const antes = c.etiquetas || [];
       if (b.adicionarEtiqueta && validas.has(b.adicionarEtiqueta)) c.etiquetas = [...new Set([...(c.etiquetas || []), b.adicionarEtiqueta])];
       if (b.removerEtiqueta) c.etiquetas = (c.etiquetas || []).filter((t) => t !== b.removerEtiqueta);
+      etiquetaAgendadoMudou(empresa, c, antes);
       c.atualizadoEm = agora();
     }
   }
@@ -1269,6 +1271,7 @@ router.get('/leads/:id', (req, res) => {
     vendaConcluida: c.vendaConcluidaManual === true || /fechad|ganh|vendi/i.test(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     temVendaRegistrada: (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     erroEtiquetaZap: c.erroEtiquetaZap || null,
+    sugestaoMidia: require('./sugestao-midia').paraPainel(empresa, c),
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
     botNome: bot?.nome || '—',
@@ -1276,6 +1279,17 @@ router.get('/leads/:id', (req, res) => {
     etiquetasEmpresa: leads.etiquetasDa(empresa)
   });
 });
+
+// Etiqueta "Agendado" colocada/tirada pelo CRM: entra/sai de Agendamentos (igual ao celular)
+function etiquetaAgendadoMudou(empresa, c, antes) {
+  const agenda = require('./detector-agenda');
+  const ids = new Set(leads.etiquetasDa(empresa).filter((t) => agenda.ehEtiquetaAgendado(t.nome)).map((t) => t.id));
+  if (!ids.size) return;
+  const tinha = antes.some((id) => ids.has(id));
+  const tem = (c.etiquetas || []).some((id) => ids.has(id));
+  if (tem && !tinha) agenda.pelaEtiqueta(empresa, c).catch((err) => console.error('[agenda] etiqueta:', err.message));
+  if (tinha && !tem) agenda.etiquetaTirada(empresa, c);
+}
 
 // Equipe muda etapa, nome ou liga/desliga a IA naquele lead
 router.put('/leads/:id', (req, res) => {
@@ -1300,7 +1314,9 @@ router.put('/leads/:id', (req, res) => {
   if (b.telefone !== undefined && !c.whatsappJid) c.telefone = numeroWhatsapp(b.telefone);
   if (Array.isArray(b.etiquetas)) {
     const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
+    const antes = c.etiquetas || [];
     c.etiquetas = [...new Set(b.etiquetas.map(String))].filter((id) => validas.has(id));
+    etiquetaAgendadoMudou(empresa, c, antes);
   }
   if (b.naoDisparar !== undefined) c.naoDisparar = b.naoDisparar === true;
   if (b.origemManual !== undefined) c.origemManual = texto(b.origemManual, 300);
@@ -1902,6 +1918,26 @@ router.post('/leads/:id/arquivo/envio/:envioId/concluir', async (req, res) => {
   salvar();
 });
 
+// Sugestão de mídia na conversa: dispensar uma (codigo) ou todas
+router.post('/leads/:id/sugestao-midia/dispensar', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  require('./sugestao-midia').dispensar(c, texto(req.body?.codigo, 60));
+  res.json({ ok: true });
+});
+
+// Liga/desliga a sugestão de mídia da empresa
+router.get('/empresas/:id/sugestao-midia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ ativo: require('./sugestao-midia').configDa(empresa).ativo !== false });
+});
+router.put('/empresas/:id/sugestao-midia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./sugestao-midia').ligar(empresa, req.body?.ativo === true));
+});
+
 // Equipe manda uma mídia (ou álbum) da biblioteca
 router.post('/leads/:id/midia', async (req, res) => {
   const c = acharLead(req, res);
@@ -1912,6 +1948,7 @@ router.post('/leads/:id/midia', async (req, res) => {
   if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
   const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
   if (r.enviadas) require('./clone').registrar(empresa, c, { midias: [midias.resolverPedido(empresa, nome).alvo?.codigo] });
+  if (r.enviadas) require('./sugestao-midia').enviada(c, midias.resolverPedido(empresa, nome).alvo?.codigo);
   salvar();
   if (r.falhas.length && !r.enviadas) return res.status(502).json({ erro: `Não foi enviada. ${r.falhas.join(' · ')}` });
   res.json({ ...resumoLead(c), avisoEnvio: r.falhas.length ? `Algumas não foram: ${r.falhas.join(' · ')}` : '' });

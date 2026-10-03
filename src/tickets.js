@@ -158,7 +158,7 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = '
   return { venda, nova: true };
 }
 
-function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) {
+function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false }) {
   const iso = quandoDe(quando);
   const desc = String(descricao || '').trim().slice(0, 200);
   lead.agendamentos = Array.isArray(lead.agendamentos) ? lead.agendamentos : [];
@@ -179,7 +179,7 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia' }) 
   lead.atualizadoEm = agora();
   salvar();
   // aviso para o número cadastrado (técnico/dono), se estiver ligado
-  require('./aviso-agendamento').agendamentoNovo(empresa, lead, ag);
+  if (!semAviso) require('./aviso-agendamento').agendamentoNovo(empresa, lead, ag);
   return { agendamento: ag, novo: true };
 }
 

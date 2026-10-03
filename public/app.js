@@ -836,11 +836,11 @@ async function paginaAgenda(id, params) {
     const nome = sp(iso, { weekday: 'long', day: '2-digit', month: 'long' });
     return k === hoje ? `Hoje · ${nome}` : k === amanha ? `Amanhã · ${nome}` : nome.charAt(0).toUpperCase() + nome.slice(1);
   };
-  const QUEM = { ia: 'IA', equipe: 'equipe', cliente: 'cliente', detectado: '✨ percebido' };
+  const QUEM = { ia: 'IA', equipe: 'equipe', cliente: 'cliente', detectado: '✨ percebido', etiqueta: '🏷️ etiqueta Agendado' };
   const linha = (x) => `
     <div class="ag-linha ${x.grupo}" data-ag="${esc(x.id)}">
       <div class="ag-hora">${x.quando ? sp(x.quando, { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
-      <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
+      <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando && x.quandoTexto !== 'Data a combinar' ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
       <div class="ag-tags">
         <span class="etiqueta">${esc(QUEM[x.por] || x.por)}</span>
         ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}
@@ -1666,7 +1666,7 @@ const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '
 async function paginaMidias(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  const [todas, albuns, { assuntos: ASSUNTOS }] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/assuntos-midia`)]);
+  const [todas, albuns, { assuntos: ASSUNTOS }, sugMidia] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/assuntos-midia`), api(`empresas/${id}/sugestao-midia`).catch(() => ({ ativo: true }))]);
   const lista = todas.filter((m) => !m.pastaId);
   const pastas = emp.drivePastas || [];
   let links = (emp.links || []).map((l) => ({ ...l }));
@@ -1681,6 +1681,11 @@ async function paginaMidias(id) {
       'Vende mais de uma coisa? Crie <b>assuntos</b> (ex.: <i>Completo</i>, <i>Arco</i> — ou os do seu ramo) e marque em cada mídia: a IA só manda a mídia do assunto que está explicando. Mídias de <b>follow-up</b> ficam guardadas para o <a href="' + rotaEmpresa(id, 'automacoes') + '">Follow-up (Máquina de vendas)</a>.',
       'Cada mídia tem um <b>código</b> (ex.: <code>#TABELA</code>). A IA pede pelo código, então nunca manda a errada — e você pode usar o código nas instruções da IA: <i>"Depois de passar o preço, envie #TABELA"</i>. Várias fotos juntas? Crie um <b>álbum</b>.'
     ]))}
+
+    <div class="card" id="card-sugestao-midia">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">💡 Sugerir a mídia certa na conversa</h2>${interruptor('sug-midia-ativo', sugMidia.ativo, sugMidia.ativo ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0">Quando o cliente <b>manda a foto do volante</b> ou <b>diz qual é o carro</b> (ex.: <i>"tenho um Civic 2019"</i>), o CRM procura nas suas mídias pelo <b>nome, descrição, assuntos e serviços</b> e mostra na conversa: <b>📸 Sugestão: mandar "Volante Civic"</b>, com o botão <b>Mandar</b>. Nada é enviado sozinho. Dica: coloque o modelo do carro no nome ou na descrição de cada mídia.</p>
+    </div>
 
     <div class="card" id="biblioteca">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🖼️ Suas fotos, vídeos e arquivos</h2><label class="botao primario">📤 Adicionar (vários de uma vez)<input type="file" id="mais-midias" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label></div>
@@ -2086,6 +2091,13 @@ async function paginaMidias(id) {
     try { sessionStorage.setItem(`midias_aba_${id}`, 'configurar'); } catch { /* ok */ }
     setTimeout(() => { if (location.hash === hashDaPagina) paginaMidias(id); }, ok < lista_.length ? 4000 : 800);
   }
+  $('#sug-midia-ativo').onchange = async (e) => {
+    try {
+      const r = await api(`empresas/${id}/sugestao-midia`, { method: 'PUT', body: { ativo: e.target.checked } });
+      e.target.closest('.interruptor').querySelector('span:last-child').textContent = r.ativo ? 'Ligado' : 'Desligado';
+      aviso(r.ativo ? 'Sugestão de mídia ligada.' : 'Sugestão de mídia desligada.');
+    } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
+  };
   $('#mais-midias').onchange = (e) => { if (e.target.files.length) enviarArquivos(e.target.files); };
   const zona = $('#soltar');
   zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('arrastando'); };
@@ -3361,7 +3373,7 @@ function htmlTicket(t) {
     </div>`;
   }
   const cancelado = t.status === 'cancelado' || t.status === 'remarcado';
-  const QUEM = { ia: 'marcado pela IA', cliente: 'o cliente confirmou na conversa', detectado: `✨ percebido na conversa${t.detectadoPor === 'ia' ? ' pela IA' : ''}` };
+  const QUEM = { ia: 'marcado pela IA', cliente: 'o cliente confirmou na conversa', etiqueta: `🏷️ etiqueta Agendado no WhatsApp${t.detectadoPor === 'ia' ? ' (a IA achou o horário na conversa)' : ''}`, detectado: `✨ percebido na conversa${t.detectadoPor === 'ia' ? ' pela IA' : ''}` };
   const QUEM_CANCELOU = { ia: 'a IA desmarcou', detectado: 'desmarcado na conversa', equipe: 'cancelado pela equipe' };
   const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO';
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
@@ -3618,6 +3630,22 @@ function avatarLead(l, classe = '') {
   return `<span class="avatar ${classe}"><img src="${esc(l.fotoUrl)}" alt="" loading="lazy" onerror="this.remove()"><span class="avatar-letra">${letra}</span></span>`;
 }
 
+// 📸 mídia sugerida pelo que o cliente disse/mostrou (foto do volante, modelo do carro)
+function htmlSugestaoMidia(l) {
+  const s = l.sugestaoMidia;
+  if (!s?.itens?.length || !l.podeReceber) return '';
+  return `<div class="sug-midia">
+    <div class="sug-midia-topo"><b>📸 Sugestão para mandar${s.carro ? ` · ${esc(s.carro)}` : ''}</b><span class="rotulo">${s.por === 'ia' ? '✨ a IA olhou a conversa' : 'pelo que o cliente escreveu'}</span>${s.itens.length > 1 ? '<button type="button" class="pequeno" data-sug-tirar="">Dispensar todas</button>' : ''}</div>
+    <div class="sug-midia-itens">${s.itens.map((x) => `
+      <div class="sug-midia-item">
+        ${x.capa ? `<img src="${esc(x.capa)}" alt="" loading="lazy">` : `<span class="sug-midia-icone">${x.tipo === 'album' ? '📁' : ICONE_TIPO[x.tipo] || '📎'}</span>`}
+        <div class="sug-midia-txt"><b>${esc(x.nome)}</b><span class="rotulo">#${esc(x.codigo)}${x.tipo === 'album' ? ` · álbum, ${x.quantidade} arquivos` : ''}${x.motivo ? ` · ${esc(x.motivo)}` : ''}</span></div>
+        <button type="button" class="pequeno primario" data-sug-enviar="${esc(x.codigo)}">Mandar</button>
+        <button type="button" class="pequeno" data-sug-tirar="${esc(x.codigo)}" title="Não é essa" aria-label="Dispensar">✕</button>
+      </div>`).join('')}</div>
+  </div>`;
+}
+
 async function paginaConversas(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -3776,6 +3804,7 @@ async function paginaConversas(id, params) {
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${htmlProximos(l)}
+      ${htmlSugestaoMidia(l)}
       ${l.podeReceber ? `
       <form class="chat-envio" id="chat-envio">
         <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
@@ -3806,7 +3835,7 @@ async function paginaConversas(id, params) {
     desenharLista();
     history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
     leadAberto = await api(`leads/${leadId}`);
-    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}`;
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}|${leadAberto.sugestaoMidia?.itens.map((x) => x.codigo).join() || ''}`;
     if (rolar) desenharChat();
     if (leadAberto.naoLidas) {
       api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
@@ -3819,7 +3848,7 @@ async function paginaConversas(id, params) {
   async function recarregarAberto() {
     if (!abertoId) return;
     const l = await api(`leads/${abertoId}`);
-    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}|${l.listaNegra}|${(l.etiquetas || []).join()}|${l.erroEtiquetaZap?.em || ''}`;
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}|${l.listaNegra}|${(l.etiquetas || []).join()}|${l.erroEtiquetaZap?.em || ''}|${l.sugestaoMidia?.itens.map((x) => x.codigo).join() || ''}`;
     if (assinatura === assinaturaAberta) return;
     // não apaga o que a pessoa está digitando
     const rascunho = $('#chat-texto')?.value || '';
@@ -4033,6 +4062,25 @@ async function paginaConversas(id, params) {
         });
       });
     };
+    $$('[data-sug-enviar]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await comEspera(b, () => api(`leads/${abertoId}/midia`, { method: 'POST', body: { nome: b.dataset.sugEnviar } }), 'Enviando…');
+          aviso('Enviado.');
+          assinaturaAberta = '';
+          recarregarAberto();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-sug-tirar]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await api(`leads/${abertoId}/sugestao-midia/dispensar`, { method: 'POST', body: { codigo: b.dataset.sugTirar } });
+          assinaturaAberta = '';
+          recarregarAberto();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
     $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
     const recarregarJa = () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); };
     $('#chat-venda').onclick = () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome });

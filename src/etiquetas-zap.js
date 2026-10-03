@@ -152,7 +152,7 @@ function acharLeadAntigo(empresa, jid) {
 }
 
 // Marcou/desmarcou no WhatsApp
-function associar(empresa, jid, labelId, tipo) {
+function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   const cfg = configDa(empresa);
   if (!jid || !labelId || /@g\.us$/.test(jid)) return false;
   const label = cfg.labels[labelId] || null;
@@ -170,6 +170,7 @@ function associar(empresa, jid, labelId, tipo) {
   if (!t) return false; // etiqueta desconhecida: vem na próxima leitura da lista
   const atuais = new Set(lead.etiquetas || []);
   const zap = new Set(lead.etiquetasZap || []);
+  const tinha = atuais.has(t.id);
   if (tipo === 'add') {
     atuais.add(t.id);
     zap.add(t.id);
@@ -179,6 +180,10 @@ function associar(empresa, jid, labelId, tipo) {
   }
   lead.etiquetas = [...atuais];
   lead.etiquetasZap = [...zap]; // já está igual no WhatsApp: não manda de volta
+  // etiqueta "Agendado": entra/sai da aba Agendamentos
+  const agenda = require('./detector-agenda');
+  if (agenda.ehEtiquetaAgendado(t.nome) && tipo === 'add' && !tinha) agenda.pelaEtiqueta(empresa, lead, { aoVivo }).catch((err) => console.error('[etiquetas-zap] agenda:', err.message));
+  if (agenda.ehEtiquetaAgendado(t.nome) && tipo !== 'add' && tinha && aoVivo) agenda.etiquetaTirada(empresa, lead);
   lead.atualizadoEm = agora();
   return true;
 }
@@ -194,7 +199,7 @@ function receberWebhook(empresa, evento, data) {
       const jid = d?.chatId || d?.association?.chatId || '';
       const labelId = String(d?.labelId ?? d?.association?.labelId ?? '');
       const tipo = d?.type === 'remove' ? 'remove' : 'add';
-      associar(empresa, jid, labelId, tipo);
+      associar(empresa, jid, labelId, tipo, { aoVivo: true });
     }
   }
   salvar();

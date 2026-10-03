@@ -130,6 +130,47 @@ function aplicar(empresa, lead, d) {
   return { acao: d.acao, agendamento: r.agendamento };
 }
 
+// ---------------------------------------------------------------- etiqueta "Agendado" do WhatsApp
+// Colocou a etiqueta Agendado no cliente (no celular ou no CRM): ele entra em
+// Agendamentos. A IA procura na conversa o dia/hora combinado; sem data, entra
+// como "data a combinar". Tirou a etiqueta: sai (só o que a etiqueta criou).
+const ehEtiquetaAgendado = (nome) => /^agendad/.test(semAcento(nome).trim());
+const DIAS_IMPORTACAO = 14;
+
+async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
+  if (!empresa || !lead || (lead.agendamentos || []).some(ehAgendado)) return null; // já está na agenda
+  // etiqueta antiga vinda da leitura geral: só conversas recentes, sem IA e sem aviso
+  if (!aoVivo && Date.now() - new Date(lead.atualizadoEm || lead.criadoEm || 0).getTime() > DIAS_IMPORTACAO * 86400000) return null;
+  const tickets = require('./tickets');
+  if (aoVivo) {
+    try {
+      const d = await porIa(empresa, lead);
+      if (d && (d.acao === 'agendar' || d.acao === 'remarcar') && d.quando && new Date(d.quando).getTime() > Date.now() - 3600 * 1000 && !(lead.agendamentos || []).some(ehAgendado)) {
+        const r = tickets.registrarAgendamento(empresa, lead, { quando: d.quando, descricao: d.descricao, por: 'etiqueta' });
+        if (r?.agendamento) {
+          r.agendamento.detectadoPor = 'ia';
+          if (d.trecho) r.agendamento.trecho = d.trecho;
+          salvar();
+          return r.agendamento;
+        }
+      }
+    } catch (err) {
+      console.error('[agenda] etiqueta:', err.message);
+    }
+  }
+  if ((lead.agendamentos || []).some(ehAgendado)) return null; // a conversa marcou enquanto a IA lia
+  const r = tickets.registrarAgendamento(empresa, lead, { quando: 'Data a combinar', descricao: '', por: 'etiqueta', semAviso: !aoVivo });
+  require('./alertas').registrar(empresa, `agenda:${lead.id}`, `🏷️ ${lead.nome || 'Cliente'} recebeu a etiqueta Agendado no WhatsApp e entrou em Agendamentos (data a combinar — coloque o dia na conversa).`, { nivel: 'info', leadId: lead.id });
+  return r?.agendamento || null;
+}
+
+function etiquetaTirada(empresa, lead) {
+  const tickets = require('./tickets');
+  for (const a of (lead.agendamentos || []).filter((x) => x.status === 'agendado' && x.por === 'etiqueta')) {
+    tickets.cancelarAgendamento(lead, a.id, { por: 'equipe', motivo: 'tirou a etiqueta Agendado', empresa });
+  }
+}
+
 // ---------------------------------------------------------------- entrada: cada mensagem nova
 function observar(empresa, lead) {
   if (!empresa || !lead || empresa.agendaAutomatica === false) return;
@@ -177,4 +218,4 @@ function revisarRecentes() {
   }
 }
 
-module.exports = { observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE };
+module.exports = { pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE };

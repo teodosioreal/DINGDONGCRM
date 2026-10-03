@@ -110,7 +110,7 @@ const LINHA = '━━━━━━━━━━━━━━━';
 
 function montarAviso(empresa, lead, ag, r) {
   const tel = telefoneDoCliente(lead);
-  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente', detectado: 'na conversa (o CRM percebeu sozinho)' };
+  const POR = { ia: 'pela IA', equipe: 'pela equipe', cliente: 'pelo cliente', detectado: 'na conversa (o CRM percebeu sozinho)', etiqueta: 'pela etiqueta Agendado do WhatsApp' };
   const { dia, hora } = diaEHora(ag);
   const blocoCliente = [
     `👤 *${lead.nome || 'Cliente sem nome'}*`,
