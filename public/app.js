@@ -819,7 +819,7 @@ async function paginaAgenda(id, params) {
       <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando && x.quandoTexto !== 'Data a combinar' ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
       <div class="ag-tags">
         <span class="etiqueta">${esc(QUEM[x.por] || x.por)}</span>
-        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}
+        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}${x.status === 'concluido' ? '<span class="etiqueta ok">✅ venda concluída</span>' : ''}
         ${x.avisoStatus === 'enviado' ? '<span class="etiqueta ok" title="O número de aviso recebeu">aviso ✓</span>' : x.avisoStatus === 'erro' ? `<span class="etiqueta aviso" title="${esc(x.avisoErro)}">aviso falhou</span>` : ''}
       </div>
       <div class="ag-acoes"><a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">Conversa</a>${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar">✕</button>` : ''}</div>
@@ -3351,12 +3351,13 @@ function htmlTicket(t) {
   const cancelado = t.status === 'cancelado' || t.status === 'remarcado';
   const QUEM = { ia: 'marcado pela IA', cliente: 'o cliente confirmou na conversa', etiqueta: `🏷️ etiqueta Agendado no WhatsApp${t.detectadoPor === 'ia' ? ' (a IA achou o horário na conversa)' : ''}`, detectado: `✨ percebido na conversa${t.detectadoPor === 'ia' ? ' pela IA' : ''}` };
   const QUEM_CANCELOU = { ia: 'a IA desmarcou', detectado: 'desmarcado na conversa', equipe: 'cancelado pela equipe' };
-  const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : 'AGENDADO';
+  const concluido = t.status === 'concluido';
+  const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : concluido ? 'AGENDAMENTO CONCLUÍDO (VENDA)' : 'AGENDADO';
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
     <span class="ticket-icone" aria-hidden="true">${cancelado ? '🗓️' : '📅'}</span>
     <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
     ${!cancelado && t.trecho ? `<span class="ticket-trecho">“${esc(t.trecho)}”</span>` : ''}
-    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
+    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
   </div>`;
 }
 

@@ -259,19 +259,49 @@ function registrar(empresa, lead, dados, extra = {}) {
   if (venda.status === 'confirmada') venda.confirmadaEm = venda.criadoEm;
   estado.vendas.push(venda);
   if (lead && venda.status === 'confirmada') aoVender(empresa, lead);
-  // o cliente mandou o comprovante: a etiqueta do WhatsApp já troca (Agendado → Pago…),
+  // o cliente mandou o comprovante: já sai de "agendado" (etapa, etiqueta, agenda),
   // mesmo que o valor ainda fique para a equipe conferir
-  else if (lead && venda.origem === 'comprovante') trocarEtiquetaDeVenda(empresa, lead);
+  else if (lead && venda.origem === 'comprovante') aoVender(empresa, lead);
   salvar();
   return { venda, repetida: false };
 }
 
 // Lead que pagou: vai para "Fechado" e ganha a etiqueta "Cliente"
+// Venda concluída (comprovante, IA, equipe ou Faturamento): o cliente sai de
+// "agendado" e vai para o lugar certo — etapa de venda no funil, etiqueta de venda
+// no WhatsApp e o horário marcado como concluído na aba Agendamentos.
 function aoVender(empresa, lead) {
   const cfg = configDa(empresa);
   const fechado = etapaFechado(empresa);
   if (cfg.moverParaFechado && fechado) leads.moverEtapa(lead, empresa, fechado, 'sistema');
   trocarEtiquetaDeVenda(empresa, lead);
+  concluirAgendamentos(lead);
+}
+
+// Uma vez: quem já vendeu nos últimos 3 dias e continuava como "agendado"
+function arrumarVendidosAgendados() {
+  let n = 0;
+  for (const empresa of estado.empresas) {
+    if (empresa.vendaTiraAgendado === 1) continue;
+    empresa.vendaTiraAgendado = 1;
+    const limite = Date.now() - 3 * 86400000;
+    const vendeu = new Set(vendasDa(empresa).filter((v) => v.leadId && v.status !== 'cancelada' && new Date(v.criadoEm || v.data).getTime() > limite).map((v) => v.leadId));
+    for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id && vendeu.has(c.id))) {
+      aoVender(empresa, lead);
+      n++;
+    }
+  }
+  if (n) console.log(`[faturamento] ${n} cliente(s) com venda recente saíram de "agendado"`);
+  salvar();
+  return n;
+}
+
+function concluirAgendamentos(lead) {
+  for (const a of lead.agendamentos || []) {
+    if (a.status !== 'agendado') continue;
+    a.status = 'concluido';
+    a.concluidoEm = new Date().toISOString();
+  }
 }
 
 // Etiquetas do WhatsApp: a venda entra → sai "Agendado" (e "Orçamento", "Negociando"…)
@@ -286,10 +316,9 @@ function trocarEtiquetaDeVenda(empresa, lead) {
     alvo = tags.find((t) => re.test(limpar(t.nome).trim()));
     if (alvo) break;
   }
-  if (!alvo) return false;
   const tirar = new Set(tags.filter((t) => ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim())).map((t) => t.id));
   const antes = (lead.etiquetas || []).join();
-  lead.etiquetas = [...new Set([...(lead.etiquetas || []).filter((id) => !tirar.has(id)), alvo.id])];
+  lead.etiquetas = [...new Set([...(lead.etiquetas || []).filter((id) => !tirar.has(id)), ...(alvo ? [alvo.id] : [])])];
   if (lead.etiquetas.join() !== antes) lead.atualizadoEm = new Date().toISOString();
   return true;
 }
@@ -383,6 +412,7 @@ module.exports = {
   vendasDa,
   registrar,
   aoVender,
+  arrumarVendidosAgendados,
   trocarEtiquetaDeVenda,
   processarArquivo,
   resumo,

@@ -136,6 +136,7 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = '
     if (!recente.descricao && desc) recente.descricao = desc;
     if (!recente.valor && v) recente.valor = v;
     if (v && recente.status === 'conferir' && por !== 'ia') Object.assign(recente, { valor: v, status: 'confirmada', confirmadaEm: agora(), motivoConferir: '' }); // a equipe confirmou o valor
+    comprovantes.aoVender(empresa, lead);
     lead.atualizadoEm = agora();
     salvar();
     return { venda: recente, nova: false };

@@ -1396,7 +1396,7 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
     if (c.empresaId !== empresa.id) continue;
     for (const a of c.agendamentos || []) {
       const t = a.quando ? new Date(a.quando).getTime() : null;
-      const grupo = a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
+      const grupo = a.status === 'concluido' ? 'passados' : a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
       lista.push({
         id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
         quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
@@ -1681,6 +1681,7 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
     c.vendaConcluidaManual = true;
     c.vendaConcluidaEm = agora();
     c.vendaConcluidaPor = req.usuario.email;
+    comprovantes.aoVender(empresa, c); // sai de "agendado": etiqueta do WhatsApp e agenda
     if (etapaFechado && c.etapa !== etapaFechado) {
       c.etapaAntesDaVenda = c.etapa;
       leads.moverEtapa(c, empresa, etapaFechado, 'equipe');

@@ -16,6 +16,7 @@ const automacoes = require('./src/automacoes');
 garantirAdmin();
 migrarLeads();
 soEtiquetasDoZap(); // etiquetas: só as do WhatsApp Business
+require('./src/comprovantes').arrumarVendidosAgendados(); // venda recente + ainda "agendado" → lugar certo
 require('./src/detector-agenda').revisarRecentes(); // agendamentos combinados enquanto o CRM estava fora
 
 const app = express();
