@@ -823,7 +823,31 @@ function extrairAcoes(bruto) {
     mensagemWhatsapp = marcador[1].trim() || null;
     texto = texto.slice(0, marcador.index);
   }
-  texto = texto.replace(/\n{3,}/g, '\n\n').trim();
+  // Rede de segurança: código nenhum chega ao cliente. Códigos escritos fora do
+  // formato ([[MIDIA X]], #PAUSAR, #MIDIA_X) ainda funcionam; o que sobrar é apagado.
+  const limparCodigos = (t) =>
+    String(t || '')
+      .replace(/\[\[\s*(?:PAUSAR|HUMANO)[^\]]*\]\]|(^|[^\w#])#(?:PAUSAR|HUMANO)\b/gi, (achado, antes = '') => {
+        humano = true;
+        return typeof antes === 'string' && !achado.startsWith('[[') ? antes : '';
+      })
+      .replace(/\[\[\s*M[IÍ]DIA\s+([^\]]+?)\s*\]\]/gi, (_, nome) => {
+        midias.push(nome.trim());
+        return '';
+      })
+      .replace(/(^|[^\w#])#M[IÍ]DIA[_:-]?([A-Z0-9][A-Z0-9_-]*)/g, (_, antes, nome) => {
+        midias.push(nome.trim());
+        return antes;
+      })
+      .replace(/\[\[[^\]\n]{0,200}\]\]/g, '') // qualquer [[CÓDIGO]] que sobrou
+      .replace(/\[\[[^\]\n]*$/g, '') // código cortado no fim da resposta
+      .replace(/(^|[^\w#])#[A-Z][A-Z0-9_]{2,}\b/g, '$1') // #CODIGO em maiúsculas
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/ +([,.!?])/g, '$1')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  texto = limparCodigos(texto);
+  if (mensagemWhatsapp) mensagemWhatsapp = limparCodigos(mensagemWhatsapp) || null;
   return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local, desmarcar };
 }
 
