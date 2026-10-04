@@ -139,7 +139,26 @@ function slugCodigo(v) {
     .replace(/^#/, '')
     .replace(/[^A-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 24);
+    .slice(0, 40);
+}
+
+// O que a pessoa (ou a IA) escreveu → código guardado. Aceita "#MIDIA_FOTO_ANTES",
+// "midia_foto_antes", "**#MIDIA_FOTO_ANTES**", "FOTO-ANTES"… (o prefixo MIDIA_ é só visual)
+function semPrefixo(v) {
+  return String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/^[\s*"'`“”]+|[\s*"'`“”.,;!?]+$/g, '')
+    .replace(/^#\s*/, '')
+    .replace(/^midia(?:[\s_:-]+|$)/i, '');
+}
+function codigoDaEntrada(v) {
+  return slugCodigo(semPrefixo(v));
+}
+
+// Como o código aparece no painel e no prompt: #MIDIA_FOTO_ANTES_DEPOIS
+function codigoVisivel(codigo) {
+  return codigo ? `#MIDIA_${String(codigo).replace(/-/g, '_')}` : '';
 }
 
 function codigosEmUso(empresa, excetoId = null) {
@@ -152,7 +171,7 @@ function codigosEmUso(empresa, excetoId = null) {
 
 function novoCodigo(empresa, base, excetoId = null) {
   const usados = codigosEmUso(empresa, excetoId);
-  const raiz = slugCodigo(base) || 'MIDIA';
+  const raiz = codigoDaEntrada(base) || slugCodigo(base) || 'ARQUIVO';
   if (!usados.has(raiz)) return raiz;
   for (let i = 2; i < 1000; i++) {
     const c = `${raiz.slice(0, 20)}-${i}`;
@@ -163,9 +182,9 @@ function novoCodigo(empresa, base, excetoId = null) {
 
 // Código escolhido pela pessoa: limpa e confere se já existe
 function validarCodigo(empresa, codigo, excetoId) {
-  const c = slugCodigo(codigo);
-  if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números (ex.: TABELA, FOTO-ANTES-DEPOIS).'), { status: 400 });
-  if (codigosEmUso(empresa, excetoId).has(c)) throw Object.assign(new Error(`O código ${c} já está em uso. Escolha outro.`), { status: 400 });
+  const c = codigoDaEntrada(codigo);
+  if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números depois de #MIDIA_ (ex.: #MIDIA_TABELA, #MIDIA_FOTO_ANTES_DEPOIS).'), { status: 400 });
+  if (codigosEmUso(empresa, excetoId).has(c)) throw Object.assign(new Error(`O código ${codigoVisivel(c)} já está em uso nesta empresa. Escolha outro.`), { status: 400 });
   return c;
 }
 
@@ -293,7 +312,9 @@ function acharPorNome(empresa, nome) {
 // Código (ou nome) → o que enviar: { itens: [mídias], etapas: [...], alvo }
 const MAX_POR_ALBUM = 10;
 function resolverPedido(empresa, ref) {
-  const codigo = slugCodigo(ref);
+  // "#MIDIA_FOTO_ANTES" → FOTO-ANTES; um código antigo que começa com MIDIA- também vale
+  const candidatos = [codigoDaEntrada(ref), slugCodigo(ref)].filter(Boolean);
+  const codigo = candidatos.find((c) => codigosEmUso(empresa).has(c)) || candidatos[0] || '';
   const todas = midiasDa(empresa);
   const porCodigo = todas.find((m) => m.codigo === codigo);
   if (porCodigo) return { itens: [porCodigo], etapas: porCodigo.etapas || [], alvo: porCodigo };
@@ -301,7 +322,7 @@ function resolverPedido(empresa, ref) {
   if (album) return { itens: todas.filter((m) => m.albumId === album.id).slice(0, MAX_POR_ALBUM), etapas: album.etapas || [], alvo: album };
   const pasta = pastasDa(empresa).find((p) => p.codigo === codigo) || pastasDa(empresa).find((p) => limpar(p.nome) === limpar(ref));
   if (pasta) return { itens: todas.filter((m) => m.pastaId === pasta.id).slice(0, MAX_POR_ALBUM), etapas: pasta.etapas || [], alvo: pasta };
-  const avulsa = acharPorNome(empresa, ref);
+  const avulsa = acharPorNome(empresa, semPrefixo(ref).replace(/_/g, ' ')) || acharPorNome(empresa, ref);
   if (avulsa) return { itens: [avulsa], etapas: avulsa.etapas || [], alvo: avulsa };
   return { itens: [], etapas: [], alvo: null };
 }
@@ -325,7 +346,7 @@ function paraIa(empresa, { followup = false } = {}) {
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
     .filter((m) => !m.pastaId && !m.albumId && valeAqui(m))
-    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, servicos: servicos(m.codigo) }));
+    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
     .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo))).length, servicos: servicos(a.codigo) }))
@@ -334,6 +355,42 @@ function paraIa(empresa, { followup = false } = {}) {
     .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
     .filter((a) => a.quantidade > 0);
   return [...avulsas, ...albuns, ...pastas];
+}
+
+// ---------------------------------------------------------------- códigos citados no prompt
+// O dono pode citar o código no prompt ("quando perguntarem do preço, mande #MIDIA_TABELA").
+// O sistema reconhece e avisa no painel se o código não existe (ou está desativado).
+const CAMPOS_PROMPT = { promptWhatsapp: 'Instruções do WhatsApp', regras: 'Instruções do site', conhecimento: 'Sobre a empresa', oferta: 'Oferta', objetivo: 'Objetivo' };
+function codigosCitados(empresa, texto) {
+  const achados = [];
+  const re = /\[\[\s*M[IÍ]DIA\s*:?\s*([^\]\n]+?)\s*\]\]|#\s*[Mm][IiÍí][Dd][Ii][Aa][_:-]\s*([A-Za-z0-9][A-Za-z0-9_-]*)/g;
+  let m;
+  while ((m = re.exec(String(texto || '')))) {
+    const ref = (m[1] || m[2] || '').trim();
+    if (!ref) continue;
+    const pedido = resolverPedido(empresa, ref);
+    const alvo = pedido.alvo;
+    achados.push({
+      escrito: m[0],
+      codigo: alvo?.codigo ? codigoVisivel(alvo.codigo) : `#MIDIA_${ref.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`,
+      existe: Boolean(alvo),
+      ativa: Boolean(alvo) && (pedido.itens.some((x) => prontaParaIa(x)) || (!alvo.arquivo && pedido.itens.length > 0)),
+      nome: alvo?.nome || ''
+    });
+  }
+  return achados;
+}
+
+function avisosDoPrompt(empresa) {
+  const bots = estado.bots.filter((b) => b.empresaId === empresa.id);
+  const lista = [];
+  for (const bot of bots) {
+    for (const [campo, rotulo] of Object.entries(CAMPOS_PROMPT)) {
+      for (const c of codigosCitados(empresa, bot[campo])) lista.push({ ...c, campo, onde: rotulo, botId: bot.id, bot: bot.nome || 'Assistente' });
+    }
+  }
+  const unicos = (f) => [...new Map(lista.filter(f).map((c) => [`${c.codigo}|${c.onde}`, c])).values()];
+  return { citados: unicos(() => true), inexistentes: unicos((c) => !c.existe), desativadas: unicos((c) => c.existe && !c.ativa) };
 }
 
 // ---------------------------------------------------------------- envio em pedaços (arquivos grandes)
@@ -469,11 +526,46 @@ async function listarPastaApi(pastaId, chaveGoogle) {
 }
 
 async function baixarDoDrive(arquivoId) {
-  const res = await fetch(`${DRIVE}/uc?export=download&id=${encodeURIComponent(arquivoId)}`, { redirect: 'follow', signal: AbortSignal.timeout(60000) });
-  const tipo = res.headers.get('content-type') || '';
-  if (!res.ok || /text\/html/i.test(tipo)) throw new Error('arquivo não público ou grande demais');
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return { buffer, tipo: tipo.split(';')[0] };
+  // arquivo grande: o Drive mostra "não foi possível verificar vírus" — confirm=t pula o aviso
+  for (const url of [linkDiretoDrive(arquivoId), `${linkDiretoDrive(arquivoId)}&confirm=t`]) {
+    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(180000) });
+    const tipo = res.headers.get('content-type') || '';
+    if (res.ok && !/text\/html/i.test(tipo)) {
+      const nome = decodeURIComponent((res.headers.get('content-disposition') || '').match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)?.[1] || '');
+      return { buffer: Buffer.from(await res.arrayBuffer()), tipo: tipo.split(';')[0], nome };
+    }
+  }
+  throw new Error('o arquivo não está público ("Qualquer pessoa com o link") ou não existe');
+}
+
+// Link de ARQUIVO do Google Drive (compartilhar, abrir, uc…) → id do arquivo
+function idDoArquivoDrive(link) {
+  const t = String(link || '').trim();
+  if (!/drive\.google\.com|docs\.google\.com|drive\.usercontent\.google\.com/i.test(t) && !t.startsWith(DRIVE)) return '';
+  if (/\/folders\//.test(t)) return '';
+  const m = t.match(/\/file\/d\/([\w-]{10,})/) || t.match(/[?&]id=([\w-]{10,})/) || t.match(/\/d\/([\w-]{10,})/);
+  return m ? m[1] : '';
+}
+
+// Link direto de download (o que o CRM baixa e guarda)
+function linkDiretoDrive(arquivoId) {
+  return `${DRIVE}/uc?export=download&id=${encodeURIComponent(arquivoId)}`;
+}
+
+// Cadastra uma mídia a partir do link de um arquivo do Drive: converte para o link
+// direto, baixa e guarda na biblioteca (o WhatsApp baixa do CRM, sempre funciona)
+async function salvarMidiaDoLink(empresa, { link, nome, descricao, extra = {} }) {
+  const arquivoId = idDoArquivoDrive(link);
+  if (!arquivoId) throw Object.assign(new Error('Cole o link de um ARQUIVO do Google Drive (ex.: https://drive.google.com/file/d/…/view). Para pasta, use "Pasta do Drive".'), { status: 400 });
+  let baixado;
+  try {
+    baixado = await baixarDoDrive(arquivoId);
+  } catch (err) {
+    throw Object.assign(new Error(`Não consegui baixar do Drive: ${err.message}.`), { status: 400 });
+  }
+  const ext = Object.entries(EXTENSOES).find(([, mime]) => mime === baixado.tipo)?.[0] || path.extname(baixado.nome || '') || '';
+  const nomeArquivo = baixado.nome || `${nome || 'arquivo'}${ext}`;
+  return salvarMidia(empresa, { buffer: baixado.buffer, nomeArquivo: path.extname(nomeArquivo) ? nomeArquivo : `${nomeArquivo}${ext}`, nome: nome || path.parse(nomeArquivo).name, descricao, mimetypeInformado: baixado.tipo, extra: { ...extra, origemLink: linkDiretoDrive(arquivoId).replace(DRIVE, 'https://drive.google.com') } });
 }
 
 const EXT_ACEITAS = /\.(jpe?g|png|webp|gif|mp4|3gp|mov|m4v|webm|mkv|avi|mp3|ogg|opus|m4a|aac|pdf)$/i;
@@ -620,6 +712,14 @@ module.exports = {
   novoCodigo,
   validarCodigo,
   slugCodigo,
+  codigoDaEntrada,
+  codigoVisivel,
+  idDoArquivoDrive,
+  linkDiretoDrive,
+  salvarMidiaDoLink,
+  codigosCitados,
+  avisosDoPrompt,
+  codigosEmUso,
   listaEtapas,
   resolverPedido,
   iniciarEnvio,

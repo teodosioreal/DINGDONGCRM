@@ -51,6 +51,12 @@ async function evo(e, metodo, caminho) {
     const f = e.faturamento || {};
     console.log(`      faturamento: ${f.ativo === false ? 'DESLIGADO' : 'ligado'} · ler com IA: ${f.usarIa === false ? 'não' : 'sim'} · recebedores cadastrados: ${String(f.recebedores || '').trim() ? 'sim' : 'não'}`);
     console.log(`      vendas (30 h): ${vendas.length}${vendas.length ? ' → ' + vendas.map((v) => `${v.status}/${v.origem || '?'}/${v.lidoPor || '?'}${v.motivoConferir ? ` (${String(v.motivoConferir).slice(0, 50)})` : ''}`).join(' · ') : ''}`);
+    const logs30 = (db.logRespostas || []).filter((l) => l.empresaId === e.id && new Date(l.em).getTime() > desde);
+    const midiasLog = logs30.flatMap((l) => l.midias || []);
+    const contaSt = (st) => midiasLog.filter((m) => m.status === st).length;
+    console.log(`      respostas da IA (30 h, log): ${logs30.length} · com erro: ${logs30.filter((l) => (l.erros || []).length).length} · mídias enviadas: ${contaSt('enviada')} · já enviadas (não repetiu): ${contaSt('ja-enviada')} · código inexistente: ${contaSt('nao-existe')} · falha no envio: ${contaSt('erro')} · prometeu mídia sem código: ${logs30.filter((l) => (l.avisos || []).some((a) => /sem|nenhum código/.test(a))).length}`);
+    const ev = e.eventosIa || {};
+    console.log(`      avisos internos ligados: ${Object.entries(ev).filter(([, v]) => v.ativo).map(([k, v]) => `${k}${v.minutos ? ` ${v.minutos} min` : ''}`).join(', ') || 'só o padrão (foto do cliente)'}`);
     const gc = e.gastos || {};
     const gastos30 = (db.gastos || []).filter((g) => g.empresaId === e.id && new Date(g.criadoEm).getTime() > desde);
     console.log(`      gastos pelo grupo: ${gc.grupoJid ? 'grupo conectado' : 'sem grupo'} · lançados (30 h): ${gastos30.length}${gastos30.length ? ` (${gastos30.map((g) => g.lidoPor).join(', ')})` : ''}`);

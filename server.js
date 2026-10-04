@@ -126,6 +126,7 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/etiquetas-zap').iniciar();
   require('./src/varredura-vendas').iniciar(); // de hora em hora: vendas pela frase da equipe e comprovantes que ficaram para trás (sem gastar IA)
   require('./src/gastos').iniciar(); // grupo de gastos do WhatsApp: busca o que não chegou pelo webhook
+  require('./src/eventos-ia').iniciar(); // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
   // mesmo cliente em duas conversas (número com/sem 9, id escondido): junta ao ligar e a cada 20 min
   const revisarDuplicadas = () => {
     for (const e of require('./src/db').estado.empresas) {

@@ -518,6 +518,8 @@ function lembrarEnvio(resposta, destino) {
 }
 
 const foiEnviadoPeloCrm = (id) => enviadosPeloCrm.has(id);
+// a IA já vai responder (ou está escrevendo) para este contato?
+const iaOcupadaCom = (leadId) => agendadas.has(leadId) || emResposta.has(leadId);
 
 // "digitando…" proporcional ao tamanho, como uma pessoa (máx. 5 s)
 // Ritmo da IA no WhatsApp. "espera": quanto tempo ela espera o cliente parar
@@ -1239,7 +1241,9 @@ const emResposta = new Map(); // leadId → { refazer }
 const naoAtropelar = (empresa) => empresa?.whatsappConfig?.naoAtropelar !== false;
 const ultimaDoCliente = (lead) => [...(lead.mensagens || [])].reverse().find((m) => m.papel === 'visitante') || null;
 
-async function responderLead(empresaId, leadId, tentativa = 0) {
+// opcoes.evento: aviso interno da plataforma (ex.: 'SEM_RESPOSTA') que a IA recebe como
+// [SEM_RESPOSTA] no fim da conversa — o cliente nunca vê
+async function responderLead(empresaId, leadId, tentativa = 0, opcoes = {}) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   if (naoAtropelar(empresa) && emResposta.has(leadId)) {
     emResposta.get(leadId).refazer = true; // a IA já está escrevendo: refaz quando ela terminar
@@ -1249,7 +1253,7 @@ async function responderLead(empresaId, leadId, tentativa = 0) {
   emResposta.set(leadId, vez);
   let refazer = false;
   try {
-    refazer = await responderLeadUmaVez(empresaId, leadId, vez, tentativa);
+    refazer = await responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes);
   } finally {
     if (emResposta.get(leadId) === vez) emResposta.delete(leadId);
   }
@@ -1259,7 +1263,7 @@ async function responderLead(empresaId, leadId, tentativa = 0) {
 }
 
 // true = descartou a resposta porque o cliente mandou mensagem nova (precisa refazer)
-async function responderLeadUmaVez(empresaId, leadId, vez, tentativa) {
+async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {}) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   const lead = estado.conversas.find((c) => c.id === leadId);
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva) return;
@@ -1275,12 +1279,17 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa) {
   estado.uso[bot.id] = usoHoje;
 
   const ultimaAntes = ultimaDoCliente(lead);
+  const eventos = require('./eventos-ia');
+  const logs = require('./log-respostas');
+  const origemLog = opcoes.evento ? `evento:${opcoes.evento}` : 'resposta';
+  // avisos internos: [CLIENTE_ENVIOU_FOTO] nas fotos do cliente e o evento desta vez no fim
+  const historico = eventos.historicoParaIa(empresa, leads.historicoParaIa(lead), opcoes.evento);
   let r;
   try {
-    r = await ia.responder(bot, empresa, leads.historicoParaIa(lead), {
+    r = await ia.responder(bot, empresa, historico, {
       canal: 'whatsapp',
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
-      midiasEnviadas: [...new Set(lead.mensagens.filter((m) => m.midiaCodigo).map((m) => m.midiaCodigo))],
+      midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])],
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
       clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
@@ -1291,27 +1300,41 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa) {
       etiquetas: leads.etiquetasDa(empresa)
     });
   } catch (err) {
+    logs.registrar(empresa, lead, { origem: origemLog, situacao: 'erro', erros: [`A IA não conseguiu responder: ${ia.descreverErroIa(err)}`] });
     return registrarIa(empresa, lead, 'erro', `A IA não conseguiu responder: ${ia.descreverErroIa(err)}`);
   }
+  const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, midias: [], avisos: [], erros: [] };
   // se a equipe assumiu enquanto a IA pensava, não responde
-  if (lead.iaPausada) return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA pensava.');
+  if (lead.iaPausada) {
+    logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['A equipe assumiu enquanto a IA pensava: nada foi enviado.'] });
+    return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA pensava.');
+  }
   // o cliente mandou outra mensagem enquanto a IA escrevia → descarta e refaz com tudo (até 3 vezes)
   if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || ultimaDoCliente(lead) !== ultimaAntes)) {
+    logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['O cliente mandou outra mensagem enquanto a IA escrevia: esta resposta foi descartada e a IA respondeu tudo junto.'] });
     registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA escrevia: a resposta foi descartada e a IA vai responder tudo junto.');
     return true;
   }
+  if (logs.prometeuMidiaSemCodigo(r.texto, r.midias)) log.avisos.push('A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.');
 
   if (r.texto) {
     try {
-      await enviarTexto(empresa, lead.whatsappJid, r.texto);
+      const env = await enviarTexto(empresa, lead.whatsappJid, r.texto);
+      log.textoEnviado = r.texto;
+      log.evolutionTexto = { endpoint: 'sendText', id: env?.key?.id || null, status: env?.status || null };
     } catch (err) {
+      logs.registrar(empresa, lead, { ...log, situacao: 'erro', erros: [`O WhatsApp não enviou o texto: ${err.message}`] });
       return registrarIa(empresa, lead, 'erro', `A IA escreveu a resposta, mas o WhatsApp não enviou: ${err.message}`);
     }
-    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto });
+    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto, ...(opcoes.evento ? { eventoIa: opcoes.evento } : {}) });
     if (!r.agendamento) require('./tickets').agendamentoDaMensagem(empresa, lead, r.texto, 'ia');
     if (!r.agendamento && !r.desmarcar) require('./detector-agenda').observar(empresa, lead);
   }
-  await enviarMidiasPedidas(empresa, lead, r.midias);
+  try {
+    log.midias = (await enviarMidiasPedidas(empresa, lead, r.midias)).itens;
+  } catch (err) {
+    log.erros.push(`Falha ao enviar as mídias: ${err.message}`);
+  }
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
   // venda/agendamento confirmados → aviso na conversa (e venda no Faturamento)
   try {
@@ -1323,12 +1346,14 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa) {
   // a IA combinou de retomar depois → follow-up agendado (com cronômetro no painel)
   if (r.retomar) require('./automacoes').agendarFollowupDaIa(empresa, lead, r.retomar);
   for (const nome of r.etiquetas || []) leads.aplicarEtiqueta(lead, empresa, nome);
+  // #PAUSAR: pausa a IA neste contato DEPOIS dos envios (no painel: "Devolver para a IA")
   if (r.humano) {
     lead.iaPausada = true;
-    lead.iaPausadaMotivo = 'A IA chamou uma pessoa da equipe';
+    lead.iaPausadaMotivo = 'A IA pausou (#PAUSAR) e chamou uma pessoa da equipe';
     lead.precisaHumano = true;
   }
-  registrarIa(empresa, lead, 'respondeu', r.humano ? 'Respondeu e chamou a equipe.' : 'Respondeu.');
+  logs.registrar(empresa, lead, { ...log, pausou: r.humano, situacao: !r.texto && !log.midias.some((m) => m.status === 'enviada') ? 'nada' : r.humano ? 'pausada' : 'enviada' });
+  registrarIa(empresa, lead, 'respondeu', r.humano ? 'Respondeu e chamou a equipe.' : !r.texto && r.nada ? 'Não tinha nada a dizer (#NADA).' : 'Respondeu.');
 }
 
 // ---------------------------------------------------------------- respostas rápidas com mídia
@@ -1367,42 +1392,75 @@ async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
 // [[MIDIA: …]] pedidas pela IA (mídia avulsa ou álbum inteiro)
 // papel: quem pediu ('assistente' = IA/automação: só mídia pronta e na etapa certa; 'equipe' = escolhida à mão).
 // papelMensagem: como aparece na conversa (ex.: follow-up escolhido à mão, mas enviado pela IA)
+// Esta mídia já foi para este contato? (registro novo + mensagens antigas)
+function jaEnviouMidia(lead, codigo) {
+  if (!codigo) return false;
+  return Boolean(lead.midiasEnviadas?.[codigo]) || (lead.mensagens || []).some((m) => m.midiaCodigo === codigo && !m.apagada);
+}
+
+function anotarMidiaEnviada(lead, midia) {
+  if (!midia.codigo) return;
+  lead.midiasEnviadas = lead.midiasEnviadas || {};
+  const antes = lead.midiasEnviadas[midia.codigo];
+  lead.midiasEnviadas[midia.codigo] = { nome: midia.nome, tipo: midia.tipo, primeiraEm: antes?.primeiraEm || agora(), em: agora(), vezes: (antes?.vezes || 0) + 1 };
+}
+
 async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', { papelMensagem = papel, followup = false } = {}) {
-  const resultado = { enviadas: 0, falhas: [] };
+  // itens: o que aconteceu com cada mídia (vai para o log da resposta)
+  const resultado = { enviadas: 0, falhas: [], itens: [] };
+  const visivel = (c, ref) => (c ? midias.codigoVisivel(c) : String(ref || ''));
+  const daIa = papel === 'assistente' && !followup;
+  const jaNestaResposta = new Set();
   for (const nome of nomes || []) {
     const pedido = midias.resolverPedido(empresa, nome);
-    // a IA (e as automações) só mandam mídia PRONTA; a equipe manda qualquer uma
+    const codigoPedido = visivel(pedido.alvo?.codigo, nome);
+    if (!pedido.alvo) {
+      resultado.itens.push({ codigo: String(nome).startsWith('#') ? String(nome) : `#MIDIA_${String(nome).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`, status: 'nao-existe', motivo: 'não existe mídia com esse código nesta empresa' });
+      require('./alertas').registrar(empresa, 'midia', `A IA pediu a mídia "${nome}", mas não existe mídia com esse código nesta empresa. Nada foi enviado — confira os códigos em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+      continue;
+    }
+    // a IA (e as automações) só mandam mídia ATIVA (pronta); a equipe manda qualquer uma
     const naoProntas = papel === 'assistente' ? pedido.itens.filter((m) => !midias.prontaParaIa(m)) : [];
     const achadas = pedido.itens.filter((m) => !naoProntas.includes(m));
-    if (naoProntas.length) {
-      console.error(`[whatsapp ${lead.id}] mídia ${nome}: ${naoProntas.length} não pronta(s), não enviei`);
-      if (!achadas.length) {
-        require('./alertas').registrar(empresa, 'midia', `A IA quis enviar "${nome}", mas a mídia ainda não está marcada como pronta. Nada foi enviado — configure em Mídias.`, { nivel: 'aviso', leadId: lead.id });
-        continue;
-      }
+    if (naoProntas.length && !achadas.length) {
+      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'inativa', motivo: 'a mídia está desativada (a configurar)' });
+      require('./alertas').registrar(empresa, 'midia', `A IA quis enviar "${codigoPedido}", mas a mídia está desativada. Nada foi enviado — ative em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+      continue;
     }
     // mídia "só no follow-up": a IA não manda numa conversa normal
-    if (papel === 'assistente' && !followup && pedido.alvo?.soFollowup) {
-      console.error(`[whatsapp ${lead.id}] mídia ${nome} é só do follow-up: não enviei`);
+    if (daIa && pedido.alvo?.soFollowup) {
+      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'pulada', motivo: 'é só do follow-up' });
       continue;
     }
     // mídia presa a uma etapa só sai quando o lead está nela (pedido da IA; a equipe manda sempre)
     if (papel === 'assistente' && pedido.etapas?.length && !pedido.etapas.some((e) => leads.acharEtapa(empresa, e) === lead.etapa)) {
-      console.error(`[whatsapp ${lead.id}] mídia ${nome} é da etapa ${pedido.etapas.join('/')}, o lead está em ${lead.etapa}: não enviei`);
+      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'pulada', motivo: `só na etapa ${pedido.etapas.join('/')} (o lead está em ${lead.etapa})` });
       continue;
     }
     if (!achadas.length) {
-      require('./alertas').registrar(empresa, 'midia', `A IA pediu a mídia "${nome}", mas não existe mídia com esse código. Confira os códigos em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'nao-existe', motivo: 'álbum/pasta sem arquivos' });
+      continue;
     }
     for (const midia of achadas) {
+      const codigo = visivel(midia.codigo, midia.nome);
+      if (jaNestaResposta.has(midia.id)) continue; // a IA repetiu o código na mesma resposta
+      jaNestaResposta.add(midia.id);
+      // "enviar uma vez por conversa" (padrão): a IA não repete para o mesmo contato
+      if (daIa && midia.umaVezPorConversa !== false && jaEnviouMidia(lead, midia.codigo)) {
+        resultado.itens.push({ codigo, nome: midia.nome, tipo: midia.tipo, status: 'ja-enviada', motivo: `já enviada para este contato em ${new Date(lead.midiasEnviadas?.[midia.codigo]?.em || Date.now()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` });
+        continue;
+      }
       try {
-        await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia);
-        leads.adicionarMensagem(lead, { papel: papelMensagem, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${midia.codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
+        const r = await enviarMidia(empresa, lead.whatsappJid || whatsappDestino(lead), midia, midia.tipo === 'audio' ? '' : midia.legenda || '');
+        leads.adicionarMensagem(lead, { papel: papelMensagem, canal: 'whatsapp', texto: `[enviou a mídia: ${midia.codigo ? `${codigo} — ` : ''}${midia.nome}]`, midiaId: midia.id, midiaCodigo: midia.codigo || '' });
+        anotarMidiaEnviada(lead, midia);
         resultado.enviadas++;
+        resultado.itens.push({ codigo, nome: midia.nome, tipo: midia.tipo, status: 'enviada', endpoint: midia.tipo === 'audio' ? 'sendWhatsAppAudio' : `sendMedia (${midia.tipo === 'video' && !videoTocaNoWhatsapp(midia) ? 'document' : midia.tipo})`, evolution: { id: r?.key?.id || null, status: r?.status || null } });
       } catch (err) {
         console.error(`[whatsapp ${lead.id}] mídia ${midia.nome}:`, err.message);
-        resultado.falhas.push(`${midia.codigo || midia.nome}: ${err.message}`);
-        if (err.status !== 409) require('./alertas').registrar(empresa, 'midia', `A mídia "${midia.codigo || midia.nome}" não foi enviada: ${err.message}`, { leadId: lead.id });
+        resultado.falhas.push(`${codigo}: ${err.message}`);
+        resultado.itens.push({ codigo, nome: midia.nome, tipo: midia.tipo, status: 'erro', motivo: err.message });
+        if (err.status !== 409) require('./alertas').registrar(empresa, 'midia', `A mídia "${codigo}" não foi enviada: ${err.message}`, { leadId: lead.id });
       }
     }
   }
@@ -1541,7 +1599,6 @@ module.exports = {
   recuperarAnexosRecentes,
   diagnostico,
   evolutionUrlGlobal,
-  liberadoNoModoTeste,
   garantirSyncFullHistory,
   reiniciarSocket,
   MOTIVOS_DESCONEXAO,
@@ -1564,6 +1621,9 @@ module.exports = {
   configurado,
   evolution,
   foiEnviadoPeloCrm,
+  iaOcupadaCom,
+  liberadoNoModoTeste,
+  jaEnviouMidia,
   urlWebhook,
   garantirSegredo,
   situacao,

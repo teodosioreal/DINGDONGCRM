@@ -111,7 +111,7 @@ function paraIa(empresa) {
       if (x.duracao) linhas.push(`  ${x.tipo === 'produto' ? 'Prazo/entrega' : 'Duração/prazo'}: ${x.duracao}`);
       if (x.descricao) linhas.push(`  Detalhes: ${x.descricao.replace(/\s*\n\s*/g, ' / ')}`);
       const cods = x.midias.filter((c) => disponiveis.has(c));
-      if (cods.length) linhas.push(`  Mídias deste item (mande quando falar dele): ${cods.map((c) => `[[MIDIA: ${c}]]`).join(' ')}`);
+      if (cods.length) linhas.push(`  Mídias deste item (mande quando falar dele): ${cods.map((c) => require('./midias').codigoVisivel(c)).join(' ')}`);
       return linhas.join('\n');
     })
     .join('\n');

@@ -282,18 +282,36 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
 
     const midias = contexto.midias || [];
     if (midias.length) {
+      const codigoVisivel = require('./midias').codigoVisivel;
+      const TIPO = { image: 'imagem', video: 'vídeo', audio: 'áudio', document: 'documento' };
       partes.push(
         '',
-        'Mídias que você pode enviar (fotos, vídeos, documentos, áudios; "álbum" manda vários arquivos de uma vez). Cada uma tem um CÓDIGO:',
-        ...midias.map(
-          (m) =>
-            `- ${m.codigo}: ${m.nome}${m.album ? ` (álbum com ${m.quantidade} arquivos)` : ''}${m.descricao ? ` — ${m.descricao}` : ''}${m.quando ? ` · QUANDO ENVIAR: ${m.quando}` : ''}${m.etapas?.length ? ` · só quando o lead estiver na etapa: ${m.etapas.join(' ou ')}` : ''}${m.assuntos?.length ? ` · ASSUNTO: ${m.assuntos.join(' ou ')}` : ''}${m.servicos?.length ? ` · MOSTRA: ${m.servicos.join(' / ')} (mande quando falar disso)` : ''}`
-        ),
-        '- Para enviar, escreva numa linha separada: [[MIDIA: CÓDIGO]] (ex.: [[MIDIA: ' + midias[0].codigo + ']]). Pode enviar mais de uma, uma por linha. Use só códigos desta lista.',
-        ...(midias.some((m) => m.assuntos?.length)
-          ? ['- ASSUNTO: mídia com assunto só vai quando você estiver falando DAQUELE assunto (ex.: explicando o assunto X → mídias de X; nunca mande mídia de outro assunto). Se ainda não sabe qual o cliente quer, pergunte antes de mandar.']
-          : []),
-        '- Siga o "QUANDO ENVIAR" de cada mídia e a etapa, se tiver. Não mande a mesma mídia duas vezes na conversa, a não ser que o cliente peça. Sem regra: mande quando ajudar o cliente (mostrar o trabalho vende muito).'
+        '==================================================',
+        'MÍDIAS DISPONÍVEIS (INTERNO)',
+        '==================================================',
+        'Você só consegue enviar uma mídia escrevendo o código dela. Regras:',
+        '- Escreva o código na ÚLTIMA linha da resposta, sozinho, exatamente como está aqui. Mais de uma mídia: um código por linha, todos no fim.',
+        '- Se você mencionar que vai mandar foto, vídeo ou áudio, o código é obrigatório na mesma resposta.',
+        '- Nunca escreva um código que não esteja nesta lista.',
+        '- Nunca explique o código para o cliente.',
+        '- Mídias marcadas como JÁ ENVIADA (em "Contexto desta conversa", no fim) não podem ser enviadas de novo — exceto as marcadas "pode repetir", e só se o cliente pedir.',
+        ...(midias.some((m) => m.etapas?.length) ? ['- "só na etapa": a mídia só sai quando o lead estiver nessa etapa do funil.'] : []),
+        ...(midias.some((m) => m.assuntos?.length) ? ['- "assunto": só mande quando estiver falando DAQUELE assunto; se ainda não sabe qual o cliente quer, pergunte antes.'] : []),
+        '',
+        'Lista:',
+        ...midias.map((m) =>
+          [
+            `- ${codigoVisivel(m.codigo)}`,
+            m.album ? `álbum com ${m.quantidade} arquivos` : TIPO[m.tipo] || 'arquivo',
+            `quando enviar: ${m.quando || `quando ajudar o cliente (${m.nome})`}`,
+            m.etapas?.length ? `só na etapa: ${m.etapas.join(' ou ')}` : '',
+            m.assuntos?.length ? `assunto: ${m.assuntos.join(' ou ')}` : '',
+            m.servicos?.length ? `mostra: ${m.servicos.join(' / ')}` : '',
+            m.umaVez === false ? 'pode repetir' : ''
+          ]
+            .filter(Boolean)
+            .join(' | ')
+        )
       );
     }
     partes.push(
@@ -304,7 +322,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Na hora marcada você mesmo escreve a mensagem de retomada. Se o cliente responder antes, o follow-up é cancelado sozinho. Use no máximo um por vez.',
       '',
       'Passar para uma pessoa da equipe:',
-      '- Quando o cliente pedir para falar com uma pessoa, quando for fechar negócio/agendar e as instruções mandarem passar para a equipe, ou quando você não souber resolver, avise que vai chamar alguém da equipe e escreva numa linha separada: [[HUMANO]]. Depois disso você para de responder e a equipe assume.'
+      '- Quando o cliente pedir para falar com uma pessoa, quando for fechar negócio/agendar e as instruções mandarem passar para a equipe, ou quando você não souber resolver, avise que vai chamar alguém da equipe e escreva na última linha, sozinho: #PAUSAR. Depois disso você para de responder e a equipe assume.',
+      '',
+      'Avisos internos da plataforma:',
+      '- Mensagens que chegam só com um código entre colchetes, como [CLIENTE_ENVIOU_FOTO], [SEM_RESPOSTA], [CHECAR_VIDEO] ou [FOLLOWUP_1], são avisos internos do sistema: o cliente NÃO escreveu isso e nunca vê. Responda ao cliente de acordo com a situação (ex.: [SEM_RESPOSTA] = ele parou de responder; [CHECAR_VIDEO] = pergunte com naturalidade se conseguiu ver o vídeo; [FOLLOWUP_1] = primeira retomada da conversa). Nunca cite o aviso.',
+      '- Se não houver nada útil para dizer ao cliente, responda só: #NADA'
     );
   } else {
     if (temWhatsapp) {
@@ -382,7 +404,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
-  if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias que você já mandou nesta conversa: ${contexto.midiasEnviadas.join(', ')}.`);
+  if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 
   if (contexto.clone) {
     // clone: respostas reais (escritas à mão) de conversas que viraram venda
@@ -396,7 +418,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       cl.texto,
       '</exemplos_do_dono>',
       `- Imite ${cl.nome}: o tamanho das mensagens, o tom, as gírias, os emojis, como cumprimenta, a ordem das perguntas, como passa o preço, como responde objeção e como fecha.`,
-      '- Se a situação for parecida com um exemplo em que foi mandada mídia, mande a MESMA mídia (o mesmo [[MIDIA: CÓDIGO]]).',
+      '- Se a situação for parecida com um exemplo em que foi mandada mídia, mande a MESMA mídia (o mesmo código #MIDIA_…, na última linha).',
       '- O que foi dito nos exemplos (preço, prazo, condição) vale como informação verdadeira; se conflitar com <instrucoes_da_empresa> ou <conhecimento>, valem essas. Nunca copie nome, telefone ou dado pessoal de outro cliente.'
     );
   }
@@ -770,85 +792,114 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
 function extrairAcoes(bruto) {
   let texto = String(bruto || '');
   const midias = [];
+  const codigos = []; // tudo o que foi detectado (para o log): { codigo, tipo: 'midia'|'controle'|'acao'|'desconhecido' }
   let etapa = null;
   let humano = false;
+  let nada = false;
   const etiquetas = [];
   let venda = null;
   let agendamento = null;
   let retomar = null;
   let local = null;
+  const acao = (nome) => codigos.push({ codigo: `[[${nome}]]`, tipo: 'acao' });
+  // a IA às vezes imita o registro do histórico ("[enviou a mídia: #MIDIA_X — nome]"): não é pedido, só some
+  texto = texto.replace(/\[(?:enviou|enviei) a m[ií]dia:[^\]\n]*\]/gi, '');
+
+  // 1) MÍDIAS, na ordem em que aparecem: #MIDIA_X (tolerante: **#MIDIA_X**, "#midia_x",
+  //    # MIDIA_X, #MIDIA X…) e o formato antigo [[MIDIA: X]] / [[MIDIA X]]
+  const RE_MIDIA = /[*_"'`“”]*\[\[\s*M[IÍ]DIA\s*:?\s*([^\]\n]+?)\s*\]\][*_"'`“”]*|[*"'`“”]*#\s*[Mm][IiÍí][Dd][Ii][Aa](?:[_:-]\s*|\s+(?=[A-Z0-9]{2,}))([A-Za-z0-9][A-Za-z0-9_-]*)[*"'`“”]*/g;
+  texto = texto.replace(RE_MIDIA, (_, antigo, novo) => {
+    const nome = String(antigo || novo || '').trim().replace(/[*"'`“”]+$/g, '');
+    if (nome) {
+      midias.push(nome);
+      codigos.push({ codigo: antigo ? `[[MIDIA: ${nome}]]` : `#MIDIA_${nome.toUpperCase().replace(/-/g, '_')}`, tipo: 'midia', nome });
+    }
+    return '';
+  });
+
+  // 2) AÇÕES [[…]]
   texto = texto.replace(/\[\[\s*LOCAL\s*:\s*([^\]]+?)\s*\]\]/gi, (_, onde) => {
     local = onde.trim();
+    acao('LOCAL');
     return '';
   });
   texto = texto.replace(/\[\[\s*RETOMAR\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
     const [quando, assunto, ...msg] = dentro.split('|');
     retomar = { quando: (quando || '').trim(), assunto: (assunto || '').trim(), mensagem: msg.join('|').trim() };
+    acao('RETOMAR');
     return '';
   });
   texto = texto.replace(/\[\[\s*VENDA\s*:?\s*([^\]]*?)\s*\]\]/gi, (_, dentro) => {
     const [valor, ...resto] = dentro.split('|');
     venda = { valor: (valor || '').trim(), descricao: resto.join('|').trim() };
+    acao('VENDA');
     return '';
   });
   texto = texto.replace(/\[\[\s*AGENDAMENTO\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
     const [quando, ...resto] = dentro.split('|');
     agendamento = { quando: (quando || '').trim(), descricao: resto.join('|').trim() };
+    acao('AGENDAMENTO');
     return '';
   });
   let desmarcar = false;
   texto = texto.replace(/\[\[\s*DESMARCAR\s*\]\]/gi, () => {
     desmarcar = true;
+    acao('DESMARCAR');
     return '';
   });
   texto = texto.replace(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
     etiquetas.push(nome.trim());
+    acao('ETIQUETA');
     return '';
   });
-  texto = texto.replace(/\[\[\s*MIDIA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
-    midias.push(nome.trim());
-    return '';
-  });
-  texto = texto.replace(/\[\[\s*ETAPA\s*:\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
+  texto = texto.replace(/\[\[\s*ETAPA\s*:?\s*([^\]]+?)\s*\]\]/gi, (_, nome) => {
     etapa = nome.trim();
+    acao('ETAPA');
     return '';
   });
-  texto = texto.replace(/\[\[\s*HUMANO\s*\]\]/gi, () => {
+
+  // 3) CONTROLE: #PAUSAR (ou [[HUMANO]] / [[PAUSAR]] / #HUMANO) e #NADA
+  texto = texto.replace(/[*"'`“”]*(?:\[\[\s*(?:PAUSAR|HUMANO)[^\]]*\]\]|(?<![\w#])#\s*(?:PAUSAR|HUMANO)\b)[*"'`“”]*/gi, () => {
     humano = true;
+    codigos.push({ codigo: '#PAUSAR', tipo: 'controle' });
     return '';
   });
+  texto = texto.replace(/[*"'`“”]*(?<![\w#])#\s*NADA\b[*"'`“”]*/gi, () => {
+    nada = true;
+    codigos.push({ codigo: '#NADA', tipo: 'controle' });
+    return '';
+  });
+
   let mensagemWhatsapp = null;
   const marcador = texto.match(MARCADOR_WHATSAPP);
   if (marcador) {
     mensagemWhatsapp = marcador[1].trim() || null;
     texto = texto.slice(0, marcador.index);
   }
-  // Rede de segurança: código nenhum chega ao cliente. Códigos escritos fora do
-  // formato ([[MIDIA X]], #PAUSAR, #MIDIA_X) ainda funcionam; o que sobrar é apagado.
+
+  // 4) Rede de segurança: código nenhum chega ao cliente. O que sobrou é apagado
+  //    (e vai para o log como "desconhecido").
   const limparCodigos = (t) =>
     String(t || '')
-      .replace(/\[\[\s*(?:PAUSAR|HUMANO)[^\]]*\]\]|(^|[^\w#])#(?:PAUSAR|HUMANO)\b/gi, (achado, antes = '') => {
-        humano = true;
-        return typeof antes === 'string' && !achado.startsWith('[[') ? antes : '';
-      })
-      .replace(/\[\[\s*M[IÍ]DIA\s+([^\]]+?)\s*\]\]/gi, (_, nome) => {
-        midias.push(nome.trim());
+      .replace(/\[\[[^\]\n]{0,200}\]\]/g, (x) => {
+        codigos.push({ codigo: x, tipo: 'desconhecido' });
         return '';
       })
-      .replace(/(^|[^\w#])#M[IÍ]DIA[_:-]?([A-Z0-9][A-Z0-9_-]*)/g, (_, antes, nome) => {
-        midias.push(nome.trim());
+      .replace(/\[\[[^\]\n]*$/g, '') // código cortado no fim da resposta
+      .replace(/(^|[^\w#])[*"'`“”]*#[A-Z][A-Z0-9_]{2,}\b[*"'`“”]*/g, (x, antes) => {
+        codigos.push({ codigo: x.slice(antes.length).replace(/[*"'`“”]/g, ''), tipo: 'desconhecido' });
         return antes;
       })
-      .replace(/\[\[[^\]\n]{0,200}\]\]/g, '') // qualquer [[CÓDIGO]] que sobrou
-      .replace(/\[\[[^\]\n]*$/g, '') // código cortado no fim da resposta
-      .replace(/(^|[^\w#])#[A-Z][A-Z0-9_]{2,}\b/g, '$1') // #CODIGO em maiúsculas
       .replace(/[ \t]{2,}/g, ' ')
       .replace(/ +([,.!?])/g, '$1')
+      .replace(/^[ \t*"'`“”]+$/gm, '') // linha que ficou só com asterisco/aspas
+      .replace(/[ \t]+$/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   texto = limparCodigos(texto);
   if (mensagemWhatsapp) mensagemWhatsapp = limparCodigos(mensagemWhatsapp) || null;
-  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local, desmarcar };
+  if (nada) texto = ''; // a IA decidiu não falar nada (aviso interno sem nada útil)
+  return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local, desmarcar, codigos, nada };
 }
 
 /**
@@ -873,6 +924,7 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
   let r = extrairAcoes(bruto.texto);
+  r.bruto = bruto.texto;
 
   // conferência automática contra as instruções do dono (antes de mandar para o cliente)
   const obediencia = require('./obediencia');
@@ -885,7 +937,7 @@ async function responder(bot, empresa, historico, opcoes = {}) {
       const correcao = `[REVISÃO INTERNA — o cliente não vê isto] A sua resposta abaixo QUEBROU instruções da empresa:\n${quebradas.map((q) => `- "${q.texto}"${q.termo ? ` (você usou "${q.termo}")` : ''}`).join('\n')}\n\nSua resposta foi:\n${bruto.texto}\n\nReescreva a resposta INTEIRA obedecendo a essas instruções (mantenha as marcações [[...]] que fizerem sentido). Responda só com a nova mensagem, sem comentar a correção.`;
       try {
         const novo = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos: [...turnos.slice(0, -1), { role: 'user', content: `${turnos[turnos.length - 1].content}\n\n${correcao}` }], esforco: 'low', temperatura: 0.2, maxTokens: 1500 }), { tarefa: 'resposta' });
-        if (!novo.recusado) r = extrairAcoes(novo.texto);
+        if (!novo.recusado) r = { ...extrairAcoes(novo.texto), bruto: `${bruto.texto}\n\n--- reescrita (desobedeceu instrução) ---\n${novo.texto}` };
       } catch (err) {
         console.error('[ia] revisão da resposta falhou:', err.message);
       }

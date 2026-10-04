@@ -201,7 +201,7 @@ function paraIa(empresa, lead) {
   const texto = lista
     .map((ex, i) => {
       const midias = (ex.midias || []).filter((c) => codigosValidos.has(c));
-      return `Exemplo ${i + 1} (conversa que virou venda)\nCliente: ${ex.cliente}\n${nome} respondeu: ${ex.resposta || '(só mandou mídia)'}${midias.length ? `\nE mandou: ${midias.map((c) => `[[MIDIA: ${c}]]`).join(' ')}` : ''}`;
+      return `Exemplo ${i + 1} (conversa que virou venda)\nCliente: ${ex.cliente}\n${nome} respondeu: ${ex.resposta || '(só mandou mídia)'}${midias.length ? `\nE mandou: ${midias.map((c) => require('./midias').codigoVisivel(c)).join(' ')}` : ''}`;
     })
     .join('\n\n');
   return { texto, nome, completo: p.completo };

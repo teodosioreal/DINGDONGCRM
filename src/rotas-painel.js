@@ -634,7 +634,22 @@ router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
 router.get('/empresas/:id/midias', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m) })));
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoVisivel(m.codigo) })));
+});
+
+// Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)
+router.post('/empresas/:id/midias/link', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  try {
+    const extra = { pronta: b.ativa !== false && Boolean(texto(b.descricao, 300)), legenda: texto(b.legenda, 1000), umaVezPorConversa: b.umaVezPorConversa !== false };
+    if (b.codigo) extra.codigo = b.codigo;
+    const midia = await midias.salvarMidiaDoLink(empresa, { link: texto(b.link, 1000), nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), extra });
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
 });
 
 router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), (req, res) => {
@@ -652,7 +667,7 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
       midias.apagarMidia(empresa, midia.id);
       return res.status(400).json({ erro: `Já existe uma mídia chamada "${midia.nome}". Use outro nome.` });
     }
-    res.status(201).json({ ...midia, url: midias.urlPublica(midia) });
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -670,8 +685,10 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
       if (!nome) return res.status(400).json({ erro: 'Dê um nome para a mídia.' });
       midia.nome = nome;
     }
-    if (b.codigo !== undefined && midias.slugCodigo(b.codigo) !== midia.codigo) midia.codigo = midias.validarCodigo(empresa, b.codigo, midia.id);
+    if (b.codigo !== undefined && midias.codigoDaEntrada(b.codigo) !== midia.codigo) midia.codigo = midias.validarCodigo(empresa, b.codigo, midia.id);
     if (b.descricao !== undefined) midia.descricao = texto(b.descricao, 300);
+    if (b.legenda !== undefined) midia.legenda = texto(b.legenda, 1000);
+    if (b.umaVezPorConversa !== undefined) midia.umaVezPorConversa = b.umaVezPorConversa !== false;
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
     if (b.pronta !== undefined) midia.pronta = b.pronta === true;
@@ -681,7 +698,7 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     return res.status(err.status || 400).json({ erro: err.message });
   }
   salvar();
-  res.json({ ...midia, url: midias.urlPublica(midia) });
+  res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
 });
 
 // Várias de uma vez: marcar prontas / a configurar, pôr num álbum, apagar
@@ -732,7 +749,7 @@ router.post('/empresas/:id/midias/envio/:envioId/concluir', (req, res) => {
   try {
     const b = req.body || {};
     const m = midias.concluirEnvio(empresa, req.params.envioId, { nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), codigo: b.codigo ? texto(b.codigo, 40) : '', pronta: b.pronta === true, etapas: b.etapas });
-    res.status(201).json({ ...m, url: midias.urlPublica(m) });
+    res.status(201).json({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoVisivel(m.codigo) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -763,7 +780,7 @@ router.get('/empresas/:id/albuns', (req, res) => {
 function dadosAlbum(empresa, b, atual = null) {
   const nome = texto(b.nome, 80);
   if (!nome) throw Object.assign(new Error('Dê um nome para o álbum.'), { status: 400 });
-  const codigo = b.codigo ? (atual && midias.slugCodigo(b.codigo) === atual.codigo ? atual.codigo : midias.validarCodigo(empresa, b.codigo, atual?.id)) : atual?.codigo || midias.novoCodigo(empresa, nome);
+  const codigo = b.codigo ? (atual && midias.codigoDaEntrada(b.codigo) === atual.codigo ? atual.codigo : midias.validarCodigo(empresa, b.codigo, atual?.id)) : atual?.codigo || midias.novoCodigo(empresa, nome);
   return {
     nome,
     codigo,
@@ -881,6 +898,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   apagarLogo(estado.empresas[i]);
   estado.vendas = (estado.vendas || []).filter((v) => v.empresaId !== id);
   estado.gastos = (estado.gastos || []).filter((g) => g.empresaId !== id);
+  require('./log-respostas').apagarDaEmpresa(id);
   estado.empresas.splice(i, 1);
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
@@ -1042,12 +1060,78 @@ router.delete('/bots/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// O que o envio faria com cada código (modo teste: nada sai pelo WhatsApp)
+function planejarMidias(empresa, nomes, enviadas = new Set()) {
+  const lista = [];
+  for (const nome of nomes || []) {
+    const pedido = midias.resolverPedido(empresa, nome);
+    if (!pedido.alvo) {
+      lista.push({ codigo: String(nome).startsWith('#') ? String(nome) : `#MIDIA_${String(nome).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`, status: 'nao-existe', motivo: 'não existe no cadastro desta empresa' });
+      continue;
+    }
+    const prontas = pedido.itens.filter((m) => midias.prontaParaIa(m));
+    if (!prontas.length) {
+      lista.push({ codigo: midias.codigoVisivel(pedido.alvo.codigo), nome: pedido.alvo.nome, status: 'inativa', motivo: 'mídia desativada' });
+      continue;
+    }
+    if (pedido.alvo.soFollowup) {
+      lista.push({ codigo: midias.codigoVisivel(pedido.alvo.codigo), nome: pedido.alvo.nome, status: 'pulada', motivo: 'é só do follow-up' });
+      continue;
+    }
+    for (const m of prontas) {
+      const ja = m.umaVezPorConversa !== false && enviadas.has(m.codigo);
+      lista.push({
+        codigo: midias.codigoVisivel(m.codigo),
+        nome: m.nome,
+        tipo: m.tipo,
+        url: midias.urlPublica(m),
+        legenda: m.tipo === 'audio' ? '' : m.legenda || '',
+        endpoint: m.tipo === 'audio' ? 'sendWhatsAppAudio' : `sendMedia (${m.tipo})`,
+        status: ja ? 'ja-enviada' : 'enviaria',
+        motivo: ja ? 'já enviada nesta conversa (uma vez por conversa)' : pedido.etapas?.length ? `só sai se o lead estiver na etapa ${pedido.etapas.join('/')}` : ''
+      });
+    }
+  }
+  return lista;
+}
+
+// Códigos de mídia citados no prompt da empresa (e os que não existem no cadastro)
+router.get('/empresas/:id/midias/prompt', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(midias.avisosDoPrompt(empresa));
+});
+
+// Log das respostas da IA (texto bruto, códigos, mídias, Evolution, erros)
+router.get('/empresas/:id/logs-ia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./log-respostas').listar(empresa, { soErros: req.query.soErros === '1', leadId: texto(req.query.leadId, 60), limite: Number(req.query.limite) || 50 }));
+});
+
+// Eventos internos para a IA ([SEM_RESPOSTA], [CHECAR_VIDEO]…): tempos por empresa
+router.get('/empresas/:id/eventos-ia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./eventos-ia').configDa(empresa));
+});
+router.put('/empresas/:id/eventos-ia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(require('./eventos-ia').salvarConfig(empresa, req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 // Conversa de teste no painel: usa a configuração que está no formulário (mesmo
 // sem salvar) e não grava nada.
 router.post('/bots/:id/testar', async (req, res) => {
   const salvo = acharBot(req, res);
   if (!salvo) return;
-  const rascunho = { ...salvo, ...dadosBot(req.body?.bot || {}, req, salvo) };
+  // usarSalvo: modo teste aberto fora da tela das instruções (ex.: Mídias) — usa o que está salvo
+  const rascunho = req.body?.usarSalvo ? { ...salvo } : { ...salvo, ...dadosBot(req.body?.bot || {}, req, salvo) };
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) rascunho[c] = salvo[c];
   const empresa = estado.empresas.find((e) => e.id === rascunho.empresaId) || estado.empresas.find((e) => e.id === salvo.empresaId);
   const historico = (Array.isArray(req.body?.mensagens) ? req.body.mensagens : [])
@@ -1056,10 +1140,15 @@ router.post('/bots/:id/testar', async (req, res) => {
     .filter((m) => m.texto);
   const canal = req.body?.canal === 'whatsapp' ? 'whatsapp' : 'site';
   try {
-    const r = await ia.responder(rascunho, empresa, historico, {
+    // modo teste: mídias já "enviadas" nesta conversa de teste e um evento interno opcional
+    const enviadasNoTeste = (Array.isArray(req.body?.midiasEnviadas) ? req.body.midiasEnviadas : []).map((c) => midias.codigoDaEntrada(c)).filter(Boolean);
+    const evento = canal === 'whatsapp' && /^[A-Z][A-Z0-9_]{2,30}$/.test(String(req.body?.evento || '')) ? req.body.evento : '';
+    const hist = canal === 'whatsapp' ? require('./eventos-ia').historicoParaIa(empresa, historico, evento) : historico;
+    const r = await ia.responder(rascunho, empresa, hist, {
       canal,
       etapas: leads.etapasDa(empresa),
       midias: midias.paraIa(empresa),
+      midiasEnviadas: enviadasNoTeste,
       links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
@@ -1069,7 +1158,13 @@ router.post('/bots/:id/testar', async (req, res) => {
       midias: r.midias,
       etapa: r.etapa,
       etiquetas: r.etiquetas,
-      humano: r.humano
+      humano: r.humano,
+      // detalhes do modo teste: o que a IA escreveu de verdade e o que o sistema faria
+      bruto: r.bruto || '',
+      codigos: r.codigos || [],
+      midiasPlanejadas: planejarMidias(empresa, r.midias, new Set(enviadasNoTeste)),
+      avisos: require('./log-respostas').prometeuMidiaSemCodigo(r.texto, r.midias) ? ['A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.'] : [],
+      nada: Boolean(r.nada)
     });
   } catch (err) {
     res.status(err.status === 503 ? 503 : 502).json({ erro: ia.descreverErroIa(err) });
@@ -2340,7 +2435,7 @@ router.put('/empresas/:id/drive/:pastaId', (req, res) => {
   const nome = texto(req.body?.nome, 80);
   if (!nome) return res.status(400).json({ erro: 'Dê um nome para o álbum.' });
   try {
-    if (req.body?.codigo !== undefined && midias.slugCodigo(req.body.codigo) !== pasta.codigo) pasta.codigo = midias.validarCodigo(empresa, req.body.codigo, pasta.id);
+    if (req.body?.codigo !== undefined && midias.codigoDaEntrada(req.body.codigo) !== pasta.codigo) pasta.codigo = midias.validarCodigo(empresa, req.body.codigo, pasta.id);
   } catch (err) {
     return res.status(err.status || 400).json({ erro: err.message });
   }
