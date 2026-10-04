@@ -1225,7 +1225,34 @@ function agendarResposta(empresa, lead) {
   );
 }
 
-async function responderLead(empresaId, leadId) {
+// "Não atropelar": se o cliente manda outra mensagem enquanto a IA ainda está
+// escrevendo, a resposta antiga é descartada (não sai) e a IA escreve de novo
+// lendo tudo o que ele mandou — uma resposta só, mais completa. Ligado por padrão.
+const emResposta = new Map(); // leadId → { refazer }
+const naoAtropelar = (empresa) => empresa?.whatsappConfig?.naoAtropelar !== false;
+const ultimaDoCliente = (lead) => [...(lead.mensagens || [])].reverse().find((m) => m.papel === 'visitante') || null;
+
+async function responderLead(empresaId, leadId, tentativa = 0) {
+  const empresa = estado.empresas.find((e) => e.id === empresaId);
+  if (naoAtropelar(empresa) && emResposta.has(leadId)) {
+    emResposta.get(leadId).refazer = true; // a IA já está escrevendo: refaz quando ela terminar
+    return;
+  }
+  const vez = { refazer: false };
+  emResposta.set(leadId, vez);
+  let refazer = false;
+  try {
+    refazer = await responderLeadUmaVez(empresaId, leadId, vez, tentativa);
+  } finally {
+    if (emResposta.get(leadId) === vez) emResposta.delete(leadId);
+  }
+  // o cliente mandou mais coisa enquanto a IA escrevia: responde tudo junto.
+  // Se já tem uma resposta agendada (cliente ainda digitando), ela cuida disso.
+  if (refazer && !agendadas.has(leadId)) return responderLead(empresaId, leadId, tentativa + 1);
+}
+
+// true = descartou a resposta porque o cliente mandou mensagem nova (precisa refazer)
+async function responderLeadUmaVez(empresaId, leadId, vez, tentativa) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   const lead = estado.conversas.find((c) => c.id === leadId);
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva) return;
@@ -1240,6 +1267,7 @@ async function responderLead(empresaId, leadId) {
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;
 
+  const ultimaAntes = ultimaDoCliente(lead);
   let r;
   try {
     r = await ia.responder(bot, empresa, leads.historicoParaIa(lead), {
@@ -1260,6 +1288,11 @@ async function responderLead(empresaId, leadId) {
   }
   // se a equipe assumiu enquanto a IA pensava, não responde
   if (lead.iaPausada) return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA pensava.');
+  // o cliente mandou outra mensagem enquanto a IA escrevia → descarta e refaz com tudo (até 3 vezes)
+  if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || ultimaDoCliente(lead) !== ultimaAntes)) {
+    registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA escrevia: a resposta foi descartada e a IA vai responder tudo junto.');
+    return true;
+  }
 
   if (r.texto) {
     try {

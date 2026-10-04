@@ -197,6 +197,7 @@ function situacaoWhatsapp(e, req) {
     velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
     iaAposManual: e.whatsappConfig?.iaAposManual === true,
+    naoAtropelar: e.whatsappConfig?.naoAtropelar !== false,
     sincronia: e.whatsappConfig?.sincronia || null,
     clone: (({ ativo, total, midiasAprendidas }) => ({ ativo, total, midiasAprendidas }))(require('./clone').resumo(e)),
     whatsappAvisos: e.whatsappAvisos || '',
@@ -423,6 +424,7 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   if (b.iaAtiva !== undefined) empresa.whatsappConfig.iaAtiva = b.iaAtiva !== false;
   if (b.modoTeste !== undefined) empresa.whatsappConfig.modoTeste = b.modoTeste === true;
   if (b.iaAposManual !== undefined) empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
+  if (b.naoAtropelar !== undefined) empresa.whatsappConfig.naoAtropelar = b.naoAtropelar !== false;
   if (b.numerosTeste !== undefined) {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });

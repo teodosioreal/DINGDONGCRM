@@ -1349,6 +1349,12 @@ async function paginaWhatsapp(id) {
         : '<b>Desligado:</b> mesmo depois da sua mensagem manual, a IA <b>continua atendendo</b> aquele cliente.'}
         Na hora de enviar, dá para trocar só para aquela mensagem na caixinha "Deixar a IA continuar atendendo".</p>
     </div>
+    <div class="card" data-cfg="nao-atropelar" data-pronto="ok" data-resumo="${w.naoAtropelar !== false ? 'Ligado: junta as mensagens do cliente numa resposta só' : 'Desligado'}">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧩 Não atropelar o cliente</h2>${interruptor('nao-atropelar', w.naoAtropelar !== false, w.naoAtropelar !== false ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0">${w.naoAtropelar !== false
+        ? '<b>Ligado (padrão):</b> se o cliente manda outra mensagem enquanto a IA ainda está escrevendo, a resposta antiga <b>é cancelada</b> e a IA lê tudo o que ele mandou antes de responder — uma resposta só, mais completa.'
+        : '<b>Desligado:</b> a IA responde cada mensagem assim que termina de escrever, mesmo que o cliente tenha mandado outra no meio.'}</p>
+    </div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}" data-cfg="modo-teste" ${w.modoTeste ? '' : 'data-pronto="off" data-resumo="Desligado: a IA responde todos os clientes"'}>
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
@@ -1530,6 +1536,17 @@ async function paginaWhatsapp(id) {
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
   if (w.configurado) { cartaoAvisoAgendamento(id); cartaoEtiquetasZap(id); cartaoListaNegra(id); }
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
+  $('#nao-atropelar').onchange = async (e) => {
+    const ligar = e.target.checked;
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { naoAtropelar: ligar } });
+      aviso(ligar ? 'Ligado: a IA junta as mensagens do cliente antes de responder.' : 'Desligado: a IA responde cada mensagem na hora.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !ligar;
+      aviso(err.message, true);
+    }
+  };
   const salvarTeste = async (modoTeste) => {
     const numerosTeste = $('#f-numeros-teste').elements.numerosTeste.value;
     await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { modoTeste, numerosTeste } });
