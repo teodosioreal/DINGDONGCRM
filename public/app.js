@@ -134,6 +134,7 @@ function numeroCurto(n) {
   return n.toLocaleString('pt-BR');
 }
 const rotaEmpresa = (id, sub = '') => `#/empresas/${id}${sub ? `/${sub}` : ''}`;
+const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); // sem acento, minúsculo (busca)
 
 // ---------------------------------------------------------------- componentes de ajuda
 
@@ -231,37 +232,49 @@ function montarMenu(ativo) {
     const ponto = (ligado) => `<span class="ponto ${ligado ? 'on' : 'off'}" title="${ligado ? 'Ligada' : 'Desligada'}"></span>`;
     const u = d.usoHoje || {};
     html += `<a class="empresa-menu" href="${rotaEmpresa(id)}">${avatarEmpresa(d)}<span class="empresa-menu-nome"><span>${esc(empresaAtual.nome)}</span><small class="tokens-hoje" title="Tokens de IA gastos hoje (${(u.chamadas || 0).toLocaleString('pt-BR')} chamadas)">🔢 ${numeroCurto(u.total)} tokens hoje</small></span></a>`;
-    // o dia a dia primeiro: conversas e máquina de vendas
-    html += item(rotaEmpresa(id), 'inicio', 'Início', (d.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="ponto off" title="Algo precisa de atenção"></span>' : '');
-    html += item(rotaEmpresa(id, 'conversas'), 'conversas', 'Conversas', d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '');
-    html += item(rotaEmpresa(id, 'agenda'), 'agenda', 'Agendamentos', d.agendaHoje ? `<span class="contador contador-agenda" title="Agendamentos de hoje">${d.agendaHoje}</span>` : '');
-    html += item(rotaEmpresa(id, 'followup'), 'followup', 'Follow-up');
-    html += item(rotaEmpresa(id, 'automacoes'), 'maquina', 'Máquina de vendas');
-    html += item(rotaEmpresa(id, 'leads'), 'leads', 'Leads (funil)');
-    html += item(rotaEmpresa(id, 'faturamento'), 'dinheiro', 'Faturamento');
-    html += item(rotaEmpresa(id, 'disparos'), 'disparos', 'Disparos em massa');
-    // configurações: com ✓ quando prontas; recolhidas mostram só o que precisa de atenção
+    // tudo à vista, em 4 grupos (nada escondido), com busca no topo
     const st = d.status || {};
-    const marca = (k) => (st[k] === 'ok' ? '<span class="marca-ok" title="Configurado">✓</span>' : st[k] === 'atencao' ? '<span class="marca-atencao" title="Precisa de atenção">!</span>' : '<span class="marca-off" title="Desligado">–</span>');
-    const configs = [
-      ['ia', 'cerebro', 'Sobre a empresa'],
-      ['catalogo', 'catalogo', 'Serviços e preços'],
-      ['aprendizado', 'livro', 'Aprendizados da IA'],
-      ['site', 'site', 'IA do site'],
-      ['whatsapp', 'whatsapp', 'IA do WhatsApp'],
-      ['midias', 'midias', 'Mídias e respostas'],
-      ['organizar', 'etiquetas', 'Etiquetas e etapas'],
-      ['chave', 'chave', 'IAs e chaves']
+    const marca = (k) => (st[k] === 'ok' ? '<span class="marca-ok" title="Configurado">✓</span>' : st[k] === 'atencao' ? '<span class="marca-atencao" title="Precisa de atenção">!</span>' : st[k] ? '<span class="marca-off" title="Desligado">–</span>' : '');
+    const extra = {
+      '': (d.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="ponto off" title="Algo precisa de atenção"></span>' : '',
+      conversas: d.naoLidas ? `<span class="contador">${d.naoLidas > 99 ? '99+' : d.naoLidas}</span>` : '',
+      agenda: d.agendaHoje ? `<span class="contador contador-agenda" title="Agendamentos de hoje">${d.agendaHoje}</span>` : '',
+      whatsapp: d.whatsapp?.modoTeste ? '<span class="etiqueta aviso" style="padding:0 6px">teste</span>' : ''
+    };
+    const grupos = [
+      ['Dia a dia', [
+        ['', 'inicio', 'Início', 'painel resumo comeco primeiros passos'],
+        ['conversas', 'conversas', 'Conversas', 'chat whatsapp mensagens responder clientes'],
+        ['followup', 'followup', 'Follow-up', 'retomar sumiu parou de responder mensagens prontas sequencia'],
+        ['agenda', 'agenda', 'Agendamentos', 'agenda horario marcado visita instalacao'],
+        ['leads', 'leads', 'Leads (funil)', 'funil clientes kanban etapas contatos'],
+        ['faturamento', 'dinheiro', 'Faturamento', 'vendas pix comprovante dinheiro valor obrigado pela preferencia']
+      ]],
+      ['Vender no automático', [
+        ['automacoes', 'maquina', 'Máquina de vendas', 'automacoes avaliacao google comentario anuncio pos-venda reativar'],
+        ['disparos', 'disparos', 'Disparos em massa', 'campanha lista enviar para todos promocao']
+      ]],
+      ['Sua IA', [
+        ['ia', 'cerebro', 'Sobre a empresa', 'treinar instrucoes conhecimento prompt nome atendente'],
+        ['catalogo', 'catalogo', 'Serviços e preços', 'catalogo produtos preco tabela valores'],
+        ['midias', 'midias', 'Mídias e respostas', 'fotos videos imagens respostas rapidas so follow-up sugestao de midia'],
+        ['aprendizado', 'livro', 'Clone e aprendizados', 'clone aprender responder igual a mim aprendizado anuncios'],
+        ['whatsapp', 'whatsapp', 'IA do WhatsApp', 'conectar qr code numero instrucoes aviso de agendamento etiquetas lista negra modo teste'],
+        ['site', 'site', 'IA do site', 'chat do site codigo widget instalar']
+      ]],
+      ['Ajustes', [
+        ['organizar', 'etiquetas', 'Etiquetas e etapas', 'etiquetas tickets etapas funil'],
+        ['chave', 'chave', 'IAs e chaves', 'chave api claude gemini gpt openai tokens reserva']
+      ]]
     ];
-    const pendentes = configs.filter(([k]) => st[k] === 'atencao').length;
-    let aberto = false;
-    try { aberto = localStorage.getItem('dingdong_menu_config') === 'aberto'; } catch { /* ok */ }
-    const naConfig = configs.some(([k]) => rotaEmpresa(id, k) === ativo);
-    const mostrar = aberto || naConfig;
-    html += `<button type="button" class="titulo-grupo grupo-config" id="alternar-config" aria-expanded="${mostrar}">⚙️ Configurar <span class="${pendentes ? 'marca-atencao' : 'marca-ok'}">${pendentes ? `${pendentes} !` : '✓'}</span><span class="seta">${mostrar ? '▾' : '▸'}</span></button>`;
-    for (const [k, icone, rotulo] of configs) {
-      if (!mostrar && st[k] !== 'atencao') continue;
-      html += item(rotaEmpresa(id, k), icone, rotulo, k === 'whatsapp' && d.whatsapp?.modoTeste ? '<span class="etiqueta aviso" style="padding:0 6px">teste</span>' : marca(k));
+    html += '<div class="busca-menu"><input type="search" id="busca-menu" placeholder="🔎 Buscar (ex.: clone, pix, etiqueta)" aria-label="Buscar no painel" autocomplete="off"></div>';
+    for (const [titulo, itens] of grupos) {
+      html += `<div class="grupo-menu"><p class="titulo-grupo">${titulo}</p>`;
+      for (const [k, icone, rotulo, palavras] of itens) {
+        const a = item(rotaEmpresa(id, k || undefined), icone, rotulo, extra[k] || marca(k));
+        html += a.replace('<a class="item-menu', `<a data-busca="${esc(sem(`${rotulo} ${palavras}`))}" class="item-menu`);
+      }
+      html += '</div>';
     }
   }
   if (ehAdmin()) {
@@ -270,13 +283,21 @@ function montarMenu(ativo) {
     html += item('#/configuracoes', 'config', 'Configurações do sistema');
   }
   $('#menu').innerHTML = html;
-  $('#alternar-config')?.addEventListener('click', () => {
-    let aberto = false;
-    try {
-      aberto = localStorage.getItem('dingdong_menu_config') === 'aberto';
-      localStorage.setItem('dingdong_menu_config', aberto ? 'fechado' : 'aberto');
-    } catch { /* ok */ }
-    montarMenu(ativo);
+  // busca no menu: filtra pelo nome e por palavras (ex.: "clone", "pix", "qr code"); Enter abre a primeira
+  const busca = $('#busca-menu');
+  busca?.addEventListener('input', () => {
+    const q = sem(busca.value).trim();
+    $$('#menu .grupo-menu').forEach((g) => {
+      let algum = false;
+      $$('a[data-busca]', g).forEach((a) => { const ok = !q || q.split(/\s+/).every((p) => a.dataset.busca.includes(p)); a.hidden = !ok; if (ok) algum = true; });
+      g.hidden = !algum;
+    });
+  });
+  busca?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { busca.value = ''; busca.dispatchEvent(new Event('input')); }
+    if (e.key !== 'Enter') return;
+    const a = $$('#menu a[data-busca]').find((x) => !x.hidden);
+    if (a) { location.hash = a.getAttribute('href'); busca.value = ''; fecharMenu(); }
   });
   $$('.lateral a').forEach((a) => {
     if (a.classList.contains('item-menu') && a.closest('.rodape-menu')) a.classList.toggle('ativo', a.getAttribute('href') === ativo);
@@ -325,7 +346,7 @@ function cardOrigem(o, l) {
   const atual = o.atual || o.paginas?.[o.paginas.length - 1];
   const controles = l ? `
       <div class="secao" style="margin-top:12px;padding-top:12px">
-        <div class="campo"><label>Anúncio / campanha ${ajuda('O CRM escolhe sozinho pelas palavras cadastradas em Aprendizados da IA → Anúncios. Se estiver errado, escolha aqui: a IA passa a usar as informações desse anúncio.')}</label><select id="origem-anuncio"><option value="">— nenhum —</option>${(l.anunciosEmpresa || []).map((a) => `<option value="${esc(a.id)}" ${o.anuncio?.id === a.id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>${(l.anunciosEmpresa || []).length ? '' : `<small><a href="${rotaEmpresa(l.empresaId, 'aprendizado')}">Cadastrar anúncios</a></small>`}</div>
+        <div class="campo"><label>Anúncio / campanha ${ajuda('O CRM escolhe sozinho pelas palavras cadastradas em Clone e aprendizados → Anúncios. Se estiver errado, escolha aqui: a IA passa a usar as informações desse anúncio.')}</label><select id="origem-anuncio"><option value="">— nenhum —</option>${(l.anunciosEmpresa || []).map((a) => `<option value="${esc(a.id)}" ${o.anuncio?.id === a.id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>${(l.anunciosEmpresa || []).length ? '' : `<small><a href="${rotaEmpresa(l.empresaId, 'aprendizado')}">Cadastrar anúncios</a></small>`}</div>
         <div class="campo" style="margin-top:10px"><label>Anotação sobre a origem ${ajuda('A IA lê isto. Ex.: indicação do João, veio da feira, cliente antigo.')}</label><input id="origem-manual" maxlength="300" value="${esc(o.manual || '')}" placeholder="Ex.: indicação do João"></div>
         <div class="acoes" style="margin-top:10px"><button type="button" class="pequeno" id="salvar-origem">Salvar origem</button></div>
       </div>` : '';
@@ -5000,7 +5021,7 @@ async function paginaAprendizado(id) {
   const rodando = a.rodando;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Aprendizados da IA</h1><p class="sub">A IA aprende com o seu site, com os seus anúncios e com as conversas do seu WhatsApp</p></div>
+    <div class="cabecalho"><div><h1>Clone e aprendizados</h1><p class="sub">A IA aprende com o seu site, com os seus anúncios e com as conversas do seu WhatsApp</p></div>
       <div class="barra"><a class="botao" href="api/empresas/${esc(id)}/aprendizado/arquivo">⬇️ Baixar arquivo</a><button type="button" class="primario" id="varrer" ${rodando || !emp.whatsapp?.configurado ? 'disabled' : ''}>🔍 Varrer agora</button></div>
     </div>
     <div class="chips atalhos-secao">
