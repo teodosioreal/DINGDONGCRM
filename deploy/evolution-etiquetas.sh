@@ -127,4 +127,16 @@ if [ -n "$CONTAINER" ] && [ -n "${INSTANCIAS:-}" ]; then
   done
 fi
 
+# desconexões reais (LOGOUT/erro de stream/conflito) dos números do CRM, com data e hora
+# (sem contar/deduplicar -- pra ver quando cada uma aconteceu de verdade, até 30 dias)
+if [ -n "$CONTAINER" ] && [ -n "${INSTANCIAS:-}" ]; then
+  for c in $CONTAINER; do
+    for inst in $(printf '%s' "$INSTANCIAS" | tr ',' ' '); do
+      echo "    desconexões reais de $inst (30 dias):"
+      docker logs "$c" --since 720h 2>&1 | grep -F "$inst" | grep -iE 'logout|stream:error|\bconflict\b|banned|forbidden|statusCode|loggedout|bad.?session|restart.?required|connectionReplaced' \
+        | sed -E 's/\x1b\[[0-9;]*m//g' | cut -c1-240 | tail -40 | sed 's/^/       /'
+    done
+  done
+fi
+
 echo "    (só olhei; nada foi mudado)"

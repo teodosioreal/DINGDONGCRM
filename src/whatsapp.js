@@ -237,6 +237,22 @@ function ehNossoWebhook(empresa, url) {
 // MESSAGES_SET: histórico que o celular manda ao reconectar (entra nas conversas, sem a IA responder)
 const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE', 'LABELS_EDIT', 'LABELS_ASSOCIATION'];
 
+// Motivo da queda que a Evolution manda em connection.update (data.statusReason,
+// o código HTTP que o Baileys usa internamente pra DisconnectReason). Serve pra
+// saber se vale esperar reconectar sozinho ou se só escaneando o QR de novo
+// resolve (ver reconexao.js).
+const MOTIVOS_DESCONEXAO = {
+  401: 'sessão encerrada pelo WhatsApp -- precisa escanear o QR de novo',
+  403: 'bloqueado pelo WhatsApp (forbidden)',
+  408: 'perda de conexão (rede) -- tende a voltar sozinha',
+  411: 'excedeu o limite de aparelhos vinculados ao número',
+  428: 'conexão encerrada -- tende a voltar sozinha',
+  440: 'outro aparelho assumiu esta sessão (conectou em outro lugar)',
+  500: 'sessão corrompida -- pode precisar escanear o QR de novo',
+  503: 'servidor do WhatsApp indisponível -- tende a voltar sozinha',
+  515: 'reinício interno do WhatsApp -- normal, reconecta sozinha'
+};
+
 // Confere o webhook da instância e conserta se for do CRM e estiver errado:
 // desligado, com endereço antigo (ex.: depois de reconectar), sem algum evento
 // ou sem webhook nenhum. Webhook de OUTRO sistema nunca é mexido.
@@ -718,15 +734,24 @@ async function receberWebhook(empresa, corpo) {
   // mudança de conexão: guarda para o painel mostrar
   if (eventoDe(corpo) === 'connection.update') {
     const st = corpo?.data?.state || corpo?.data?.status;
+    const motivo = corpo?.data?.statusReason;
     if (st && empresa.whatsappConfig) {
       const antes = empresa.whatsappConfig.perfil?.estado;
-      empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora() };
+      empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora(), motivoFechou: st === 'close' ? motivo : undefined };
       salvar();
       // caiu (o WhatsApp encerrou a sessão do aparelho): avisa no sininho na hora
-      if (st === 'close' && antes !== 'close') require('./alertas').registrar(empresa, 'whatsapp-desconectado', 'O WhatsApp da empresa desconectou (o celular encerrou a conexão). A IA não recebe nem responde mensagens até conectar de novo em IA do WhatsApp.');
+      if (st === 'close' && antes !== 'close') {
+        const rotulo = MOTIVOS_DESCONEXAO[Number(motivo)] || (motivo !== undefined ? `código ${motivo}` : 'motivo não informado pela Evolution');
+        console.log(`[whatsapp ${empresa.id}] desconectou: ${rotulo}`);
+        require('./alertas').registrar(empresa, 'whatsapp-desconectado', `O WhatsApp da empresa desconectou (${rotulo}). A IA não recebe nem responde mensagens até conectar de novo em IA do WhatsApp.`);
+        // só tenta reconectar sozinho (reiniciar o socket) se o motivo for recuperável;
+        // sessão encerrada pelo WhatsApp (QR/login) só resolve escaneando de novo
+        if (antes === 'open') require('./reconexao').registrarQueda(empresa, motivo);
+      }
       // voltou a conectar: busca o que chegou enquanto estava fora
       if (st === 'open' && antes !== 'open') {
         require('./alertas').resolverTipo(empresa, 'whatsapp-desconectado');
+        require('./reconexao').registrarVolta(empresa);
         require('./sincronizar').aoReconectar(empresa);
         require('./etiquetas-zap').carregar(empresa).catch(() => {});
         // ao conectar, o celular manda as etiquetas aos poucos: lê de novo depois
@@ -1479,6 +1504,7 @@ module.exports = {
   liberadoNoModoTeste,
   garantirSyncFullHistory,
   reiniciarSocket,
+  MOTIVOS_DESCONEXAO,
   numerosDeTeste,
   evolucao: evolution,
   textoDa,

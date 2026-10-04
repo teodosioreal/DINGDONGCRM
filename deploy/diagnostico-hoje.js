@@ -10,6 +10,8 @@ const db = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
 const desde = Date.now() - 30 * 3600 * 1000;
 const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 const sem = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// código que a Evolution manda em connection.update (data.statusReason) quando cai
+const MOTIVOS = { 401: 'sessão encerrada pelo WhatsApp (precisa QR novo)', 403: 'bloqueado (forbidden)', 408: 'perda de conexão (rede)', 411: 'excedeu aparelhos vinculados', 428: 'conexão encerrada', 440: 'outro aparelho assumiu', 500: 'sessão corrompida (precisa QR novo)', 503: 'servidor do WhatsApp indisponível', 515: 'reinício interno (normal)' };
 
 async function evo(e, metodo, caminho) {
   const c = e.whatsappConfig;
@@ -30,7 +32,8 @@ async function evo(e, metodo, caminho) {
     const st = await evo(e, 'GET', '/instance/connectionState/{i}');
     const cfg = await evo(e, 'GET', '/settings/find/{i}');
     const s = cfg.j?.settings || cfg.j || {};
-    console.log(`      conexão agora: ${st.j?.instance?.state || st.j?.state || `HTTP ${st.status}`} · CRM viu por último: ${c.perfil?.estado || '?'} em ${hora(c.perfil?.conferidoEm)} · último aviso da Evolution: ${hora(c.ultimoWebhookEm)} (${c.ultimoEvento || '?'})`);
+    const motivo = c.perfil?.motivoFechou;
+    console.log(`      conexão agora: ${st.j?.instance?.state || st.j?.state || `HTTP ${st.status}`} · CRM viu por último: ${c.perfil?.estado || '?'} em ${hora(c.perfil?.conferidoEm)}${c.perfil?.estado === 'close' && motivo !== undefined ? ` (motivo: ${MOTIVOS[Number(motivo)] || `código ${motivo}`})` : ''} · último aviso da Evolution: ${hora(c.ultimoWebhookEm)} (${c.ultimoEvento || '?'})`);
     console.log(`      syncFullHistory na Evolution: ${s.syncFullHistory === undefined ? 'não informado' : s.syncFullHistory} · socket reiniciado pelo CRM: ${c.socketReiniciadoEm ? hora(c.socketReiniciadoEm) : 'nunca marcado'}`);
     if (c.sincronia) console.log(`      última busca de mensagens: ${hora(c.sincronia.em)} (${c.sincronia.motivo}) · ${c.sincronia.importadas || 0} recuperada(s)${c.sincronia.erro ? ` · erro: ${c.sincronia.erro}` : ''}`);
     // mensagens dos clientes nas últimas 30 h
