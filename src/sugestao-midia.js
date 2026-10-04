@@ -85,7 +85,7 @@ const PISTA_ITEM = /\b(foto|fotos|video|videos|imagem|imagens|exemplo|exemplos|t
 async function porIa(empresa, lead, lista, fotos) {
   const bot = require('./whatsapp').botDoWhatsapp(empresa);
   if (!bot || !require('./ia').motoresDa(empresa, bot).length) return []; // sem chave de IA: fica só a busca por palavras
-  const conversa = (lead.mensagens || [])
+  const conversa = require('./leads').historicoParaIa(lead)
     .filter((m) => (m.texto || m.anexo) && !m.apagada)
     .slice(-10)
     .map((m) => `${m.papel === 'visitante' ? 'Cliente' : 'Empresa'}: ${String(m.texto || '[anexo]').replace(/\s+/g, ' ').slice(0, 300)}`)

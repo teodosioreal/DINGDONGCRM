@@ -381,7 +381,7 @@ async function executar(regra, lead, empresa) {
     mensagem = disparos.montarMensagem(regra.acao.texto, lead, empresa);
   } else {
     if (!bot) throw new Error('empresa sem assistente');
-    const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, regra.acao.instrucao, {
+    const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(lead), regra.acao.instrucao, {
       origem: await require('./origem').contextoParaIa(lead, bot, 'whatsapp', empresa),
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
@@ -436,7 +436,7 @@ async function enviarAgendadas(empresa) {
           // follow-up agendado pela IA: ela escreve agora, com a conversa atualizada
           const bot = whatsapp.botDoWhatsapp(empresa);
           if (!bot) throw new Error('empresa sem assistente');
-          const r = await ia.escreverMensagem(bot, empresa, lead.mensagens, `Chegou a hora do follow-up combinado com o cliente. Retome a conversa: ${a.instrucao}. Seja breve e natural, sem pressionar.`, {
+          const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(lead), `Chegou a hora do follow-up combinado com o cliente. Retome a conversa: ${a.instrucao}. Seja breve e natural, sem pressionar.`, {
             etapas: leads.etapasDa(empresa),
             etapaAtual: lead.etapa,
             midias: midias.paraIa(empresa, { followup: true }),

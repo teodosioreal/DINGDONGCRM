@@ -56,7 +56,7 @@ async function porIa(empresa, lead) {
   const bot = require('./whatsapp').botDoWhatsapp(empresa);
   if (!bot || !require('./ia').motoresDa(empresa, bot).length) return null; // sem chave de IA: só o código percebe
   const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const conversa = (lead.mensagens || [])
+  const conversa = require('./leads').historicoParaIa(lead)
     .filter((m) => m.texto && !m.apagada)
     .slice(-16)
     .map((m) => `[${m.em ? fmt(m.em) : '?'}] ${m.papel === 'visitante' ? 'CLIENTE' : m.papel === 'equipe' ? 'EMPRESA (equipe)' : 'EMPRESA (IA)'}: ${String(m.texto).slice(0, 500)}`)

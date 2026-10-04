@@ -141,7 +141,7 @@ router.post('/chat', async (req, res) => {
   salvar();
 
   try {
-    const resposta = await ia.responder(bot, empresa, conversa.mensagens, {
+    const resposta = await ia.responder(bot, empresa, leads.historicoParaIa(conversa), {
       canal: 'site',
       origem: await origem.contextoParaIa(conversa, bot, 'site', empresa),
       tickets: tickets.paraIa(conversa),

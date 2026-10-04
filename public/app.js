@@ -108,6 +108,8 @@ async function copiar(texto) {
 
 // Botão com "carregando…" enquanto a ação roda
 async function comEspera(botao, acao, texto = 'Aguarde…') {
+  // sem botão (ex.: e.currentTarget depois de um "confirmar", que já é null): só executa
+  if (!botao) return acao();
   const antes = botao.innerHTML;
   botao.disabled = true;
   botao.innerHTML = `<span class="girando"></span> ${esc(texto)}`;
@@ -3677,6 +3679,8 @@ async function paginaConversas(id, params) {
           <button type="button" class="chip-filtro ativo" data-filtro="todas">Todas</button>
           <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
           <button type="button" class="chip-filtro" data-filtro="vendas">✅ Vendas concluídas</button>
+          <button type="button" class="chip-filtro" data-filtro="iaAtiva" title="Conversas em que a IA está respondendo">🤖 IA ativa</button>
+          <button type="button" class="chip-filtro" data-filtro="iaPausada" title="Conversas em que a IA está pausada (a equipe atende)">✋ IA pausada</button>
           <button type="button" class="chip-filtro" data-filtro="arquivadas" title="Arquivadas ou apagadas no WhatsApp">🗄️</button>
           <button type="button" class="chip-filtro" data-filtro="listaNegra" title="Lista negra: ninguém (nem a IA) manda nada para eles">🚫</button>
           <button type="button" class="chip-filtro" data-filtro="lixeira" title="Lixeira: conversas apagadas (dá para restaurar por 30 dias)">🗑️</button>
@@ -3806,6 +3810,7 @@ async function paginaConversas(id, params) {
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
       ${htmlPedidos(l)}
+      ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
@@ -3819,6 +3824,7 @@ async function paginaConversas(id, params) {
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
+          <button type="button" class="pequeno" id="chat-reiniciar-ia" title="A IA esquece o que leu desta conversa e começa do zero a partir da próxima mensagem">🔄 Reiniciar aprendizado da conversa</button>
           <button type="button" class="pequeno" id="chat-agendar" title="Mandar uma mensagem mais tarde">🕒 Mandar depois</button>
           ${l.vendaConcluida ? '<button type="button" class="pequeno" id="chat-venda" title="Lançar outra venda deste cliente (compra repetida)">➕ Outra venda</button>' : ''}
           <button type="button" class="pequeno" id="chat-agendamento" title="Marcar agendamento com o cliente">📅 Agendamento</button>
@@ -3956,6 +3962,24 @@ async function paginaConversas(id, params) {
         aviso(e.target.checked ? 'A IA voltou a responder este cliente.' : 'IA pausada: você atende este cliente.');
         recarregarAberto();
         carregarLista();
+      } catch (err) { aviso(err.message, true); }
+    });
+    $('#chat-reiniciar-ia')?.addEventListener('click', async (e) => {
+      const botao = e.currentTarget; // depois do "confirmar" o evento já acabou
+      if (!(await confirmar({ titulo: 'Reiniciar aprendizado da conversa?', texto: 'A IA <b>esquece tudo o que leu desta conversa</b> e começa do zero a partir da próxima mensagem (útil quando ela se confundiu ou guardou uma informação errada). O histórico continua aparecendo aqui para você, e o aprendizado diário relê esta conversa do zero.', botao: '🔄 Reiniciar' }))) return;
+      try {
+        await comEspera(botao, () => api(`leads/${abertoId}/reiniciar-aprendizado`, { method: 'POST', body: {} }));
+        aviso('Pronto: a IA começa esta conversa do zero.');
+        assinaturaAberta = '';
+        recarregarAberto();
+      } catch (err) { aviso(err.message, true); }
+    });
+    $('#chat-reiniciar-desfazer')?.addEventListener('click', async () => {
+      try {
+        await api(`leads/${abertoId}/reiniciar-aprendizado`, { method: 'POST', body: { desfazer: true } });
+        aviso('A IA volta a ler a conversa inteira.');
+        assinaturaAberta = '';
+        recarregarAberto();
       } catch (err) { aviso(err.message, true); }
     });
     $('#chat-fup')?.addEventListener('change', async (e) => {

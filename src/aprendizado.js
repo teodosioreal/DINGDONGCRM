@@ -261,6 +261,15 @@ function verificarAgenda(empresa) {
   varrer(empresa, { motivo: 'automática (8h)' }).catch((err) => console.error(`[aprendizado ${empresa.id}]`, err.message));
 }
 
+// "Reiniciar aprendizado da conversa": a varredura lê esta conversa de novo, do zero
+function esquecerConversa(empresa, jid) {
+  if (!jid || !empresa.aprendizado) return;
+  const a = empresa.aprendizado;
+  if (a.checkpoints) delete a.checkpoints[jid];
+  if (a.concluidas) delete a.concluidas[jid];
+  salvar();
+}
+
 function zerar(empresa) {
   if (rodando.has(empresa.id)) throw Object.assign(new Error('Espere a varredura terminar.'), { status: 409 });
   guardar(empresa, { texto: '', checkpoints: {}, concluidas: {}, historico: [], pendentes: 0, ultimaVarredura: null });
@@ -277,4 +286,4 @@ function resumo(empresa) {
   };
 }
 
-module.exports = { varrer, verificarAgenda, zerar, resumo, configDa, guardar, progresso, vendaConcluida };
+module.exports = { esquecerConversa, varrer, verificarAgenda, zerar, resumo, configDa, guardar, progresso, vendaConcluida };

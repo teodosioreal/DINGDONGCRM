@@ -260,6 +260,14 @@ function soEtiquetasDoZap() {
   return tiradas;
 }
 
+// O que a IA lê desta conversa: depois de "Reiniciar aprendizado da conversa", só as
+// mensagens a partir dali (o histórico continua aparecendo para a equipe)
+function historicoParaIa(lead) {
+  const desde = lead?.iaReiniciadaEm;
+  const todas = lead?.mensagens || [];
+  return desde ? todas.filter((m) => String(m.em || '') >= desde) : todas;
+}
+
 function limparNome(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
@@ -347,6 +355,7 @@ module.exports = {
   migrarFunilPadrao,
   CORES_ETIQUETA,
   etiquetasDa,
+  historicoParaIa,
   soEtiquetasDoZap,
   aplicarEtiqueta,
   etapasDa,

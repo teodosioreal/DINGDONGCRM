@@ -1242,7 +1242,7 @@ async function responderLead(empresaId, leadId) {
 
   let r;
   try {
-    r = await ia.responder(bot, empresa, lead.mensagens, {
+    r = await ia.responder(bot, empresa, leads.historicoParaIa(lead), {
       canal: 'whatsapp',
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
       midiasEnviadas: [...new Set(lead.mensagens.filter((m) => m.midiaCodigo).map((m) => m.midiaCodigo))],

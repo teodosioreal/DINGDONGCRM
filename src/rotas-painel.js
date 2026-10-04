@@ -1546,6 +1546,8 @@ router.get('/empresas/:id/conversas', (req, res) => {
     .filter((c) => filtro !== 'vendas' || fechado(c))
     .filter((c) => filtro !== 'naoLidas' || c.naoLidas > 0)
     .filter((c) => filtro !== 'equipe' || c.precisaHumano)
+    .filter((c) => filtro !== 'iaAtiva' || !c.iaPausada)
+    .filter((c) => filtro !== 'iaPausada' || c.iaPausada)
     .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
     .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.slice(-30).map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
     .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm, proximoEnvio: automacoes.proximosEnvios(c, empresa)[0] || null }))
@@ -1932,6 +1934,28 @@ router.post('/leads/:id/arquivo/envio/:envioId/concluir', async (req, res) => {
   salvar();
 });
 
+// 🔄 Reiniciar aprendizado da conversa: a IA esquece o que leu até aqui e começa do zero
+// (o histórico continua aparecendo para a equipe). { desfazer: true } volta a ler tudo.
+router.post('/leads/:id/reiniciar-aprendizado', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  if (req.body?.desfazer === true) {
+    delete c.iaReiniciadaEm;
+    delete c.iaReiniciadaPor;
+  } else {
+    c.iaReiniciadaEm = agora();
+    c.iaReiniciadaPor = req.usuario.email;
+    delete c.agendaConferidaAte; // o detector de agendamento relê do zero
+    delete c.sugestaoMidia;
+    c.sugestaoMidiaConferidaAte = c.iaReiniciadaEm;
+    const aprendizado = require('./aprendizado');
+    for (const jid of [c.whatsappJid, c.lidJid].filter(Boolean)) aprendizado.esquecerConversa(empresa, jid);
+  }
+  salvar();
+  res.json({ ok: true, iaReiniciadaEm: c.iaReiniciadaEm || null });
+});
+
 // Sugestão de mídia na conversa: dispensar uma (codigo) ou todas
 router.post('/leads/:id/sugestao-midia/dispensar', (req, res) => {
   const c = acharLead(req, res);
@@ -1995,7 +2019,7 @@ router.post('/leads/:id/sugerir', async (req, res) => {
   const bot = whatsapp.botDoWhatsapp(empresa);
   if (!bot) return res.status(400).json({ erro: 'A empresa não tem assistente.' });
   const pedido = texto(req.body?.pedido, 500);
-  const conversa = (c.mensagens || []).filter((m) => !m.apagada && m.texto);
+  const conversa = leads.historicoParaIa(c).filter((m) => !m.apagada && m.texto);
   if (!conversa.length) return res.status(400).json({ erro: 'Ainda não há conversa com este cliente para a IA ler.' });
   const contexto = async () => ({
     etapas: leads.etapasDa(empresa),
@@ -2020,7 +2044,7 @@ async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
       const instrucao = instrucaoDeSugestao(c, conversa, pedido) + MARCADORES + (tentativa ? ' IMPORTANTE: a tentativa anterior veio vazia — escreva a mensagem agora.' : '');
-      const r = await ia.escreverMensagem(bot, empresa, c.mensagens, instrucao, await contexto());
+      const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(c), instrucao, await contexto());
       const sugestao = limparSugestao(r.texto);
       if (sugestao) return { texto: sugestao, midias: r.midias || [], via: 'atendimento' };
       console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1}: a IA devolveu texto vazio`);
