@@ -517,6 +517,8 @@ function lembrarEnvio(resposta, destino) {
   }
 }
 
+const foiEnviadoPeloCrm = (id) => enviadosPeloCrm.has(id);
+
 // "digitando…" proporcional ao tamanho, como uma pessoa (máx. 5 s)
 // Ritmo da IA no WhatsApp. "espera": quanto tempo ela espera o cliente parar
 // de mandar mensagens antes de responder; "digitando": quanto tempo aparece
@@ -802,6 +804,11 @@ async function receberWebhook(empresa, corpo) {
   }
   for (const msg of mensagensDoWebhook(corpo)) {
     const jid = msg?.key?.remoteJid || '';
+    // grupo de gastos da empresa (Faturamento): cada mensagem vira gasto
+    if (/@g\.us$/.test(jid) && require('./gastos').ehDoGrupo(empresa, jid)) {
+      await require('./gastos').daMensagem(empresa, msg).catch((err) => console.error(`[gastos ${empresa.id}]`, err.message));
+      continue;
+    }
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
     if (jaProcessada(msg.key.id)) continue;
     let texto = textoDa(msg);
@@ -1556,6 +1563,7 @@ module.exports = {
   configDa,
   configurado,
   evolution,
+  foiEnviadoPeloCrm,
   urlWebhook,
   garantirSegredo,
   situacao,

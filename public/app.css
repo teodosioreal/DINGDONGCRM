@@ -1386,3 +1386,22 @@ html.dark .funil-perda { color: #fca5a5; }
 .busca-menu { padding: 6px 10px 2px; }
 .busca-menu input { width: 100%; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--borda-campo); background: var(--superficie); color: var(--texto); font-size: 13px; }
 .grupo-menu[hidden], #menu a[hidden] { display: none !important; }
+
+/* gastos (Faturamento) */
+.grupo-gastos { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:10px 12px; border-radius:10px; background:var(--fundo-suave, rgba(127,127,127,.08)); margin-bottom:12px; font-size:14px; }
+.grupo-gastos.ligado { border-left:3px solid #25d366; }
+.gastos-numeros .numero-card.gasto .numero { color:#d9534f; }
+.gastos-numeros .numero-card.lucro .numero { color:#1e9e57; }
+.gastos-numeros .numero-card.prejuizo .numero { color:#d9534f; }
+.gastos-categorias { display:flex; flex-direction:column; gap:6px; }
+.cat-gasto { display:grid; grid-template-columns:minmax(90px,170px) 1fr auto 42px; gap:10px; align-items:center; font-size:14px; }
+.cat-gasto .cat-nome { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cat-barra { height:10px; border-radius:6px; background:rgba(127,127,127,.15); overflow:hidden; }
+.cat-barra span { display:block; height:100%; background:#e8833a; border-radius:6px; }
+.gastos-lista summary { cursor:pointer; font-weight:600; }
+.gastos-lista table { margin-top:8px; }
+.lista-grupos { max-height:300px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+.item-grupo { display:flex; gap:10px; align-items:center; padding:8px 10px; border-radius:8px; cursor:pointer; }
+.item-grupo:hover { background:rgba(127,127,127,.08); }
+.item-grupo small { opacity:.7; margin-left:6px; }
+@media (max-width:600px) { .cat-gasto { grid-template-columns:90px 1fr auto; } .cat-gasto .rotulo { display:none; } }

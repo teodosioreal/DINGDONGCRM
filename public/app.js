@@ -250,7 +250,7 @@ function montarMenu(ativo) {
         ['followup', 'followup', 'Follow-up', 'retomar sumiu parou de responder mensagens prontas sequencia'],
         ['agenda', 'agenda', 'Agendamentos', 'agenda horario marcado visita instalacao'],
         ['leads', 'leads', 'Leads (funil)', 'funil clientes kanban etapas contatos'],
-        ['faturamento', 'dinheiro', 'Faturamento', 'vendas pix comprovante dinheiro valor obrigado pela preferencia']
+        ['faturamento', 'dinheiro', 'Faturamento', 'vendas pix comprovante dinheiro valor obrigado pela preferencia gastos despesas lucro grupo categoria']
       ]],
       ['Vender no automático', [
         ['automacoes', 'maquina', 'Máquina de vendas', 'automacoes avaliacao google comentario anuncio pos-venda reativar'],
@@ -4826,7 +4826,7 @@ async function paginaFaturamento(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const mes = params.get('mes') || '';
-  const d = await api(`empresas/${id}/faturamento?${new URLSearchParams({ mes })}`);
+  const [d, gd] = await Promise.all([api(`empresas/${id}/faturamento?${new URLSearchParams({ mes })}`), api(`empresas/${id}/gastos?${new URLSearchParams({ mes })}`).catch(() => null)]);
   const r = d.resumo;
   const cfg = d.config;
   const variacao = r.mesAnterior ? Math.round(((r.mes - r.mesAnterior) / r.mesAnterior) * 100) : null;
@@ -4845,7 +4845,7 @@ async function paginaFaturamento(id, params) {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho">
-      <div><h1>Faturamento</h1><p class="sub">Vendas confirmadas pelos comprovantes do WhatsApp e lançadas pela equipe</p></div>
+      <div><h1>Faturamento</h1><p class="sub">Vendas, gastos e lucro da empresa — entram sozinhos pelo WhatsApp</p></div>
       <div class="barra">
         <button type="button" id="procurar-vendas" title="Procura agora (sem IA) a frase de venda da equipe e comprovantes que ficaram para trás — roda sozinho de hora em hora">🔎 Procurar vendas agora</button>
         <label class="botao" title="Enviar um comprovante (foto ou PDF) pelo computador">📄 Ler comprovante<input type="file" id="ler-comprovante" hidden accept="image/*,.pdf"></label>
@@ -4885,6 +4885,8 @@ async function paginaFaturamento(id, params) {
         </div>
       </div>
     </div>
+
+    ${gd ? htmlGastos(gd) : ''}
 
     <div class="card tabela-wrap">
       <div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Vendas</h2>
@@ -4941,6 +4943,7 @@ async function paginaFaturamento(id, params) {
   });
 
   $('#filtro-mes').onchange = (e) => { location.hash = rotaEmpresa(id, 'faturamento') + (e.target.value ? `?mes=${e.target.value}` : ''); };
+  if (gd) ligarGastos(id, gd, () => paginaFaturamento(id, params));
   $('#procurar-vendas').onclick = async (e) => {
     try {
       const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/varredura-vendas`, { method: 'POST', body: {} }), 'Procurando…');
@@ -4982,6 +4985,151 @@ async function paginaFaturamento(id, params) {
       paginaFaturamento(id, params);
     } catch (err) { aviso(err.message, true); }
   };
+}
+
+// 💸 Gastos da empresa (lançados pelo grupo do WhatsApp ou à mão) + lucro do mês
+function htmlGastos(gd) {
+  const r = gd.resumo;
+  const c = gd.config;
+  const nomeMes = new Date(`${r.mes}-15T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const maior = Math.max(...r.porCategoria.map((x) => x.total), 0);
+  const ORIGEM = { texto: '💬 escrito no grupo', ocr: '📷 foto no grupo', ia: '✨ comprovante lido pela IA', manual: '✍️ lançado à mão' };
+  const grupo = c.grupoJid
+    ? `<div class="grupo-gastos ligado"><span>💬 Grupo conectado: <b>${esc(c.grupoNome || 'grupo')}</b> — mande lá <i>"gastei 50 gasolina"</i> ou a foto do comprovante.${c.ultimaBusca ? ` <span class="rotulo">Última conferência: ${esc(data(c.ultimaBusca.em))}</span>` : ''}</span><span class="barra"><button type="button" class="pequeno" id="gastos-buscar" title="Procura no grupo mensagens que não chegaram (ex.: WhatsApp desconectado)">🔄 Conferir grupo</button><button type="button" class="pequeno" id="gastos-grupo">Trocar grupo</button></span></div>`
+    : `<div class="grupo-gastos"><span>💬 <b>Lance os gastos pelo WhatsApp:</b> conecte um grupo onde o número da empresa participa. Tudo o que vocês mandarem lá (<i>"gastei 50 gasolina"</i>, <i>"120 aluguel"</i> ou a foto do comprovante do Pix) entra aqui sozinho, por categoria.</span>${gd.whatsappConectado ? '<button type="button" class="primario pequeno" id="gastos-grupo">Conectar grupo</button>' : '<span class="rotulo">Conecte o WhatsApp da empresa primeiro.</span>'}</div>`;
+  return `
+    <div class="card" id="card-gastos">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">💸 Faturamento e gastos · ${esc(nomeMes)}</h2>
+        <div class="barra"><button type="button" class="pequeno" id="gastos-categorias">Categorias</button><button type="button" class="primario pequeno" id="novo-gasto">+ Lançar gasto</button></div></div>
+      ${grupo}
+      <div class="grade-resumo gastos-numeros">
+        ${numeroCard('Faturamento', brl(r.faturamento))}
+        ${numeroCard('Gastos', brl(r.gastos), 'gasto')}
+        ${numeroCard(r.lucro >= 0 ? 'Sobrou (lucro)' : 'Faltou (prejuízo)', brl(r.lucro), r.lucro >= 0 ? 'lucro' : 'prejuizo')}
+      </div>
+      ${r.porCategoria.length ? `<h3 style="margin:14px 0 8px">Gastos por categoria</h3><div class="gastos-categorias">${r.porCategoria.map((x) => `<div class="cat-gasto"><span class="cat-nome">${esc(x.categoria)}</span><span class="cat-barra"><span style="width:${maior ? Math.max(3, (x.total / maior) * 100) : 0}%"></span></span><b>${brl(x.total)}</b><span class="rotulo">${r.gastos ? Math.round((x.total / r.gastos) * 100) : 0}%</span></div>`).join('')}</div>` : '<p class="rotulo" style="margin:12px 0 0">Nenhum gasto neste mês ainda.</p>'}
+      ${gd.gastos.length ? `<details class="gastos-lista" style="margin-top:12px"><summary>Ver os ${gd.gastos.length} gasto(s) do mês</summary>
+        <table><thead><tr><th>Data</th><th>Gasto</th><th>Categoria</th><th>Valor</th><th class="esconde-mobile">Como entrou</th><th></th></tr></thead><tbody>
+        ${gd.gastos.map((g) => `<tr><td style="white-space:nowrap">${data(g.data)}</td><td>${esc(g.descricao || '—')}${g.autor ? `<br><span class="rotulo">por ${esc(g.autor)}</span>` : ''}</td><td>${esc(g.categoria)}</td><td style="white-space:nowrap"><b>${brl(g.valor)}</b></td><td class="esconde-mobile rotulo">${ORIGEM[g.lidoPor] || esc(g.lidoPor || '')}${g.comprovanteUrl ? `<br><a href="${esc(g.comprovanteUrl)}" target="_blank" rel="noopener">ver comprovante</a>` : ''}</td><td><button type="button" class="pequeno" data-editar-gasto="${esc(g.id)}">Editar</button></td></tr>`).join('')}
+        </tbody></table></details>` : ''}
+    </div>`;
+}
+
+function ligarGastos(id, gd, recarregar) {
+  $('#novo-gasto').onclick = () => modalGasto(id, gd, null, recarregar);
+  $$('[data-editar-gasto]').forEach((b) => { b.onclick = () => modalGasto(id, gd, gd.gastos.find((g) => g.id === b.dataset.editarGasto), recarregar); });
+  $('#gastos-grupo')?.addEventListener('click', () => modalGrupoGastos(id, gd, recarregar));
+  $('#gastos-categorias').onclick = () => modalCategoriasGastos(id, gd, recarregar);
+  $('#gastos-buscar')?.addEventListener('click', async (e) => {
+    try {
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/gastos/buscar`, { method: 'POST', body: {} }), 'Conferindo…');
+      aviso(r.achados ? `${r.achados} gasto(s) novo(s) encontrado(s) no grupo.` : 'Tudo certo: nenhum gasto ficou para trás.');
+      recarregar();
+    } catch (err) { aviso(err.message, true); }
+  });
+}
+
+function modalGasto(id, gd, g, depois) {
+  const quando = new Date(g ? g.data : Date.now());
+  const local = new Date(quando.getTime() - quando.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const cats = gd.config.categorias.map((c) => c.nome);
+  if (g && !cats.includes(g.categoria)) cats.unshift(g.categoria);
+  abrirModal(`
+    <h2>${g ? 'Editar gasto' : 'Lançar gasto'}</h2>
+    <form id="f-gasto">
+      <div class="campos">
+        <div class="campo"><label>Valor (R$) *</label><input name="valor" required inputmode="decimal" value="${g ? esc(String(g.valor).replace('.', ',')) : ''}" placeholder="50,00"></div>
+        <div class="campo"><label>Categoria</label><select name="categoria">${cats.map((c) => `<option ${c === (g?.categoria || 'Outros') ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+        <div class="campo"><label>Data</label><input type="datetime-local" name="data" value="${local}"></div>
+        <div class="campo"><label>O que foi (opcional)</label><input name="descricao" value="${esc(g?.descricao || '')}" placeholder="Ex.: gasolina"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button>${g ? '<button type="button" class="perigo" id="apagar-gasto" style="margin-left:auto">Apagar</button>' : ''}</div>
+    </form>`, (m, fechar) => {
+    $('#f-gasto', m).onsubmit = async (e) => {
+      e.preventDefault();
+      const f = formParaObjeto(e.target);
+      try {
+        await api(g ? `empresas/${id}/gastos/${g.id}` : `empresas/${id}/gastos`, { method: g ? 'PUT' : 'POST', body: { ...f, data: f.data ? new Date(f.data).toISOString() : undefined } });
+        fechar();
+        aviso('Gasto salvo.');
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#apagar-gasto', m)?.addEventListener('click', async () => {
+      if (!(await confirmar({ titulo: 'Apagar este gasto?', texto: 'Ele sai das contas do mês.', botao: 'Apagar', perigo: true }))) return;
+      try {
+        await api(`empresas/${id}/gastos/${g.id}`, { method: 'DELETE' });
+        fechar();
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    });
+  });
+}
+
+function modalGrupoGastos(id, gd, depois) {
+  const c = gd.config;
+  abrirModal(`
+    <h2>💬 Grupo de gastos</h2>
+    <p class="rotulo" style="margin:0 0 12px">Escolha um grupo do WhatsApp em que o <b>número da empresa</b> participa. Crie um grupo só para isso (ex.: "Gastos da empresa") com quem lança as despesas. As mensagens dos outros grupos continuam ignoradas.</p>
+    <div id="lista-grupos"><p class="rotulo">Buscando seus grupos…</p></div>
+    <label class="linha-check" style="margin-top:12px"><input type="checkbox" id="g-responder" ${c.responderNoGrupo ? 'checked' : ''}> Confirmar no grupo cada gasto lançado (✅ Gasto de R$ 50,00 · Combustível)</label>
+    <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="g-ia" ${c.usarIa ? 'checked' : ''}> Se a foto do comprovante estiver ruim de ler, deixar a IA tentar ${ajuda('Primeiro o CRM lê sem IA (não gasta crédito). Só se não achar o valor a IA olha a foto.')}</label>
+    <div class="acoes"><button type="button" class="primario" id="g-salvar">Salvar</button><button type="button" data-fechar>Cancelar</button>${c.grupoJid ? '<button type="button" class="perigo" id="g-desconectar" style="margin-left:auto">Desconectar grupo</button>' : ''}</div>`, async (m, fechar) => {
+    let escolhido = c.grupoJid;
+    let nome = c.grupoNome;
+    const salvarCfg = async (corpo) => {
+      await api(`empresas/${id}/gastos/config`, { method: 'PUT', body: corpo });
+      fechar();
+      depois?.();
+    };
+    $('#g-salvar', m).onclick = async (e) => {
+      if (!escolhido) return aviso('Escolha um grupo da lista.', true);
+      try {
+        await comEspera(e.currentTarget, () => salvarCfg({ ...(escolhido !== c.grupoJid ? { grupoJid: escolhido, grupoNome: nome } : {}), responderNoGrupo: $('#g-responder', m).checked, usarIa: $('#g-ia', m).checked }), 'Conectando…');
+        aviso(escolhido !== c.grupoJid ? `Grupo "${nome}" conectado. Mande um gasto lá para testar!` : 'Salvo.');
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#g-desconectar', m)?.addEventListener('click', async () => {
+      try {
+        await salvarCfg({ grupoJid: '' });
+        aviso('Grupo desconectado. Os gastos já lançados continuam aqui.');
+      } catch (err) { aviso(err.message, true); }
+    });
+    const caixa = $('#lista-grupos', m);
+    try {
+      const grupos = await api(`empresas/${id}/gastos/grupos`);
+      if (!caixa.isConnected) return;
+      caixa.innerHTML = grupos.length
+        ? `<input type="search" id="g-busca" placeholder="Procurar grupo…" style="margin-bottom:8px"><div class="lista-grupos">${grupos.map((g) => `<label class="item-grupo"><input type="radio" name="grupo" value="${esc(g.id)}" data-nome="${esc(g.nome)}" ${g.id === c.grupoJid ? 'checked' : ''}><span><b>${esc(g.nome)}</b>${g.membros ? ` <small>${g.membros} participantes</small>` : ''}</span></label>`).join('')}</div>`
+        : '<p class="aviso-texto">O número da empresa não está em nenhum grupo. Crie um grupo no WhatsApp com o número da empresa e clique de novo.</p>';
+      $$('input[name=grupo]', caixa).forEach((r) => { r.onchange = () => { escolhido = r.value; nome = r.dataset.nome; }; });
+      $('#g-busca', caixa)?.addEventListener('input', (e) => {
+        const q = sem(e.target.value);
+        $$('.item-grupo', caixa).forEach((el) => { el.hidden = q && !sem(el.textContent).includes(q); });
+      });
+    } catch (err) {
+      caixa.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`;
+    }
+  });
+}
+
+function modalCategoriasGastos(id, gd, depois) {
+  const linhas = gd.config.categorias.map((c) => `${c.nome}${c.palavras ? `: ${c.palavras}` : ''}`).join('\n');
+  abrirModal(`
+    <h2>Categorias de gastos</h2>
+    <p class="rotulo" style="margin:0 0 10px">Uma categoria por linha. Depois dos dois-pontos, as palavras que levam o gasto para ela (ex.: <i>Combustível: gasolina, posto, etanol</i>). No grupo, dá para escolher na hora: <i>"35 almoço categoria equipe"</i>. O que não se encaixar vai para <b>Outros</b>.</p>
+    <textarea id="cats" rows="12" style="width:100%;font-family:inherit">${esc(linhas)}</textarea>
+    <div class="acoes"><button type="button" class="primario" id="cats-salvar">Salvar</button><button type="button" data-fechar>Cancelar</button></div>`, (m, fechar) => {
+    $('#cats-salvar', m).onclick = async () => {
+      const categorias = $('#cats', m).value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const i = l.indexOf(':'); return i < 0 ? { nome: l, palavras: '' } : { nome: l.slice(0, i).trim(), palavras: l.slice(i + 1).trim() }; });
+      try {
+        await api(`empresas/${id}/gastos/config`, { method: 'PUT', body: { categorias } });
+        fechar();
+        aviso('Categorias salvas.');
+        depois?.();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
 }
 
 function modalVenda(emp, v, leadId, depois, padrao = {}) {

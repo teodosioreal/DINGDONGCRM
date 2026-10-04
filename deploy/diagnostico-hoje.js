@@ -51,6 +51,9 @@ async function evo(e, metodo, caminho) {
     const f = e.faturamento || {};
     console.log(`      faturamento: ${f.ativo === false ? 'DESLIGADO' : 'ligado'} · ler com IA: ${f.usarIa === false ? 'não' : 'sim'} · recebedores cadastrados: ${String(f.recebedores || '').trim() ? 'sim' : 'não'}`);
     console.log(`      vendas (30 h): ${vendas.length}${vendas.length ? ' → ' + vendas.map((v) => `${v.status}/${v.origem || '?'}/${v.lidoPor || '?'}${v.motivoConferir ? ` (${String(v.motivoConferir).slice(0, 50)})` : ''}`).join(' · ') : ''}`);
+    const gc = e.gastos || {};
+    const gastos30 = (db.gastos || []).filter((g) => g.empresaId === e.id && new Date(g.criadoEm).getTime() > desde);
+    console.log(`      gastos pelo grupo: ${gc.grupoJid ? 'grupo conectado' : 'sem grupo'} · lançados (30 h): ${gastos30.length}${gastos30.length ? ` (${gastos30.map((g) => g.lidoPor).join(', ')})` : ''}`);
     // etiquetas
     const z = e.etiquetasZap || {};
     const tags = e.etiquetas || [];

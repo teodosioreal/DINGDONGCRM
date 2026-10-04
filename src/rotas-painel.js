@@ -880,6 +880,7 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
   disparos.apagarTodosDa(id);
   apagarLogo(estado.empresas[i]);
   estado.vendas = (estado.vendas || []).filter((v) => v.empresaId !== id);
+  estado.gastos = (estado.gastos || []).filter((g) => g.empresaId !== id);
   estado.empresas.splice(i, 1);
   const botsRemovidos = new Set(estado.bots.filter((b) => b.empresaId === id).map((b) => b.id));
   estado.bots = estado.bots.filter((b) => b.empresaId !== id);
@@ -2615,6 +2616,136 @@ router.delete('/empresas/:id/vendas/:vendaId', (req, res) => {
   estado.vendas = estado.vendas.filter((x) => x.id !== v.id);
   salvar();
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- gastos (grupo do WhatsApp)
+
+const gastos = require('./gastos');
+
+function gastoPublico(g) {
+  const { hash, ...resto } = g;
+  return { ...resto, comprovanteUrl: g.anexo ? `api/empresas/${g.empresaId}/gastos/${g.id}/comprovante` : '' };
+}
+
+function dadosGasto(b, empresa) {
+  const valor = comprovantes.paraNumero(String(b.valor ?? '').replace('R$', '')) ?? Number(b.valor);
+  if (!Number.isFinite(valor) || valor <= 0) throw Object.assign(new Error('Informe o valor do gasto.'), { status: 400 });
+  const data = b.data ? new Date(b.data) : new Date();
+  if (Number.isNaN(data.getTime())) throw Object.assign(new Error('Data inválida.'), { status: 400 });
+  const categoria = texto(b.categoria, 60) || 'Outros';
+  return { valor: Math.round(valor * 100) / 100, data: data.toISOString(), categoria, descricao: texto(b.descricao, 200) };
+}
+
+router.get('/empresas/:id/gastos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : gastos.mesDe(new Date().toISOString());
+  const lista = gastos
+    .gastosDa(empresa)
+    .filter((g) => gastos.mesDe(g.data) === mes)
+    .sort((a, b) => (a.data < b.data ? 1 : -1))
+    .map(gastoPublico);
+  res.json({ resumo: gastos.resumo(empresa, mes), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
+});
+
+router.get('/empresas/:id/gastos/grupos', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp da empresa primeiro.' });
+  try {
+    res.json(await gastos.listarGrupos(empresa));
+  } catch (err) {
+    res.status(502).json({ erro: `Não consegui buscar os grupos do WhatsApp: ${err.message}` });
+  }
+});
+
+router.put('/empresas/:id/gastos/config', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  try {
+    if (b.grupoJid !== undefined) await gastos.conectarGrupo(empresa, { grupoJid: texto(b.grupoJid, 120), grupoNome: texto(b.grupoNome, 100) });
+    const atual = empresa.gastos || {};
+    if (b.responderNoGrupo !== undefined) atual.responderNoGrupo = b.responderNoGrupo !== false;
+    if (b.usarIa !== undefined) atual.usarIa = b.usarIa !== false;
+    if (Array.isArray(b.categorias)) {
+      const vistas = new Set();
+      const lista = b.categorias
+        .map((c) => ({ nome: texto(c?.nome, 40), palavras: texto(c?.palavras, 400) }))
+        .filter((c) => c.nome && !vistas.has(c.nome.toLowerCase()) && vistas.add(c.nome.toLowerCase()))
+        .slice(0, 40);
+      if (!lista.some((c) => c.nome === 'Outros')) lista.push({ nome: 'Outros', palavras: '' });
+      atual.categorias = lista;
+    }
+    empresa.gastos = atual;
+    salvar();
+    res.json(gastos.configDa(empresa));
+  } catch (err) {
+    res.status(err.status || 502).json({ erro: err.message });
+  }
+});
+
+// Buscar agora as mensagens do grupo que não chegaram
+router.post('/empresas/:id/gastos/buscar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json({ achados: await gastos.buscarNoGrupo(empresa) });
+  } catch (err) {
+    res.status(502).json({ erro: `Não consegui ler o grupo: ${err.message}` });
+  }
+});
+
+router.post('/empresas/:id/gastos', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const g = gastos.registrar(empresa, dadosGasto(req.body || {}, empresa), { origem: 'manual', autor: req.usuario.email });
+    res.status(201).json(gastoPublico(g));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+function acharGasto(req, res) {
+  const g = (estado.gastos || []).find((x) => x.id === req.params.gastoId && x.empresaId === req.params.id);
+  if (!g || !podeVerEmpresa(req, g.empresaId)) {
+    res.status(404).json({ erro: 'Gasto não encontrado.' });
+    return null;
+  }
+  return g;
+}
+
+router.put('/empresas/:id/gastos/:gastoId', (req, res) => {
+  const g = acharGasto(req, res);
+  if (!g) return;
+  const b = req.body || {};
+  try {
+    Object.assign(g, dadosGasto({ valor: b.valor ?? g.valor, data: b.data ?? g.data, categoria: b.categoria ?? g.categoria, descricao: b.descricao ?? g.descricao }));
+    salvar();
+    res.json(gastoPublico(g));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.delete('/empresas/:id/gastos/:gastoId', (req, res) => {
+  const g = acharGasto(req, res);
+  if (!g) return;
+  estado.gastos = estado.gastos.filter((x) => x.id !== g.id);
+  salvar();
+  res.json({ ok: true });
+});
+
+router.get('/empresas/:id/gastos/:gastoId/comprovante', (req, res) => {
+  const g = acharGasto(req, res);
+  if (!g) return;
+  const caminho = g.anexo ? midias.caminhoAnexo(`gastos-${g.empresaId}`, g.anexo.arquivo) : null;
+  if (!caminho) return res.sendStatus(404);
+  tipoDeArquivoSeguro(res, g.anexo.mimetype, g.anexo.arquivo);
+  res.sendFile(caminho, (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
 });
 
 // ---------------------------------------------------------------- chaves de IA (só admin)
