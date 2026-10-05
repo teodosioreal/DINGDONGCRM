@@ -116,6 +116,8 @@ async function verificar() {
         if (require('./comprovantes').jaVendeu(empresa, lead)) continue; // já comprou: sem follow-up
         const ev = eventoVencido(empresa, lead, cfg);
         if (!ev) continue;
+        // "sem resposta" / "1º follow-up" com IA: se o follow-up sem IA já vai cuidar deste cliente, não gasta IA (nem manda em dobro)
+        if ((ev.tag === 'SEM_RESPOSTA' || ev.tag === 'FOLLOWUP_1') && !require('./followup').situacao(empresa, lead).motivo) continue;
         lead.eventosIa = { ...(lead.eventosIa || {}), [ev.chave]: { ref: ev.ref, em: agora() } };
         salvar();
         n++;

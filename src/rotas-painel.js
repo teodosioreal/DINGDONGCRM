@@ -2479,7 +2479,10 @@ router.put('/empresas/:id/respostas', (req, res) => {
       atalho: texto(r?.atalho, 30).replace(/^\/+/, '').replace(/\s+/g, '-').toLowerCase(),
       texto: texto(r?.texto, 2000),
       midia: texto(r?.midia, 120),
-      quando: texto(r?.quando, 200)
+      quando: texto(r?.quando, 200),
+      // responder sozinha (sem IA) quando o cliente escrever uma destas frases
+      gatilhos: texto(r?.gatilhos, 300),
+      auto: r?.auto === true && Boolean(texto(r?.gatilhos, 300))
     }))
     // guarda a mídia pelo CÓDIGO (se renomear a mídia, a resposta continua certa)
     .map((r) => {

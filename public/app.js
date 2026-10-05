@@ -1866,7 +1866,7 @@ async function paginaMidias(id) {
     <div class="card" data-cfg="rapidas" data-pronto="${(emp.respostasRapidas || []).length ? 'ok' : 'off'}" data-resumo="${(emp.respostasRapidas || []).length ? `${emp.respostasRapidas.length} atalho(s)` : 'Nenhum atalho ainda'}">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">⚡ Respostas rápidas com mídia</h2><button type="button" class="primario pequeno" id="abrir-rapidas">Gerenciar</button></div>
       <p class="rotulo" style="margin:0 0 10px">Atalhos como <b>/preco</b> e <b>/catalogo</b> que mandam texto + foto, PDF ou álbum de uma vez — na aba Conversas${emp.atalhosNoCelular !== false ? ' e digitando no WhatsApp do celular' : ''}.</p>
-      ${(emp.respostasRapidas || []).length ? `<div class="tabela-wrap"><table><thead><tr><th>Atalho</th><th>Manda</th><th class="esconde-mobile">Quando usar</th></tr></thead><tbody>${emp.respostasRapidas.map((r) => `<tr><td><b>/${esc(r.atalho)}</b></td><td>${esc((r.texto || '').slice(0, 70))}${(r.texto || '').length > 70 ? '…' : ''}${r.midia ? ` <span class="codigo-chip">${esc(codMidia(r.midia))}</span>` : ''}</td><td class="esconde-mobile rotulo">${esc(r.quando || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<span class="rotulo">Nenhuma ainda.</span>'}
+      ${(emp.respostasRapidas || []).length ? `<div class="tabela-wrap"><table><thead><tr><th>Atalho</th><th>Manda</th><th class="esconde-mobile">Quando usar</th></tr></thead><tbody>${emp.respostasRapidas.map((r) => `<tr><td><b>/${esc(r.atalho)}</b></td><td>${esc((r.texto || '').slice(0, 70))}${(r.texto || '').length > 70 ? '…' : ''}${r.midia ? ` <span class="codigo-chip">${esc(codMidia(r.midia))}</span>` : ''}${r.auto ? ` <span class="etiqueta ok" title="Responde sozinha quando o cliente escrever: ${esc(r.gatilhos)}">🤖 sozinha</span>` : ''}</td><td class="esconde-mobile rotulo">${esc(r.quando || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<span class="rotulo">Nenhuma ainda.</span>'}
     </div>
 
     <div class="card" data-cfg="links" data-pronto="${links.length ? 'ok' : 'off'}" data-resumo="${links.length ? `${links.length} link(s)` : 'Nenhum link ainda'}">
@@ -4491,6 +4491,7 @@ async function modalRespostasRapidas(emp, aoEscolher) {
   abrirModal(`
     <h2>Respostas rápidas</h2>
     ${balao('Texto + foto/catálogo com um atalho', `Ex.: <b>/preco</b> manda a tabela de preços, <b>/catalogo</b> manda o álbum de fotos. Use aqui na aba Conversas${emp.atalhosNoCelular !== false ? ' <b>e também no WhatsApp do celular</b>: digite <b>/preco</b> na conversa do cliente e o CRM troca pelo texto + mídia' : ''}.`)}
+    ${balao('🤖 Responder sozinha (sem IA, sem gastar tokens)', 'Marque em perguntas que sempre têm a mesma resposta (endereço, horário, Pix, catálogo) e escreva as frases que o cliente costuma usar. Quando a mensagem dele for curta e bater com <b>uma</b> resposta só, o CRM manda a resposta pronta (texto + mídia) sem chamar a IA. Mensagem longa, com foto/áudio ou que bate com mais de uma resposta: a IA responde normalmente. A mesma resposta não sai de novo para o mesmo cliente em 24 h.')}
     ${balao('E as respostas rápidas que já estão no WhatsApp Business?', 'Elas ficam guardadas só no celular — o WhatsApp não deixa nenhum sistema ler (nem o CRM, nem a Evolution). Recrie aqui <b>com o mesmo atalho</b>: aí elas funcionam no celular e no CRM, e ainda mandam foto/vídeo pelo código. Pode apagar as antigas do WhatsApp Business para não duplicar.', 'aviso')}
     <label class="linha-check" style="margin-bottom:12px"><input type="checkbox" id="atalhos-celular" ${emp.atalhosNoCelular !== false ? 'checked' : ''}> Funcionar também quando eu digitar o atalho no WhatsApp do celular ${ajuda('Você digita só "/preco" na conversa do cliente, no seu celular. O CRM apaga esse "/preco" e manda no lugar o texto e a mídia cadastrados.')}</label>
     <div id="lista-rapidas" class="lista-editavel"></div>
@@ -4502,8 +4503,12 @@ async function modalRespostasRapidas(emp, aoEscolher) {
           <textarea data-texto="${i}" placeholder="Texto (opcional se tiver mídia)">${esc(r.texto || '')}</textarea>
           <select data-midia="${i}"><option value="">Sem mídia</option>${opcoesMidia.map((o) => `<option value="${esc(o.nome)}" ${casa(o, r) ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select>
           <input data-quando="${i}" value="${esc(r.quando || '')}" placeholder="Quando usar (lembrete para a equipe — ex.: quando pedirem o preço)" maxlength="200">
+          <label class="linha-check" style="margin-top:6px"><input type="checkbox" data-auto="${i}" ${r.auto ? 'checked' : ''}> 🤖 Responder sozinha, <b>sem IA</b>, quando o cliente escrever:</label>
+          <input data-gatilhos="${i}" value="${esc(r.gatilhos || '')}" placeholder="frases do cliente, separadas por vírgula — ex.: endereço, onde fica, localização" maxlength="300" ${r.auto ? '' : 'style="opacity:.6"'}>
         </div>`).join('') || '<p class="rotulo">Nenhuma resposta rápida ainda.</p>';
       $$('[data-quando]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.quando].quando = el.value; }; });
+      $$('[data-gatilhos]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.gatilhos].gatilhos = el.value; }; });
+      $$('[data-auto]', m).forEach((el) => { el.onchange = () => { lista[el.dataset.auto].auto = el.checked; desenhar(); }; });
       $$('[data-atalho]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.atalho].atalho = el.value; }; });
       $$('[data-texto]', m).forEach((el) => { el.oninput = () => { lista[el.dataset.texto].texto = el.value; }; });
       $$('[data-midia]', m).forEach((el) => { el.onchange = () => { lista[el.dataset.midia].midia = el.value; }; });

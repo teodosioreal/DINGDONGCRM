@@ -22,6 +22,8 @@ const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, ''
 const PISTA_TEMPO = /\b(hoje|amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana que vem|\d{1,2}\/\d{1,2}|dia \d{1,2}|\d{1,2}\s*(h|hs|hrs|horas)\b|\d{1,2}:\d{2}|as \d{1,2}\b|horario|agend|marc|remarc)/;
 const PISTA_CANCELA = /\b(desmarc|cancel|nao vou (poder|conseguir) (ir|comparecer)|nao vai dar|remarc|outro dia|adiar)/;
 const ACEITE = /^(?:\s*(?:ok+|okay|blz|beleza|fechado|fechou|combinado|perfeito|otimo|show|pode ser|pode sim|pode|sim|claro|confirmado|confirmo|certo|ta bom|ta otimo|ta certo|feito|top|bora|vamos|vou sim|estarei ai|te espero|te vejo|nos vemos|ate (?:la|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)|obrigad[oa]|valeu|vlw|entao|combinadissimo|marcado|agendado|trocado)\b[\s!.,👍🙏😊🤝✅]*)+$/;
+// confirmação perto de um dia/hora: só aí vale a IA conferir (falar de horário sem ninguém confirmar não marca nada)
+const CONFIRMA = /\b(pode ser|pode sim|fechado|fechou|combinado|confirmad\w*|confirmo|agendad\w*|agendei|marcad\w*|marquei|te espero|estarei|vou sim|beleza|blz|perfeito|ta bom|ta certo|certo|ok|sim|desmarc\w*|cancel\w*|remarc\w*)\b/;
 const DUVIDA = /\b(talvez|vou ver|vou verificar|se der|acho que|nao sei|depois (te )?(falo|aviso|confirmo)|vou confirmar|qualquer coisa)\b/;
 
 function ehAgendado(ag) {
@@ -150,6 +152,23 @@ async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
   // etiqueta antiga vinda da leitura geral: só conversas recentes, sem IA e sem aviso
   if (!aoVivo && Date.now() - new Date(lead.atualizadoEm || lead.criadoEm || 0).getTime() > DIAS_IMPORTACAO * 86400000) return null;
   const tickets = require('./tickets');
+  // 1º código: a última data/hora dita na conversa (que ainda não passou)
+  const pelaConversa = (() => {
+    for (const m of (lead.mensagens || []).filter((x) => x.texto && !x.apagada).slice(-10).reverse()) {
+      if (DUVIDA.test(semAcento(m.texto))) continue;
+      const q = tickets.quandoNoTexto(m.texto, new Date(m.em || Date.now()));
+      if (q && new Date(q).getTime() > Date.now() - 3600 * 1000) return { quando: q, descricao: String(m.texto).replace(/\s+/g, ' ').trim().slice(0, 120) };
+    }
+    return null;
+  })();
+  if (pelaConversa) {
+    const r = tickets.registrarAgendamento(empresa, lead, { quando: pelaConversa.quando, descricao: pelaConversa.descricao, por: 'etiqueta', semAviso: !aoVivo });
+    if (r?.agendamento) {
+      r.agendamento.detectadoPor = 'codigo';
+      salvar();
+      return r.agendamento;
+    }
+  }
   if (aoVivo) {
     try {
       const d = await porIa(empresa, lead);
@@ -193,6 +212,11 @@ function observar(empresa, lead) {
   } catch (err) {
     console.error('[agenda] código:', err.message);
   }
+  // IA só quando precisa:
+  // - a IA que atende este cliente já marca/desmarca sozinha ([[AGENDAMENTO]] / [[DESMARCAR]]): não confere de novo
+  // - sem confirmação perto do dia/hora (só falaram de horário), não há o que marcar
+  if (require('./whatsapp').iaVaiResponder(empresa, lead)) return;
+  if (!CONFIRMA.test(semAcento(ultimas.slice(-2).map((m) => m.texto).join(' ')))) return;
   // IA: espera a conversa assentar (várias mensagens seguidas viram uma leitura só)
   clearTimeout(timers.get(lead.id));
   timers.set(lead.id, setTimeout(() => conferir(empresa.id, lead.id).catch((err) => console.error('[agenda] IA:', err.message)), ESPERA_MS));
@@ -222,7 +246,13 @@ function revisarRecentes() {
     if (!empresa || empresa.agendaAutomatica === false || !require('./whatsapp').configurado(empresa)) continue;
     const texto = semAcento((lead.mensagens || []).filter((m) => m.texto).slice(-6).map((m) => m.texto).join(' '));
     if (!PISTA_TEMPO.test(texto) && !PISTA_CANCELA.test(texto)) continue;
-    setTimeout(() => conferir(empresa.id, lead.id).catch(() => {}), 60000 + i++ * 4000).unref?.();
+    // só pelo código (sem IA): a cada deploy relia até 40 conversas com IA
+    setTimeout(() => {
+      try {
+        const d = porCodigo(empresa, lead);
+        if (d) aplicar(empresa, lead, d);
+      } catch { /* só confere */ }
+    }, 60000 + i++ * 500).unref?.();
   }
 }
 

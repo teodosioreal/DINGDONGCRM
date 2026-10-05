@@ -254,6 +254,8 @@ function hojeEmSaoPaulo() {
 function verificarAgenda(empresa) {
   const cfg = configDa(empresa);
   if (!cfg.diario || rodando.has(empresa.id) || !whatsapp.configurado(empresa)) return;
+  // aprendizados fora do prompt (ex.: "Atualizar prompt"): a leitura diária com IA não serviria para nada
+  if (cfg.usarNoPrompt === false) return;
   if (disparos.horaEmSaoPaulo() < 8) return;
   const hoje = hojeEmSaoPaulo();
   if (cfg.ultimoDiaAutomatico === hoje) return;

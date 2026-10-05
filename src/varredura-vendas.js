@@ -105,7 +105,8 @@ function porFrase(empresa, lead) {
 }
 
 // 2. comprovantes que ficaram para trás
-const PISTA_PAGAMENTO = /\b(pix|paguei|pago|pagamento|comprovante|transferi|transferencia|segue|mandei|enviei|deposit|ted\b|boleto|chave|sinal|entrada)/;
+// só palavras de pagamento de verdade ("segue", "mandei", "entrada" sozinhos faziam a IA ler fotos à toa)
+const PISTA_PAGAMENTO = /\b(pix|paguei|pago|pagamento|comprovante|transferi|transferencia|deposit\w*|ted\b|boleto|sinal de|valor do sinal)/;
 function falaDePagamento(lead, idx, extra = '') {
   const msgs = lead.mensagens || [];
   const ate = idx === undefined ? msgs.length : idx + 3;

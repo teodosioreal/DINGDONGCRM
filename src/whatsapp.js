@@ -1345,6 +1345,68 @@ async function responderLead(empresaId, leadId, tentativa = 0, opcoes = {}) {
   if (refazer && !agendadas.has(leadId) && !clienteMandando(leadId)) return responderLead(empresaId, leadId, tentativa + 1);
 }
 
+// ---------------------------------------------------------------- respostas prontas automáticas (sem IA)
+// Resposta rápida com "responder sozinha": quando o cliente pergunta algo que bate com uma
+// das frases cadastradas (ex.: "endereço", "onde fica"), o CRM manda a resposta pronta
+// (texto + mídia) sem chamar a IA. Só em pergunta curta e clara: se bater com mais de uma
+// resposta, se tiver foto/áudio no meio ou se essa resposta já foi nas últimas 24 h, a IA responde.
+const normalizarFrase = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function respostaAutomatica(empresa, lead) {
+  const lista = (empresa.respostasRapidas || []).filter((r) => r.auto && r.gatilhos && (r.texto || r.midia));
+  if (!lista.length) return null;
+  const msgs = (lead.mensagens || []).filter((m) => !m.apagada);
+  const pendentes = [];
+  for (let i = msgs.length - 1; i >= 0 && msgs[i].papel === 'visitante'; i--) pendentes.unshift(msgs[i]);
+  if (!pendentes.length || pendentes.some((m) => m.anexo || /^\[(o cliente enviou|foto do cliente|áudio do cliente)/i.test(m.texto || ''))) return null;
+  const texto = normalizarFrase(pendentes.map((m) => m.texto).join(' '));
+  if (!texto || texto.length > 120) return null; // mensagem longa: tem mais coisa — a IA responde
+  const batem = lista.filter((r) =>
+    String(r.gatilhos)
+      .split(/[,;\n]+/)
+      .map(normalizarFrase)
+      .filter((g) => g.length >= 3)
+      .some((g) => ` ${texto} `.includes(` ${g} `))
+  );
+  if (batem.length !== 1) return null;
+  const r = batem[0];
+  const ultimaVez = lead.respostasAuto?.[r.id];
+  if (ultimaVez && Date.now() - new Date(ultimaVez).getTime() < 24 * 3600 * 1000) return null;
+  return r;
+}
+
+async function enviarRespostaAutomatica(empresa, lead, r, vez, tentativa, ultimaAntes) {
+  const logs = require('./log-respostas');
+  const log = { origem: 'resposta-pronta', codigos: [], midias: [], avisos: [`Respondido com a resposta pronta /${r.atalho}, sem IA.`], erros: [] };
+  const texto = r.texto ? require('./disparos').montarMensagem(r.texto, lead, empresa) : '';
+  if (texto) {
+    const espera = tempoDigitando(texto, empresa);
+    evolution(empresa, 'POST', '/chat/sendPresence/{instancia}', { number: destinoDe(lead.whatsappJid), presence: 'composing', delay: espera }, { tempo: espera + 10000 }).catch(() => {});
+    await new Promise((ok) => setTimeout(ok, espera));
+    if (lead.iaPausada) return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu antes da resposta pronta sair.');
+    if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || clienteMandando(lead.id) || ultimaDoCliente(lead) !== ultimaAntes)) return true;
+    try {
+      await enviarTexto(empresa, lead.whatsappJid, texto, { digitando: false });
+      log.textoEnviado = texto;
+    } catch (err) {
+      logs.registrar(empresa, lead, { ...log, situacao: 'erro', erros: [`O WhatsApp não enviou a resposta pronta: ${err.message}`] });
+      return registrarIa(empresa, lead, 'erro', `A resposta pronta não saiu: ${err.message}`);
+    }
+    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto, respostaAuto: r.atalho });
+  }
+  if (r.midia) {
+    try {
+      log.midias = (await enviarMidiasPedidas(empresa, lead, [r.midia], 'equipe', { papelMensagem: 'assistente' })).itens;
+    } catch (err) {
+      log.erros.push(`Falha ao enviar a mídia: ${err.message}`);
+    }
+  }
+  lead.respostasAuto = { ...(lead.respostasAuto || {}), [r.id]: agora() };
+  logs.registrar(empresa, lead, { ...log, situacao: 'enviada' });
+  registrarIa(empresa, lead, 'respondeu', `Resposta pronta /${r.atalho} (sem gastar IA).`);
+  salvar();
+  return false;
+}
+
 // true = descartou a resposta porque o cliente mandou mensagem nova (precisa refazer)
 async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {}) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
@@ -1362,6 +1424,12 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   estado.uso[bot.id] = usoHoje;
 
   const ultimaAntes = ultimaDoCliente(lead);
+  // pergunta que tem resposta pronta cadastrada ("responder sozinha"): sai sem IA
+  const pronta = opcoes.evento ? null : respostaAutomatica(empresa, lead);
+  if (pronta) {
+    usoHoje.mensagens -= 1; // não gastou IA
+    return enviarRespostaAutomatica(empresa, lead, pronta, vez, tentativa, ultimaAntes);
+  }
   const eventos = require('./eventos-ia');
   const logs = require('./log-respostas');
   const origemLog = opcoes.evento ? `evento:${opcoes.evento}` : 'resposta';
@@ -1705,6 +1773,8 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  iaVaiResponder,
+  respostaAutomatica,
   anexoAtrasado,
   recuperarAnexosRecentes,
   diagnostico,

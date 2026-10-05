@@ -209,6 +209,18 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   clone e aprendizados" desfaz) e, nas conversas em andamento, o que foi dito antes vira
   só contexto (a IA não imita as respostas antigas). As mídias citadas no texto sem código
   são conectadas sozinhas quando a mídia certa é clara.
+- **IA só onde precisa** (o resto é código):
+  - **Respostas prontas automáticas**: numa resposta rápida, marque "🤖 Responder sozinha" e
+    escreva as frases do cliente ("endereço, onde fica"). Pergunta curta que bate com uma
+    resposta só → sai a resposta pronta (texto + mídia), sem IA; no máximo 1 vez a cada 24 h
+    por cliente. Mensagem longa, com foto/áudio ou que bate com duas respostas → a IA responde.
+  - Detector de agendamento: não chama a IA quando a IA atende o cliente (ela mesma marca),
+    só chama quando há confirmação perto do dia/hora, e ao subir o servidor usa só código.
+  - Etiqueta "Agendado": a data vem da conversa por código; a IA só se não achar.
+  - Sugestão de mídia: sem IA nas conversas que a IA atende.
+  - Aprendizado diário: não roda se os aprendizados estão fora do prompt.
+  - Avisos com IA "sem resposta"/"1º follow-up": não disparam para quem já está no
+    follow-up sem IA. Varredura de vendas: IA só quando a conversa fala de pagamento.
 - **Follow-up não vai para quem comprou**: venda no CRM (Faturamento), "Venda concluída"
   marcada à mão, etiqueta de venda do WhatsApp ("Venda Concluída", "Vendido", "Pago",
   "Fechado", "Entregue"…) ou etapa de venda — em qualquer conversa do mesmo cliente. Vale

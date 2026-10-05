@@ -150,7 +150,9 @@ async function conferir(empresa, lead) {
   const jaDescrita = fotosNovas.length > 0 && fotosNovas.every((m) => m.anexo?.descricao || /^\[(?:CLIENTE_ENVIOU_FOTO\] )?\[foto do cliente\]:/.test(m.texto || ''));
   const foto = fotosNovas.length && !jaDescrita ? fotoDoCliente(lead, desde) : null;
   let achadas = foto ? [] : porCodigo(lista, recentes);
-  if (!achadas.length && (foto || jaDescrita || PISTA_ITEM.test(semAcento(textoNovo)))) {
+  // a IA que atende este cliente já escolhe e manda a mídia sozinha: a sugestão fica só no código
+  const iaAtende = require('./whatsapp').iaVaiResponder(empresa, lead);
+  if (!achadas.length && !iaAtende && (foto || jaDescrita || PISTA_ITEM.test(semAcento(textoNovo)))) {
     try {
       achadas = (await porIa(empresa, lead, lista, foto)).map((x) => ({ ...x, por: 'ia' }));
     } catch (err) {
