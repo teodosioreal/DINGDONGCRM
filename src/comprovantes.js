@@ -326,8 +326,8 @@ function concluirVendidos(empresa) {
     for (const a of lead.agendamentos) {
       if (a.status !== 'agendado') continue;
       // marcado depois da venda: fica (menos o "data a combinar" criado pela etiqueta Agendado
-      // velha que voltou da cópia do servidor — esse não é agendamento de verdade)
-      if (tVenda < new Date(a.criadoEm || 0).getTime() - 3600 * 1000 && !(a.por === 'etiqueta' && !a.quando)) continue;
+      // velha que voltou da cópia do servidor — esse não é agendamento de verdade; posta no celular vale)
+      if (tVenda < new Date(a.criadoEm || 0).getTime() - 3600 * 1000 && !(a.por === 'etiqueta' && !a.quando && a.daCopia)) continue;
       a.status = 'concluido';
       a.concluidoEm = agora();
       a.concluidoPor = 'venda';

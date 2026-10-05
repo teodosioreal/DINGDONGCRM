@@ -190,6 +190,7 @@ async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
   }
   if ((lead.agendamentos || []).some(ehAgendado)) return null; // a conversa marcou enquanto a IA lia
   const r = tickets.registrarAgendamento(empresa, lead, { quando: 'Data a combinar', descricao: '', por: 'etiqueta', semAviso: !aoVivo });
+  if (r?.agendamento && !aoVivo) r.agendamento.daCopia = true; // veio da leitura geral (cópia do servidor), não ao vivo
   require('./alertas').registrar(empresa, `agenda:${lead.id}`, `🏷️ ${lead.nome || 'Cliente'} recebeu a etiqueta Agendado no WhatsApp e entrou em Agendamentos (data a combinar — coloque o dia na conversa).`, { nivel: 'info', leadId: lead.id });
   return r?.agendamento || null;
 }

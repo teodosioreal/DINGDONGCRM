@@ -239,6 +239,13 @@ function finalizarPassados(empresa) {
     }
     if (mudou && !lead.agendamentos.some((a) => a.status === 'agendado')) tirarEtiquetaAgendado(empresa, lead);
   }
+  // já comprou e não tem agendamento ativo: a etiqueta Agendado que sobrou (velha) sai
+  for (const lead of estado.conversas) {
+    if (lead.empresaId !== empresa.id || !(lead.etiquetas || []).length || (lead.agendamentos || []).some((a) => a.status === 'agendado')) continue;
+    const antes = lead.etiquetas.length;
+    if (comprovantes.jaVendeu(empresa, lead)) tirarEtiquetaAgendado(empresa, lead);
+    if (lead.etiquetas.length !== antes) n++;
+  }
   if (n) salvar();
   return n;
 }
