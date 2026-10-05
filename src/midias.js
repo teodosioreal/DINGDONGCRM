@@ -529,16 +529,29 @@ function codigosDoPrompt(empresa) {
   return set;
 }
 
+// Mídias citadas no prompt do WhatsApp (o que o painel conta e lista).
+// Só vale código escrito exatamente como #MIDIA_ + maiúsculas/números/sublinhado; cada
+// código conta uma vez. #PAUSAR, eventos ([CLIENTE_ENVIOU_FOTO], SEM_RESPOSTA), palavras
+// como "vídeo"/"foto" e textos entre colchetes não contam. Só lê: não muda nada.
+const RE_CODIGO_MIDIA = /#MIDIA_[A-Z0-9_]+/g;
 function avisosDoPrompt(empresa) {
   const bots = estado.bots.filter((b) => b.empresaId === empresa.id);
-  const lista = [];
+  // cadastro da empresa: mídias, álbuns e pastas, pelo código como aparece no painel
+  const cadastro = new Map();
+  const todas = midiasDa(empresa);
+  for (const p of pastasDa(empresa)) cadastro.set(codigoVisivel(p.codigo), { nome: p.nome, ativa: todas.some((m) => m.pastaId === p.id) });
+  for (const a of albunsDa(empresa)) cadastro.set(codigoVisivel(a.codigo), { nome: a.nome, ativa: todas.some((m) => m.albumId === a.id && prontaParaIa(m)) });
+  for (const m of todas) if (!m.pastaId && !m.albumId) cadastro.set(codigoVisivel(m.codigo), { nome: m.nome, ativa: prontaParaIa(m) });
+  const unicos = new Map();
   for (const bot of bots) {
-    for (const [campo, rotulo] of Object.entries(CAMPOS_PROMPT)) {
-      for (const c of codigosCitados(empresa, bot[campo])) lista.push({ ...c, campo, onde: rotulo, botId: bot.id, bot: bot.nome || 'Assistente' });
+    for (const codigo of String(bot.promptWhatsapp || '').match(RE_CODIGO_MIDIA) || []) {
+      if (unicos.has(codigo)) continue;
+      const c = cadastro.get(codigo);
+      unicos.set(codigo, { escrito: codigo, codigo, existe: Boolean(c), ativa: Boolean(c?.ativa), nome: c?.nome || '', campo: 'promptWhatsapp', onde: CAMPOS_PROMPT.promptWhatsapp, botId: bot.id, bot: bot.nome || 'Assistente' });
     }
   }
-  const unicos = (f) => [...new Map(lista.filter(f).map((c) => [`${c.codigo}|${c.onde}`, c])).values()];
-  return { citados: unicos(() => true), inexistentes: unicos((c) => !c.existe), desativadas: unicos((c) => c.existe && !c.ativa) };
+  const citados = [...unicos.values()];
+  return { total: citados.length, citados, inexistentes: citados.filter((c) => !c.existe), desativadas: citados.filter((c) => c.existe && !c.ativa) };
 }
 
 // ---------------------------------------------------------------- envio em pedaços (arquivos grandes)

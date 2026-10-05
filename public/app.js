@@ -1688,13 +1688,14 @@ async function paginaWhatsapp(id) {
   cartaoLogIa(id);
   // o prompt cita mídia sem conexão certa? avisa aqui também
   api(`empresas/${id}/midias/prompt`).then((r) => {
-    const n = (r.pendencias || []).length;
+    const citados = r.citados || [];
     const area = $('textarea[name=promptWhatsapp]');
-    if (!n || !area || location.hash !== aqui) return;
+    if (!citados.length || !area || location.hash !== aqui) return;
+    const faltam = citados.filter((c) => !c.existe);
     const d = document.createElement('div');
-    d.className = 'det-aviso';
+    d.className = faltam.length ? 'det-aviso' : 'rotulo';
     d.id = 'aviso-midias-prompt';
-    d.innerHTML = `⚠️ Este prompt cita <b>${n} mídia(s)</b> sem conexão certa — a IA não consegue mandar. <a href="${rotaEmpresa(id, 'midias')}">Conectar agora →</a>`;
+    d.innerHTML = `Mídias citadas neste prompt: <b>${citados.length}</b> — ${citados.map((c) => `<span class="codigo-chip">${esc(c.codigo)}</span> ${c.existe ? '✓' : '✕ não existe no cadastro'}`).join(' · ')}${faltam.length ? ` <a href="${rotaEmpresa(id, 'midias')}">Ver em Mídias →</a>` : ''}`;
     area.closest('.campo').after(d);
   }).catch(() => {});
   $('#ia-agendados').onchange = async (e) => {
@@ -1887,8 +1888,8 @@ async function paginaMidias(id) {
     <div class="card card-midias-prompt" id="card-midias-prompt">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🧩 Mídias no prompt da IA</h2>${botPrincipal ? '<button type="button" class="primario pequeno" id="abrir-modo-teste">🧪 Modo teste</button>' : ''}</div>
       <p class="rotulo" style="margin:0 0 8px">A lista das mídias <b>ativas</b> (código, tipo e quando enviar) entra sozinha no fim do prompt a cada resposta. A IA escreve o código na última linha e o CRM troca pelo arquivo — o código nunca chega ao cliente.</p>
-      ${(noPrompt?.pendencias || []).length ? `<div class="det-erro forte pend-resumo">⚠️ Seu prompt cita <b>${noPrompt.pendencias.length} mídia(s)</b> que não estão conectadas do jeito certo — a IA não vai conseguir mandar. <button type="button" class="primario pequeno" id="resolver-prompt">Conectar agora</button></div>` : ''}
-      ${noPrompt?.citados?.length && !(noPrompt.pendencias || []).length ? `<div class="rotulo">✓ Mídias citadas no prompt: ${[...new Set(noPrompt.citados.map((c) => c.codigo))].map((c) => `<span class="codigo-chip">${esc(c)}</span>`).join(' ')} — todas conectadas.</div>` : ''}
+      ${noPrompt ? `<div class="rotulo midias-no-prompt"><b>Mídias citadas no prompt do WhatsApp: ${noPrompt.citados.length}</b>${noPrompt.citados.length ? `<ul>${noPrompt.citados.map((c) => `<li><span class="codigo-chip">${esc(c.codigo)}</span> ${c.existe ? `✓ cadastrada${c.nome ? ` (${esc(c.nome)})` : ''}` : '<span class="erro-envio">✕ não existe no cadastro</span>'}</li>`).join('')}</ul>` : ' — nenhum código #MIDIA_ no prompt.'}</div>` : ''}
+      ${(noPrompt?.pendencias || []).length ? `<div class="det-aviso pend-resumo">💡 ${noPrompt.pendencias.length} trecho(s) do prompt para revisar (frases que falam de foto/vídeo sem código, ou código a conectar). <button type="button" class="pequeno" id="resolver-prompt">Revisar</button></div>` : ''}
       ${errosRecentes.length ? `<div class="det-erro forte">✕ ${errosRecentes.length} resposta(s) com problema de mídia nos últimos 3 dias:<ul>${errosRecentes.slice(0, 5).map((l) => `<li><span class="rotulo">${esc(data(l.em))}${l.cliente ? ` · ${esc(l.cliente)}` : ''}</span> — ${esc(l.erros.join(' · '))}</li>`).join('')}</ul><a href="${rotaEmpresa(id, 'whatsapp')}">Ver o log completo →</a></div>` : ''}
     </div>
 

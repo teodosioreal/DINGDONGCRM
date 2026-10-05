@@ -29,6 +29,9 @@ try {
     const pend = midias.pendenciasDoPrompt(e).filter((p) => p.campo === 'promptWhatsapp');
     const naIa = midias.paraIa(e).length;
     const doPrompt = midias.codigosDoPrompt(e).size;
+    // contagem do painel (só os códigos #MIDIA_, sem repetir; nunca o texto do prompt)
+    const av = midias.avisosDoPrompt(e);
+    console.log(`    Empresa ${n + 1}: mídias detectadas no prompt (painel): ${av.total} → ${av.citados.map((c) => `${c.codigo} ${c.existe ? 'existe no cadastro' : 'NÃO existe no cadastro'}`).join(' · ') || 'nenhuma'}`);
     console.log(`    Empresa ${n + 1}: códigos de mídia já escritos ${escritos} · conectadas sozinhas agora ${conectadas} · mídias do prompt liberadas para a IA ${doPrompt} · trechos sem conexão certa ${pend.length} · mídias que a IA enxerga ${naIa}`);
   }
   // follow-up: quantos na fila e quantos ficaram de fora por já terem comprado (só números)
