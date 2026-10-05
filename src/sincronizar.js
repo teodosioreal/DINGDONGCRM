@@ -162,13 +162,12 @@ function importarMensagem(empresa, msg) {
   if (!ts) return false;
   const emMs = ts * 1000;
   const saida = Boolean(msg.key.fromMe);
+  // conversa apagada no painel: o que veio antes de apagar nunca volta
+  if (require('./lixeira').mensagemApagada(empresa, msg, emMs, jid)) return false;
 
   const identidade = require('./identidade');
   let lead = identidade.acharCliente(empresa, { ...msg, key: { ...msg.key, ...(msg.key.remoteJid !== jid ? { remoteJidAlt: msg.key.remoteJidAlt || jid } : {}) } });
   if (!lead) {
-    // na lixeira? fica lá (a pessoa apagou de propósito)
-    const ch = identidade.chaveFone(jid);
-    if ((estado.lixeira || []).some((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || c.lidJid === jid || (ch && identidade.chaveFone(c.whatsappJid) === ch)))) return false;
     const comNumero = { ...msg, key: { ...msg.key, remoteJid: jid }, ...(saida ? { pushName: '' } : {}) };
     lead = whatsapp().acharOuCriarLead(empresa, jid, saida ? '' : texto, comNumero);
     if (!lead.mensagens.length) {

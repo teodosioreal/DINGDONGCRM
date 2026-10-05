@@ -284,7 +284,7 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   também entra (webhook aceita até 25 MB).
 - Sem duplicar (id do WhatsApp; nas antigas, texto + horário), na ordem certa, sem a IA
   responder mensagens antigas e sem automação em conversa só recuperada. Grupos e
-  conversas na lixeira ficam de fora.
+  o que veio antes de uma conversa ser apagada ficam de fora.
 - O webhook é conferido e consertado sozinho se for do CRM e estiver desligado, sem
   endereço, com endereço antigo ou faltando evento (webhook de outro sistema nunca é mexido).
 
@@ -316,17 +316,17 @@ da empresa e nunca inventar informação, com conferência antes de responder; l
   ("sábado às 9h", "amanhã 14h", "dia 05/10 15:30", "hoje às 16h") cria o ticket
   **AGENDADO** na conversa, sem duplicar o mesmo horário. O botão 📅 continua valendo.
 
-### Lixeira de conversas
+### Apagar conversa (de vez)
 
-- Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat.
-  A conversa vai para a **Lixeira** (filtro 🗑️ em Conversas): some das Conversas,
-  do funil, das automações, dos disparos e da IA; mensagens agendadas para ela são
-  canceladas. Dá para **Restaurar** por 30 dias; depois é apagada de vez (com fotos,
-  áudios e arquivos). Também há "Apagar de vez" e "Esvaziar lixeira".
-- "Apagar lead" (perfil e ações em massa) também vai para a Lixeira.
-- As vendas continuam no Faturamento. O WhatsApp do celular não é mexido (a Evolution
-  não apaga conversa do celular). Se o cliente escrever de novo, começa conversa nova;
-  ao restaurar a antiga, as duas viram uma só (mensagens, etiquetas, vendas e anexos).
+- Lixeirinha 🗑️ em cada conversa (ao passar o mouse na lista) e no topo do chat, e
+  "Apagar lead" (perfil e ações em massa): a conversa some **de vez** — mensagens, fotos,
+  áudios, anexos, agendamentos e follow-ups. Não existe mais lixeira (o que estava na
+  lixeira antiga foi apagado de vez).
+- Se o número mandar mensagem depois, começa uma **conversa nova, do zero**: a IA não
+  lembra de nada. O CRM guarda só a marca "apagada em" de cada número/id do WhatsApp, e a
+  busca de mensagens na Evolution (e o aprendizado diário) nunca traz de volta o que veio
+  antes de apagar.
+- As vendas continuam no Faturamento. O WhatsApp do celular não é mexido.
 - Comprovantes de Pix das vendas nunca se perdem: ao apagar de vez, vão para a pasta
   de vendas da empresa e continuam abrindo no Faturamento.
 

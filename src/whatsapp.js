@@ -849,6 +849,9 @@ async function receberWebhook(empresa, corpo) {
     }
     if (!jid || /@g\.us$|@broadcast$|@newsletter$/.test(jid)) continue; // grupos, status, canais
     if (jaProcessada(msg.key.id)) continue;
+    // conversa apagada no painel: mensagem (atrasada) de antes de apagar não volta
+    const tsMsg = Number(msg.messageTimestamp?.low ?? msg.messageTimestamp) || 0;
+    if (tsMsg && require('./lixeira').mensagemApagada(empresa, msg, (tsMsg > 1e12 ? tsMsg : tsMsg * 1000))) continue;
     let texto = textoDa(msg);
     if (!texto) continue;
     // número novo + conversas antigas só com id escondido: descobre se é o mesmo cliente

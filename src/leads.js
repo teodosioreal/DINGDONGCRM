@@ -130,7 +130,7 @@ function garantirIdsDasMensagens(lead) {
 
 // A IA só escreve para quem está na aba Conversas e já mandou mensagem (ela
 // "leu" o cliente). Contato importado/cadastrado à mão, sem conversa, ou
-// conversa na lixeira: a IA nunca manda nada (só a equipe, à mão ou por disparo).
+// conversa apagada: a IA nunca manda nada (só a equipe, à mão ou por disparo).
 function iaPodeFalarCom(lead) {
   return Boolean(lead && estado.conversas.includes(lead) && !naListaNegra(null, lead) && (lead.mensagens || []).some((m) => m.papel === 'visitante'));
 }

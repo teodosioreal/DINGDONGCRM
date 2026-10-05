@@ -1405,7 +1405,7 @@ router.post('/empresas/:id/leads/lote', (req, res) => {
   if (!alvo.length) return res.status(400).json({ erro: 'Selecione pelo menos um lead.' });
   const validas = new Set(leads.etiquetasDa(empresa).map((t) => t.id));
   if (b.apagar === true) {
-    for (const c of alvo) lixeira.moverParaLixeira(c, req.usuario?.email || ''); // restaurável por 30 dias
+    for (const c of alvo) lixeira.apagarConversa(c, req.usuario?.email || ''); // apaga de vez
   } else {
     for (const c of alvo) {
       if (b.etapa) leads.moverEtapa(c, empresa, b.etapa, 'equipe');
@@ -1629,58 +1629,13 @@ router.post('/leads/:id/mensagem', async (req, res) => {
   }
 });
 
-// Apagar conversa/lead: vai para a Lixeira (30 dias para restaurar)
+// Apagar conversa/lead: some de vez (se o cliente escrever de novo, começa do zero)
 router.delete('/leads/:id', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
-  lixeira.moverParaLixeira(c, req.usuario?.email || '');
-  res.json({ ok: true, lixeira: true, dias: lixeira.DIAS });
-});
-
-// ---------------------------------------------------------------- lixeira
-function acharNaLixeira(req, res) {
-  const c = lixeira.acharNaLixeira(req.params.id);
-  if (!c || !podeVerEmpresa(req, c.empresaId)) {
-    res.status(404).json({ erro: 'Conversa não está na lixeira.' });
-    return null;
-  }
-  return c;
-}
-
-router.get('/empresas/:id/lixeira', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  res.json(
-    lixeira.daEmpresa(empresa.id).map((c) => ({
-      ...resumoLead(c),
-      ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm,
-      apagadaEm: c.naLixeira?.em,
-      apagadaPor: c.naLixeira?.por || '',
-      diasRestantes: lixeira.diasRestantes(c)
-    }))
-  );
-});
-
-router.post('/lixeira/:id/restaurar', (req, res) => {
-  const c = acharNaLixeira(req, res);
-  if (!c) return;
-  const r = lixeira.restaurar(c);
-  res.json({ ...resumoLead(c), juntou: Boolean(r?.juntou) });
-});
-
-router.delete('/lixeira/:id', (req, res) => {
-  const c = acharNaLixeira(req, res);
-  if (!c) return;
-  lixeira.apagarDeVez(c);
+  lixeira.apagarConversa(c, req.usuario?.email || '');
   res.json({ ok: true });
 });
-
-router.delete('/empresas/:id/lixeira', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  res.json({ apagadas: lixeira.esvaziar(empresa.id) });
-});
-
 
 // Caixinha "Deixar a IA continuar" da mensagem manual: marcada = IA segue; desmarcada = IA para.
 // Sem a caixinha (ex.: app antigo), vale o padrão da empresa (IA do WhatsApp → mensagem manual).

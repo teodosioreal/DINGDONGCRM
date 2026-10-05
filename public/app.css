@@ -521,10 +521,6 @@ html.dark .anexo-nota { color: #aebac1; }
 .item-conversa-caixa:hover .apagar-conversa, .apagar-conversa:focus-visible { opacity: 1; }
 .apagar-conversa:hover { border-color: #ef4444; background: #fef2f2; }
 @media (hover: none) { .apagar-conversa { opacity: .7; } }
-.lixeira-topo { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--borda); flex-wrap: wrap; }
-.item-lixeira { cursor: default; }
-.item-lixeira:hover { background: none; }
-.acoes-lixeira { display: flex; gap: 6px; flex-shrink: 0; }
 .item-conversa.ativo { background: var(--hover); box-shadow: inset 3px 0 0 #22c55e; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: #d1d7db; color: #fff; display: grid; place-items: center; font-weight: 700; flex-shrink: 0; background: linear-gradient(135deg, #25d366, #128c7e); }
 .item-meio { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

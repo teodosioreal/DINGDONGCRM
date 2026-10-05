@@ -2781,7 +2781,7 @@ async function paginaLeads(id, params) {
     $('#lote-etiqueta').onchange = (e) => e.target.value && lote({ adicionarEtiqueta: e.target.value }, 'Etiqueta colocada.');
     $('#lote-apagar').onclick = async () => {
       const n = selecionados().length;
-      if (await confirmar({ titulo: `Apagar ${n} lead${n === 1 ? '' : 's'}?`, texto: 'Os leads e as conversas vão para a Lixeira (Conversas → 🗑️) e podem ser restaurados por 30 dias.', botao: 'Apagar', perigo: true })) lote({ apagar: true }, 'Leads na lixeira (30 dias para restaurar).');
+      if (await confirmar({ titulo: `Apagar ${n} lead${n === 1 ? '' : 's'}?`, texto: 'Os leads e as conversas somem <b>para sempre</b> (mensagens, fotos, áudios, agendamentos). Não dá para desfazer. Se algum desses números escrever de novo, começa do zero.', botao: 'Apagar de vez', perigo: true })) lote({ apagar: true }, 'Leads apagados.');
     };
     $('#lote-disparar').onclick = () => {
       sessionStorage.setItem('disparo_leads', JSON.stringify(selecionados()));
@@ -2953,10 +2953,10 @@ async function paginaLead(leadId) {
   $('#alternar-ia').onclick = () => atualizar({ iaPausada: !l.iaPausada }, l.iaPausada ? 'A IA voltou a responder este lead.' : 'IA pausada neste lead.');
   $('#lead-fup').onchange = (e) => atualizar({ followupLigado: e.target.checked }, e.target.checked ? 'Follow-up ligado para este cliente.' : 'Follow-up desligado para este cliente.');
   $('#apagar-lead').onclick = async () => {
-    if (!(await confirmar({ titulo: 'Apagar este lead?', texto: 'O lead e a conversa vão para a Lixeira (em Conversas → 🗑️) e podem ser restaurados por 30 dias.', botao: 'Apagar', perigo: true }))) return;
+    if (!(await confirmar({ titulo: 'Apagar este lead?', texto: 'O lead e a conversa somem <b>para sempre</b> (mensagens, fotos, áudios, agendamentos). Não dá para desfazer. Se o número escrever de novo, começa do zero.', botao: 'Apagar de vez', perigo: true }))) return;
     try {
       await api(`leads/${leadId}`, { method: 'DELETE', body: {} });
-      aviso('Lead na lixeira (Conversas → 🗑️) por 30 dias.');
+      aviso('Lead apagado.');
       location.hash = rotaEmpresa(l.empresaId, 'leads');
     } catch (err) { aviso(err.message, true); }
   };
@@ -3955,7 +3955,6 @@ async function paginaConversas(id, params) {
           <button type="button" class="chip-filtro" data-filtro="iaPausada" title="Conversas em que a IA está pausada (a equipe atende)">✋ IA pausada</button>
           <button type="button" class="chip-filtro" data-filtro="arquivadas" title="Arquivadas ou apagadas no WhatsApp">🗄️</button>
           <button type="button" class="chip-filtro" data-filtro="listaNegra" title="Lista negra: ninguém (nem a IA) manda nada para eles">🚫</button>
-          <button type="button" class="chip-filtro" data-filtro="lixeira" title="Lixeira: conversas apagadas (dá para restaurar por 30 dias)">🗑️</button>
         </div>
         ${(emp.etiquetas || []).length ? `<div class="inbox-filtros filtro-etiquetas">${emp.etiquetas.map((t) => `<button type="button" class="chip-filtro" style="--cor:${esc(t.cor)}" data-fetiqueta="${esc(t.id)}" title="Só conversas com a etiqueta ${esc(t.nome)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('')}</div>` : ''}
         <div id="lista-conversas" class="lista-conversas"><p class="rotulo" style="padding:16px">Carregando…</p></div>
@@ -3965,61 +3964,20 @@ async function paginaConversas(id, params) {
       </section>
     </div>`;
 
-  function desenharLixeira(el) {
-    el.innerHTML = `
-      <div class="lixeira-topo"><span class="rotulo">🗑️ Ficam aqui por 30 dias e depois somem de vez. O WhatsApp do celular não é mexido.</span>${lista.length ? '<button type="button" class="pequeno perigo" id="esvaziar-lixeira">Esvaziar lixeira</button>' : ''}</div>
-      ${lista.length ? lista.map((c) => `
-        <div class="item-conversa item-lixeira">
-          ${avatarLead(c)}
-          <span class="item-meio">
-            <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">apagada ${horaCurta(c.apagadaEm)}</span></span>
-            <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? esc(c.ultimaMensagem.texto) : ''}</span></span>
-            <span class="item-linha item-tags"><span class="etiqueta off">some em ${c.diasRestantes} ${c.diasRestantes === 1 ? 'dia' : 'dias'}</span><span class="acoes-lixeira"><button type="button" class="pequeno" data-restaurar="${esc(c.id)}">↩️ Restaurar</button><button type="button" class="pequeno perigo" data-apagar-vez="${esc(c.id)}">Apagar de vez</button></span></span>
-          </span>
-        </div>`).join('') : '<p class="rotulo" style="padding:16px">A lixeira está vazia.</p>'}`;
-    $$('[data-restaurar]', el).forEach((b) => {
-      b.onclick = async () => {
-        try {
-          const r = await comEspera(b, () => api(`lixeira/${b.dataset.restaurar}/restaurar`, { method: 'POST', body: {} }));
-          aviso(r.juntou ? 'Conversa restaurada e juntada com a conversa nova desse cliente.' : 'Conversa restaurada.');
-          carregarLista();
-        } catch (err) { aviso(err.message, true); }
-      };
-    });
-    $$('[data-apagar-vez]', el).forEach((b) => {
-      b.onclick = async () => {
-        if (!(await confirmar({ titulo: 'Apagar de vez?', texto: 'A conversa, as fotos, áudios e arquivos dela somem para sempre. As vendas continuam no Faturamento.', botao: 'Apagar de vez', perigo: true }))) return;
-        try {
-          await api(`lixeira/${b.dataset.apagarVez}`, { method: 'DELETE', body: {} });
-          aviso('Apagada para sempre.');
-          carregarLista();
-        } catch (err) { aviso(err.message, true); }
-      };
-    });
-    $('#esvaziar-lixeira')?.addEventListener('click', async () => {
-      if (!(await confirmar({ titulo: 'Esvaziar a lixeira?', texto: `${lista.length} ${lista.length === 1 ? 'conversa some' : 'conversas somem'} para sempre, com fotos, áudios e arquivos. As vendas continuam no Faturamento.`, botao: 'Esvaziar', perigo: true }))) return;
-      try {
-        await api(`empresas/${id}/lixeira`, { method: 'DELETE', body: {} });
-        aviso('Lixeira esvaziada.');
-        carregarLista();
-      } catch (err) { aviso(err.message, true); }
-    });
-  }
-
-  // 🗑️ manda a conversa para a lixeira (com confirmação)
+  // 🗑️ apaga a conversa de vez (com confirmação)
   async function apagarConversa(leadId) {
     const c = lista.find((x) => x.id === leadId) || leadAberto;
-    if (!(await confirmar({ titulo: 'Apagar esta conversa?', texto: `A conversa com <b>${esc(nomeDoLead(c || {}))}</b> vai para a Lixeira (🗑️) e pode ser restaurada por 30 dias. Mensagens agendadas para ela são canceladas. O WhatsApp do celular não é mexido.`, botao: 'Apagar', perigo: true }))) return;
+    if (!(await confirmar({ titulo: 'Apagar esta conversa de vez?', texto: `A conversa com <b>${esc(nomeDoLead(c || {}))}</b> some <b>para sempre</b>: mensagens, fotos, áudios, agendamentos e follow-ups dela. <b>Não dá para desfazer.</b><br><br>Se esse número mandar mensagem de novo, começa uma conversa nova, do zero — a IA não lembra de nada do que foi falado. As vendas continuam no Faturamento. O WhatsApp do celular não é mexido.`, botao: 'Apagar de vez', perigo: true }))) return;
     try {
       await api(`leads/${leadId}`, { method: 'DELETE', body: {} });
-      aviso('Conversa na lixeira.');
+      aviso('Conversa apagada.');
       if (abertoId === leadId) {
         abertoId = '';
         leadAberto = null;
         $('#inbox')?.classList.remove('com-chat');
         history.replaceState(null, '', rotaEmpresa(id, 'conversas'));
         const area = $('#inbox-chat');
-        if (area) area.innerHTML = `<div class="inbox-vazio">${ICONES.leads}<p><b>Conversa apagada</b><br><span class="rotulo">Está na Lixeira (🗑️) por 30 dias.</span></p></div>`;
+        if (area) area.innerHTML = `<div class="inbox-vazio">${ICONES.leads}<p><b>Conversa apagada</b><br><span class="rotulo">Se o cliente escrever de novo, começa do zero.</span></p></div>`;
       }
       carregarLista();
     } catch (err) { aviso(err.message, true); }
@@ -4028,7 +3986,6 @@ async function paginaConversas(id, params) {
   function desenharLista() {
     const el = $('#lista-conversas');
     if (!el) return;
-    if (filtro === 'lixeira') return desenharLixeira(el);
     el.innerHTML = lista.length
       ? lista.map((c) => `
         <div class="item-conversa-caixa">
@@ -4049,12 +4006,7 @@ async function paginaConversas(id, params) {
   }
 
   async function carregarLista() {
-    if (filtro === 'lixeira') {
-      const b = busca.toLowerCase();
-      lista = (await api(`empresas/${id}/lixeira`)).filter((c) => !b || [c.nome, c.telefone, c.ultimaMensagem?.texto].join(' ').toLowerCase().includes(b));
-    } else {
-      lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca, etiqueta: filtroEtiqueta })}`);
-    }
+    lista = await api(`empresas/${id}/conversas?${new URLSearchParams({ filtro, busca, etiqueta: filtroEtiqueta })}`);
     desenharLista();
   }
 
@@ -4073,7 +4025,7 @@ async function paginaConversas(id, params) {
         <span class="chat-acoes"><button type="button" class="pequeno ${l.vendaConcluida ? 'primario' : ''}" id="chat-concluida" title="${l.vendaConcluida ? 'Tirar de Vendas concluídas' : 'Mover para a aba Vendas concluídas'}">${l.vendaConcluida ? '✅ Venda concluída' : '✅ Mover para Vendas concluídas'}</button>
         <button type="button" class="pequeno" id="chat-arquivar" title="${l.arquivado ? 'Voltar para a lista' : 'Arquivar aqui e no WhatsApp do celular'}">${l.arquivado ? '📤 Desarquivar' : '🗄️ Arquivar'}</button>
         <button type="button" class="pequeno ${l.listaNegra ? 'primario' : ''}" id="chat-lista-negra" title="${l.listaNegra ? 'Tirar da lista negra' : 'Lista negra: ninguém (nem a IA) manda mais nada para este cliente'}">${l.listaNegra ? '✅ Desbloquear' : '🚫 Lista negra'}</button>
-        <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa (vai para a Lixeira por 30 dias)" aria-label="Apagar conversa">🗑️</button></span>
+        <button type="button" class="pequeno perigo" id="chat-apagar" title="Apagar conversa de vez" aria-label="Apagar conversa">🗑️</button></span>
       </header>
       <div class="chat-etiquetas">🏷️ ${(l.etiquetas || []).map((tid) => emp.etiquetas.find((t) => t.id === tid)).filter(Boolean).map((t) => `<span class="chip-etq" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}<button type="button" class="x-chip" data-tirar-etq="${esc(t.id)}" title="Tirar etiqueta">✕</button></span>`).join('')}
         ${emp.etiquetas.some((t) => !(l.etiquetas || []).includes(t.id)) ? `<select id="chat-add-etq" class="pequeno-select"><option value="">+ etiqueta</option>${emp.etiquetas.filter((t) => !(l.etiquetas || []).includes(t.id)).map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select>` : ''}

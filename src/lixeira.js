@@ -1,50 +1,74 @@
-// lixeira.js — conversas apagadas pelo painel vão para a Lixeira.
+// lixeira.js — apagar conversa (de vez) e juntar conversas do mesmo cliente.
 //
-// A conversa sai de estado.conversas e vai para estado.lixeira: some das
-// Conversas, do funil, das automações, dos disparos e da IA. Fica 30 dias
-// podendo ser restaurada; depois é apagada de vez (com fotos, áudios e anexos).
-// As vendas do cliente continuam no Faturamento.
-// O WhatsApp do celular não é mexido (a Evolution não apaga conversa do celular).
-// Se o cliente mandar mensagem de novo, começa uma conversa nova — como no WhatsApp.
+// Apagar uma conversa no painel apaga DE VEZ: mensagens, fotos, áudios, anexos,
+// agendamentos e follow-ups dela. Não existe mais lixeira. As vendas continuam no
+// Faturamento (o comprovante vai para a pasta de vendas).
+// Fica só uma marca "apagada em" por número/id do WhatsApp: a busca de mensagens na
+// Evolution nunca traz de volta o que veio ANTES de apagar. Se o cliente mandar
+// mensagem depois, começa uma conversa nova, do zero — a IA não lembra de nada.
+// O WhatsApp do celular não é mexido.
 
 const { estado, salvar, agora } = require('./db');
 
-const DIAS = 30;
+const MAX_MARCAS = 20000;
 
-function itens() {
-  estado.lixeira = Array.isArray(estado.lixeira) ? estado.lixeira : [];
-  return estado.lixeira;
+// chaves de um cliente: o jid do WhatsApp, o id escondido (LID) e o número (sem o 9)
+function chavesDo(lead) {
+  const identidade = require('./identidade');
+  const jids = [lead.whatsappJid, lead.lidJid, ...(lead.jidsAlternativos || [])].filter(Boolean);
+  const fones = [lead.telefone, ...jids.filter((j) => /@s\.whatsapp\.net$/.test(j))].map((n) => identidade.chaveFone(n)).filter(Boolean);
+  return [...new Set([...jids, ...fones.map((f) => `fone:${f}`)])];
 }
 
-function moverParaLixeira(lead, por = '') {
+// Quando a conversa deste endereço (jid, LID ou número) foi apagada — ou null
+function apagadaEm(empresa, endereco) {
+  const marcas = empresa?.conversasApagadas;
+  if (!marcas || !endereco) return null;
+  const ch = require('./identidade').chaveFone(endereco);
+  return marcas[endereco] || (ch && marcas[`fone:${ch}`]) || null;
+}
+
+// Esta mensagem é de antes de a conversa ser apagada? (então não volta para o CRM)
+function mensagemApagada(empresa, msg, emMs, ...extras) {
+  if (!empresa?.conversasApagadas) return false;
+  const k = msg?.key || {};
+  for (const end of [k.remoteJid, k.remoteJidAlt, k.senderPn, k.senderLid, k.participantAlt, msg?.senderPn, ...extras].filter(Boolean)) {
+    const em = apagadaEm(empresa, String(end));
+    if (em && emMs <= new Date(em).getTime()) return true;
+  }
+  return false;
+}
+
+// Apaga a conversa de vez (o que aconteceu antes dela não volta)
+function apagarConversa(lead, por = '') {
   const i = estado.conversas.indexOf(lead);
   if (i < 0) return false;
+  const empresa = estado.empresas.find((e) => e.id === lead.empresaId);
   require('./whatsapp').cancelarResposta(lead.id);
-  // mensagens agendadas (follow-ups) não saem mais — nem se restaurar depois
-  for (const a of lead.agendadas || []) {
-    if (a.status === 'pendente') {
-      a.status = 'cancelada';
-      a.motivo = 'conversa apagada';
-    }
-  }
   estado.conversas.splice(i, 1);
-  lead.naLixeira = { em: agora(), por };
-  itens().unshift(lead);
+  marcarApagada(empresa, lead, agora(), por);
+  preservarComprovantes(lead);
+  require('./midias').apagarAnexosDoLead(lead.id); // anexos e foto de perfil
   salvar();
   return true;
 }
 
-function acharNaLixeira(id) {
-  return itens().find((c) => c.id === id) || null;
-}
-
-// O cliente escreveu de novo enquanto a conversa estava na lixeira (nasceu uma
-// conversa nova com o mesmo número): ao restaurar, as duas viram uma só.
-function juntarConversaNova(lead) {
-  if (!lead.whatsappJid) return null;
-  const nova = estado.conversas.find((c) => c.empresaId === lead.empresaId && c.whatsappJid === lead.whatsappJid && c.id !== lead.id);
-  if (!nova) return null;
-  return juntar(lead, nova);
+function marcarApagada(empresa, lead, em, por = '') {
+  if (!empresa) return;
+  const marcas = (empresa.conversasApagadas = empresa.conversasApagadas || {});
+  for (const ch of chavesDo(lead)) marcas[ch] = em;
+  const chaves = Object.keys(marcas);
+  if (chaves.length > MAX_MARCAS) for (const k of chaves.sort((x, y) => String(marcas[x]).localeCompare(String(marcas[y]))).slice(0, chaves.length - MAX_MARCAS)) delete marcas[k];
+  // o aprendizado diário também não relê o que veio antes de apagar
+  const apr = empresa.aprendizado;
+  if (apr) {
+    apr.checkpoints = apr.checkpoints || {};
+    for (const j of [lead.whatsappJid, lead.lidJid].filter(Boolean)) {
+      apr.checkpoints[j] = Math.floor(new Date(em).getTime() / 1000);
+      if (apr.concluidas) delete apr.concluidas[j];
+    }
+  }
+  void por;
 }
 
 // Junta a conversa `nova` dentro de `lead` (mensagens, anexos, etiquetas, vendas…)
@@ -106,17 +130,6 @@ function juntar(lead, nova, { manterEstado = false } = {}) {
   return nova;
 }
 
-function restaurar(lead) {
-  const i = itens().indexOf(lead);
-  if (i < 0) return false;
-  itens().splice(i, 1);
-  delete lead.naLixeira;
-  const juntou = juntarConversaNova(lead);
-  estado.conversas.push(lead);
-  salvar();
-  return { juntou: Boolean(juntou) };
-}
-
 // Comprovantes de venda que vieram na conversa: antes de apagar os anexos, vão
 // para a pasta de vendas da empresa (a venda continua no Faturamento com o comprovante)
 function preservarComprovantes(lead) {
@@ -138,49 +151,34 @@ function preservarComprovantes(lead) {
   }
 }
 
-function apagarDeVez(lead) {
-  const i = itens().indexOf(lead);
-  if (i < 0) return false;
-  itens().splice(i, 1);
-  preservarComprovantes(lead);
-  require('./midias').apagarAnexosDoLead(lead.id); // anexos e foto de perfil
-  salvar();
-  return true;
-}
-
-function daEmpresa(empresaId) {
-  return itens().filter((c) => c.empresaId === empresaId);
-}
-
-function esvaziar(empresaId) {
-  const lista = daEmpresa(empresaId);
-  for (const c of lista) {
-    preservarComprovantes(c);
-    require('./midias').apagarAnexosDoLead(c.id);
+// Conversas que ficaram na lixeira antiga: apagadas de vez (com a marca de quando foram apagadas)
+function migrarLixeiraAntiga() {
+  const antigas = Array.isArray(estado.lixeira) ? estado.lixeira : [];
+  if (!antigas.length) {
+    if (estado.lixeira) delete estado.lixeira;
+    return 0;
   }
-  estado.lixeira = itens().filter((c) => c.empresaId !== empresaId);
+  for (const lead of antigas) {
+    const empresa = estado.empresas.find((e) => e.id === lead.empresaId);
+    marcarApagada(empresa, lead, lead.naLixeira?.em || agora());
+    preservarComprovantes(lead);
+    require('./midias').apagarAnexosDoLead(lead.id);
+  }
+  delete estado.lixeira;
   salvar();
-  return lista.length;
+  console.log(`[conversas] ${antigas.length} conversa(s) da lixeira antiga apagada(s) de vez`);
+  return antigas.length;
 }
 
-function diasRestantes(lead) {
-  const passou = (Date.now() - new Date(lead.naLixeira?.em || Date.now()).getTime()) / 86400000;
-  return Math.max(0, Math.ceil(DIAS - passou));
+// Empresa excluída: limpa as marcas dela (as conversas já saíram junto)
+function esvaziar(empresaId) {
+  const e = estado.empresas.find((x) => x.id === empresaId);
+  if (e) delete e.conversasApagadas;
+  return 0;
 }
 
-// Apaga de vez o que está na lixeira há mais de 30 dias
-function limparVencidos() {
-  const vencidos = itens().filter((c) => diasRestantes(c) <= 0);
-  for (const c of vencidos) apagarDeVez(c);
-  return vencidos.length;
-}
-
-let timer = null;
 function iniciar() {
-  if (timer) return;
-  setTimeout(limparVencidos, 30000).unref?.();
-  timer = setInterval(limparVencidos, 12 * 3600 * 1000);
-  timer.unref?.();
+  setTimeout(migrarLixeiraAntiga, 15000).unref?.();
 }
 
-module.exports = { juntar, moverParaLixeira, acharNaLixeira, restaurar, apagarDeVez, daEmpresa, esvaziar, diasRestantes, limparVencidos, iniciar, DIAS };
+module.exports = { juntar, chavesDo, apagadaEm, mensagemApagada, apagarConversa, migrarLixeiraAntiga, esvaziar, iniciar };
