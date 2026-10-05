@@ -288,6 +288,11 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
   você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
   padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+- **Resposta da IA em partes**: cada linha da resposta vira uma mensagem no WhatsApp, na
+  ordem, e cada `#MIDIA_` sai no lugar onde a IA escreveu. Entre os envios o cliente vê
+  "digitando…": 3 s antes da mídia, 10 s depois da mídia e 5 s entre textos (IA do WhatsApp →
+  "⏱️ Ritmo das mensagens da IA"). Nenhum código chega ao cliente; `#PAUSAR` pausa a IA depois
+  de enviar tudo.
 - **🤖 Horários que a IA pode agendar** (Agendamentos): você libera dia e horários; ligado,
   a IA só marca o cliente num horário livre da lista (o código confere antes de a resposta
   sair — horário errado ou ocupado, ela reescreve) e nunca dois no mesmo horário (cada

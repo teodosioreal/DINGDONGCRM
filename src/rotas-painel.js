@@ -196,6 +196,7 @@ function situacaoWhatsapp(e, req) {
     numerosTeste: e.whatsappConfig?.numerosTeste || '',
     velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
+    ...Object.fromEntries(Object.entries(whatsapp.temposDeEnvio(e)).map(([k, ms]) => [`espera${k[0].toUpperCase()}${k.slice(1)}Seg`, ms / 1000])),
     iaAposManual: e.whatsappConfig?.iaAposManual === true,
     naoAtropelar: e.whatsappConfig?.naoAtropelar !== false,
     sincronia: e.whatsappConfig?.sincronia || null,
@@ -434,6 +435,10 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   }
   if (b.velocidade !== undefined && whatsapp.VELOCIDADES[b.velocidade]) empresa.whatsappConfig.velocidade = b.velocidade;
   if (b.esperaPrimeiraSeg !== undefined) empresa.whatsappConfig.esperaPrimeiraSeg = inteiro(b.esperaPrimeiraSeg, 0, 0, 3600);
+  // ritmo da resposta em partes (segundos de "digitando…" entre os envios)
+  if (b.esperaAntesMidiaSeg !== undefined) empresa.whatsappConfig.esperaAntesMidiaSeg = inteiro(b.esperaAntesMidiaSeg, 3, 0, 120);
+  if (b.esperaDepoisMidiaSeg !== undefined) empresa.whatsappConfig.esperaDepoisMidiaSeg = inteiro(b.esperaDepoisMidiaSeg, 10, 0, 120);
+  if (b.esperaEntreTextosSeg !== undefined) empresa.whatsappConfig.esperaEntreTextosSeg = inteiro(b.esperaEntreTextosSeg, 5, 0, 120);
   if (b.whatsappAvisos !== undefined) {
     const n = numeroWhatsapp(b.whatsappAvisos);
     if (b.whatsappAvisos && n.length < 10) return res.status(400).json({ erro: 'Número para avisos inválido (use DDD).' });

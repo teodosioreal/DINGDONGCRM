@@ -1560,38 +1560,9 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     } else log.avisos.push('A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.');
   }
 
-  if (r.texto) {
-    // "digitando…" aqui no CRM (e não dentro da Evolution): se o cliente mandar outra
-    // mensagem enquanto aparece "digitando…", esta resposta não sai e a IA responde tudo junto
-    const espera = tempoDigitando(r.texto, empresa);
-    evolution(empresa, 'POST', '/chat/sendPresence/{instancia}', { number: destinoDe(lead.whatsappJid), presence: 'composing', delay: espera }, { tempo: espera + 10000 }).catch(() => {});
-    await new Promise((ok) => setTimeout(ok, espera));
-    if (lead.iaPausada) {
-      logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['A equipe assumiu enquanto a IA digitava: nada foi enviado.'] });
-      return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA digitava.');
-    }
-    if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || clienteMandando(lead.id) || ultimaDoCliente(lead) !== ultimaAntes)) {
-      logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['O cliente mandou outra mensagem enquanto a IA digitava: esta resposta foi descartada e a IA respondeu tudo junto.'] });
-      registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA digitava: a IA vai responder tudo junto.');
-      return true;
-    }
-    try {
-      const env = await enviarTexto(empresa, lead.whatsappJid, r.texto, { digitando: false });
-      log.textoEnviado = r.texto;
-      log.evolutionTexto = { endpoint: 'sendText', id: env?.key?.id || null, status: env?.status || null };
-    } catch (err) {
-      logs.registrar(empresa, lead, { ...log, situacao: 'erro', erros: [`O WhatsApp não enviou o texto: ${err.message}`] });
-      return registrarIa(empresa, lead, 'erro', `A IA escreveu a resposta, mas o WhatsApp não enviou: ${err.message}`);
-    }
-    leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto, ...(opcoes.evento ? { eventoIa: opcoes.evento } : {}) });
-    if (!r.agendamento) require('./tickets').agendamentoDaMensagem(empresa, lead, r.texto, 'ia');
-    if (!r.agendamento && !r.desmarcar) require('./detector-agenda').observar(empresa, lead);
-  }
-  try {
-    log.midias = (await enviarMidiasPedidas(empresa, lead, r.midias)).itens;
-  } catch (err) {
-    log.erros.push(`Falha ao enviar as mídias: ${err.message}`);
-  }
+  // envio em partes: cada linha vira uma mensagem e cada #MIDIA_ sai na mesma posição
+  const enviou = await enviarRespostaEmPartes(empresa, lead, r, { log, opcoes, vez, tentativa, ultimaAntes });
+  if (enviou !== 'ok') return enviou === 'refazer' ? true : undefined;
   if (r.etapa) leads.moverEtapa(lead, empresa, r.etapa, 'ia-whatsapp');
   // venda/agendamento confirmados → aviso na conversa (e venda no Faturamento)
   try {
@@ -1611,6 +1582,136 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   }
   logs.registrar(empresa, lead, { ...log, pausou: r.humano, situacao: !r.texto && !log.midias.some((m) => m.status === 'enviada') ? 'nada' : r.humano ? 'pausada' : 'enviada' });
   registrarIa(empresa, lead, 'respondeu', r.humano ? 'Respondeu e chamou a equipe.' : !r.texto && r.nada ? 'Não tinha nada a dizer (#NADA).' : 'Respondeu.');
+}
+
+// ---------------------------------------------------------------- envio da resposta em partes
+// Cada linha da resposta da IA vira uma mensagem no WhatsApp, na ordem (linhas vazias são
+// ignoradas); a linha com #MIDIA_ vira o envio da mídia na mesma posição. Entre os envios o
+// cliente vê "digitando…": antes da mídia, depois da mídia e entre textos (tempos da empresa).
+const TEMPOS_ENVIO_PADRAO = { antesMidia: 3, depoisMidia: 10, entreTextos: 5 }; // segundos
+function temposDeEnvio(empresa) {
+  const c = empresa?.whatsappConfig || {};
+  const seg = (v, padrao) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? padrao : Math.min(120, Math.max(0, Number(v))));
+  return {
+    antesMidia: seg(c.esperaAntesMidiaSeg, TEMPOS_ENVIO_PADRAO.antesMidia) * 1000,
+    depoisMidia: seg(c.esperaDepoisMidiaSeg, TEMPOS_ENVIO_PADRAO.depoisMidia) * 1000,
+    entreTextos: seg(c.esperaEntreTextosSeg, TEMPOS_ENVIO_PADRAO.entreTextos) * 1000
+  };
+}
+
+// A resposta em partes, na ordem: [{ tipo: 'texto', texto } | { tipo: 'midia', codigo }].
+// O texto vem do r.texto (já limpo de códigos e com a abertura variada); a posição das
+// mídias vem da resposta original, linha a linha.
+function partesDaResposta(r) {
+  const textos = String(r.texto || '').split('\n').map((t) => t.trim()).filter(Boolean);
+  const partes = [];
+  const midiasJa = new Set();
+  const addMidia = (codigo) => {
+    const k = String(codigo).toUpperCase().replace(/-/g, '_');
+    if (midiasJa.has(k)) return;
+    midiasJa.add(k);
+    partes.push({ tipo: 'midia', codigo });
+  };
+  let iT = 0;
+  for (const linha of String(r.bruto || r.texto || '').split('\n')) {
+    if (!linha.trim()) continue;
+    const x = ia.extrairAcoes(linha);
+    for (const limpo of String(x.texto || '').split('\n').map((t) => t.trim()).filter(Boolean)) {
+      // acha a linha correspondente do texto final (a abertura repetida pode ter sido tirada)
+      let j = -1;
+      for (let k = iT; k < Math.min(textos.length, iT + 2); k++) {
+        if (limpo === textos[k] || limpo.includes(textos[k]) || textos[k].includes(limpo)) { j = k; break; }
+      }
+      if (j === -1) continue;
+      while (iT <= j) partes.push({ tipo: 'texto', texto: textos[iT++] });
+    }
+    for (const m of x.midias) addMidia(m);
+  }
+  while (iT < textos.length) partes.push({ tipo: 'texto', texto: textos[iT++] }); // o que sobrou, no fim
+  for (const m of r.midias || []) addMidia(m); // mídia que o CRM acrescentou (ex.: prometeu e esqueceu o código)
+  return partes;
+}
+
+function digitandoPor(empresa, lead, ms) {
+  if (ms <= 0) return Promise.resolve();
+  evolution(empresa, 'POST', '/chat/sendPresence/{instancia}', { number: destinoDe(lead.whatsappJid), presence: 'composing', delay: ms }, { tempo: ms + 10000 }).catch(() => {});
+  return new Promise((ok) => setTimeout(ok, ms));
+}
+
+// Envia as partes. Devolve 'ok', 'refazer' (o cliente escreveu antes do 1º envio) ou 'parou'.
+async function enviarRespostaEmPartes(empresa, lead, r, { log, opcoes = {}, vez = {}, tentativa = 0, ultimaAntes } = {}) {
+  const logs = require('./log-respostas');
+  const partes = partesDaResposta(r);
+  const tempos = temposDeEnvio(empresa);
+  const textos = [];
+  log.midias = [];
+  log.envios = [];
+  let anterior = null;
+  for (const [i, p] of partes.entries()) {
+    // mídia que não vai sair (não existe ou já foi para este cliente): sem espera
+    const vaiPular = p.tipo === 'midia' && (() => {
+      const pedido = midias.resolverPedido(empresa, p.codigo);
+      return !pedido.alvo || (!opcoes.evento && pedido.itens.every((m) => m.umaVezPorConversa !== false && jaEnviouMidia(lead, m.codigo)));
+    })();
+    if (i === 0) {
+      // 1º envio: "digitando…" e, se o cliente escrever nesse meio tempo, a IA responde tudo junto
+      await digitandoPor(empresa, lead, p.tipo === 'texto' ? tempoDigitando(p.texto, empresa) : vaiPular ? 0 : tempos.antesMidia);
+      if (lead.iaPausada) {
+        logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: [...log.avisos, 'A equipe assumiu enquanto a IA digitava: nada foi enviado.'] });
+        registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA digitava.');
+        return 'parou';
+      }
+      if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || clienteMandando(lead.id) || ultimaDoCliente(lead) !== ultimaAntes)) {
+        logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: [...log.avisos, 'O cliente mandou outra mensagem enquanto a IA digitava: esta resposta foi descartada e a IA respondeu tudo junto.'] });
+        registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA digitava: a IA vai responder tudo junto.');
+        return 'refazer';
+      }
+    } else {
+      const espera = p.tipo === 'midia' ? (vaiPular ? 0 : tempos.antesMidia) : anterior === 'midia' ? tempos.depoisMidia : tempos.entreTextos;
+      await digitandoPor(empresa, lead, espera);
+      if (lead.iaPausada) {
+        log.avisos.push('A equipe assumiu no meio do envio: o resto da resposta não foi enviado.');
+        break;
+      }
+    }
+    if (p.tipo === 'texto') {
+      try {
+        const env = await enviarTexto(empresa, lead.whatsappJid, p.texto, { digitando: false });
+        if (!log.evolutionTexto) log.evolutionTexto = { endpoint: 'sendText', id: env?.key?.id || null, status: env?.status || null };
+        log.envios.push({ tipo: 'texto', em: agora(), id: env?.key?.id || null });
+      } catch (err) {
+        if (!textos.length && !log.midias.length) {
+          logs.registrar(empresa, lead, { ...log, situacao: 'erro', erros: [`O WhatsApp não enviou o texto: ${err.message}`] });
+          registrarIa(empresa, lead, 'erro', `A IA escreveu a resposta, mas o WhatsApp não enviou: ${err.message}`);
+          return 'parou';
+        }
+        log.erros.push(`O WhatsApp não enviou uma parte do texto: ${err.message}`);
+        break;
+      }
+      textos.push(p.texto);
+      leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: p.texto, ...(opcoes.evento ? { eventoIa: opcoes.evento } : {}) });
+      anterior = 'texto';
+    } else {
+      let itens = [];
+      try {
+        itens = (await enviarMidiasPedidas(empresa, lead, [p.codigo])).itens;
+      } catch (err) {
+        log.erros.push(`Falha ao enviar a mídia ${p.codigo}: ${err.message}`);
+      }
+      log.midias.push(...itens);
+      if (itens.some((x) => x.status === 'enviada')) {
+        log.envios.push({ tipo: 'midia', codigo: p.codigo, em: agora() });
+        anterior = 'midia';
+      }
+    }
+  }
+  if (textos.length) {
+    const todo = textos.join('\n');
+    log.textoEnviado = todo;
+    if (!r.agendamento) require('./tickets').agendamentoDaMensagem(empresa, lead, todo, 'ia');
+    if (!r.agendamento && !r.desmarcar) require('./detector-agenda').observar(empresa, lead);
+  }
+  return 'ok';
 }
 
 // ---------------------------------------------------------------- respostas rápidas com mídia
@@ -1855,6 +1956,8 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  temposDeEnvio,
+  partesDaResposta,
   iaVaiResponder,
   marcarComoLidas,
   respostaAutomatica,

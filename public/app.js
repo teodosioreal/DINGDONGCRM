@@ -1495,6 +1495,16 @@ async function paginaWhatsapp(id) {
         ? '<b>Ligado (padrão):</b> a conversa do dia a dia usa um modelo mais em conta da mesma IA (ex.: Claude Sonnet no lugar do Opus — cerca de metade do preço). O modelo escolhido em <i>IAs e chaves</i> entra sozinho nos casos difíceis: objeção de preço, reclamação, negociação, mensagem longa ou quando o modelo econômico avisa que a conversa está difícil.'
         : '<b>Desligado:</b> todas as respostas usam o modelo escolhido em <i>IAs e chaves</i> (mais caro).'} Veja quanto cada tarefa gasta em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
     </div>
+    <div class="card" data-cfg="ritmo-partes" data-pronto="ok" data-resumo="${w.esperaAntesMidiaSeg ?? 3} s antes da mídia · ${w.esperaDepoisMidiaSeg ?? 10} s depois · ${w.esperaEntreTextosSeg ?? 5} s entre textos">
+      <h2 style="margin:0 0 6px">⏱️ Ritmo das mensagens da IA</h2>
+      <p class="rotulo" style="margin:0 0 10px">Cada linha da resposta da IA sai como uma mensagem separada e cada mídia sai no lugar em que a IA escreveu o código. Entre um envio e outro o cliente vê "digitando…" por estes segundos:</p>
+      <div class="hia-form">
+        <div class="campo"><label>Antes de uma mídia</label><input type="number" min="0" max="120" id="ritmo-antes" value="${w.esperaAntesMidiaSeg ?? 3}"></div>
+        <div class="campo"><label>Depois da mídia, antes do texto</label><input type="number" min="0" max="120" id="ritmo-depois" value="${w.esperaDepoisMidiaSeg ?? 10}"></div>
+        <div class="campo"><label>Entre um texto e outro</label><input type="number" min="0" max="120" id="ritmo-entre" value="${w.esperaEntreTextosSeg ?? 5}"></div>
+        <button type="button" id="ritmo-salvar">Salvar</button>
+      </div>
+    </div>
     <div class="card" data-cfg="ia-agendados" data-pronto="ok" data-resumo="${emp.iaComAgendados ? 'Ligado: a IA atende quem agendou' : 'Desligado: quem agendou não gasta IA'}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 IA para quem agendou</h2>${interruptor('ia-agendados', emp.iaComAgendados === true, emp.iaComAgendados ? 'Ligado' : 'Desligado')}</div>
       <p class="rotulo" style="margin:0"><b>Quem já comprou</b> fica sempre com a IA <b>desligada</b> (sem respostas, sem follow-up e sem automações — só os pedidos de <b>avaliação</b> e de <b>comentário no anúncio</b> continuam). Volta só se você ligar a IA na conversa. ${emp.iaComAgendados
@@ -1698,6 +1708,13 @@ async function paginaWhatsapp(id) {
     d.innerHTML = `Mídias citadas neste prompt: <b>${citados.length}</b> — ${citados.map((c) => `<span class="codigo-chip">${esc(c.codigo)}</span> ${c.existe ? '✓' : '✕ não existe no cadastro'}`).join(' · ')}${faltam.length ? ` <a href="${rotaEmpresa(id, 'midias')}">Ver em Mídias →</a>` : ''}`;
     area.closest('.campo').after(d);
   }).catch(() => {});
+  $('#ritmo-salvar').onclick = async (e) => {
+    try {
+      await comEspera(e.currentTarget, () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { esperaAntesMidiaSeg: Number($('#ritmo-antes').value), esperaDepoisMidiaSeg: Number($('#ritmo-depois').value), esperaEntreTextosSeg: Number($('#ritmo-entre').value) } }));
+      aviso('Ritmo das mensagens salvo.');
+      recarregar();
+    } catch (err) { aviso(err.message, true); }
+  };
   $('#ia-agendados').onchange = async (e) => {
     const ligar = e.target.checked;
     try {
