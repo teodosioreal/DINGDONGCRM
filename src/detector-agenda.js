@@ -79,7 +79,8 @@ async function porIa(empresa, lead) {
     (servicos ? `Serviços da empresa: ${servicos}.\n` : '') +
     `\nConversa (mais recente por último):\n${conversa}\n\n` +
     'JSON: {"acao": "agendar|remarcar|cancelar|nada", "quando": "dd/mm/aaaa hh:mm ou vazio", "semHora": false, "descricao": "o que foi agendado, curto", "agendamentoId": "id do agendamento ativo afetado (remarcar/cancelar) ou vazio", "confianca": 0.0, "trecho": "frase da conversa que prova"}';
-  const r = await require('./ia').gerarTexto(bot, empresa, sistema, pedido, 600, { barato: true });
+  const ia = require('./ia');
+  const r = await ia.comTarefa('agenda', () => ia.gerarTexto(bot, empresa, sistema, pedido, 600, { barato: true }));
   const m = String(r).match(/\{[\s\S]*\}/);
   if (!m) return null;
   const j = JSON.parse(m[0]);

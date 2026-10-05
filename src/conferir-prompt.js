@@ -39,6 +39,10 @@ function contextoDoAtendimento(empresa, canal, mensagem) {
 }
 
 async function conferir(bot, empresa, canal = 'whatsapp') {
+  return ia.comTarefa('conferir-prompt', () => conferirNa(bot, empresa, canal));
+}
+
+async function conferirNa(bot, empresa, canal) {
   const instrucoes = String((canal === 'whatsapp' ? bot.promptWhatsapp : bot.regras) || '').trim();
   if (!instrucoes) throw Object.assign(new Error('Escreva e salve as instruções primeiro.'), { status: 400 });
 

@@ -1118,13 +1118,25 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
   anexo.tipo = tipo;
   let entendido = null;
   const legenda = info?.caption ? ` ${info.caption}` : '';
+  // Foto lida UMA vez: se a IA vai responder este cliente, a foto é descrita primeiro e a
+  // descrição serve para tudo (resposta, sugestão de mídia e decidir se é comprovante).
+  // A leitura do comprovante pela IA só acontece se a foto parece pagamento.
+  let descricao = null;
+  if (entender && tipo === 'image') {
+    try {
+      descricao = await ia.descreverImagem(botDoWhatsapp(empresa), empresa, r.base64, mimetype);
+    } catch (err) {
+      console.error(`[whatsapp ${lead.id}] entender image:`, ia.descreverErroIa(err));
+    }
+  }
   if (comprovante) {
     // comprovante de Pix (foto ou PDF) → venda no Faturamento (lê sem IA primeiro)
     if (tipo === 'image' || /pdf/i.test(mimetype)) {
       // comprovante chega → venda sobe NA HORA: foto que a leitura simples não entendeu
-      // passa pela IA (modelo barato), MESMO se a IA não responde este cliente
-      const forcarIa = tipo === 'image';
-      if (forcarIa) anexo.comprovanteRevisto = true; // a varredura de hora em hora não repete a IA nesta foto
+      // passa pela IA (modelo barato), MESMO se a IA não responde este cliente — a não ser
+      // que a descrição já mostre que não é pagamento (ex.: foto do volante)
+      const forcarIa = tipo === 'image' && (!descricao || PARECE_PAGAMENTO.test(descricao));
+      if (tipo === 'image') anexo.comprovanteRevisto = true; // a varredura de hora em hora não repete a IA nesta foto
       const comp = await comprovantes
         .processarArquivo(empresa, lead, {
           buffer,
@@ -1144,38 +1156,26 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
       }
     }
   }
-  if (entender) {
+  if (descricao) {
+    anexo.descricao = descricao;
+    entendido = `[foto do cliente]: ${descricao}${legenda}`;
+  }
+  if (entender && tipo === 'audio') {
     try {
-      if (tipo === 'audio') {
-        const t = await ia.transcreverAudio(empresa, r.base64, mimetype);
-        if (t) {
-          anexo.transcricao = t;
-          entendido = `[áudio do cliente]: ${t}`;
-        }
-      } else if (tipo === 'image') {
-        const d = await ia.descreverImagem(botDoWhatsapp(empresa), empresa, r.base64, mimetype);
-        if (d) {
-          anexo.descricao = d;
-          entendido = `[foto do cliente]: ${d}${legenda}`;
-          // a descrição diz que é comprovante (o texto da foto não deu para ler): aí sim lê com a IA
-          if (/comprovante|pix|transfer[eê]ncia|pagamento|recibo/i.test(d)) {
-            const comp = await comprovantes
-              .processarArquivo(empresa, lead, { buffer, mimetype, anexo, forcarIa: true, lerComIa: () => ia.lerComprovante(botDoWhatsapp(empresa), empresa, r.base64, mimetype) })
-              .catch(() => null);
-            if (comp) {
-              anexo.vendaId = comp.venda.id;
-              anexo.descricao = `Comprovante ${comp.venda.forma} de ${comprovantes.brl(comp.venda.valor)}`;
-              entendido = `${comp.texto}${legenda}`;
-            }
-          }
-        }
+      const t = await ia.transcreverAudio(empresa, r.base64, mimetype);
+      if (t) {
+        anexo.transcricao = t;
+        entendido = `[áudio do cliente]: ${t}`;
       }
     } catch (err) {
-      console.error(`[whatsapp ${lead.id}] entender ${tipo}:`, ia.descreverErroIa(err));
+      console.error(`[whatsapp ${lead.id}] entender audio:`, ia.descreverErroIa(err));
     }
   }
   return { anexo, entendido };
 }
+
+// a descrição da foto parece pagamento? (aí vale ler o comprovante com a IA)
+const PARECE_PAGAMENTO = /comprovante|pix|transfer[eê]ncia|pagamento|\bpag[oa]\b|recibo|boleto|banco|r\$\s*\d|valor|extrato|nota fiscal|qr ?code|dep[oó]sito/i;
 
 // Arquivo grande mandado pela equipe na conversa: o WhatsApp baixa o ORIGINAL por
 // um link temporário (sem base64, sem recomprimir). Vídeo que não toca na conversa
@@ -1371,6 +1371,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   try {
     r = await ia.responder(bot, empresa, historico, {
       canal: 'whatsapp',
+      tarefa: opcoes.evento ? 'evento' : 'resposta',
       origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])],
       tickets: require('./tickets').paraIa(lead),
@@ -1386,7 +1387,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     logs.registrar(empresa, lead, { origem: origemLog, situacao: 'erro', erros: [`A IA não conseguiu responder: ${ia.descreverErroIa(err)}`] });
     return registrarIa(empresa, lead, 'erro', `A IA não conseguiu responder: ${ia.descreverErroIa(err)}`);
   }
-  const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, midias: [], avisos: [], erros: [] };
+  const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, modelo: r.modelo, escalou: r.escalou, midias: [], avisos: [], erros: [] };
   // se a equipe assumiu enquanto a IA pensava, não responde
   if (lead.iaPausada) {
     logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['A equipe assumiu enquanto a IA pensava: nada foi enviado.'] });

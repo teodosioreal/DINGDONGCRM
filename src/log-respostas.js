@@ -31,6 +31,8 @@ function registrar(empresa, lead, dados = {}) {
     midias,
     evolutionTexto: dados.evolutionTexto || null,
     pausou: Boolean(dados.pausou),
+    modelo: dados.modelo || '',
+    escalou: corta(dados.escalou || '', 120),
     avisos: (dados.avisos || []).map((a) => corta(a, 300)),
     erros: erros.map((e) => corta(e, 400))
   };

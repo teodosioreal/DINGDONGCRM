@@ -5,6 +5,12 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const config = require('./config');
 const { estado } = require('./db');
 const { numeroDoAtendimento } = require('./util');
+const { AsyncLocalStorage } = require('async_hooks');
+
+// Para que serviu cada chamada à IA (resposta, foto, agenda…): vai junto com os tokens
+// gastos, para o painel mostrar onde o dinheiro vai. comTarefa('agenda', () => …)
+const tarefaAtual = new AsyncLocalStorage();
+const comTarefa = (tarefa, fn) => tarefaAtual.run(tarefa, fn);
 
 const PROVEDORES = {
   anthropic: { nome: 'Claude (Anthropic)' },
@@ -199,7 +205,7 @@ async function testarChave(provedor, empresa, chaveExplicita = '') {
 
 // Testa um motor de verdade (um pedido bem curto no modelo escolhido)
 async function testarMotor(empresa, m) {
-  const r = await chamarMotor(empresa, m, { turnos: [{ role: 'user', content: 'Responda só: ok' }], maxTokens: 16, temperatura: 0 });
+  const r = await comTarefa('teste', () => chamarMotor(empresa, m, { turnos: [{ role: 'user', content: 'Responda só: ok' }], maxTokens: 16, temperatura: 0 }));
   return r.texto;
 }
 
@@ -553,7 +559,10 @@ function motoresDa(empresa, bot) {
 const NOME_CURTO = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini' };
 
 // Roda `fn(motor)` no 1º motor; se der erro, tenta o próximo
-async function comReserva(empresa, bot, fn, { tarefa = 'resposta' } = {}) {
+async function comReserva(empresa, bot, fn, opcoes = {}) {
+  // quem chamou já disse a tarefa (comTarefa)? vale a dela; senão a desta chamada
+  if (!tarefaAtual.getStore()) return tarefaAtual.run(opcoes.tarefa || 'outros', () => comReserva(empresa, bot, fn, opcoes));
+  const tarefa = tarefaAtual.getStore();
   const motores = motoresDa(empresa, bot);
   if (!motores.length) throw erroSemChave(normalizarProvedor(bot?.provedor));
   const falhas = [];
@@ -584,8 +593,19 @@ function hojeEmSp() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); // AAAA-MM-DD
 }
 
-function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0 } = {}) {
+// Preço (US$ por milhão de tokens: entrada, saída, leitura do cache) — só para estimar o
+// gasto no painel. Modelos fora da lista aparecem sem custo estimado.
+const PRECO_POR_MILHAO = {
+  'claude-opus-5-5': [4, 20, 0.2],
+  'claude-opus-5': [5, 25, 0.5],
+  'claude-sonnet-5-5': [2, 10, 0.2],
+  'claude-sonnet-5': [2, 10, 0.2],
+  'claude-haiku-4-5': [1, 5, 0.1]
+};
+
+function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0, modelo = '' } = {}) {
   if (!empresa || !empresa.id) return;
+  const tarefa = tarefaAtual.getStore() || 'outros';
   const dia = hojeEmSp();
   const u = (empresa.usoIa = empresa.usoIa || { dias: {} });
   u.dias = u.dias || {};
@@ -595,6 +615,19 @@ function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0 } =
   d.cache += cache || 0;
   d.chamadas += 1;
   d.porIa[provedor] = (d.porIa[provedor] || 0) + (entrada || 0) + (saida || 0) + (cache || 0);
+  // por tarefa e por modelo: { tokens (entrada+saída, sem cache), cache, chamadas, custo (US$ estimado) }
+  const preco = PRECO_POR_MILHAO[modelo];
+  const custo = preco ? ((entrada || 0) * preco[0] + (saida || 0) * preco[1] + (cache || 0) * preco[2]) / 1e6 : 0;
+  const somar = (grupo, k) => {
+    const x = (d[grupo] = d[grupo] || {})[k] || { tokens: 0, cache: 0, chamadas: 0, custo: 0 };
+    x.tokens += (entrada || 0) + (saida || 0);
+    x.cache += cache || 0;
+    x.chamadas += 1;
+    x.custo = (x.custo || 0) + custo;
+    d[grupo][k] = x;
+  };
+  somar('porTarefa', tarefa);
+  if (modelo) somar('porModelo', modelo);
   const dias = Object.keys(u.dias).sort();
   for (const antigo of dias.slice(0, Math.max(0, dias.length - 31))) delete u.dias[antigo];
   require('./db').salvar();
@@ -602,7 +635,7 @@ function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0 } =
 
 // Soma dos últimos N dias (1 = hoje), por empresa
 function usoDoPeriodo(empresa, dias) {
-  const saida = { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {}, total: 0 };
+  const saida = { entrada: 0, saida: 0, cache: 0, chamadas: 0, porIa: {}, porTarefa: {}, porModelo: {}, total: 0 };
   const hoje = new Date(`${hojeEmSp()}T12:00:00Z`);
   for (let i = 0; i < dias; i++) {
     const dia = new Date(hoje.getTime() - i * 864e5).toISOString().slice(0, 10);
@@ -613,6 +646,15 @@ function usoDoPeriodo(empresa, dias) {
     saida.cache += d.cache;
     saida.chamadas += d.chamadas;
     for (const [p, n] of Object.entries(d.porIa || {})) saida.porIa[p] = (saida.porIa[p] || 0) + n;
+    for (const grupo of ['porTarefa', 'porModelo']) {
+      for (const [k, x] of Object.entries(d[grupo] || {})) {
+        const t = (saida[grupo][k] = saida[grupo][k] || { tokens: 0, cache: 0, chamadas: 0, custo: 0 });
+        t.custo += x.custo || 0;
+        t.tokens += x.tokens || 0;
+        t.cache += x.cache || 0;
+        t.chamadas += x.chamadas || 0;
+      }
+    }
   }
   saida.total = saida.entrada + saida.saida + saida.cache;
   return saida;
@@ -716,7 +758,7 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
         await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
       : await client.messages.create(params);
     const u = r.usage || {};
-    registrarUso(empresa, 'anthropic', { entrada: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, cache: u.cache_read_input_tokens || 0 });
+    registrarUso(empresa, 'anthropic', { entrada: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, cache: u.cache_read_input_tokens || 0, modelo: r.model || m.modelo });
     if (r.stop_reason === 'refusal') return { texto: RESPOSTA_RECUSA, recusado: true };
     return { texto: r.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), cortado: r.stop_reason === 'max_tokens' };
   }
@@ -740,7 +782,7 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
     });
     const u = dados.usage || {};
     const emCache = u.prompt_tokens_details?.cached_tokens || 0;
-    registrarUso(empresa, 'openai', { entrada: (u.prompt_tokens || 0) - emCache, saida: u.completion_tokens || 0, cache: emCache });
+    registrarUso(empresa, 'openai', { entrada: (u.prompt_tokens || 0) - emCache, saida: u.completion_tokens || 0, cache: emCache, modelo: m.modelo });
     const msg = dados.choices?.[0]?.message || {};
     if (msg.refusal) return { texto: RESPOSTA_RECUSA, recusado: true };
     return { texto: typeof msg.content === 'string' ? msg.content : '', cortado: dados.choices?.[0]?.finish_reason === 'length' };
@@ -767,7 +809,7 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
   );
   const u = dados.usageMetadata || {};
   const emCache = u.cachedContentTokenCount || 0;
-  registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache });
+  registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache, modelo: m.modelo });
   const candidato = dados.candidates?.[0];
   if (!candidato || dados.promptFeedback?.blockReason) return { texto: RESPOSTA_RECUSA, recusado: true };
   const texto = (candidato.content?.parts || []).filter((p) => typeof p.text === 'string' && !p.thought).map((p) => p.text).join('');
@@ -920,7 +962,37 @@ function historicoEnxuto(historico) {
   return ultimas.map((m, i) => (i < ultimas.length - 6 && String(m.texto || '').length > 700 ? { ...m, texto: `${m.texto.slice(0, 700)}…` } : m));
 }
 
+// Modo econômico (ligado por padrão; IA do WhatsApp → "Modo econômico"): a conversa do
+// dia a dia vai para um modelo mais em conta da mesma IA; o modelo escolhido entra só nos
+// casos difíceis (objeção de preço, reclamação, negociação, mensagem longa) ou quando o
+// modelo econômico avisa que a conversa está difícil (#DIFICIL).
+const MODELO_ECONOMICO = {
+  'claude-opus-5-5': 'claude-sonnet-5-5',
+  'claude-opus-5': 'claude-sonnet-5',
+  'gpt-5': 'gpt-5-mini',
+  'gpt-4.1': 'gpt-4.1-mini',
+  'gemini-2.5-pro': 'gemini-2.5-flash'
+};
+const economicoLigado = (empresa) => empresa?.iaEconomica !== false;
+const CASO_DIFICIL = /\b(caro|car[ií]ssimo|desconto|abaix\w*|negoci\w*|melhor pre[cç]o|mais barato|concorr\w*|outro lugar|outra loja|reclam\w*|problema|defeito|garantia|devolu\w*|reembols\w*|estorn\w*|insatisfeit\w*|p[ée]ssim\w*|absurdo|enganad\w*|procon|advogad\w*|processar|cancel\w*|n[ãa]o gostei|ficou ruim|deu errado)\b/i;
+function casoDificil(historico = []) {
+  const doCliente = [];
+  for (let i = historico.length - 1; i >= 0 && doCliente.length < 3; i--) {
+    const m = historico[i];
+    if (m.papel !== 'visitante') break;
+    if (!m.eventoInterno) doCliente.unshift(String(m.texto || ''));
+  }
+  const texto = doCliente.join(' ');
+  return CASO_DIFICIL.test(texto.normalize('NFC')) || texto.length > 600;
+}
+const AVISO_ECONOMICO = '\n\n(Interno) Se esta conversa estiver difícil para você — negociação de preço, reclamação, cliente irritado ou uma pergunta que você não tem certeza de como responder bem — responda só: #DIFICIL';
+
 async function responder(bot, empresa, historicoCompleto, opcoes = {}) {
+  const tarefa = opcoes.tarefa || tarefaAtual.getStore() || (opcoes.canal === 'whatsapp' ? 'resposta' : 'site');
+  return comTarefa(tarefa, () => responderNa(bot, empresa, historicoCompleto, opcoes));
+}
+
+async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
   const canal = opcoes.canal === 'whatsapp' ? 'whatsapp' : 'site';
   // "Atualizar prompt": o que veio antes das instruções novas vira só contexto (não é modelo)
   const { historico, anterior } = canal === 'whatsapp' ? require('./prompt-novo').separarHistorico(empresa, historicoCompleto) : { historico: historicoCompleto, anterior: '' };
@@ -930,11 +1002,27 @@ async function responder(bot, empresa, historicoCompleto, opcoes = {}) {
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
   // atendimento: pensa um pouco mais (segue melhor as instruções) e com menos "criatividade" (inventa menos)
   // atendimento: pouca "criatividade" (inventa menos), pensamento curto e resposta curta (economiza tokens)
-  const bruto = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500 }), { tarefa: 'resposta' });
+  const chamar = (economico) =>
+    comReserva(empresa, bot, (m) => {
+      const barato = economico && MODELO_ECONOMICO[m.modelo];
+      const motor = barato ? { ...m, modelo: barato } : m;
+      const sis = barato ? { ...sistema, dinamico: `${sistema.dinamico || ''}${AVISO_ECONOMICO}` } : sistema;
+      return chamarMotor(empresa, motor, { sistema: sis, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500 }).then((r) => ({ ...r, modelo: motor.modelo, economico: Boolean(barato) }));
+    });
+  const tentarEconomico = economicoLigado(empresa) && opcoes.semEconomia !== true && !casoDificil(historico);
+  let bruto = await chamar(tentarEconomico);
+  let escalou = '';
+  // o modelo econômico pediu ajuda: o modelo escolhido responde
+  if (bruto.economico && /#\s*DIFICIL\b/i.test(bruto.texto || '')) {
+    escalou = 'o modelo econômico achou a conversa difícil';
+    bruto = await chamar(false);
+  } else if (!tentarEconomico && economicoLigado(empresa) && opcoes.semEconomia !== true && MODELO_ECONOMICO[bruto.modelo]) escalou = 'caso difícil (objeção, reclamação ou mensagem longa)';
   if (bruto.recusado) return { texto: bruto.texto, mensagemWhatsapp: null, midias: [], etapa: null, humano: false, etiquetas: [], venda: null, agendamento: null };
 
-  let r = extrairAcoes(bruto.texto);
+  let r = extrairAcoes(String(bruto.texto || '').replace(/#\s*DIFICIL\b/gi, ''));
   r.bruto = bruto.texto;
+  r.modelo = bruto.modelo || '';
+  r.escalou = escalou;
 
   // a IA repetiu o começo das mensagens anteriores ("Legal!", "Perfeito!"…): tira
   if (r.texto) r.texto = variarAbertura(r.texto, historico);
@@ -967,6 +1055,9 @@ function textoGemini(dados) {
 const PEDIDO_AUDIO = 'Transcreva este áudio de WhatsApp exatamente como foi falado, em português do Brasil. Responda só com a transcrição, sem comentários. Se não houver fala, responda: (sem fala)';
 
 async function transcreverAudio(empresa, base64, mimetype) {
+  return comTarefa('audio', () => transcreverAudioNa(empresa, base64, mimetype));
+}
+async function transcreverAudioNa(empresa, base64, mimetype) {
   const mime = String(mimetype || 'audio/ogg').split(';')[0];
   const tentativas = [];
   if (chave('gemini', empresa)) {
@@ -1013,6 +1104,9 @@ const PEDIDO_FOTO = 'Descreva em 1 ou 2 frases, em português, o que aparece nes
 
 // Descreve a foto do cliente (qualquer uma das IAs vê imagens), no modelo mais barato
 async function descreverImagem(bot, empresa, base64, mimetype) {
+  return comTarefa('foto', () => descreverImagemNa(bot, empresa, base64, mimetype));
+}
+async function descreverImagemNa(bot, empresa, base64, mimetype) {
   const mime = String(mimetype || 'image/jpeg').split(';')[0];
   if (!/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
   if (!motoresDa(empresa, bot).length) return null;
@@ -1031,6 +1125,9 @@ const PEDIDO_COMPROVANTE =
   'Esta imagem/arquivo é um comprovante de pagamento (Pix, transferência, boleto)? Responda SOMENTE com um JSON, sem texto antes ou depois, no formato: {"ehComprovante": true|false, "valor": "1.250,90", "data": "dd/mm/aaaa hh:mm", "pagador": "nome de quem pagou", "recebedor": "nome de quem recebeu", "banco": "banco de quem pagou", "idTransacao": "id/autenticação", "forma": "Pix|Transferência|Boleto"}. Use "" quando não souber. Não invente valores.';
 
 async function lerComprovante(bot, empresa, base64, mimetype) {
+  return comTarefa('comprovante', () => lerComprovanteNa(bot, empresa, base64, mimetype));
+}
+async function lerComprovanteNa(bot, empresa, base64, mimetype) {
   const mime = String(mimetype || '').split(';')[0];
   const ehPdf = /pdf/i.test(mime);
   if (!ehPdf && !/^image\/(jpeg|png|webp|gif)$/.test(mime)) return null;
@@ -1078,7 +1175,7 @@ async function escreverMensagem(bot, empresa, historico, instrucao, opcoes = {})
     papel: 'visitante',
     texto: `[INSTRUÇÃO INTERNA DA EMPRESA — não é mensagem do cliente e ele não vê isto]: ${instrucao} Escreva só a mensagem que será enviada ao cliente agora, curta e natural, sem mencionar esta instrução.`
   };
-  const r = await responder(bot, empresa, [...historico, interno], { ...opcoes, canal: 'whatsapp' });
+  const r = await responder(bot, empresa, [...historico, interno], { ...opcoes, canal: 'whatsapp', tarefa: opcoes.tarefa || 'followup' });
   return r;
 }
 
@@ -1116,6 +1213,9 @@ function descreverErroIa(err) {
 
 module.exports = {
   variarAbertura,
+  casoDificil,
+  MODELO_ECONOMICO,
+  comTarefa,
   responder,
   escreverMensagem,
   transcreverAudio,

@@ -86,7 +86,8 @@ async function resumoDaConversa(empresa, lead, ag) {
     const sistema =
       'Você extrai dados de um agendamento a partir de uma conversa de WhatsApp entre uma empresa e um cliente. Responda SOMENTE com um JSON, sem texto antes ou depois: {"servico": "o que vai ser feito/vendido", "veiculo": "o item do cliente ligado ao atendimento, se houver (ex.: carro/moto com marca, modelo, ano e cor; aparelho; modelo/tamanho do produto; pet) — vazio se não fizer sentido no ramo", "endereco": "endereço, bairro ou cidade do atendimento se houver", "preco": "preço combinado com R$ se houver", "outras": "outras informações úteis para quem vai atender (forma de pagamento, observações, pedidos especiais), curtas"}. Use "" quando não souber. Não invente nada que não esteja na conversa.';
     const pedido = `Agendamento: ${quandoBonito(ag)}${ag.descricao ? ` — ${ag.descricao}` : ''}\n\nConversa:\n${conversa}`;
-    const t = await require('./ia').gerarTexto(bot, empresa, sistema, pedido, 600, { barato: true });
+    const ia = require('./ia');
+    const t = await ia.comTarefa('aviso-agendamento', () => ia.gerarTexto(bot, empresa, sistema, pedido, 600, { barato: true }));
     const json = JSON.parse((t.match(/\{[\s\S]*\}/) || ['{}'])[0]);
     const r = { ...base };
     for (const k of ['servico', 'veiculo', 'endereco', 'preco', 'outras']) if (sem(json[k])) r[k] = sem(json[k]).slice(0, 300);

@@ -126,14 +126,15 @@ function resumo(empresa) {
 async function sugerirDoTexto(empresa, bot) {
   const texto = String(bot?.conhecimento || '').trim();
   if (texto.replace(/\.\.\.|R\$ \.\.\./g, '').length < 30) throw Object.assign(new Error('"Sobre a empresa" ainda não tem serviços e preços escritos.'), { status: 400 });
-  const r = await require('./ia').gerarTexto(
+  const ia = require('./ia');
+  const r = await ia.comTarefa('catalogo', () => ia.gerarTexto(
     bot,
     empresa,
     'Você extrai do texto de uma empresa a lista de serviços e produtos que ela vende, com preço. Responda SOMENTE com JSON, sem texto antes ou depois. Não invente nada: só o que está escrito.',
     `Texto da empresa:\n<texto>\n${texto.slice(0, 12000)}\n</texto>\n\nJSON: {"itens": [{"tipo": "servico|produto", "nome": "...", "preco": "350,00 ou vazio", "precoAte": "valor máximo se for faixa, ou vazio", "precoObs": "ex.: a partir de, no Pix, em até 3x — ou vazio", "duracao": "tempo/prazo se houver", "descricao": "detalhes curtos do que está escrito"}]}`,
     3000,
     { barato: true }
-  );
+  ));
   const m = String(r).match(/\{[\s\S]*\}/);
   const itens = m ? JSON.parse(m[0]).itens : [];
   const ja = new Set(itensDa(empresa).map((x) => semAcento(x.nome)));

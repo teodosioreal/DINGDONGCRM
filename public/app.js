@@ -1434,6 +1434,12 @@ async function paginaWhatsapp(id) {
         ? '<b>Ligado (padrão):</b> se o cliente manda outra mensagem enquanto a IA ainda está escrevendo, a resposta antiga <b>é cancelada</b> e a IA lê tudo o que ele mandou antes de responder — uma resposta só, mais completa.'
         : '<b>Desligado:</b> a IA responde cada mensagem assim que termina de escrever, mesmo que o cliente tenha mandado outra no meio.'}</p>
     </div>
+    <div class="card" data-cfg="ia-economica" data-pronto="ok" data-resumo="${emp.iaEconomica !== false ? 'Ligado: modelo mais em conta no dia a dia' : 'Desligado: sempre o modelo escolhido'}">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">💸 Modo econômico</h2>${interruptor('ia-economica', emp.iaEconomica !== false, emp.iaEconomica !== false ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0">${emp.iaEconomica !== false
+        ? '<b>Ligado (padrão):</b> a conversa do dia a dia usa um modelo mais em conta da mesma IA (ex.: Claude Sonnet no lugar do Opus — cerca de metade do preço). O modelo escolhido em <i>IAs e chaves</i> entra sozinho nos casos difíceis: objeção de preço, reclamação, negociação, mensagem longa ou quando o modelo econômico avisa que a conversa está difícil.'
+        : '<b>Desligado:</b> todas as respostas usam o modelo escolhido em <i>IAs e chaves</i> (mais caro).'} Veja quanto cada tarefa gasta em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
+    </div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
     <div class="card" id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
@@ -1630,6 +1636,17 @@ async function paginaWhatsapp(id) {
     d.innerHTML = `⚠️ Este prompt cita <b>${n} mídia(s)</b> sem conexão certa — a IA não consegue mandar. <a href="${rotaEmpresa(id, 'midias')}">Conectar agora →</a>`;
     area.closest('.campo').after(d);
   }).catch(() => {});
+  $('#ia-economica').onchange = async (e) => {
+    const ligar = e.target.checked;
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaEconomica: ligar } });
+      aviso(ligar ? 'Modo econômico ligado.' : 'Modo econômico desligado: sempre o modelo escolhido.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !ligar;
+      aviso(err.message, true);
+    }
+  };
   $('#nao-atropelar').onchange = async (e) => {
     const ligar = e.target.checked;
     try {
@@ -2374,6 +2391,21 @@ async function paginaOrganizar(id) {
 
 // ---------------------------------------------------------------- empresa: chave de IA
 
+// Onde os tokens foram nos últimos 7 dias: por tarefa e por modelo, com o custo estimado
+const NOME_TAREFA_IA = { resposta: '💬 Respostas no WhatsApp', site: '🌐 Chat do site', evento: '⏰ Avisos internos (sem resposta, follow-up com IA)', followup: '🔁 Follow-up e automações com IA', foto: '🖼️ Fotos dos clientes', audio: '🎤 Áudios dos clientes', comprovante: '🧾 Comprovantes', 'sugestao-midia': '📎 Sugestão de mídia', agenda: '📅 Detector de agendamento', 'aviso-agendamento': '📣 Aviso de agendamento', aprendizado: '📚 Aprendizado diário', catalogo: '🛍️ Catálogo (sugerir itens)', 'conferir-prompt': '✅ Atualizar e conferir', 'sugestao-equipe': '✍️ Sugestão de resposta para a equipe', teste: '🧪 Testes', outros: 'Outros' };
+function tabelaGastoIa(u) {
+  const linhas = (obj, nome) => Object.entries(obj || {}).sort((a, b) => (b[1].custo || 0) - (a[1].custo || 0) || b[1].tokens - a[1].tokens).map(([k, x]) => `<tr><td>${esc(nome(k))}</td><td class="num">${(x.chamadas || 0).toLocaleString('pt-BR')}</td><td class="num">${numeroCurto(x.tokens)}</td><td class="num esconde-mobile">${numeroCurto(x.cache)}</td><td class="num">${x.custo ? (x.custo < 0.01 ? '<td class="num">${x.custo ? `US$ ${x.custo.toFixed(2)}` : '—'}</td>lt; US$ 0.01' : `US$ ${x.custo.toFixed(2)}`) : '—'}</td></tr>`).join('');
+  const porTarefa = linhas(u?.porTarefa, (k) => NOME_TAREFA_IA[k] || k);
+  const porModelo = linhas(u?.porModelo, (k) => k);
+  const cab = (t) => `<thead><tr><th>${t}</th><th class="num">Chamadas</th><th class="num">Tokens</th><th class="num esconde-mobile">Cache</th><th class="num">Custo est.</th></tr></thead>`;
+  return `<div class="card tokens-tabela">
+      <h2 style="margin:0 0 8px">🔎 Para onde foram os tokens (7 dias)</h2>
+      ${porTarefa ? `<div class="tabela-wrap"><table>${cab('Tarefa')}<tbody>${porTarefa}</tbody></table></div>
+      <div class="tabela-wrap" style="margin-top:12px"><table>${cab('Modelo')}<tbody>${porModelo}</tbody></table></div>
+      <p class="rotulo" style="margin:10px 0 0">Custo estimado pelos preços de tabela do Claude (entrada, saída e leitura do cache); outras IAs aparecem sem custo. Começou a contar por tarefa nesta atualização.</p>` : '<p class="rotulo" style="margin:0">Ainda sem dados por tarefa — aparecem a partir das próximas chamadas à IA.</p>'}
+    </div>`;
+}
+
 async function paginaChave(id) {
   const hashDaPagina = location.hash;
   const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
@@ -2446,6 +2478,7 @@ async function paginaChave(id) {
       </div>
       <p class="rotulo" style="margin:10px 0 0">${Object.entries(u.porIa || {}).map(([p, n]) => `${NOME_IA_CURTO[p] || p}: ${numeroCurto(n)}`).join(' · ') || 'Nenhuma chamada hoje ainda.'} ${ajuda('Token é a unidade que as IAs cobram (≈ 4 letras). O CRM já economiza: a parte fixa das instruções fica em cache, comprovantes são lidos sem IA e fotos/comprovantes usam o modelo mais barato.')}</p>
     </div>
+    ${tabelaGastoIa(emp.uso7d)}
     <h2 style="margin-top:24px">🔑 Chaves das IAs</h2>
     ${bloco('gemini', 'geminiApiKey', 'AIza…', [
       'Entre em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> com a sua conta Google.',

@@ -168,7 +168,7 @@ async function varrer(empresa, { motivo = 'manual' } = {}) {
       if (!lote.length) return;
       prog.etapa = `A IA está estudando as conversas (parte ${prog.lotes + 1})…`;
       const pedido = `DOCUMENTO ATUAL DE APRENDIZADOS:\n${texto || '(vazio — primeira leitura)'}\n\nCONVERSAS NOVAS PARA ESTUDAR:\n\n${lote.join('\n\n')}`;
-      const novo = await ia.gerarTexto(bot, empresa, SISTEMA, pedido, 3000, { barato: true });
+      const novo = await ia.comTarefa('aprendizado', () => ia.gerarTexto(bot, empresa, SISTEMA, pedido, 3000, { barato: true }));
       if (novo && novo.length > 40) texto = novo.replace(/^```\w*\n?|```$/g, '').trim();
       Object.assign(checkpoints, loteCheckpoints);
       prog.lotes++;

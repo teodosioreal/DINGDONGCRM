@@ -101,9 +101,9 @@ async function porIa(empresa, lead, lista, fotos) {
     'Só escolha quando o nome ou a descrição da mídia combinar de verdade com o que o cliente disse ou mostrou (mesmo modelo, mesma marca, mesmo tipo de produto, peça ou serviço). Se nada combinar, devolva lista vazia. Não invente códigos.\n' +
     'Responda SOMENTE com JSON: {"item": "o que você entendeu que o cliente tem ou quer (ex.: modelo e ano) ou vazio", "midias": [{"codigo": "...", "porque": "frase curta"}]}';
   const ia = require('./ia');
-  const r = fotos
+  const r = await ia.comTarefa('sugestao-midia', async () => fotos
     ? await ia.perguntarComImagem(bot, empresa, 'Você ajuda uma empresa a escolher a foto/vídeo certo da biblioteca para mandar a um cliente. Responda só com JSON.', pedido, fotos, 600)
-    : await ia.gerarTexto(bot, empresa, 'Você ajuda uma empresa a escolher a foto/vídeo certo da biblioteca para mandar a um cliente. Responda só com JSON.', pedido, 600, { barato: true });
+    : await ia.gerarTexto(bot, empresa, 'Você ajuda uma empresa a escolher a foto/vídeo certo da biblioteca para mandar a um cliente. Responda só com JSON.', pedido, 600, { barato: true }));
   const m = String(r || '').match(/\{[\s\S]*\}/);
   if (!m) return [];
   const j = JSON.parse(m[0]);
@@ -143,10 +143,14 @@ async function conferir(empresa, lead) {
   if (!lista.length) return null;
   const textoNovo = novas.map((m) => m.texto || '').join(' ');
   const recentes = doCliente.slice(-3).map((m) => m.texto || '').join(' ');
-  // foto nova do cliente: a IA olha a foto primeiro; senão, palavras primeiro (sem gastar IA)
-  const foto = novas.some((m) => m.anexo?.tipo === 'image') ? fotoDoCliente(lead, desde) : null;
+  // foto nova do cliente: se ela já foi descrita pela IA ao chegar ("[foto do cliente]: …"),
+  // a descrição está no texto da conversa — não manda a foto de novo (economiza tokens).
+  // Foto sem descrição: a IA olha a foto. Senão, palavras primeiro (sem gastar IA).
+  const fotosNovas = novas.filter((m) => m.anexo?.tipo === 'image');
+  const jaDescrita = fotosNovas.length > 0 && fotosNovas.every((m) => m.anexo?.descricao || /^\[(?:CLIENTE_ENVIOU_FOTO\] )?\[foto do cliente\]:/.test(m.texto || ''));
+  const foto = fotosNovas.length && !jaDescrita ? fotoDoCliente(lead, desde) : null;
   let achadas = foto ? [] : porCodigo(lista, recentes);
-  if (!achadas.length && (foto || PISTA_ITEM.test(semAcento(textoNovo)))) {
+  if (!achadas.length && (foto || jaDescrita || PISTA_ITEM.test(semAcento(textoNovo)))) {
     try {
       achadas = (await porIa(empresa, lead, lista, foto)).map((x) => ({ ...x, por: 'ia' }));
     } catch (err) {

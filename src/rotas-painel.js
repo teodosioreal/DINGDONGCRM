@@ -425,6 +425,7 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   if (b.modoTeste !== undefined) empresa.whatsappConfig.modoTeste = b.modoTeste === true;
   if (b.iaAposManual !== undefined) empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
   if (b.naoAtropelar !== undefined) empresa.whatsappConfig.naoAtropelar = b.naoAtropelar !== false;
+  if (b.iaEconomica !== undefined) empresa.iaEconomica = b.iaEconomica !== false;
   if (b.numerosTeste !== undefined) {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
@@ -1221,6 +1222,7 @@ router.post('/bots/:id/testar', async (req, res) => {
     const hist = canal === 'whatsapp' ? require('./eventos-ia').historicoParaIa(empresa, historico, evento) : historico;
     const r = await ia.responder(rascunho, empresa, hist, {
       canal,
+      tarefa: 'teste',
       etapas: leads.etapasDa(empresa),
       midias: midias.paraIa(empresa),
       midiasEnviadas: enviadasNoTeste,
@@ -2218,7 +2220,7 @@ async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
       const instrucao = instrucaoDeSugestao(c, conversa, pedido) + MARCADORES + (tentativa ? ' IMPORTANTE: a tentativa anterior veio vazia — escreva a mensagem agora.' : '');
-      const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(c), instrucao, await contexto());
+      const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(c), instrucao, { ...(await contexto()), tarefa: 'sugestao-equipe' });
       const sugestao = limparSugestao(r.texto);
       if (sugestao) return { texto: sugestao, midias: r.midias || [], via: 'atendimento' };
       console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1}: a IA devolveu texto vazio`);
@@ -2232,7 +2234,7 @@ async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
     const linhas = conversa.slice(-25).map((m) => `${m.papel === 'visitante' ? 'Cliente' : m.papel === 'equipe' ? 'Equipe' : 'Empresa'}: ${String(m.texto).slice(0, 600)}`);
     const instrucoes = String(bot.promptWhatsapp || '').trim();
     const sistema = `Você escreve mensagens de WhatsApp para a equipe da empresa "${empresa.nome}" mandar a um cliente. Responda SOMENTE com o texto da mensagem, em português do Brasil, curto e natural, sem aspas, sem explicação e sem inventar preço, prazo ou dado que não esteja na conversa ou nas informações abaixo.${instrucoes ? `\n\nInstruções do dono (obedeça):\n${instrucoes.slice(0, 3000)}` : ''}\n\nInformações da empresa:\n${String(bot.conhecimento || '').slice(0, 6000)}${require('./catalogo').paraIa(empresa) ? `\n\nServiços, produtos e preços OFICIAIS (valem acima de qualquer outro preço):\n${require('./catalogo').paraIa(empresa).replace(/\[\[MIDIA: [^\]]+\]\]/g, '').slice(0, 6000)}` : ''}`;
-    const texto = limparSugestao(await ia.gerarTexto(bot, empresa, sistema, `Conversa:\n${linhas.join('\n')}\n\n${instrucaoDeSugestao(c, conversa, pedido)}`, 800));
+    const texto = limparSugestao(await ia.comTarefa('sugestao-equipe', () => ia.gerarTexto(bot, empresa, sistema, `Conversa:\n${linhas.join('\n')}\n\n${instrucaoDeSugestao(c, conversa, pedido)}`, 800)));
     if (texto) return { texto, midias: [], via: 'reserva' };
   } catch (err) {
     ultimoErro = err;

@@ -63,6 +63,16 @@ async function evo(e, metodo, caminho) {
     const emSeguida = logs30.filter((l, i) => l.situacao === 'enviada' && logs30.slice(0, i).some((a) => a.leadId === l.leadId && a.situacao === 'enviada' && new Date(l.em) - new Date(a.em) < 60000)).length;
     const comCodigoMidia = logs30.filter((l) => (l.codigos || []).some((c) => c.tipo === 'midia')).length;
     console.log(`      IA (30 h): respostas enviadas ${respondeu} · descartadas para não atropelar ${descartadas} · enviadas a menos de 1 min de outra na mesma conversa ${emSeguida} · com código de mídia ${comCodigoMidia}`);
+    // tokens por tarefa e por modelo (hoje e ontem, só números)
+    for (const [rot, dia] of [['hoje', 0], ['ontem', 1]]) {
+      const chave = new Date(Date.now() - dia * 864e5).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+      const d = e.usoIa?.dias?.[chave];
+      if (!d) continue;
+      const fmt = (o) => Object.entries(o || {}).sort((a, b) => (b[1].custo || 0) - (a[1].custo || 0)).map(([k, x]) => `${k} ${x.chamadas}x ${Math.round((x.tokens || 0) / 1000)}k${x.custo ? ` US$${x.custo.toFixed(2)}` : ''}`).join(' · ');
+      console.log(`      tokens ${rot}: ${d.chamadas} chamadas · por tarefa: ${fmt(d.porTarefa) || '(ainda sem divisão)'}${d.porModelo ? ` · por modelo: ${fmt(d.porModelo)}` : ''}`);
+    }
+    const economicos = logs30.filter((l) => l.modelo).reduce((o, l) => ((o[l.modelo] = (o[l.modelo] || 0) + 1), o), {});
+    if (Object.keys(economicos).length) console.log(`      respostas por modelo (30 h): ${Object.entries(economicos).map(([k, n]) => `${k} ${n}`).join(' · ')} · subiram para o modelo principal: ${logs30.filter((l) => l.escalou).length} · modo econômico: ${e.iaEconomica === false ? 'desligado' : 'ligado'}`);
     const bots = (db.bots || []).filter((b) => b.empresaId === e.id);
     const codigosNoPrompt = bots.reduce((n, b) => n + (String(b.promptWhatsapp || '').match(/#\s*MIDIA[_:-]\s*[A-Za-z0-9]/gi) || []).length, 0);
     const pn = e.promptNovo;
