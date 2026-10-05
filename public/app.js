@@ -916,32 +916,62 @@ async function paginaAgenda(id, params) {
     return k === hoje ? `Hoje · ${nome}` : k === amanha ? `Amanhã · ${nome}` : nome.charAt(0).toUpperCase() + nome.slice(1);
   };
   const QUEM = { ia: 'IA', equipe: 'equipe', cliente: 'cliente', detectado: '✨ percebido', etiqueta: '🏷️ etiqueta Agendado' };
-  const linha = (x) => `
-    <div class="ag-linha ${x.grupo}" data-ag="${esc(x.id)}">
-      <div class="ag-hora">${x.quando ? sp(x.quando, { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
-      <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando && x.quandoTexto !== 'Data a combinar' ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
-      <div class="ag-tags">
-        <span class="etiqueta">${esc(QUEM[x.por] || x.por)}</span>
-        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}${x.status === 'concluido' ? '<span class="etiqueta ok">✅ venda concluída</span>' : ''}${x.status === 'realizado' ? `<span class="etiqueta">${x.semData ? 'sem data · saiu da agenda' : '✔ realizado'}</span>` : ''}
-        ${x.avisoStatus === 'enviado' ? '<span class="etiqueta ok" title="O número de aviso recebeu">aviso ✓</span>' : x.avisoStatus === 'erro' ? `<span class="etiqueta aviso" title="${esc(x.avisoErro)}">aviso falhou</span>` : ''}
+  const STATUS = (x) => x.status === 'concluido' ? ['ok', '✅ Venda concluída'] : x.status === 'realizado' ? ['neutro', x.semData ? 'Saiu da agenda' : '✔ Realizado'] : x.status === 'remarcado' ? ['off', 'Horário trocado'] : x.status === 'cancelado' ? ['off', 'Cancelado'] : x.quando && chaveDia(x.quando) === hoje ? ['hoje', '● Hoje'] : ['agendado', 'Agendado'];
+  const falta = (iso) => {
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return '';
+    const h = Math.round(ms / 3600000);
+    return h < 1 ? `em ${Math.max(1, Math.round(ms / 60000))} min` : h < 24 ? `em ${h} h` : `em ${Math.round(h / 24)} dia${Math.round(h / 24) > 1 ? 's' : ''}`;
+  };
+  const maiuscula = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const cartao = (x) => {
+    const [cls, rotulo] = STATUS(x);
+    const nFotos = (x.fotos || []).length;
+    return `
+    <article class="ag-card ${x.grupo} st-${cls}" data-ag="${esc(x.id)}">
+      <header class="ag-card-topo">
+        <div class="ag-card-hora">
+          <b>${x.quando ? sp(x.quando, { hour: '2-digit', minute: '2-digit' }) : '--:--'}</b>
+          <span>${x.quando ? esc(maiuscula(sp(x.quando, { weekday: 'short', day: '2-digit', month: 'short' }).replace(/ de /g, ' ').replace(/\./g, ''))) : 'Data a combinar'}${x.grupo === 'proximos' && x.quando && falta(x.quando) ? ` · ${falta(x.quando)}` : ''}</span>
+        </div>
+        <span class="ag-status ${cls}">${esc(rotulo)}</span>
+      </header>
+      <div class="ag-card-cliente">
+        ${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}
+        <div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span>${esc(telefoneBonito(x.telefone) || '')}${x.local ? ` · 📍 ${esc(x.local)}` : ''}</span></div>
       </div>
-      <div class="ag-acoes"><a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">Conversa</a>${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar">✕</button>` : ''}</div>
-    </div>`;
+      <p class="ag-card-servico">${esc(x.descricao || 'Serviço não descrito')}</p>
+      <div class="ag-card-info">
+        <span title="Quem marcou">🗓️ ${esc(QUEM[x.por] || x.por || 'equipe')}</span>
+        ${x.avisoStatus === 'enviado' ? '<span class="ok" title="O número de aviso recebeu">🔔 aviso enviado</span>' : x.avisoStatus === 'erro' ? `<span class="erro" title="${esc(x.avisoErro)}">🔔 aviso falhou</span>` : ''}
+      </div>
+      <footer class="ag-card-acoes">
+        <button type="button" class="ag-btn-fotos" data-ag-fotos="${esc(x.id)}" ${nFotos ? '' : 'disabled title="O cliente não mandou fotos na conversa"'}>📷 ${nFotos ? `Ver fotos <em>${nFotos}</em>` : 'Sem fotos do cliente'}</button>
+        <a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">💬 Conversa</a>
+        ${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar agendamento" aria-label="Cancelar agendamento">✕</button>` : ''}
+      </footer>
+    </article>`;
+  };
   const desenhar = () => {
     const itens = d[aba] || [];
     let html = '';
     if (!itens.length) html = `<div class="card vazio-grande"><div class="vazio-icone">📅</div><h2>${aba === 'proximos' ? 'Nenhum agendamento pela frente' : aba === 'passados' ? 'Nenhum agendamento passado' : 'Nenhum cancelado'}</h2><p class="rotulo">${aba === 'proximos' ? 'Quando você, a equipe ou a IA combinarem um horário com o cliente no WhatsApp, ele aparece aqui sozinho.' : ''}</p></div>`;
     else {
-      let dia = '';
-      html = '<div class="card ag-lista">';
+      const grupos = [];
       for (const x of itens) {
         const k = x.quando ? chaveDia(x.quando) : 'sem-data';
-        if (k !== dia) { dia = k; html += `<div class="ag-dia ${k === hoje ? 'hoje' : ''}">${x.quando ? esc(tituloDia(x.quando)) : 'Data a combinar'}</div>`; }
-        html += linha(x);
+        if (!grupos.length || grupos[grupos.length - 1].k !== k) grupos.push({ k, titulo: x.quando ? tituloDia(x.quando) : 'Data a combinar', itens: [] });
+        grupos[grupos.length - 1].itens.push(x);
       }
-      html += '</div>';
+      html = grupos.map((g) => `<section class="ag-grupo"><h3 class="ag-grupo-titulo ${g.k === hoje ? 'hoje' : ''}">${esc(g.titulo)} <span>${g.itens.length}</span></h3><div class="ag-grade">${g.itens.map(cartao).join('')}</div></section>`).join('');
     }
     $('#ag-conteudo').innerHTML = html;
+    $$('[data-ag-fotos]').forEach((b) => {
+      b.onclick = () => {
+        const x = itens.find((y) => y.id === b.dataset.agFotos);
+        if (x?.fotos?.length) galeriaFotos(x.fotos, x.nome || telefoneBonito(x.telefone) || 'Cliente');
+      };
+    });
     $$('[data-ag-cancelar]').forEach((b) => {
       b.onclick = async () => {
         if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'Ele sai da agenda e o lead sai de "Agendou". Se o aviso de agendamento estiver ligado, o número cadastrado recebe o cancelamento. O cliente não recebe nada automático.', botao: 'Cancelar agendamento', perigo: true }))) return;
@@ -962,6 +992,36 @@ async function paginaAgenda(id, params) {
   $$('[data-ag-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.agAba; $$('[data-ag-aba]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
   desenhar();
   if (horas) desenharHorariosIa(id, horas);
+}
+
+// Galeria das fotos que o cliente mandou (ex.: o volante): foto grande, miniaturas e setas
+function galeriaFotos(fotos, nome) {
+  let i = 0;
+  abrirModal(`
+    <div class="galeria">
+      <div class="galeria-topo"><h2>📷 Fotos de ${esc(nome)}</h2><button type="button" class="galeria-fechar" data-fechar aria-label="Fechar">✕</button></div>
+      <div class="galeria-palco">
+        <button type="button" class="galeria-seta" data-ir="-1" aria-label="Foto anterior" ${fotos.length > 1 ? '' : 'hidden'}>‹</button>
+        <a id="galeria-link" target="_blank" rel="noopener" title="Abrir em tamanho original"><img id="galeria-img" alt="Foto enviada pelo cliente"></a>
+        <button type="button" class="galeria-seta" data-ir="1" aria-label="Próxima foto" ${fotos.length > 1 ? '' : 'hidden'}>›</button>
+      </div>
+      <p class="galeria-legenda" id="galeria-legenda"></p>
+      ${fotos.length > 1 ? `<div class="galeria-miniaturas">${fotos.map((f, n) => `<button type="button" data-foto="${n}" aria-label="Foto ${n + 1}"><img src="${esc(f.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+    </div>`, (m) => {
+    m.classList.add('modal-galeria');
+    const mostrar = (n) => {
+      i = (n + fotos.length) % fotos.length;
+      const f = fotos[i];
+      $('#galeria-img', m).src = f.url;
+      $('#galeria-link', m).href = f.url;
+      $('#galeria-legenda', m).innerHTML = `<span>${i + 1} de ${fotos.length} · ${esc(new Date(f.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</span>${f.descricao ? `<span class="galeria-desc">👁️ ${esc(f.descricao)}</span>` : ''}`;
+      $$('[data-foto]', m).forEach((b) => b.classList.toggle('ativa', Number(b.dataset.foto) === i));
+    };
+    $$('[data-ir]', m).forEach((b) => { b.onclick = () => mostrar(i + Number(b.dataset.ir)); });
+    $$('[data-foto]', m).forEach((b) => { b.onclick = () => mostrar(Number(b.dataset.foto)); });
+    m.closest('.fundo-modal')?.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') mostrar(i + 1); if (e.key === 'ArrowLeft') mostrar(i - 1); });
+    mostrar(0);
+  });
 }
 
 // 🤖 Horários que a IA pode agendar: você libera os horários; a IA só marca nos livres

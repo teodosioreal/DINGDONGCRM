@@ -1579,15 +1579,25 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
   tickets.finalizarPassados(empresa); // horário que já passou → realizado (sai de "Próximos")
   const agora_ = Date.now();
   const lista = [];
+  // fotos que o cliente mandou na conversa (ex.: o volante), da mais nova para a mais antiga
+  const fotosDo = (c) =>
+    (c.mensagens || [])
+      .filter((m) => m.papel === 'visitante' && !m.apagada && m.anexo?.tipo === 'image' && m.anexo.arquivo)
+      .slice(-12)
+      .reverse()
+      .map((m) => ({ url: `api/leads/${encodeURIComponent(c.id)}/anexos/${encodeURIComponent(m.anexo.arquivo)}`, descricao: m.anexo.descricao || '', em: m.em }));
   for (const c of estado.conversas) {
     if (c.empresaId !== empresa.id) continue;
+    let fotos = null;
     for (const a of c.agendamentos || []) {
       const t = a.quando ? new Date(a.quando).getTime() : null;
+      fotos = fotos || fotosDo(c);
       const grupo = a.status === 'concluido' || a.status === 'realizado' ? 'passados' : a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
       lista.push({
         id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
         quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
-        avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm
+        avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm,
+        fotos, local: c.localizacao?.texto || ''
       });
     }
   }

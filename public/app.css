@@ -1458,3 +1458,62 @@ html.dark .funil-perda { color: #fca5a5; }
 .hia-vaga.passou { opacity: .5; }
 html.dark .hia-vaga.livre { background: #12301f; color: #a7f3c4; }
 html.dark .hia-vaga.ocupado { background: #3a1616; color: #fecaca; }
+
+/* agendamentos em cards */
+.ag-grupo { margin-bottom: 22px; }
+.ag-grupo-titulo { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--suave); }
+.ag-grupo-titulo span { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--rotulo); }
+.ag-grupo-titulo.hoje { color: var(--acento); }
+.ag-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.ag-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 14px 18px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.05); transition: box-shadow .15s, transform .15s; overflow: hidden; }
+.ag-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--borda-campo); }
+.ag-card.st-agendado::before { background: #6366f1; }
+.ag-card.st-hoje::before { background: #f59e0b; }
+.ag-card.st-ok::before { background: #10b981; }
+.ag-card.st-off::before { background: #ef4444; }
+.ag-card:hover { box-shadow: 0 2px 4px rgba(15,23,42,.06), 0 10px 24px rgba(15,23,42,.08); transform: translateY(-1px); }
+.ag-card-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ag-card-hora { display: flex; flex-direction: column; }
+.ag-card-hora b { font-size: 26px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.ag-card-hora span { margin-top: 4px; font-size: 12.5px; color: var(--suave); }
+.ag-status { flex: none; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--hover); color: var(--rotulo); white-space: nowrap; }
+.ag-status.agendado { background: #eef2ff; color: #4338ca; }
+.ag-status.hoje { background: #fef3c7; color: #92400e; }
+.ag-status.ok { background: var(--ok-fundo); color: var(--ok-texto); }
+.ag-status.off { background: var(--perigo-fundo); color: var(--perigo); }
+html.dark .ag-status.agendado { background: #1e1b4b; color: #c7d2fe; }
+html.dark .ag-status.hoje { background: #422006; color: #fde68a; }
+.ag-card-cliente { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ag-card-cliente > div { display: flex; flex-direction: column; min-width: 0; }
+.ag-card-cliente strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-card-cliente span { font-size: 12.5px; color: var(--suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-card-servico { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--superficie-2); border: 1px solid var(--borda); font-size: 13.5px; line-height: 1.4; color: var(--rotulo); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ag-card-info { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--suave); }
+.ag-card-info .ok { color: var(--ok-texto); }
+.ag-card-info .erro { color: var(--perigo); }
+.ag-card-acoes { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--borda); }
+.ag-card-acoes > a, .ag-card-acoes > button { white-space: nowrap; }
+.ag-card-acoes .ag-btn-fotos { grid-column: 1 / -1; }
+.ag-card-acoes > a { display: inline-flex; justify-content: center; align-items: center; gap: 4px; }
+.ag-btn-fotos { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 6px; font-weight: 600; background: var(--primario); color: var(--primario-texto); border-color: var(--primario); }
+.ag-btn-fotos em { font-style: normal; font-size: 11px; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, currentColor 22%, transparent); }
+.ag-btn-fotos:disabled { background: var(--hover); color: var(--suave); border-color: var(--borda); cursor: not-allowed; }
+.ag-card.cancelados .ag-card-cliente strong { text-decoration: line-through; color: var(--suave); }
+.ag-card.cancelados, .ag-card.passados { opacity: .9; }
+/* galeria de fotos */
+.modal.modal-galeria { max-width: 760px; width: calc(100vw - 32px); padding: 18px; }
+.galeria-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.galeria-topo h2 { margin: 0; font-size: 17px; }
+.galeria-fechar { border: 0; background: var(--hover); width: 34px; height: 34px; border-radius: 50%; padding: 0; }
+.galeria-palco { position: relative; display: flex; align-items: center; justify-content: center; background: #0b1120; border-radius: 12px; min-height: 260px; overflow: hidden; }
+.galeria-palco img { display: block; max-width: 100%; max-height: 62vh; object-fit: contain; }
+.galeria-seta { position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border-radius: 50%; border: 0; padding: 0; font-size: 26px; line-height: 1; background: rgba(255,255,255,.88); color: #0f172a; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.galeria-seta[data-ir="-1"] { left: 10px; }
+.galeria-seta[data-ir="1"] { right: 10px; }
+.galeria-legenda { display: flex; flex-direction: column; gap: 4px; margin: 10px 2px 0; font-size: 12.5px; color: var(--suave); }
+.galeria-desc { color: var(--rotulo); }
+.galeria-miniaturas { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
+.galeria-miniaturas button { flex: none; padding: 0; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; opacity: .65; background: none; }
+.galeria-miniaturas button.ativa { border-color: var(--acento, #6366f1); opacity: 1; }
+.galeria-miniaturas img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 520px) { .ag-grade { grid-template-columns: 1fr; } .ag-card-hora b { font-size: 22px; } }
