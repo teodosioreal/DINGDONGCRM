@@ -94,6 +94,14 @@ function ehPosVenda(empresa, seq) {
   return false;
 }
 
+// Sequência feita para quem agendou (ex.: lembrete do horário): começa pela etiqueta/etapa de agendamento
+function ehPosAgendamento(empresa, seq) {
+  const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, sem(t.nome)]));
+  if (seq.inicio?.tipo === 'etiqueta' && /agendad/.test(nomes.get(seq.inicio.etiqueta) || '')) return true;
+  if (seq.inicio?.tipo === 'etapa' && /agendou|agendad|marcad/.test(sem(seq.inicio.etapa))) return true;
+  return false;
+}
+
 function jaAgendou(empresa, lead) {
   if ((lead.agendamentos || []).some((a) => a.status === 'agendado')) return true;
   if (/agendou|agendad|marcad/.test(sem(lead.etapa))) return true;
@@ -237,14 +245,15 @@ function motivoGeral(empresa, lead, f) {
   if (empresa.ativa === false || !whatsapp.configurado(empresa)) return 'empresa sem WhatsApp';
   if (lead.followupDesligado) return 'follow-up desligado para este cliente';
   if (!leads.iaPodeFalarCom(lead)) return 'nunca conversou';
-  if (lead.historicoImportado) return 'conversa antiga recuperada';
+  const manual = Boolean(lead.followupManual) || f.paraManual === true;
+  if (lead.historicoImportado && !manual) return 'conversa antiga recuperada';
   if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return 'modo teste';
   if (lead.naoDisparar) return 'pediu para não receber';
   if (leads.naListaNegra?.(empresa, lead)) return 'lista negra';
-  if (lead.precisaHumano) return 'esperando a equipe';
+  if (lead.precisaHumano && !manual) return 'esperando a equipe';
   if (whatsapp.iaOcupadaCom(lead.id)) return 'a IA está respondendo agora';
-  if (lead.iaPausada && !f.incluirPausados) return 'equipe atendendo';
-  if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return 'já tem mensagem agendada';
+  if (lead.iaPausada && !f.incluirPausados && !manual) return 'equipe atendendo';
+  if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return 'já tem mensagem agendada (cancele na conversa para usar o follow-up)';
   return null;
 }
 
@@ -265,6 +274,8 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
     if (venda) return { motivo: `já comprou (${venda.por})` };
   }
   if (!seq.passos.length) return { motivo: 'sequência sem passos' };
+  // agendou: a sequência é cancelada (menos as feitas para quem agendou, ex.: lembrete)
+  if (!ehPosAgendamento(empresa, seq) && jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
   // colocado na fila à mão (painel → Follow-up): conta a partir de quando entrou na fila
   const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
   if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
@@ -280,7 +291,6 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
     base = manual.jaPrimeira ? new Date(new Date(manual.desde).getTime() - (seq.passos[0]?.horas || 0) * HORA).toISOString() : manual.desde;
   } else if (seq.inicio.tipo === 'sem_resposta') {
     if (f.pararEtapas.includes(lead.etapa)) return { motivo: `etapa ${lead.etapa}` };
-    if (jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
     if (!ultima || ultima.papel === 'visitante') return { motivo: 'cliente falou por último' };
     if (!ultimaDoCliente) return { motivo: 'cliente nunca respondeu' };
     ciclo = ultimaDoCliente.em;
@@ -321,7 +331,7 @@ function situacao(empresa, lead, agoraMs = Date.now()) {
   if (seqManual) {
     const s = situacaoNa(empresa, lead, seqManual, f, agoraMs);
     if (!s.motivo) return { ...s, manual: true };
-    if (/já comprou/.test(s.motivo)) return s;
+    if (/já comprou|já agendou/.test(s.motivo)) return s;
   }
   for (const seq of f.sequencias) {
     if (seq === seqManual) continue;
@@ -409,19 +419,47 @@ function fila(empresa) {
 }
 
 // Busca de clientes para colocar na fila à mão (com o motivo de quem não pode entrar)
+const soDigitos = (t) => String(t || '').replace(/\D/g, '');
+// número completo para comparar: com 55 e sem o 9 depois do DDD (o WhatsApp usa os dois jeitos)
+function numeroComparavel(n) {
+  let d = soDigitos(n);
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (/^55\d{2}9\d{8}$/.test(d)) d = d.slice(0, 4) + d.slice(5);
+  return d;
+}
+function numeroDaConversa(c) {
+  const doJid = /@s\.whatsapp\.net$/.test(c.whatsappJid || '') ? c.whatsappJid.split('@')[0] : '';
+  return soDigitos(c.telefone) || soDigitos(doJid);
+}
+
+// Clientes para colocar na fila à mão: busca por nome ou número com DDD; sem busca,
+// as conversas mais recentes. Mostra o motivo de quem não pode entrar.
 function buscar(empresa, q) {
-  const alvo = sem(q).replace(/[^a-z0-9 ]/g, ' ').trim();
-  const digitos = String(q || '').replace(/\D/g, '');
-  if (!alvo && digitos.length < 3) return [];
+  const texto = String(q || '').trim();
+  const digitos = soDigitos(texto);
+  const ehNumero = digitos.length >= 3 && digitos.length >= texto.replace(/[\s()+-]/g, '').length;
+  const alvo = ehNumero ? '' : sem(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const alvoNum = ehNumero && digitos.length >= 10 ? numeroComparavel(digitos) : '';
   const f = configDa(empresa);
+  const bate = (c) => {
+    if (!texto) return true;
+    if (alvo) return sem(c.nome).includes(alvo) || sem(c.nome).replace(/[^a-z0-9 ]/g, ' ').includes(alvo);
+    const n = numeroDaConversa(c);
+    if (!n) return false;
+    return alvoNum ? numeroComparavel(n) === alvoNum : n.includes(digitos) || numeroComparavel(n).includes(digitos);
+  };
   return estado.conversas
-    .filter((c) => c.empresaId === empresa.id && !c.arquivado && ((alvo && sem(c.nome).includes(alvo)) || (digitos.length >= 3 && String(c.telefone || '').includes(digitos))))
-    .slice(0, 20)
+    .filter((c) => c.empresaId === empresa.id && !c.arquivado && (c.mensagens || []).some((m) => m.papel === 'visitante') && bate(c))
+    .sort((a, b) => String(b.atualizadoEm || '').localeCompare(String(a.atualizadoEm || '')))
+    .slice(0, texto ? 30 : 40)
     .map((c) => {
       const venda = require('./comprovantes').jaVendeu(empresa, c);
-      const geral = motivoGeral(empresa, c, { ...f, ativo: true });
+      const geral = motivoGeral(empresa, c, { ...f, ativo: true, paraManual: true });
+      const agendou = jaAgendou(empresa, c);
       const s = situacao(empresa, c);
-      return { leadId: c.id, nome: nomeDo(c), telefone: c.telefone || '', etapa: c.etapa || '', naFila: !s.motivo, sequencia: s.seq?.nome || '', bloqueio: venda ? `já comprou (${venda.por})` : geral && geral !== 'follow-up desligado para este cliente' ? geral : '' };
+      const bloqueio = venda ? `já comprou (${venda.por})` : agendou ? 'já agendou' : geral && geral !== 'follow-up desligado para este cliente' ? geral : '';
+      const ultima = [...(c.mensagens || [])].reverse().find((m) => !m.apagada && m.texto);
+      return { leadId: c.id, nome: nomeDo(c), telefone: c.telefone || '', escondido: !numeroDaConversa(c), etapa: c.etapa || '', atualizadoEm: c.atualizadoEm || '', ultima: String(ultima?.texto || '').slice(0, 60), naFila: !s.motivo, sequencia: s.seq?.nome || '', desligado: Boolean(c.followupDesligado), bloqueio };
     });
 }
 
@@ -435,7 +473,8 @@ function colocarNaFila(empresa, lead, seqId, { jaPrimeira = false, por = '' } = 
   if (!seq.passos.length) throw erro('Essa sequência não tem mensagens.');
   const venda = !ehPosVenda(empresa, seq) && require('./comprovantes').jaVendeu(empresa, lead);
   if (venda) throw erro(`Este cliente já comprou (${venda.por}): follow-up não vai para quem comprou.`);
-  const geral = motivoGeral(empresa, lead, { ...f, ativo: true });
+  if (!ehPosAgendamento(empresa, seq) && jaAgendou(empresa, lead)) throw erro('Este cliente já agendou: o follow-up não vai para quem agendou.');
+  const geral = motivoGeral(empresa, lead, { ...f, ativo: true, paraManual: true });
   if (geral && geral !== 'follow-up desligado para este cliente') throw erro(`Não dá para colocar na fila: ${geral}.`);
   delete lead.followupDesligado;
   delete lead.followupDesligadoEm;
@@ -473,6 +512,15 @@ async function processar(empresa) {
       if (indeciso && (lead.etiquetas || []).includes(indeciso.id) && (jaAgendou(empresa, lead) || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada'))) {
         lead.etiquetas = lead.etiquetas.filter((t) => t !== indeciso.id);
         mudou = true;
+      }
+      if (lead.followupManual) {
+        const seqM = f.sequencias.find((q) => q.id === lead.followupManual.seqId);
+        if (!seqM || (!ehPosAgendamento(empresa, seqM) && jaAgendou(empresa, lead))) {
+          lead.followupManual = { ...lead.followupManual, canceladoEm: agora(), motivo: seqM ? 'agendou' : 'sequência apagada' };
+          lead.followupManualCancelado = lead.followupManual;
+          delete lead.followupManual;
+          mudou = true;
+        }
       }
       if (!f.ativo || enviados >= POR_CICLO) continue;
       const s = situacao(empresa, lead);

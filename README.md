@@ -217,8 +217,12 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   etiqueta ou etapa de venda) continuam valendo.
 - **Fila do follow-up** (aba Follow-up): todos os clientes na fila com a sequência, a
   mensagem e a contagem; "Tirar da fila" (só esta rodada), "Desativar" (não recebe mais) e
-  a lista de desativados com "Reativar"; "+ Colocar cliente na fila" busca o cliente e
-  escolhe a sequência (opcional: mandar a 1ª mensagem já).
+  a lista de desativados com "Reativar"; "+ Colocar cliente na fila" abre com as conversas
+  recentes e busca por nome ou número com DDD (com ou sem o 9), escolhe a sequência
+  (opcional: mandar a 1ª mensagem já). Colocar à mão vale mesmo com a equipe atendendo.
+- **Agendou, a sequência é cancelada** (agendamento no CRM, etiqueta "Agendado" do WhatsApp
+  ou etapa de agendamento) — inclusive a colocada à mão. Sequências que começam pela
+  etiqueta/etapa de agendamento (ex.: lembrete) continuam.
 - **💸 Modo econômico** (IA do WhatsApp, ligado por padrão): a conversa do dia a dia usa o
   modelo mais em conta da mesma IA (Opus → Sonnet, GPT-5 → GPT-5 mini, Gemini Pro → Flash);
   o modelo escolhido entra sozinho em objeção de preço, reclamação, negociação, mensagem

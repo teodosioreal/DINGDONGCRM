@@ -4720,36 +4720,47 @@ async function secaoFollowup(id, emp, el, editar = null) {
     abrirModal(`
       <h2>+ Colocar cliente na fila</h2>
       <div class="campos">
-        <div class="campo largo"><label>Cliente</label><input type="search" id="cf-busca" placeholder="Nome ou número (pelo menos 3 letras)" autocomplete="off"></div>
+        <div class="campo largo"><label>Buscar cliente</label><input type="search" id="cf-busca" placeholder="Nome ou número com DDD — ex.: (21) 99999-9999" autocomplete="off"></div>
         <div class="campo"><label>Sequência</label><select id="cf-seq">${seqs.map((q) => `<option value="${esc(q.id)}">${esc(q.nome)} (${q.passos.length} mensagens)</option>`).join('')}</select></div>
       </div>
       <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="cf-ja"> Mandar a 1ª mensagem já (sem esperar o tempo dela)</label>
-      <div id="cf-lista" style="margin-top:10px"><p class="rotulo">Digite para buscar.</p></div>
+      <p class="rotulo" id="cf-titulo" style="margin:10px 0 4px">Conversas recentes</p>
+      <div id="cf-lista" style="max-height:52vh;overflow:auto"><p class="rotulo"><span class="girando"></span> Carregando…</p></div>
       <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
       let t = null;
+      let pedido = 0;
       const lista = $('#cf-lista', m);
+      const carregar = async (q) => {
+        const n = ++pedido;
+        $('#cf-titulo', m).textContent = q ? 'Resultado da busca' : 'Conversas recentes';
+        try {
+          const r = await api(`empresas/${id}/followup/buscar?q=${encodeURIComponent(q)}`);
+          if (n !== pedido) return;
+          lista.innerHTML = r.length ? `<ul class="fila-fup">${r.map((x) => `<li>
+              <span><b>${esc(x.nome)}</b> <span class="rotulo">· ${x.escondido ? 'número escondido pelo WhatsApp' : esc(telefoneBonito(x.telefone))}${x.etapa ? ` · ${esc(x.etapa)}` : ''}${x.atualizadoEm ? ` · ${esc(data(x.atualizadoEm))}` : ''}</span>
+                ${x.ultima ? `<br><span class="rotulo">“${esc(x.ultima)}”</span>` : ''}
+                ${x.naFila ? `<br><span class="rotulo">⏳ já na fila (${esc(x.sequencia)})</span>` : ''}${x.desligado ? '<br><span class="rotulo">🚫 follow-up desativado (colocar reativa)</span>' : ''}${x.bloqueio ? `<br><span class="rotulo">🚫 ${esc(x.bloqueio)}</span>` : ''}</span>
+              ${x.bloqueio ? '' : `<button type="button" class="pequeno primario" data-colocar="${esc(x.leadId)}">Colocar</button>`}</li>`).join('')}</ul>`
+            : `<p class="rotulo">${q ? 'Nenhuma conversa com esse nome ou número. O cliente precisa ter mandado mensagem no WhatsApp da empresa pelo menos uma vez.' : 'Nenhuma conversa ainda.'}</p>`;
+          $$('[data-colocar]', lista).forEach((b) => {
+            b.onclick = async () => {
+              try {
+                const r2 = await comEspera(b, () => api(`empresas/${id}/followup/cliente`, { method: 'POST', body: { leadId: b.dataset.colocar, acao: 'colocar', seqId: $('#cf-seq', m).value, jaPrimeira: $('#cf-ja', m).checked } }));
+                aviso('Cliente colocado na fila.');
+                fechar();
+                desenharFila(r2);
+              } catch (err) { aviso(err.message, true); }
+            };
+          });
+        } catch (err) { if (n === pedido) lista.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; }
+      };
       $('#cf-busca', m).focus();
       $('#cf-busca', m).oninput = (e) => {
         clearTimeout(t);
-        t = setTimeout(async () => {
-          const q = e.target.value.trim();
-          if (q.length < 3) { lista.innerHTML = '<p class="rotulo">Digite para buscar.</p>'; return; }
-          try {
-            const r = await api(`empresas/${id}/followup/buscar?q=${encodeURIComponent(q)}`);
-            lista.innerHTML = r.length ? `<ul class="fila-fup">${r.map((x) => `<li><span><b>${esc(x.nome)}</b> <span class="rotulo">${x.telefone ? `· ${esc(telefoneBonito(x.telefone))}` : ''}${x.etapa ? ` · ${esc(x.etapa)}` : ''}${x.naFila ? ` · já na fila (${esc(x.sequencia)})` : ''}</span>${x.bloqueio ? `<br><span class="rotulo">🚫 ${esc(x.bloqueio)}</span>` : ''}</span>${x.bloqueio ? '' : `<button type="button" class="pequeno primario" data-colocar="${esc(x.leadId)}">Colocar</button>`}</li>`).join('')}</ul>` : '<p class="rotulo">Nenhum cliente encontrado.</p>';
-            $$('[data-colocar]', lista).forEach((b) => {
-              b.onclick = async () => {
-                try {
-                  const r2 = await comEspera(b, () => api(`empresas/${id}/followup/cliente`, { method: 'POST', body: { leadId: b.dataset.colocar, acao: 'colocar', seqId: $('#cf-seq', m).value, jaPrimeira: $('#cf-ja', m).checked } }));
-                  aviso('Cliente colocado na fila.');
-                  fechar();
-                  desenharFila(r2);
-                } catch (err) { aviso(err.message, true); }
-              };
-            });
-          } catch (err) { lista.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; }
-        }, 300);
+        const q = e.target.value.trim();
+        t = setTimeout(() => carregar(q.length >= 2 || /\d{3}/.test(q) ? q : ''), 300);
       };
+      carregar('');
     });
   }
 
