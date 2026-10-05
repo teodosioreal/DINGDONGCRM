@@ -71,6 +71,14 @@ async function evo(e, metodo, caminho) {
       const comVenda = leads.filter((l) => (l.etiquetas || []).includes(agendado.id) && (db.vendas || []).some((v) => v.leadId === l.id && v.status !== 'cancelada'));
       console.log(`      com "Agendado" e venda registrada (deveriam ter trocado): ${comVenda.length}`);
     }
+    // agenda: quem continua em "Próximos" mesmo tendo venda (deve ser 0 depois da correção)
+    const dig = (t) => String(t || '').replace(/\D/g, '').replace(/^(55\d{2})9(\d{8})$/, '$1$2');
+    const numDe = (l) => dig(/@s\.whatsapp\.net$/.test(l.whatsappJid || '') ? l.whatsappJid.split('@')[0] : l.telefone);
+    const comVendaIds = new Set((db.vendas || []).filter((v) => v.empresaId === e.id && v.status !== 'cancelada').map((v) => v.leadId));
+    const numsVenda = new Set(leads.filter((l) => comVendaIds.has(l.id) || l.vendaConcluidaManual).map(numDe).filter((x) => x.length >= 10));
+    const proximos = leads.flatMap((l) => (l.agendamentos || []).filter((a) => a.status === 'agendado').map((a) => ({ l, a })));
+    const vendidos = proximos.filter(({ l }) => comVendaIds.has(l.id) || l.vendaConcluidaManual || numsVenda.has(numDe(l)));
+    console.log(`      agenda: em "Próximos" ${proximos.length} · desses, cliente já tem venda: ${vendidos.length}${vendidos.length ? ` (marcados por: ${vendidos.map(({ a }) => a.por).join(', ')})` : ''} · concluídos por venda: ${leads.flatMap((l) => l.agendamentos || []).filter((a) => a.status === 'concluido').length}`);
     const errosZap = leads.filter((l) => l.erroEtiquetaZap && new Date(l.erroEtiquetaZap.em).getTime() > desde);
     if (errosZap.length) console.log(`      erros ao marcar etiqueta no celular (30 h): ${errosZap.length} · ex.: ${String(errosZap[0].erroEtiquetaZap.msg).slice(0, 120)}`);
   }
