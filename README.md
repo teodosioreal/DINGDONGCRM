@@ -221,6 +221,14 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   - Aprendizado diário: não roda se os aprendizados estão fora do prompt.
   - Avisos com IA "sem resposta"/"1º follow-up": não disparam para quem já está no
     follow-up sem IA. Varredura de vendas: IA só quando a conversa fala de pagamento.
+- **Venda tira o "Agendado" e põe "Venda Concluída"** (no CRM e no WhatsApp), em todas as
+  conversas do cliente, e conclui o agendamento: Pix/comprovante, botão "Venda concluída",
+  venda no Faturamento, venda marcada pela IA, frase de venda, mover para a etapa de venda
+  ("Vendi") ou colocar "Venda Concluída" direto no celular. A etiqueta de venda preferida é
+  "Venda Concluída". Se a Evolution falhar, o CRM tenta de novo (1, 5, 15, 60 min…) e avisa no
+  sininho se não conseguir. "Agendado" velho voltando (cópia do servidor / celular reenviando)
+  nos 7 dias seguintes à venda não volta. "Desfazer" a venda devolve as etiquetas e o
+  agendamento.
 - **Follow-up não vai para quem comprou**: venda no CRM (Faturamento), "Venda concluída"
   marcada à mão, etiqueta de venda do WhatsApp ("Venda Concluída", "Vendido", "Pago",
   "Fechado", "Entregue"…) ou etapa de venda — em qualquer conversa do mesmo cliente. Vale

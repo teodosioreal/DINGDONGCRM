@@ -158,6 +158,14 @@ function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   }
   const t = label ? etiquetaDoCrm(empresa, label) : require('./leads').etiquetasDa(empresa).find((e) => e.zapId === labelId);
   if (!t) return false; // etiqueta desconhecida: vem na próxima leitura da lista
+  const comprovantes = require('./comprovantes');
+  // "Agendado" (ou outra de antes da venda) que a venda tirou voltando velha: não volta no CRM
+  // e o CRM tira de novo no WhatsApp (fica marcada como "está no zap" para o espelho remover)
+  if (tipo === 'add' && comprovantes.voltaVelha(empresa, lead, t.id)) {
+    lead.etiquetasZap = [...new Set([...(lead.etiquetasZap || []), t.id])];
+    lead.etiquetas = (lead.etiquetas || []).filter((x) => x !== t.id);
+    return false;
+  }
   const atuais = new Set(lead.etiquetas || []);
   const zap = new Set(lead.etiquetasZap || []);
   const tinha = atuais.has(t.id);
@@ -170,6 +178,8 @@ function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   }
   lead.etiquetas = [...atuais];
   lead.etiquetasZap = [...zap]; // já está igual no WhatsApp: não manda de volta
+  // colocou a etiqueta de venda ("Venda Concluída") no celular: sai do agendado (CRM e WhatsApp)
+  if (tipo === 'add' && !tinha && comprovantes.ehEtiquetaDeVenda(t.nome)) comprovantes.marcarVendido(empresa, lead);
   // etiqueta "Agendado": entra/sai da aba Agendamentos
   const agenda = require('./detector-agenda');
   if (agenda.ehEtiquetaAgendado(t.nome) && tipo === 'add' && !tinha) agenda.pelaEtiqueta(empresa, lead, { aoVivo }).catch((err) => console.error('[etiquetas-zap] agenda:', err.message));
@@ -204,23 +214,37 @@ async function espelharLead(empresa, lead) {
   const porId = new Map(leads.etiquetasDa(empresa).map((t) => [t.id, t]));
   const agoraSet = new Set((lead.etiquetas || []).filter((id) => porId.get(id)?.zapId && cfg.labels[porId.get(id).zapId]));
   const zap = new Set(lead.etiquetasZap || []);
-  const numero = /@s\.whatsapp\.net$/.test(lead.whatsappJid || '') ? digitos(lead.whatsappJid) : String(lead.telefone || '').replace(/\D/g, '').length >= 12 ? String(lead.telefone).replace(/\D/g, '') : lead.whatsappJid;
+  const doMapa = /@lid$/.test(lead.whatsappJid || '') ? empresa.mapaLid?.[lead.whatsappJid] : ''; // id escondido → número real (se o CRM já sabe)
+  const numero = /@s\.whatsapp\.net$/.test(lead.whatsappJid || '') ? digitos(lead.whatsappJid) : String(lead.telefone || '').replace(/\D/g, '').length >= 12 ? String(lead.telefone).replace(/\D/g, '') : doMapa ? digitos(doMapa) : lead.whatsappJid;
   if (!numero) return;
   const mudar = [...[...agoraSet].filter((id) => !zap.has(id)).map((id) => [id, 'add']), ...[...zap].filter((id) => !agoraSet.has(id)).map((id) => [id, 'remove'])];
+  lead.falhasEtiquetaZap = lead.falhasEtiquetaZap || {};
   for (const [id, acao] of mudar) {
     const t = porId.get(id);
+    const falha = lead.falhasEtiquetaZap[`${id}:${acao}`];
+    if (falha && Date.now() < new Date(falha.proxima).getTime()) continue; // espera para tentar de novo
     try {
       if (t?.zapId) await whatsapp.evolution(empresa, 'POST', '/label/handleLabel/{instancia}', { number: numero, labelId: t.zapId, action: acao });
       if (acao === 'add') zap.add(id);
       else zap.delete(id);
+      delete lead.falhasEtiquetaZap[`${id}:${acao}`];
       delete lead.erroEtiquetaZap;
     } catch (err) {
+      // tenta de novo mais tarde (1, 5, 15, 60 min…); depois de 6 tentativas desiste e avisa
+      const n = (falha?.n || 0) + 1;
       lead.erroEtiquetaZap = { em: agora(), msg: String(err.message).slice(0, 160) };
-      // não fica tentando sem parar: considera feito (a etiqueta continua no CRM)
-      if (acao === 'add') zap.add(id);
-      else zap.delete(id);
+      if (n >= 6) {
+        delete lead.falhasEtiquetaZap[`${id}:${acao}`];
+        if (acao === 'add') zap.add(id);
+        else zap.delete(id);
+        require('./alertas').registrar(empresa, 'etiqueta-zap', `Não consegui ${acao === 'add' ? 'colocar' : 'tirar'} a etiqueta "${t?.nome || id}" no WhatsApp de ${lead.nome || 'um cliente'}: ${String(err.message).slice(0, 120)}. Ajuste no celular.`, { nivel: 'aviso', leadId: lead.id });
+      } else {
+        const minutos = [1, 5, 15, 60, 180][n - 1] || 180;
+        lead.falhasEtiquetaZap[`${id}:${acao}`] = { n, proxima: new Date(Date.now() + minutos * 60000).toISOString() };
+      }
     }
   }
+  if (!Object.keys(lead.falhasEtiquetaZap).length) delete lead.falhasEtiquetaZap;
   lead.etiquetasZap = [...zap];
   if (mudar.length) salvar();
 }

@@ -199,6 +199,12 @@ function moverEtapa(lead, empresa, nomeEtapa, por) {
   lead.etapaHistorico.push({ de: lead.etapa, para: etapa, por, em: agora() });
   lead.etapa = etapa;
   lead.atualizadoEm = agora();
+  // moveu para a etapa de venda ("Vendi", "Fechado"…): sai do agendado e ganha a etiqueta de venda
+  // (a venda pelo Pix/botão já faz isso e move com por = 'sistema')
+  if (por !== 'sistema') {
+    const comprovantes = require('./comprovantes');
+    if (comprovantes.ehEtapaDeVenda(etapa)) comprovantes.marcarVendido(empresa, lead);
+  }
   return true;
 }
 

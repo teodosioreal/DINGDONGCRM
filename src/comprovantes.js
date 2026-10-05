@@ -190,7 +190,7 @@ function recebedorConfere(empresa, textoCompleto, recebedor) {
 
 function etapaFechado(empresa) {
   const etapas = leads.etapasDa(empresa);
-  return etapas.find((e) => /fechad|ganh|vendi|conclu/i.test(limpar(e))) || '';
+  return etapas.find((e) => ehEtapaDeVenda(e)) || ''; // "Não fechou" não é a etapa de venda
 }
 
 function brl(v) {
@@ -356,7 +356,8 @@ function concluirAgendamentos(lead) {
 // Etiquetas do WhatsApp: a venda entra → sai "Agendado" (e "Orçamento", "Negociando"…)
 // e entra a etiqueta de venda que existir no celular ("Pago", "Vendido", "Venda
 // concluída", "Cliente"…). O CRM espelha no WhatsApp sozinho.
-const ETIQUETA_VENDA = [/^pag[oa]s?\b|^pagamento (ok|confirmado|feito)/, /^vend(id|a)/, /conclu/, /^fechad/, /^finaliz|^entregue/, /^client/];
+// a ordem é a preferência: "Venda Concluída" primeiro (é a que a empresa usa no celular)
+const ETIQUETA_VENDA = [/^venda conclu/, /^vend(id|a)/, /conclu/, /^pag[oa]s?\b|^pagamento (ok|confirmado|feito)/, /^fechad/, /^finaliz|^entregue/, /^client/];
 const ETIQUETA_ANTES_DA_VENDA = /^(agendad|orcament|negocia|aguardando pag|pendente|interessad|novo cliente|lead)/;
 function trocarEtiquetaDeVenda(empresa, lead) {
   const tags = leads.etiquetasDa(empresa);
@@ -367,9 +368,56 @@ function trocarEtiquetaDeVenda(empresa, lead) {
   }
   const tirar = new Set(tags.filter((t) => ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim())).map((t) => t.id));
   const antes = (lead.etiquetas || []).join();
+  // guarda o que a venda tirou: se a mesma etiqueta voltar "velha" (cópia do servidor,
+  // celular reenviando ao reconectar), o CRM tira de novo — aqui e no WhatsApp
+  const tiradas = (lead.etiquetas || []).filter((id) => tirar.has(id));
+  if (tiradas.length) {
+    lead.tiradasPelaVenda = { ...(lead.tiradasPelaVenda || {}) };
+    for (const id of tiradas) lead.tiradasPelaVenda[id] = new Date().toISOString();
+  }
+  if (alvo && !(lead.etiquetas || []).includes(alvo.id)) lead.etiquetaVendaPeloCrm = alvo.id; // o "desfazer" tira
   lead.etiquetas = [...new Set([...(lead.etiquetas || []).filter((id) => !tirar.has(id)), ...(alvo ? [alvo.id] : [])])];
+  if (alvo) lead.etiquetasDesde = { ...(lead.etiquetasDesde || {}), [alvo.id]: lead.etiquetasDesde?.[alvo.id] || new Date().toISOString() };
   if (lead.etiquetas.join() !== antes) lead.atualizadoEm = new Date().toISOString();
   return true;
+}
+
+// Etiqueta de "antes da venda" (Agendado, Orçamento…) voltando para quem a venda tirou há
+// menos de 7 dias: é a velha (cópia do servidor / celular reenviando) — não volta
+const DIAS_TIRADA = 7;
+function voltaVelha(empresa, lead, etiquetaId) {
+  const em = lead.tiradasPelaVenda?.[etiquetaId];
+  return Boolean(em && Date.now() - new Date(em).getTime() < DIAS_TIRADA * 86400000);
+}
+
+// "Desfazer venda": volta o que a venda mudou — as etiquetas que ela tirou (Agendado…), a
+// etiqueta de venda que ela pôs e os agendamentos que ela concluiu (se ainda não passaram)
+function desfazerVendido(empresa, lead) {
+  for (const c of conversasDoCliente(empresa, lead)) {
+    const volta = Object.keys(c.tiradasPelaVenda || {}).filter((id) => voltaVelha(empresa, c, id));
+    let etiquetas = (c.etiquetas || []).filter((id) => id !== c.etiquetaVendaPeloCrm);
+    etiquetas = [...new Set([...etiquetas, ...volta])];
+    c.etiquetas = etiquetas;
+    delete c.tiradasPelaVenda;
+    delete c.etiquetaVendaPeloCrm;
+    for (const a of c.agendamentos || []) {
+      if (a.status === 'concluido' && a.concluidoPor === 'venda' && (!a.quando || new Date(a.quando).getTime() > Date.now())) {
+        a.status = 'agendado';
+        delete a.concluidoEm;
+        delete a.concluidoPor;
+      }
+    }
+    c.atualizadoEm = new Date().toISOString();
+  }
+}
+
+// Venda vinda do funil (etapa "Vendi") ou da etiqueta de venda posta no celular: troca as
+// etiquetas e conclui o agendamento em todas as conversas do cliente (sem registrar venda nova)
+function marcarVendido(empresa, lead) {
+  for (const c of conversasDoCliente(empresa, lead)) {
+    trocarEtiquetaDeVenda(empresa, c);
+    concluirAgendamentos(c);
+  }
 }
 
 // ---------------------------------------------------------------- o cliente já comprou?
@@ -496,6 +544,9 @@ function resumo(empresa) {
 
 module.exports = {
   jaVendeu,
+  voltaVelha,
+  marcarVendido,
+  desfazerVendido,
   ehEtiquetaDeVenda,
   ehEtapaDeVenda,
   interpretar,

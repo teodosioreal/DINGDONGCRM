@@ -1443,7 +1443,7 @@ router.get('/leads/:id', (req, res) => {
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     listaNegra: leads.naListaNegra(empresa, c),
-    vendaConcluida: c.vendaConcluidaManual === true || /fechad|ganh|vendi/i.test(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
+    vendaConcluida: c.vendaConcluidaManual === true || comprovantes.ehEtapaDeVenda(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     temVendaRegistrada: (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     erroEtiquetaZap: c.erroEtiquetaZap || null,
     sugestaoMidia: require('./sugestao-midia').paraPainel(empresa, c),
@@ -1663,7 +1663,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
   const filtro = String(req.query.filtro || 'todas');
   // venda concluída (comprovante, IA ou equipe) ou lead em "Fechado": vai para "Vendas concluídas"
   const comVenda = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status !== 'cancelada' && v.leadId).map((v) => v.leadId));
-  const fechado = (c) => comVenda.has(c.id) || c.vendaConcluidaManual === true || /fechad|ganh|vendi/i.test(c.etapa || '');
+  const fechado = (c) => comVenda.has(c.id) || c.vendaConcluidaManual === true || comprovantes.ehEtapaDeVenda(c.etapa || '');
   const etiqueta = String(req.query.etiqueta || '');
   const bloqueado = (c) => leads.naListaNegra(empresa, c);
   const lista = estado.conversas
@@ -1801,7 +1801,7 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
-  const etapaFechado = leads.etapasDa(empresa).find((e) => /fechad|ganh|vendi/i.test(e.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+  const etapaFechado = leads.etapasDa(empresa).find((e) => comprovantes.ehEtapaDeVenda(e)); // "Não fechado" não conta
   let venda = null;
   const pedidos = {};
   if (req.body?.concluida !== false) {
@@ -1842,8 +1842,9 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
     }
     delete c.vendaConcluidaManual;
     delete c.vendaConcluidaEm;
-    if (c.etapaAntesDaVenda && /fechad|ganh|vendi/i.test((c.etapa || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
+    if (c.etapaAntesDaVenda && comprovantes.ehEtapaDeVenda(c.etapa || '')) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
     delete c.etapaAntesDaVenda;
+    comprovantes.desfazerVendido(empresa, c); // volta Agendado (CRM e WhatsApp) e o agendamento
   }
   c.atualizadoEm = agora();
   salvar();
