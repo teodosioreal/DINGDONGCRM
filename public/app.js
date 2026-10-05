@@ -4653,11 +4653,10 @@ async function secaoFollowup(id, emp, el, editar = null) {
           ${etapas.length ? `<div class="campo" style="margin-top:10px"><label>"Parou de responder" não manda para quem está em</label><div class="chips">${etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="parar" value="${esc(e)}" ${(d.pararEtapas || []).includes(e) ? 'checked' : ''}><span>${esc(e)}</span></label>`).join('')}</div></div>` : ''}
           <div class="acoes"><button type="button" class="primario pequeno" id="salvar-regras">Salvar regras</button></div>
         </details>
-        <details style="margin-top:6px"><summary>⏳ Próximos envios (${(d.proximos || []).length})</summary>
-          ${(d.proximos || []).length ? `<ul class="fila-fup">${d.proximos.map((p) => `<li><span><a href="#/leads/${esc(p.leadId)}">${esc(p.nome)}</a> <span class="rotulo">· mensagem ${p.passo}${(d.sequencias || []).length > 1 ? ` · ${esc(p.sequencia)}` : ''}</span></span><b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b></li>`).join('')}</ul>` : `<p class="rotulo">${d.ativo ? 'Ninguém na fila agora.' : 'Ligue o follow-up para ver a fila.'}</p>`}
-        </details>
+        <div id="fila-fup" style="margin-top:10px"></div>
       </div>`;
     ligarRelogio();
+    desenharFila();
     $('#fup-ativo').onchange = async (e) => {
       try {
         await api(`empresas/${id}/followup`, { method: 'PUT', body: { ativo: e.target.checked } });
@@ -4674,6 +4673,84 @@ async function secaoFollowup(id, emp, el, editar = null) {
         aviso('Regras salvas.');
       } catch (err) { aviso(err.message, true); }
     };
+  }
+
+  // ------------------------------------------------ fila: quem vai receber, desativar, colocar à mão
+  let filtroFila = '';
+  async function desenharFila(dados = null) {
+    const alvo = $('#fila-fup', el);
+    if (!alvo) return;
+    let f = dados;
+    if (!f) {
+      try { f = await api(`empresas/${id}/followup/fila`); } catch (err) { alvo.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+    }
+    if (!alvo.isConnected) return;
+    const varias = (d.sequencias || []).length > 1;
+    const bate = (x) => !filtroFila || `${x.nome} ${x.telefone}`.toLowerCase().includes(filtroFila.toLowerCase());
+    const linhas = f.naFila.filter(bate);
+    alvo.innerHTML = `
+      <div class="cabecalho" style="margin:0 0 6px;padding-right:0"><h3 style="margin:0">👥 Clientes na fila (${f.naFila.length})</h3><button type="button" class="pequeno primario" id="fila-colocar">+ Colocar cliente na fila</button></div>
+      ${f.naFila.length > 6 ? `<input type="search" id="fila-busca" placeholder="Buscar na fila por nome ou número" value="${esc(filtroFila)}" style="margin-bottom:6px">` : ''}
+      ${linhas.length ? `<ul class="fila-fup">${linhas.map((x) => `<li>
+          <span><a href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">${esc(x.nome)}</a> <span class="rotulo">· mensagem ${x.passo} de ${x.total}${varias ? ` · ${esc(x.sequencia)}` : ''}${x.manual ? ' · ✋ colocado à mão' : ''}</span></span>
+          <span class="acoes" style="margin:0;gap:6px;align-items:center"><b class="contagem" data-contagem="${esc(x.quando)}">${textoContagem(x.quando)}</b>
+            <button type="button" class="pequeno" data-fila="tirar" data-lead="${esc(x.leadId)}" title="Esta rodada não sai (volta se o cliente responder e sumir de novo)">Tirar da fila</button>
+            <button type="button" class="pequeno perigo" data-fila="desativar" data-lead="${esc(x.leadId)}" title="Este cliente não recebe mais follow-up">Desativar</button></span>
+        </li>`).join('')}</ul>` : `<p class="rotulo">${!d.ativo ? 'Ligue o follow-up para a fila andar.' : f.naFila.length ? 'Ninguém com esse nome na fila.' : 'Ninguém na fila agora.'}</p>`}
+      ${f.desligados.length ? `<details style="margin-top:6px"><summary>🚫 Follow-up desativado (${f.desligados.length})</summary><ul class="fila-fup">${f.desligados.map((x) => `<li><span><a href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">${esc(x.nome)}</a>${x.em ? ` <span class="rotulo">· desde ${esc(data(x.em))}</span>` : ''}</span><button type="button" class="pequeno" data-fila="reativar" data-lead="${esc(x.leadId)}">Reativar</button></li>`).join('')}</ul></details>` : ''}
+      <p class="rotulo" style="margin:6px 0 0">Quem já comprou (venda no CRM, venda concluída ou etiqueta de venda do WhatsApp) não entra na fila.</p>`;
+    $('#fila-busca', alvo)?.addEventListener('input', (e) => { filtroFila = e.target.value; const pos = e.target.selectionStart; desenharFila(f).then(() => { const b = $('#fila-busca', alvo); if (b) { b.focus(); b.setSelectionRange(pos, pos); } }); });
+    $('#fila-colocar', alvo).onclick = () => modalColocarNaFila();
+    $$('[data-fila]', alvo).forEach((b) => {
+      b.onclick = async () => {
+        const acao = b.dataset.fila;
+        if (acao === 'desativar' && !(await confirmar({ titulo: 'Desativar o follow-up deste cliente?', texto: 'Ele sai da fila e não recebe mais nenhuma mensagem de follow-up. Dá para reativar depois.', botao: 'Desativar', perigo: true }))) return;
+        try {
+          const r = await comEspera(b, () => api(`empresas/${id}/followup/cliente`, { method: 'POST', body: { leadId: b.dataset.lead, acao } }));
+          aviso(acao === 'tirar' ? 'Tirado da fila desta vez.' : acao === 'desativar' ? 'Follow-up desativado para este cliente.' : 'Follow-up reativado.');
+          desenharFila(r);
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+  }
+
+  function modalColocarNaFila() {
+    const seqs = (d.sequencias || []).filter((q) => q.ativa && q.passos.length);
+    if (!seqs.length) return aviso('Ligue (ou crie) uma sequência primeiro.', true);
+    abrirModal(`
+      <h2>+ Colocar cliente na fila</h2>
+      <div class="campos">
+        <div class="campo largo"><label>Cliente</label><input type="search" id="cf-busca" placeholder="Nome ou número (pelo menos 3 letras)" autocomplete="off"></div>
+        <div class="campo"><label>Sequência</label><select id="cf-seq">${seqs.map((q) => `<option value="${esc(q.id)}">${esc(q.nome)} (${q.passos.length} mensagens)</option>`).join('')}</select></div>
+      </div>
+      <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="cf-ja"> Mandar a 1ª mensagem já (sem esperar o tempo dela)</label>
+      <div id="cf-lista" style="margin-top:10px"><p class="rotulo">Digite para buscar.</p></div>
+      <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+      let t = null;
+      const lista = $('#cf-lista', m);
+      $('#cf-busca', m).focus();
+      $('#cf-busca', m).oninput = (e) => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          const q = e.target.value.trim();
+          if (q.length < 3) { lista.innerHTML = '<p class="rotulo">Digite para buscar.</p>'; return; }
+          try {
+            const r = await api(`empresas/${id}/followup/buscar?q=${encodeURIComponent(q)}`);
+            lista.innerHTML = r.length ? `<ul class="fila-fup">${r.map((x) => `<li><span><b>${esc(x.nome)}</b> <span class="rotulo">${x.telefone ? `· ${esc(telefoneBonito(x.telefone))}` : ''}${x.etapa ? ` · ${esc(x.etapa)}` : ''}${x.naFila ? ` · já na fila (${esc(x.sequencia)})` : ''}</span>${x.bloqueio ? `<br><span class="rotulo">🚫 ${esc(x.bloqueio)}</span>` : ''}</span>${x.bloqueio ? '' : `<button type="button" class="pequeno primario" data-colocar="${esc(x.leadId)}">Colocar</button>`}</li>`).join('')}</ul>` : '<p class="rotulo">Nenhum cliente encontrado.</p>';
+            $$('[data-colocar]', lista).forEach((b) => {
+              b.onclick = async () => {
+                try {
+                  const r2 = await comEspera(b, () => api(`empresas/${id}/followup/cliente`, { method: 'POST', body: { leadId: b.dataset.colocar, acao: 'colocar', seqId: $('#cf-seq', m).value, jaPrimeira: $('#cf-ja', m).checked } }));
+                  aviso('Cliente colocado na fila.');
+                  fechar();
+                  desenharFila(r2);
+                } catch (err) { aviso(err.message, true); }
+              };
+            });
+          } catch (err) { lista.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; }
+        }, 300);
+      };
+    });
   }
 
   // ------------------------------------------------ editor de UMA sequência (com prévia ao lado)

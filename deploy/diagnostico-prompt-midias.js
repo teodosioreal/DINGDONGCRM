@@ -31,6 +31,18 @@ try {
     const doPrompt = midias.codigosDoPrompt(e).size;
     console.log(`    Empresa ${n + 1}: códigos de mídia já escritos ${escritos} · conectadas sozinhas agora ${conectadas} · mídias do prompt liberadas para a IA ${doPrompt} · trechos sem conexão certa ${pend.length} · mídias que a IA enxerga ${naIa}`);
   }
+  // follow-up: quantos na fila e quantos ficaram de fora por já terem comprado (só números)
+  const fup = require('../src/followup');
+  const vendas = require('../src/comprovantes');
+  for (const [n, e] of estado.empresas.entries()) {
+    if (!e.followup?.ativo) continue;
+    const conversas = estado.conversas.filter((c) => c.empresaId === e.id);
+    const comprou = conversas.filter((c) => vendas.jaVendeu(e, c));
+    const porSinal = {};
+    for (const c of comprou) { const k = vendas.jaVendeu(e, c).por.replace(/".*"/, '"…"'); porSinal[k] = (porSinal[k] || 0) + 1; }
+    const f = fup.fila(e);
+    console.log(`    Follow-up empresa ${n + 1}: na fila ${f.naFila.length} (à mão ${f.naFila.filter((x) => x.manual).length}) · desativados ${f.desligados.length} · já compraram (só pós-venda) ${comprou.length} ${JSON.stringify(porSinal)}`);
+  }
 } finally {
   fs.rmSync(pasta, { recursive: true, force: true });
 }

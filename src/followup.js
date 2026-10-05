@@ -82,6 +82,18 @@ function converterPasso(p, i) {
 }
 
 // Quem já agendou não entra no follow-up de "parou de responder"
+// Sequência feita para depois da venda (ex.: pedir avaliação): começa pela etiqueta ou pela
+// etapa de venda, ou só vale para quem tem etiqueta/etapa de venda
+function ehPosVenda(empresa, seq) {
+  const c = require('./comprovantes');
+  const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, t.nome]));
+  if (seq.inicio?.tipo === 'etiqueta' && c.ehEtiquetaDeVenda(nomes.get(seq.inicio.etiqueta) || '')) return true;
+  if (seq.inicio?.tipo === 'etapa' && c.ehEtapaDeVenda(seq.inicio.etapa || '')) return true;
+  if (seq.soEtiquetas?.length && seq.soEtiquetas.every((id) => c.ehEtiquetaDeVenda(nomes.get(id) || ''))) return true;
+  if (seq.soEtapas?.length && seq.soEtapas.every((e) => c.ehEtapaDeVenda(e))) return true;
+  return false;
+}
+
 function jaAgendou(empresa, lead) {
   if ((lead.agendamentos || []).some((a) => a.status === 'agendado')) return true;
   if (/agendou|agendad|marcad/.test(sem(lead.etapa))) return true;
@@ -246,17 +258,28 @@ function estadoDe(lead, seq) {
 // Uma sequência para um cliente: qual passo vem e quando (ou por que não)
 function situacaoNa(empresa, lead, seq, f, agoraMs) {
   if (!seq.ativa) return { motivo: 'sequência desligada' };
+  // já comprou (venda no CRM, venda à mão, etiqueta de venda do WhatsApp ou etapa de venda):
+  // não recebe follow-up — só as sequências de pós-venda (que começam pela etiqueta/etapa de venda)
+  if (!ehPosVenda(empresa, seq)) {
+    const venda = require('./comprovantes').jaVendeu(empresa, lead);
+    if (venda) return { motivo: `já comprou (${venda.por})` };
+  }
   if (!seq.passos.length) return { motivo: 'sequência sem passos' };
-  if (seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
+  // colocado na fila à mão (painel → Follow-up): conta a partir de quando entrou na fila
+  const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
+  if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
   if (seq.soEtapas?.length && !seq.soEtapas.includes(lead.etapa)) return { motivo: 'fora das etapas da sequência' };
   const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada);
   const ultima = msgs[msgs.length - 1];
   const ultimaDoCliente = [...msgs].reverse().find((m) => m.papel === 'visitante');
   let ciclo;
   let base; // a partir de quando conta o passo 1
-  if (seq.inicio.tipo === 'sem_resposta') {
+  if (manual) {
+    ciclo = `manual:${manual.desde}`;
+    // "mandar a 1ª já": o passo 1 vence na hora em que entrou na fila
+    base = manual.jaPrimeira ? new Date(new Date(manual.desde).getTime() - (seq.passos[0]?.horas || 0) * HORA).toISOString() : manual.desde;
+  } else if (seq.inicio.tipo === 'sem_resposta') {
     if (f.pararEtapas.includes(lead.etapa)) return { motivo: `etapa ${lead.etapa}` };
-    if (lead.vendaConcluidaManual || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada')) return { motivo: 'já comprou' };
     if (jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
     if (!ultima || ultima.papel === 'visitante') return { motivo: 'cliente falou por último' };
     if (!ultimaDoCliente) return { motivo: 'cliente nunca respondeu' };
@@ -278,7 +301,7 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   if (!passo) return { motivo: atual.feitos >= FEITO ? 'encerrado ("Não enviar")' : 'sequência concluída', feitos: atual.feitos };
   // cada passo conta a partir do anterior (o passo 1, do início da sequência)
   const desdeIso = atual.feitos ? atual.ultimoEm || base : base;
-  if (seq.inicio.tipo !== 'sem_resposta' && seq.pararAoResponder !== false && ultima?.papel === 'visitante' && ultima.em > desdeIso) return { motivo: 'cliente respondeu' };
+  if ((manual || seq.inicio.tipo !== 'sem_resposta') && seq.pararAoResponder !== false && ultima?.papel === 'visitante' && ultima.em > (manual ? manual.desde : desdeIso)) return { motivo: 'cliente respondeu' };
   let quandoMs = new Date(desdeIso).getTime() + passo.horas * HORA;
   if (agoraMs - quandoMs > JANELA_HORAS * HORA) return { motivo: 'antigo demais' };
   const auto = require('./automacoes');
@@ -293,7 +316,15 @@ function situacao(empresa, lead, agoraMs = Date.now()) {
   if (geral) return { motivo: geral };
   let melhor = null;
   let motivo = 'nenhuma sequência vale para este cliente';
+  // na fila à mão: só a sequência escolhida (enquanto ela não terminar)
+  const seqManual = lead.followupManual && f.sequencias.find((q) => q.id === lead.followupManual.seqId);
+  if (seqManual) {
+    const s = situacaoNa(empresa, lead, seqManual, f, agoraMs);
+    if (!s.motivo) return { ...s, manual: true };
+    if (/já comprou/.test(s.motivo)) return s;
+  }
   for (const seq of f.sequencias) {
+    if (seq === seqManual) continue;
     const s = situacaoNa(empresa, lead, seq, f, agoraMs);
     if (s.motivo) {
       if (f.sequencias.length === 1) motivo = s.motivo;
@@ -361,10 +392,68 @@ function pular(empresa, lead, por = '') {
   return true;
 }
 
+// ---------------------------------------------------------------- fila (painel → Follow-up)
+const nomeDo = (c) => c.nome || (c.telefone ? `+${c.telefone}` : 'Cliente');
+
+// Todos os clientes na fila (com quando sai a próxima mensagem) e os desativados
+function fila(empresa) {
+  const conversas = estado.conversas.filter((c) => c.empresaId === empresa.id);
+  const naFila = conversas
+    .map((c) => ({ c, s: situacao(empresa, c) }))
+    .filter((x) => !x.s.motivo)
+    .sort((a, b) => (a.s.quando < b.s.quando ? -1 : 1))
+    .slice(0, 500)
+    .map(({ c, s }) => ({ leadId: c.id, nome: nomeDo(c), telefone: c.telefone || '', seqId: s.seq.id, sequencia: s.seq.nome, passo: s.indice + 1, total: s.seq.passos.length, quando: s.quando, manual: Boolean(s.manual), etapa: c.etapa || '' }));
+  const desligados = conversas.filter((c) => c.followupDesligado).map((c) => ({ leadId: c.id, nome: nomeDo(c), telefone: c.telefone || '', em: c.followupDesligadoEm || '' }));
+  return { naFila, desligados };
+}
+
+// Busca de clientes para colocar na fila à mão (com o motivo de quem não pode entrar)
+function buscar(empresa, q) {
+  const alvo = sem(q).replace(/[^a-z0-9 ]/g, ' ').trim();
+  const digitos = String(q || '').replace(/\D/g, '');
+  if (!alvo && digitos.length < 3) return [];
+  const f = configDa(empresa);
+  return estado.conversas
+    .filter((c) => c.empresaId === empresa.id && !c.arquivado && ((alvo && sem(c.nome).includes(alvo)) || (digitos.length >= 3 && String(c.telefone || '').includes(digitos))))
+    .slice(0, 20)
+    .map((c) => {
+      const venda = require('./comprovantes').jaVendeu(empresa, c);
+      const geral = motivoGeral(empresa, c, { ...f, ativo: true });
+      const s = situacao(empresa, c);
+      return { leadId: c.id, nome: nomeDo(c), telefone: c.telefone || '', etapa: c.etapa || '', naFila: !s.motivo, sequencia: s.seq?.nome || '', bloqueio: venda ? `já comprou (${venda.por})` : geral && geral !== 'follow-up desligado para este cliente' ? geral : '' };
+    });
+}
+
+// Coloca um cliente na fila de uma sequência, à mão (religa o follow-up dele se estava desligado)
+function colocarNaFila(empresa, lead, seqId, { jaPrimeira = false, por = '' } = {}) {
+  const f = configDa(empresa);
+  const seq = f.sequencias.find((q) => q.id === seqId);
+  const erro = (m) => Object.assign(new Error(m), { status: 400 });
+  if (!seq) throw erro('Escolha uma sequência.');
+  if (!seq.ativa) throw erro(`A sequência "${seq.nome}" está desligada. Ligue ela primeiro.`);
+  if (!seq.passos.length) throw erro('Essa sequência não tem mensagens.');
+  const venda = !ehPosVenda(empresa, seq) && require('./comprovantes').jaVendeu(empresa, lead);
+  if (venda) throw erro(`Este cliente já comprou (${venda.por}): follow-up não vai para quem comprou.`);
+  const geral = motivoGeral(empresa, lead, { ...f, ativo: true });
+  if (geral && geral !== 'follow-up desligado para este cliente') throw erro(`Não dá para colocar na fila: ${geral}.`);
+  delete lead.followupDesligado;
+  delete lead.followupDesligadoEm;
+  lead.followupManual = { seqId: seq.id, desde: agora(), por, jaPrimeira: jaPrimeira === true };
+  salvar();
+  return situacao(empresa, lead);
+}
+
 // Liga/desliga o follow-up de UM cliente
 function ligarParaLead(lead, ligado) {
-  if (ligado) delete lead.followupDesligado;
-  else lead.followupDesligado = true;
+  if (ligado) {
+    delete lead.followupDesligado;
+    delete lead.followupDesligadoEm;
+  } else {
+    lead.followupDesligado = true;
+    lead.followupDesligadoEm = agora();
+    delete lead.followupManual;
+  }
   salvar();
 }
 
@@ -458,4 +547,4 @@ async function testar(empresa, { numero, passos, variacao = null, nome = '' } = 
 const PADRAO = RECOMENDADO;
 const RESERVAS = RECOMENDADO().map((p) => p.textos[0]);
 
-module.exports = { testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };
+module.exports = { fila, buscar, colocarNaFila, testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };

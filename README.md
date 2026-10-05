@@ -209,6 +209,16 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   clone e aprendizados" desfaz) e, nas conversas em andamento, o que foi dito antes vira
   só contexto (a IA não imita as respostas antigas). As mídias citadas no texto sem código
   são conectadas sozinhas quando a mídia certa é clara.
+- **Follow-up não vai para quem comprou**: venda no CRM (Faturamento), "Venda concluída"
+  marcada à mão, etiqueta de venda do WhatsApp ("Venda Concluída", "Vendido", "Pago",
+  "Fechado", "Entregue"…) ou etapa de venda — em qualquer conversa do mesmo cliente. Vale
+  para o follow-up sem IA, os avisos com IA (sem resposta, 1º follow-up, conferir vídeo) e o
+  follow-up que a IA combinou antes da venda. Sequências de **pós-venda** (que começam pela
+  etiqueta ou etapa de venda) continuam valendo.
+- **Fila do follow-up** (aba Follow-up): todos os clientes na fila com a sequência, a
+  mensagem e a contagem; "Tirar da fila" (só esta rodada), "Desativar" (não recebe mais) e
+  a lista de desativados com "Reativar"; "+ Colocar cliente na fila" busca o cliente e
+  escolhe a sequência (opcional: mandar a 1ª mensagem já).
 - **💸 Modo econômico** (IA do WhatsApp, ligado por padrão): a conversa do dia a dia usa o
   modelo mais em conta da mesma IA (Opus → Sonnet, GPT-5 → GPT-5 mini, Gemini Pro → Flash);
   o modelo escolhido entra sozinho em objeção de preço, reclamação, negociação, mensagem

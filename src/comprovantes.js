@@ -372,6 +372,31 @@ function trocarEtiquetaDeVenda(empresa, lead) {
   return true;
 }
 
+// ---------------------------------------------------------------- o cliente já comprou?
+// Vale qualquer sinal, em qualquer conversa do mesmo cliente: venda no Faturamento (não
+// cancelada), "Venda concluída" marcada à mão, etiqueta de venda do WhatsApp ("Venda
+// concluída", "Vendido", "Pago", "Fechado", "Entregue"…) ou etapa de venda do funil.
+// Devolve { por, em } (em = quando, se der para saber) ou null.
+const ETIQUETA_JA_VENDEU = ETIQUETA_VENDA.filter((re) => !re.test('cliente'));
+const ETAPA_JA_VENDEU = /fechad|ganh|vendi|conclu/;
+const ehEtiquetaDeVenda = (nome) => ETIQUETA_JA_VENDEU.some((re) => re.test(limpar(nome).trim())) && !ETIQUETA_ANTES_DA_VENDA.test(limpar(nome).trim());
+const ehEtapaDeVenda = (nome) => ETAPA_JA_VENDEU.test(limpar(nome));
+function jaVendeu(empresa, lead) {
+  if (!empresa || !lead) return null;
+  const conversas = conversasDoCliente(empresa, lead);
+  const ids = new Set(conversas.map((c) => c.id));
+  const sinais = [];
+  for (const v of vendasDa(empresa)) if (v.status !== 'cancelada' && v.leadId && ids.has(v.leadId)) sinais.push({ por: 'venda no CRM', em: v.criadoEm || v.data || '' });
+  const nomes = new Map(leads.etiquetasDa(empresa).map((t) => [t.id, t.nome]));
+  for (const c of conversas) {
+    if (c.vendaConcluidaManual) sinais.push({ por: 'venda concluída marcada à mão', em: c.vendaConcluidaEm || '' });
+    for (const id of c.etiquetas || []) if (ehEtiquetaDeVenda(nomes.get(id) || '')) sinais.push({ por: `etiqueta "${nomes.get(id)}"`, em: c.etiquetasDesde?.[id] || '' });
+    if (c.etapa && ehEtapaDeVenda(c.etapa)) sinais.push({ por: `etapa "${c.etapa}"`, em: [...(c.etapaHistorico || [])].reverse().find((h) => h.para === c.etapa)?.em || '' });
+  }
+  if (!sinais.length) return null;
+  return sinais.sort((a, b) => String(a.em).localeCompare(String(b.em))).pop(); // o mais recente
+}
+
 function hashDe(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 32);
 }
@@ -454,6 +479,9 @@ function resumo(empresa) {
 }
 
 module.exports = {
+  jaVendeu,
+  ehEtiquetaDeVenda,
+  ehEtapaDeVenda,
   interpretar,
   lerTexto,
   paraNumero,

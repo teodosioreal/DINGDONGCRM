@@ -1938,6 +1938,44 @@ router.get('/empresas/:id/followup', (req, res) => {
   res.json({ ...require('./followup').paraPainel(empresa), etapas: leads.etapasDa(empresa) });
 });
 
+// Fila do follow-up: quem está na fila (e quando sai a próxima mensagem) e quem está desativado
+router.get('/empresas/:id/followup/fila', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./followup').fila(empresa));
+});
+
+// Buscar cliente para colocar na fila à mão
+router.get('/empresas/:id/followup/buscar', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./followup').buscar(empresa, texto(req.query.q, 80)));
+});
+
+// Um cliente da fila: { leadId, acao: 'colocar' (com seqId e jaPrimeira) | 'tirar' (só desta vez) | 'desativar' | 'reativar' }
+router.post('/empresas/:id/followup/cliente', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const fup = require('./followup');
+  const b = req.body || {};
+  const lead = estado.conversas.find((c) => c.id === b.leadId && c.empresaId === empresa.id);
+  if (!lead) return res.status(404).json({ erro: 'Cliente não encontrado.' });
+  const quem = req.usuario?.email || '';
+  try {
+    if (b.acao === 'colocar') fup.colocarNaFila(empresa, lead, String(b.seqId || ''), { jaPrimeira: b.jaPrimeira === true, por: quem });
+    else if (b.acao === 'tirar') {
+      if (!fup.pular(empresa, lead, quem)) return res.status(404).json({ erro: 'Este cliente não está na fila agora.' });
+      delete lead.followupManual;
+      salvar();
+    } else if (b.acao === 'desativar') fup.ligarParaLead(lead, false);
+    else if (b.acao === 'reativar') fup.ligarParaLead(lead, true);
+    else return res.status(400).json({ erro: 'Ação inválida.' });
+  } catch (err) {
+    return res.status(err.status || 500).json({ erro: err.message });
+  }
+  res.json({ ok: true, ...fup.fila(empresa) });
+});
+
 // 📤 Enviar follow-up de teste para um número
 router.post('/empresas/:id/followup/teste', async (req, res) => {
   const empresa = acharEmpresa(req, res);
