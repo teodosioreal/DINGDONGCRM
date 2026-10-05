@@ -116,7 +116,7 @@ function temSinalDeVenda(mensagens) {
 function vendaConcluida(empresa, lead) {
   if (!lead) return false;
   if (lead.vendaConcluidaManual === true) return true; // movida à mão para "Vendas concluídas"
-  if (/fechad|ganh|vendi|conclu/i.test(String(lead.etapa || '').normalize('NFD').replace(/[̀-ͯ]/g, ''))) return true;
+  if (lead.etapa && require('./comprovantes').ehEtapaDeVenda(lead.etapa)) return true; // "Não fechado" não conta
   return (estado.vendas || []).some((v) => v.leadId === lead.id && v.status === 'confirmada');
 }
 

@@ -1965,7 +1965,11 @@ router.post('/empresas/:id/followup/cliente', (req, res) => {
     if (b.acao === 'colocar') fup.colocarNaFila(empresa, lead, String(b.seqId || ''), { jaPrimeira: b.jaPrimeira === true, por: quem });
     else if (b.acao === 'tirar') {
       if (!fup.pular(empresa, lead, quem)) return res.status(404).json({ erro: 'Este cliente não está na fila agora.' });
-      delete lead.followupManual;
+      // colocado à mão: sai do modo manual e também desta rodada automática (se estiver em outra)
+      if (lead.followupManual) {
+        delete lead.followupManual;
+        for (let i = 0; i < 5 && !fup.situacao(empresa, lead).motivo; i++) fup.pular(empresa, lead, quem);
+      }
       salvar();
     } else if (b.acao === 'desativar') fup.ligarParaLead(lead, false);
     else if (b.acao === 'reativar') fup.ligarParaLead(lead, true);

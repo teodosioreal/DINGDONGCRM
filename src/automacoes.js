@@ -437,7 +437,7 @@ async function enviarAgendadas(empresa) {
         // follow-up da IA combinado ANTES de o cliente comprar: não sai (o que foi combinado
         // depois da venda, ex.: lembrar da entrega, continua)
         const venda = a.modo === 'ia' || a.criadoPor === 'IA' ? require('./comprovantes').jaVendeu(empresa, lead) : null;
-        if (venda && (!venda.em || String(venda.em) >= String(a.criadoEm || ''))) {
+        if (venda && venda.em && String(venda.em) >= String(a.criadoEm || '')) {
           a.status = 'cancelada';
           a.motivo = `o cliente já comprou (${venda.por})`;
           salvar();

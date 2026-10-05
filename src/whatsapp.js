@@ -999,8 +999,11 @@ function resolverSemIa(empresa, lead, texto, jid) {
   // antes deste "ok" o cliente já tinha mandado algo sem resposta? então precisa responder
   const visiveis = (lead.mensagens || []).filter((m) => !m.apagada);
   const anterior = visiveis[visiveis.length - 2];
-  const temPendente = anterior?.papel === 'visitante' || clienteMandando(lead.id) || emResposta.has(lead.id) || agendadas.has(lead.id);
+  // (a própria mensagem que está chegando conta 1 em "chegando": só outra a mais é pendência)
+  const temPendente = anterior?.papel === 'visitante' || (chegando.get(lead.id) || 0) > 1 || emResposta.has(lead.id) || agendadas.has(lead.id);
   if (soConfirmacao(texto) && ultimaNossa && !temPendente && !/\?\s*$/.test(ultimaNossa.texto || '')) {
+    const ultima = visiveis[visiveis.length - 1];
+    if (ultima?.papel === 'visitante') ultima.semResposta = true; // não faz a IA refazer o que está escrevendo
     registrarIa(empresa, lead, 'ignorou', 'Só confirmação ("ok", "obrigado", emoji…) — não precisava de resposta.');
     return true;
   }
@@ -1247,8 +1250,6 @@ function marcarChegando(leadId, delta) {
   const n = Math.max(0, (chegando.get(leadId) || 0) + delta);
   if (n) chegando.set(leadId, n);
   else chegando.delete(leadId);
-  // chegou mensagem nova enquanto a IA escrevia: a resposta em andamento é refeita
-  if (delta > 0 && emResposta.has(leadId)) emResposta.get(leadId).refazer = true;
 }
 const clienteMandando = (leadId) => (chegando.get(leadId) || 0) > 0;
 
@@ -1321,7 +1322,8 @@ const ESPERA_CHEGANDO_MS = 1500;
 // lendo tudo o que ele mandou — uma resposta só, mais completa. Ligado por padrão.
 const emResposta = new Map(); // leadId → { refazer }
 const naoAtropelar = (empresa) => empresa?.whatsappConfig?.naoAtropelar !== false;
-const ultimaDoCliente = (lead) => [...(lead.mensagens || [])].reverse().find((m) => m.papel === 'visitante') || null;
+// última mensagem do cliente que pede resposta ("ok"/figurinha que a IA ignora não contam)
+const ultimaDoCliente = (lead) => [...(lead.mensagens || [])].reverse().find((m) => m.papel === 'visitante' && !m.semResposta) || null;
 
 // opcoes.evento: aviso interno da plataforma (ex.: 'SEM_RESPOSTA') que a IA recebe como
 // [SEM_RESPOSTA] no fim da conversa — o cliente nunca vê

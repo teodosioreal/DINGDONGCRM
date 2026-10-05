@@ -154,10 +154,18 @@ async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
   const tickets = require('./tickets');
   // 1º código: a última data/hora dita na conversa (que ainda não passou)
   const pelaConversa = (() => {
-    for (const m of (lead.mensagens || []).filter((x) => x.texto && !x.apagada).slice(-10).reverse()) {
-      if (DUVIDA.test(semAcento(m.texto))) continue;
+    // só vale data CONFIRMADA: a própria mensagem confirma ("agendado sábado 9h") ou o outro
+    // lado aceitou logo depois ("pode ser"). Horário de funcionamento/opções soltas → IA decide
+    const msgs = (lead.mensagens || []).filter((x) => x.texto && !x.apagada).slice(-10);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      const t = semAcento(m.texto);
+      if (DUVIDA.test(t) || /\b(atendemos|funcionamos|abrimos|horario de funcionamento|de segunda a)\b/.test(t) || /\bou\b.*\d/.test(t)) continue;
       const q = tickets.quandoNoTexto(m.texto, new Date(m.em || Date.now()));
-      if (q && new Date(q).getTime() > Date.now() - 3600 * 1000) return { quando: q, descricao: String(m.texto).replace(/\s+/g, ' ').trim().slice(0, 120) };
+      if (!q || new Date(q).getTime() < Date.now() - 3600 * 1000) continue;
+      const depois = msgs[i + 1];
+      const aceito = depois && depois.papel !== m.papel && ACEITE.test(semAcento(depois.texto).trim());
+      if (/\b(agendad\w*|marcad\w*|confirmad\w*|combinado|fechado)\b/.test(t) || aceito) return { quando: q, descricao: String(m.texto).replace(/\s+/g, ' ').trim().slice(0, 120) };
     }
     return null;
   })();

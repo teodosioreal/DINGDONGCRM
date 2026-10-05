@@ -380,16 +380,32 @@ function trocarEtiquetaDeVenda(empresa, lead) {
 const ETIQUETA_JA_VENDEU = ETIQUETA_VENDA.filter((re) => !re.test('cliente'));
 const ETAPA_JA_VENDEU = /fechad|ganh|vendi|conclu/;
 const ehEtiquetaDeVenda = (nome) => ETIQUETA_JA_VENDEU.some((re) => re.test(limpar(nome).trim())) && !ETIQUETA_ANTES_DA_VENDA.test(limpar(nome).trim());
-const ehEtapaDeVenda = (nome) => ETAPA_JA_VENDEU.test(limpar(nome));
+const ETAPA_PERDIDA = /\bnao\b|\bsem\b|perdid|desist|cancel/;
+const ehEtapaDeVenda = (nome) => ETAPA_JA_VENDEU.test(limpar(nome)) && !ETAPA_PERDIDA.test(limpar(nome));
+// venda (no CRM ou à mão) de mais de 90 dias não bloqueia: o cliente voltou para comprar de novo.
+// Etiqueta e etapa de venda bloqueiam enquanto estiverem no cliente (tirou, libera).
+const VENDA_VALE_DIAS = 90;
+const cacheVendeu = new Map(); // leadId → { em, r } (várias consultas seguidas na mesma volta)
 function jaVendeu(empresa, lead) {
   if (!empresa || !lead) return null;
+  // muda etiqueta, etapa, venda à mão ou o total de vendas → recalcula na hora
+  const marca = `${(lead.etiquetas || []).join()}|${lead.etapa}|${lead.vendaConcluidaManual ? 1 : 0}|${(estado.vendas || []).length}|${leads.etiquetasDa(empresa).length}`;
+  const c = cacheVendeu.get(lead.id);
+  if (c && c.marca === marca && Date.now() - c.em < 3000) return c.r;
+  const r = jaVendeuAgora(empresa, lead);
+  if (cacheVendeu.size > 20000) cacheVendeu.clear();
+  cacheVendeu.set(lead.id, { em: Date.now(), marca, r });
+  return r;
+}
+function jaVendeuAgora(empresa, lead) {
+  const recente = (em) => !em || Date.now() - new Date(em).getTime() < VENDA_VALE_DIAS * 86400000;
   const conversas = conversasDoCliente(empresa, lead);
   const ids = new Set(conversas.map((c) => c.id));
   const sinais = [];
-  for (const v of vendasDa(empresa)) if (v.status !== 'cancelada' && v.leadId && ids.has(v.leadId)) sinais.push({ por: 'venda no CRM', em: v.criadoEm || v.data || '' });
+  for (const v of vendasDa(empresa)) if (v.status !== 'cancelada' && v.leadId && ids.has(v.leadId) && recente(v.criadoEm || v.data)) sinais.push({ por: 'venda no CRM', em: v.criadoEm || v.data || '' });
   const nomes = new Map(leads.etiquetasDa(empresa).map((t) => [t.id, t.nome]));
   for (const c of conversas) {
-    if (c.vendaConcluidaManual) sinais.push({ por: 'venda concluída marcada à mão', em: c.vendaConcluidaEm || '' });
+    if (c.vendaConcluidaManual && recente(c.vendaConcluidaEm)) sinais.push({ por: 'venda concluída marcada à mão', em: c.vendaConcluidaEm || '' });
     for (const id of c.etiquetas || []) if (ehEtiquetaDeVenda(nomes.get(id) || '')) sinais.push({ por: `etiqueta "${nomes.get(id)}"`, em: c.etiquetasDesde?.[id] || '' });
     if (c.etapa && ehEtapaDeVenda(c.etapa)) sinais.push({ por: `etapa "${c.etapa}"`, em: [...(c.etapaHistorico || [])].reverse().find((h) => h.para === c.etapa)?.em || '' });
   }

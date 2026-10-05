@@ -530,8 +530,10 @@ async function processar(empresa) {
       }
       if (lead.followupManual) {
         const seqM = f.sequencias.find((q) => q.id === lead.followupManual.seqId);
-        if (!seqM || (!ehPosAgendamento(empresa, seqM) && jaAgendou(empresa, lead))) {
-          lead.followupManual = { ...lead.followupManual, canceladoEm: agora(), motivo: seqM ? 'agendou' : 'sequência apagada' };
+        const fim = seqM ? situacaoNa(empresa, lead, seqM, f, Date.now()).motivo : 'sequência apagada';
+        // terminou de vez (agendou, comprou, respondeu, acabou ou foi tirado): sai do modo "à mão"
+        if (!seqM || (fim && /agendou|comprou|respondeu|concluída|encerrado|desligada|antigo demais/.test(fim))) {
+          lead.followupManual = { ...lead.followupManual, canceladoEm: agora(), motivo: fim };
           lead.followupManualCancelado = lead.followupManual;
           delete lead.followupManual;
           mudou = true;
