@@ -1526,7 +1526,8 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
       require('./alertas').registrar(empresa, 'midia', `A IA pediu a mídia "${nome}", mas não existe mídia com esse código nesta empresa. Nada foi enviado — confira os códigos em Mídias.`, { nivel: 'aviso', leadId: lead.id });
       continue;
     }
-    // a IA (e as automações) só mandam mídia ATIVA (pronta); a equipe manda qualquer uma
+    // a IA só manda mídia ATIVA (pronta); a equipe, o follow-up sem IA e a mídia fixa das
+    // automações (escolhidas pelo dono, papel 'equipe') mandam qualquer uma
     // (mídia citada nas instruções do WhatsApp vale mesmo "a configurar": o dono mandou enviar)
     const doPrompt = papel === 'assistente' ? midias.codigosDoPrompt(empresa) : new Set();
     const naoProntas = papel === 'assistente' && !doPrompt.has(pedido.alvo.codigo) ? pedido.itens.filter((m) => !midias.prontaParaIa(m) && !doPrompt.has(m.codigo)) : [];

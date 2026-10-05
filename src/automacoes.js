@@ -395,9 +395,11 @@ async function executar(regra, lead, empresa) {
   if (!mensagem) throw new Error('mensagem vazia');
   await whatsapp.enviarTexto(empresa, destino, mensagem);
   leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: mensagem, automacaoId: regra.id, automacaoNome: regra.nome });
+  // mídias que a IA escolheu: só as prontas (regra da IA)
+  if (midiasPedidas.length) await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas, 'assistente', { followup: true });
+  // mídia que o dono escolheu na automação (sem IA): vai mesmo "a configurar", como no follow-up
   const midiaFixa = regra.acao.midiaId && midias.midiasDa(empresa).find((m) => m.id === regra.acao.midiaId);
-  if (midiaFixa) midiasPedidas.push(midiaFixa.nome);
-  await whatsapp.enviarMidiasPedidas(empresa, lead, midiasPedidas, 'assistente', { followup: true });
+  if (midiaFixa) await whatsapp.enviarMidiasPedidas(empresa, lead, [midiaFixa.codigo || midiaFixa.nome], 'equipe', { papelMensagem: 'assistente' });
   lead.automacoes = lead.automacoes || {};
   const hist = lead.automacoes[regra.id] || { enviados: 0 };
   lead.automacoes[regra.id] = { enviados: hist.enviados + 1, ultimoEm: agora() };
