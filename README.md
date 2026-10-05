@@ -209,6 +209,16 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   clone e aprendizados" desfaz) e, nas conversas em andamento, o que foi dito antes vira
   só contexto (a IA não imita as respostas antigas). As mídias citadas no texto sem código
   são conectadas sozinhas quando a mídia certa é clara.
+- **💸 Modo econômico** (IA do WhatsApp, ligado por padrão): a conversa do dia a dia usa o
+  modelo mais em conta da mesma IA (Opus → Sonnet, GPT-5 → GPT-5 mini, Gemini Pro → Flash);
+  o modelo escolhido entra sozinho em objeção de preço, reclamação, negociação, mensagem
+  longa ou quando o modelo econômico responde `#DIFICIL`.
+- **Foto lida uma vez só**: quando a IA vai responder, a foto é descrita uma vez e a
+  descrição serve para a resposta, a sugestão de mídia e para decidir se é comprovante (a
+  leitura de comprovante com IA só roda se a foto parece pagamento).
+- **Para onde foram os tokens** (IAs e chaves): tokens, chamadas e custo estimado dos
+  últimos 7 dias por tarefa (respostas, fotos, comprovantes, agenda, sugestão de mídia,
+  aprendizado…) e por modelo.
 - **Mídias citadas no prompt**: "mande o vídeo do revestimento" chega para a IA com o
   código certo (`(mídia #MIDIA_X)`) quando não há dúvida de qual é, e mídia citada nas
   instruções do WhatsApp vale mesmo "a configurar". Se a IA diz que vai mandar e esquece
