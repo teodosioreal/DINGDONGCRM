@@ -1446,3 +1446,15 @@ html.dark .funil-perda { color: #fca5a5; }
 .linha-pend select { flex:1 1 220px; min-width:0; }
 .pend-res { margin-top:6px; font-size:14px; }
 .pend-resumo { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+
+/* horários que a IA pode agendar */
+.hia-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+.hia-form .campo { flex: 1; min-width: 160px; margin: 0; }
+.hia-dia { margin-top: 8px; }
+.hia-dia > b { display: block; font-size: 13px; text-transform: capitalize; margin-bottom: 4px; }
+.hia-vaga { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; font-size: 13px; border: 1px solid var(--borda, #ddd); }
+.hia-vaga.livre { background: #e7f7ee; border-color: #8fd3ab; color: #14532d; }
+.hia-vaga.ocupado { background: #fdecec; border-color: #f2a5a5; color: #7f1d1d; }
+.hia-vaga.passou { opacity: .5; }
+html.dark .hia-vaga.livre { background: #12301f; color: #a7f3c4; }
+html.dark .hia-vaga.ocupado { background: #3a1616; color: #fecaca; }

@@ -388,6 +388,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const dinamico = ['Contexto desta conversa:', `- Agora: ${hojeSp} (horário de Brasília).`];
   if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
+  if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 

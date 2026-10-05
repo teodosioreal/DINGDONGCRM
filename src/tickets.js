@@ -117,6 +117,8 @@ function agendamentoDaMensagem(empresa, lead, texto, por) {
   const quando = quandoNoTexto(t);
   if (!quando || new Date(quando).getTime() < Date.now() - 3600 * 1000) return null;
   const descricao = t.replace(/\s+/g, ' ').trim().slice(0, 120);
+  // agenda da IA ligada: o que a IA escreve só vira agendamento pelo [[AGENDAMENTO]] conferido
+  if (por === 'ia' && require('./horarios-ia').configDa(empresa).ativo) return null;
   return registrarAgendamento(empresa, lead, { quando, descricao, por });
 }
 
@@ -213,6 +215,42 @@ function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado 
   return ag;
 }
 
+// Agendamento que já passou não fica "agendado" para sempre: 3 h depois do horário vira
+// "realizado" (sai de Próximos); sem data ("data a combinar") parado há 7 dias também sai.
+// Sem outro agendamento ativo, a etiqueta Agendado sai do cliente (aqui e no WhatsApp) e,
+// se a cópia velha dela voltar (servidor/celular reconectando), sai de novo.
+const PASSOU_MS = 3 * 3600 * 1000;
+const SEM_DATA_DIAS = 7;
+function finalizarPassados(empresa) {
+  let n = 0;
+  const agoraMs = Date.now();
+  for (const lead of estado.conversas) {
+    if (lead.empresaId !== empresa.id || !(lead.agendamentos || []).some((a) => a.status === 'agendado')) continue;
+    let mudou = false;
+    for (const a of lead.agendamentos) {
+      if (a.status !== 'agendado') continue;
+      const passou = a.quando ? agoraMs - new Date(a.quando).getTime() > PASSOU_MS : agoraMs - new Date(a.criadoEm || 0).getTime() > SEM_DATA_DIAS * 86400000;
+      if (!passou) continue;
+      a.status = 'realizado';
+      a.realizadoEm = agora();
+      if (!a.quando) a.semData = true;
+      mudou = true;
+      n++;
+    }
+    if (mudou && !lead.agendamentos.some((a) => a.status === 'agendado')) tirarEtiquetaAgendado(empresa, lead);
+  }
+  if (n) salvar();
+  return n;
+}
+function tirarEtiquetaAgendado(empresa, lead) {
+  const ids = new Set(leads.etiquetasDa(empresa).filter((t) => /^agendad/.test(semAcento(t.nome).trim())).map((t) => t.id));
+  const tiradas = (lead.etiquetas || []).filter((id) => ids.has(id));
+  if (!tiradas.length) return;
+  lead.tiradasPelaVenda = { ...(lead.tiradasPelaVenda || {}) }; // a cópia velha não volta (mesma proteção da venda)
+  for (const id of tiradas) lead.tiradasPelaVenda[id] = agora();
+  lead.etiquetas = lead.etiquetas.filter((id) => !ids.has(id));
+}
+
 // Tudo o que aparece como aviso na conversa, em ordem
 function ticketsDoLead(lead) {
   const vendas = (estado.vendas || [])
@@ -260,7 +298,11 @@ function aplicarDaIa(empresa, lead, r) {
   if (r?.venda) feitos.push({ tipo: 'venda', ...registrarVenda(empresa, lead, { ...r.venda, por: 'ia' }) });
   // horário que já passou (a IA errou o dia): não marca nem avisa
   const iso = r?.agendamento ? quandoDe(r.agendamento.quando) : null;
-  if (r?.agendamento && !(iso && new Date(iso).getTime() < Date.now() - 3600 * 1000)) {
+  // agenda da IA ligada: nunca dois clientes no mesmo horário (outro pode ter pegado no meio tempo)
+  const ocupado = r?.agendamento && iso && require('./horarios-ia').configDa(empresa).ativo ? require('./horarios-ia').conflito(empresa, iso, lead.id) : null;
+  if (ocupado) {
+    require('./alertas').registrar(empresa, 'agenda', `A IA combinou ${require('./horarios-ia').formatar(iso)} com um cliente, mas esse horário já está com outro cliente. Não foi agendado — combine outro horário com ele.`, { leadId: lead.id });
+  } else if (r?.agendamento && !(iso && new Date(iso).getTime() < Date.now() - 3600 * 1000)) {
     const antes = (lead.agendamentos || []).filter((a) => a.status === 'agendado');
     const novo = registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' });
     // trocou de dia/horário: o anterior vira "remarcado"
@@ -270,4 +312,4 @@ function aplicarDaIa(empresa, lead, r) {
   return feitos;
 }
 
-module.exports = { quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };
+module.exports = { finalizarPassados, quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };

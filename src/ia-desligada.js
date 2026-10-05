@@ -16,6 +16,7 @@ const iaComAgendados = (empresa) => empresa?.iaComAgendados === true;
 // { por: 'venda' | 'agenda', texto } ou null
 function motivo(empresa, lead) {
   if (!empresa || !lead) return null;
+  if (require('./entre-empresas').leadDeOutraEmpresa(empresa, lead)) return { por: 'empresa', texto: 'Este número é de outra empresa do CRM: a IA não conversa com ele.' };
   const manual = lead.iaLigadaManualEm || '';
   const venda = require('./comprovantes').jaVendeu(empresa, lead);
   if (venda && (!manual || (venda.em && String(venda.em) > manual))) return { por: 'venda', texto: `Cliente já comprou (${venda.por}): IA desligada. Ligue de novo se quiser.` };
@@ -58,6 +59,7 @@ function varrer() {
   const { estado } = require('./db');
   let n = 0;
   for (const empresa of estado.empresas || []) {
+    try { require('./tickets').finalizarPassados(empresa); } catch (err) { console.error('[agenda] passados:', err.message); }
     for (const lead of estado.conversas) {
       if (lead.empresaId !== empresa.id || lead.iaDesligadaPor === 'venda') continue;
       const antes = lead.iaPausada;

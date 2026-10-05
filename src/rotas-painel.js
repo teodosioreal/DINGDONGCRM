@@ -1571,17 +1571,18 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   comprovantes.concluirVendidos(empresa); // teve venda → sai de "Próximos" (todas as conversas do cliente)
+  tickets.finalizarPassados(empresa); // horário que já passou → realizado (sai de "Próximos")
   const agora_ = Date.now();
   const lista = [];
   for (const c of estado.conversas) {
     if (c.empresaId !== empresa.id) continue;
     for (const a of c.agendamentos || []) {
       const t = a.quando ? new Date(a.quando).getTime() : null;
-      const grupo = a.status === 'concluido' ? 'passados' : a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
+      const grupo = a.status === 'concluido' || a.status === 'realizado' ? 'passados' : a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
       lista.push({
         id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
         quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
-        avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', grupo, criadoEm: a.criadoEm
+        avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm
       });
     }
   }
@@ -1597,6 +1598,42 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
     passados: lista.filter((x) => x.grupo === 'passados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200),
     cancelados: lista.filter((x) => x.grupo === 'cancelados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200)
   });
+});
+
+// Horários que a IA pode agendar (aba Agendamentos)
+router.get('/empresas/:id/horarios-ia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(require('./horarios-ia').situacao(empresa));
+});
+router.put('/empresas/:id/horarios-ia', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const b = req.body || {};
+  require('./horarios-ia').guardar(empresa, { ativo: b.ativo, localidades: b.localidades !== undefined ? texto(b.localidades, 1000) : undefined, duracao: b.duracao });
+  res.json(require('./horarios-ia').situacao(empresa));
+});
+router.post('/empresas/:id/horarios-ia/vagas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const h = require('./horarios-ia');
+  const lista = Array.isArray(req.body?.quandos) ? req.body.quandos.slice(0, 60) : [req.body?.quando];
+  try {
+    let n = 0;
+    const erros = [];
+    for (const q of lista) {
+      const iso = tickets.quandoDe(q);
+      try { h.adicionar(empresa, iso); n++; } catch (err) { erros.push(err.message); }
+    }
+    if (!n) return res.status(400).json({ erro: erros[0] || 'Escolha o dia e o horário.' });
+    res.status(201).json({ ...h.situacao(empresa), adicionados: n, ignorados: erros.length });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+router.delete('/empresas/:id/horarios-ia/vagas/:vagaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(require('./horarios-ia').situacao(require('./horarios-ia').remover(empresa, req.params.vagaId) && empresa));
 });
 
 // Agendamento marcado pela equipe (aparece como aviso na conversa)

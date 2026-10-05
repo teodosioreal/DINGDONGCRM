@@ -903,7 +903,7 @@ function ligarConferirPrompt(form, botId, canal) {
 async function paginaAgenda(id, params) {
   const hashDaPagina = location.hash;
   await definirEmpresaAtual(id);
-  const d = await api(`empresas/${id}/agendamentos`);
+  const [d, horas] = await Promise.all([api(`empresas/${id}/agendamentos`), api(`empresas/${id}/horarios-ia`).catch(() => null)]);
   if (location.hash !== hashDaPagina) return;
   let aba = params?.get('aba') || 'proximos';
   const sp = (iso, o) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', ...o });
@@ -922,7 +922,7 @@ async function paginaAgenda(id, params) {
       <div class="ag-quem">${avatarLead({ nome: x.nome, telefone: x.telefone, fotoUrl: x.foto })}<div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span class="rotulo">${esc(x.descricao || 'Sem descrição')}${x.quandoTexto && !x.quando && x.quandoTexto !== 'Data a combinar' ? ` · ${esc(x.quandoTexto)}` : ''}</span></div></div>
       <div class="ag-tags">
         <span class="etiqueta">${esc(QUEM[x.por] || x.por)}</span>
-        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}${x.status === 'concluido' ? '<span class="etiqueta ok">✅ venda concluída</span>' : ''}
+        ${x.grupo === 'cancelados' ? `<span class="etiqueta off">${x.status === 'remarcado' ? 'horário trocado' : 'cancelado'}</span>` : ''}${x.status === 'concluido' ? '<span class="etiqueta ok">✅ venda concluída</span>' : ''}${x.status === 'realizado' ? `<span class="etiqueta">${x.semData ? 'sem data · saiu da agenda' : '✔ realizado'}</span>` : ''}
         ${x.avisoStatus === 'enviado' ? '<span class="etiqueta ok" title="O número de aviso recebeu">aviso ✓</span>' : x.avisoStatus === 'erro' ? `<span class="etiqueta aviso" title="${esc(x.avisoErro)}">aviso falhou</span>` : ''}
       </div>
       <div class="ag-acoes"><a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">Conversa</a>${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar">✕</button>` : ''}</div>
@@ -956,10 +956,65 @@ async function paginaAgenda(id, params) {
       <div><span class="rotulo">Próximos 7 dias</span><b>${d.resumo.semana}</b></div>
       <div><span class="rotulo">Todos à frente</span><b>${d.resumo.proximos}</b></div>
     </div>
+    ${horas ? `<div class="card" id="card-horarios-ia"></div>` : ''}
     <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
     <div id="ag-conteudo"></div>`;
   $$('[data-ag-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.agAba; $$('[data-ag-aba]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
   desenhar();
+  if (horas) desenharHorariosIa(id, horas);
+}
+
+// 🤖 Horários que a IA pode agendar: você libera os horários; a IA só marca nos livres
+function desenharHorariosIa(id, h) {
+  const card = $('#card-horarios-ia');
+  if (!card) return;
+  const sp = (iso, o) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', ...o });
+  const dias = [];
+  for (const v of h.vagas) {
+    const k = sp(v.quando, { weekday: 'short', day: '2-digit', month: '2-digit' });
+    if (!dias.length || dias[dias.length - 1].k !== k) dias.push({ k, vagas: [] });
+    dias[dias.length - 1].vagas.push(v);
+  }
+  const livres = h.vagas.filter((v) => v.livre && !v.passou).length;
+  const hojeIso = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  card.innerHTML = `
+    <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🤖 Horários que a IA pode agendar</h2>${interruptor('hia-ativo', h.ativo, h.ativo ? 'Ligado' : 'Desligado')}</div>
+    <p class="rotulo" style="margin:0 0 10px">${h.ativo
+      ? `<b>Ligado:</b> na conversa, a IA só marca o cliente num horário <b>livre</b> desta lista (${livres} livre${livres === 1 ? '' : 's'} agora) e nunca dois no mesmo horário. Sem horário livre, ela não agenda e continua atendendo normalmente. Agendamento feito à mão ocupa o horário sozinho.`
+      : '<b>Desligado:</b> a IA não usa esta lista (agenda como antes, quando o cliente confirma um horário).'}</p>
+    <div class="hia-form">
+      <div class="campo"><label>Dia</label><input type="date" id="hia-dia" value="${hojeIso}" min="${hojeIso}"></div>
+      <div class="campo"><label>Horários (um ou vários: 09:00, 10:30, 14:00)</label><input type="text" id="hia-horas" placeholder="09:00, 14:00" inputmode="numeric"></div>
+      <button type="button" class="primario" id="hia-add">Adicionar</button>
+    </div>
+    <div class="hia-form">
+      <div class="campo" style="flex:2"><label>Só agendar clientes destas localidades (vazio = todos)</label><input type="text" id="hia-locais" value="${esc(h.localidades)}" placeholder="Ex.: Petrópolis, Teresópolis, Itaipava"></div>
+      <div class="campo"><label>Cada atendimento ocupa</label><select id="hia-dur">${[30, 45, 60, 90, 120, 180, 240].map((m) => `<option value="${m}" ${m === h.duracao ? 'selected' : ''}>${m < 60 ? `${m} min` : `${m / 60} h`.replace('.5', ',5')}</option>`).join('')}</select></div>
+      <button type="button" id="hia-salvar">Salvar</button>
+    </div>
+    ${dias.length ? dias.map((d) => `<div class="hia-dia"><b>${esc(d.k)}</b><div class="chips">${d.vagas.map((v) => `<span class="hia-vaga ${v.passou ? 'passou' : v.livre ? 'livre' : 'ocupado'}" title="${v.livre ? 'Livre para a IA marcar' : `Ocupado${v.ocupadoPor?.nome ? ` · ${esc(v.ocupadoPor.nome)}` : ''}`}">${sp(v.quando, { hour: '2-digit', minute: '2-digit' })} · ${v.passou ? 'passou' : v.livre ? 'livre' : `ocupado${v.ocupadoPor?.nome ? ` (${esc(v.ocupadoPor.nome.split(' ')[0])})` : ''}`}<button type="button" class="link-botao" data-hia-tirar="${esc(v.id)}" aria-label="Tirar horário" title="Tirar da lista">✕</button></span>`).join('')}</div></div>`).join('') : '<p class="rotulo" style="margin:8px 0 0">Nenhum horário cadastrado ainda.</p>'}`;
+  const recarregar = (novo) => desenharHorariosIa(id, novo);
+  $('#hia-ativo').onchange = async (e) => {
+    try { recarregar(await api(`empresas/${id}/horarios-ia`, { method: 'PUT', body: { ativo: e.target.checked } })); aviso(e.target.checked ? 'A IA só agenda nos horários livres da lista.' : 'Lista de horários desligada.'); } catch (err) { e.target.checked = !e.target.checked; aviso(err.message, true); }
+  };
+  $('#hia-salvar').onclick = async (e) => {
+    try { recarregar(await comEspera(e.currentTarget, () => api(`empresas/${id}/horarios-ia`, { method: 'PUT', body: { localidades: $('#hia-locais').value, duracao: Number($('#hia-dur').value) } }))); aviso('Salvo.'); } catch (err) { aviso(err.message, true); }
+  };
+  $('#hia-add').onclick = async (e) => {
+    const dia = $('#hia-dia').value;
+    const horas = $('#hia-horas').value.split(/[,;\s]+/).map((x) => x.trim().replace(/h$/i, ':00').replace(/^(\d{1,2})h(\d{2})$/i, '$1:$2')).filter(Boolean).map((x) => (/^\d{1,2}$/.test(x) ? `${x}:00` : x));
+    if (!dia || !horas.length || horas.some((x) => !/^\d{1,2}:\d{2}$/.test(x))) return aviso('Escolha o dia e escreva os horários assim: 09:00, 14:30', true);
+    try {
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/horarios-ia/vagas`, { method: 'POST', body: { quandos: horas.map((x) => `${dia}T${x.padStart(5, '0')}`) } }));
+      recarregar(r);
+      aviso(`${r.adicionados} horário(s) adicionado(s).${r.ignorados ? ` ${r.ignorados} já estava(m) na lista ou já passou.` : ''}`);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $$('[data-hia-tirar]', card).forEach((b) => {
+    b.onclick = async () => {
+      try { recarregar(await api(`empresas/${id}/horarios-ia/vagas/${b.dataset.hiaTirar}`, { method: 'DELETE' })); } catch (err) { aviso(err.message, true); }
+    };
+  });
 }
 
 // ---------------------------------------------------------------- empresa: serviços e preços (catálogo)
@@ -3680,12 +3735,13 @@ function htmlTicket(t) {
   const QUEM = { ia: 'marcado pela IA', cliente: 'o cliente confirmou na conversa', etiqueta: `🏷️ etiqueta Agendado no WhatsApp${t.detectadoPor === 'ia' ? ' (a IA achou o horário na conversa)' : ''}`, detectado: `✨ percebido na conversa${t.detectadoPor === 'ia' ? ' pela IA' : ''}` };
   const QUEM_CANCELOU = { ia: 'a IA desmarcou', detectado: 'desmarcado na conversa', equipe: 'cancelado pela equipe' };
   const concluido = t.status === 'concluido';
-  const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : concluido ? 'AGENDAMENTO CONCLUÍDO (VENDA)' : 'AGENDADO';
+  const realizado = t.status === 'realizado';
+  const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : concluido ? 'AGENDAMENTO CONCLUÍDO (VENDA)' : realizado ? 'AGENDAMENTO REALIZADO' : 'AGENDADO';
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
     <span class="ticket-icone" aria-hidden="true">${cancelado ? '🗓️' : '📅'}</span>
     <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
     ${!cancelado && t.trecho ? `<span class="ticket-trecho">“${esc(t.trecho)}”</span>` : ''}
-    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
+    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido || realizado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
   </div>`;
 }
 
@@ -4045,7 +4101,7 @@ async function paginaConversas(id, params) {
       ${linhaOrigem(l.origemSite)}
       ${htmlPedidos(l)}
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
-      ${l.iaDesligadaPor ? `<div class="chat-aviso">${l.iaDesligadaPor === 'venda' ? '💰' : '📅'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')} <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button></div>` : ''}
+      ${l.iaDesligadaPor ? `<div class="chat-aviso">${{ venda: '💰', agenda: '📅', empresa: '🏢' }[l.iaDesligadaPor] || '🤖'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')}${l.iaDesligadaPor === 'empresa' ? '' : ' <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button>'}</div>` : ''}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
       ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>

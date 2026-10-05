@@ -288,6 +288,16 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
   você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
   padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+- **🤖 Horários que a IA pode agendar** (Agendamentos): você libera dia e horários; ligado,
+  a IA só marca o cliente num horário livre da lista (o código confere antes de a resposta
+  sair — horário errado ou ocupado, ela reescreve) e nunca dois no mesmo horário (cada
+  atendimento ocupa 30 min a 4 h). Dá para limitar a cidades/bairros. Sem horário livre ou
+  cliente de fora, ela não agenda e segue atendendo. Agendamento feito à mão ocupa o horário.
+- **Agendamento que passou vira "realizado"** (3 h depois do horário; "data a combinar"
+  parado há 7 dias também sai): vai para Passados e a etiqueta Agendado sai do cliente,
+  aqui e no WhatsApp.
+- **Empresas do CRM não conversam entre si**: mensagem vinda do número de outra empresa do
+  CRM não vira conversa, e a IA/follow-up/automações não escrevem para ela.
 - Sem "Sugerir com IA" e sem sugestão automática de mídia: para mandar mídia, use
   **🖼️ Mídias** no chat e escolha.
 - Faixa "Modo teste": o "desligar" desliga na hora (Início e Conversas).

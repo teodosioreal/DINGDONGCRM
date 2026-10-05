@@ -262,6 +262,7 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   // não recebe follow-up nenhum, nem o de pós-venda (avaliação e comentário são automações)
   const venda = require('./comprovantes').jaVendeu(empresa, lead);
   if (venda) return { motivo: `já comprou (${venda.por})` };
+  if (require('./entre-empresas').leadDeOutraEmpresa(empresa, lead)) return { motivo: 'é o número de outra empresa do CRM' };
   if (!seq.passos.length) return { motivo: 'sequência sem passos' };
   // agendou: a sequência é cancelada. Só com "IA atende quem agendou" ligado as sequências
   // feitas para quem agendou (ex.: lembrete) continuam

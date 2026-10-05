@@ -771,6 +771,7 @@ async function receberWebhook(empresa, corpo) {
   empresa.whatsappConfig = empresa.whatsappConfig || {};
   empresa.whatsappConfig.ultimoWebhookEm = new Date().toISOString();
   empresa.whatsappConfig.ultimoEvento = String(corpo?.event || '').slice(0, 40);
+  if (require('./entre-empresas').aprenderNumeroProprio(empresa, corpo)) salvar();
   // mudança de conexão: guarda para o painel mostrar
   if (eventoDe(corpo) === 'connection.update') {
     const st = corpo?.data?.state || corpo?.data?.status;
@@ -898,6 +899,8 @@ async function receberWebhook(empresa, corpo) {
       continue;
     }
 
+    // número de outra empresa do CRM: não vira conversa e a IA não responde (senão as duas IAs conversam sem parar)
+    if (require('./entre-empresas').mensagemDeOutraEmpresa(empresa, msg)) continue;
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
     // "não atropelar": enquanto esta mensagem é preparada (foto descrita pela IA, áudio
     // transcrito…), a IA não responde este cliente — responde tudo junto depois
@@ -1499,11 +1502,14 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   // avisos internos: [CLIENTE_ENVIOU_FOTO] nas fotos do cliente e o evento desta vez no fim
   const historico = eventos.historicoParaIa(empresa, leads.historicoParaIa(lead), opcoes.evento);
   let r;
-  try {
-    r = await ia.responder(bot, empresa, historico, {
+  const horarios = require('./horarios-ia');
+  const origemIa = await origem.contextoParaIa(lead, bot, 'whatsapp', empresa).catch(() => '');
+  const pedirIa = (avisoAgenda = '') =>
+    ia.responder(bot, empresa, historico, {
+      horariosIa: [horarios.paraIa(empresa, lead), avisoAgenda].filter(Boolean).join('\n'),
       canal: 'whatsapp',
       tarefa: opcoes.evento ? 'evento' : 'resposta',
-      origem: await origem.contextoParaIa(lead, bot, 'whatsapp', empresa),
+      origem: origemIa,
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])],
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
@@ -1514,6 +1520,19 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
+  try {
+    r = await pedirIa();
+    // agenda da IA ligada: o horário marcado tem que estar livre na lista (confere antes de enviar)
+    const recusa = horarios.validar(empresa, lead, r);
+    if (recusa) {
+      console.log(`[agenda-ia ${lead.id}] a IA marcou fora da agenda (${recusa}); reescrevendo`);
+      r = await pedirIa(`- ATENÇÃO: na resposta anterior ${recusa}. Escreva de novo a resposta ao cliente SEM esse agendamento: ofereça só os horários livres da lista (ou, se não houver, continue o atendimento sem marcar).`);
+      const denovo = horarios.validar(empresa, lead, r);
+      if (denovo) {
+        delete r.agendamento; // não registra: a equipe confere
+        require('./alertas').registrar(empresa, 'agenda', `A IA tentou agendar fora dos horários livres (${denovo}). Confira a conversa.`, { nivel: 'aviso', leadId: lead.id });
+      }
+    }
   } catch (err) {
     logs.registrar(empresa, lead, { origem: origemLog, situacao: 'erro', erros: [`A IA não conseguiu responder: ${ia.descreverErroIa(err)}`] });
     return registrarIa(empresa, lead, 'erro', `A IA não conseguiu responder: ${ia.descreverErroIa(err)}`);
