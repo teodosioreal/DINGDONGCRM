@@ -319,12 +319,15 @@ function concluirVendidos(empresa) {
   for (const lead of estado.conversas) {
     if (lead.empresaId !== empresa.id || !(lead.agendamentos || []).some((a) => a.status === 'agendado')) continue;
     const venda = ultimaVendaDoCliente(empresa, lead);
-    if (!venda) continue;
-    const tVenda = new Date(venda.criadoEm || venda.data).getTime();
+    const vendeu = venda || jaVendeu(empresa, lead); // venda no Faturamento, etapa, etiqueta ou à mão
+    if (!vendeu) continue;
+    const tVenda = venda ? new Date(venda.criadoEm || venda.data).getTime() : new Date(vendeu.em || 0).getTime() || 0;
     const antes = n;
     for (const a of lead.agendamentos) {
       if (a.status !== 'agendado') continue;
-      if (tVenda < new Date(a.criadoEm || 0).getTime() - 3600 * 1000) continue; // marcado depois da venda: fica
+      // marcado depois da venda: fica (menos o "data a combinar" criado pela etiqueta Agendado
+      // velha que voltou da cópia do servidor — esse não é agendamento de verdade)
+      if (tVenda < new Date(a.criadoEm || 0).getTime() - 3600 * 1000 && !(a.por === 'etiqueta' && !a.quando)) continue;
       a.status = 'concluido';
       a.concluidoEm = agora();
       a.concluidoPor = 'venda';
@@ -398,7 +401,11 @@ function voltaVelha(empresa, lead, etiquetaId) {
 // Etiqueta chegando agora é a velha? Só quando vem da cópia do servidor ou do celular
 // reenviando tudo logo depois de reconectar — posta de propósito (no celular ou no CRM) vale
 function etiquetaChegandoEhVelha(empresa, lead, etiquetaId, { aoVivo = false } = {}) {
-  if (!voltaVelha(empresa, lead, etiquetaId) || (lead.etiquetas || []).includes(etiquetaId)) return false;
+  // "Agendado"/"Orçamento" para quem já comprou, vindo da cópia ou da reconexão: também é velha
+  // (mesmo depois dos 7 dias) — senão volta a aparecer como agendado e cria agendamento falso
+  const t = leads.etiquetasDa(empresa).find((x) => x.id === etiquetaId);
+  const antesDaVendaEmVendido = Boolean(t && ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim()) && jaVendeu(empresa, lead));
+  if (!(voltaVelha(empresa, lead, etiquetaId) || antesDaVendaEmVendido) || (lead.etiquetas || []).includes(etiquetaId)) return false;
   if (!aoVivo) return true;
   const reconectou = empresa.whatsappConfig?.reconectouEm;
   return Boolean(reconectou && Date.now() - new Date(reconectou).getTime() < 10 * 60 * 1000);
