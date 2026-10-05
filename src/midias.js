@@ -341,7 +341,9 @@ function prontaParaIa(m) {
 function paraIa(empresa, { followup = false } = {}) {
   // mídia ligada a um serviço/produto do catálogo já está "configurada": vai quando se fala dele
   const ligadas = require('./catalogo').midiasLigadas(empresa);
-  const todas = midiasDa(empresa).filter((m) => prontaParaIa(m) || (ligadas.has(m.codigo) && !m.processando) || (m.albumId && !m.processando));
+  const doPrompt = codigosDoPrompt(empresa);
+  const albunsDoPrompt = new Set(albunsDa(empresa).filter((a) => doPrompt.has(a.codigo)).map((a) => a.id));
+  const todas = midiasDa(empresa).filter((m) => prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando));
   const valeAqui = (x) => followup || !x.soFollowup;
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
@@ -349,7 +351,7 @@ function paraIa(empresa, { followup = false } = {}) {
     .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
-    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo))).length, servicos: servicos(a.codigo) }))
+    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo) || doPrompt.has(a.codigo))).length, servicos: servicos(a.codigo) }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
     .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
@@ -432,7 +434,7 @@ function pendenciasDoPrompt(empresa) {
         const base = { botId: bot.id, campo, onde: rotulo, trecho };
         if (citados.length) {
           for (const c of citados) {
-            if (c.existe && c.ativa) continue;
+            if (c.existe && (c.ativa || campo === 'promptWhatsapp')) continue;
             const id = idPendencia(bot.id, campo, trecho, c.escrito);
             if (ignoradas.has(id)) continue;
             lista.push({ ...base, id, tipo: c.existe ? 'desativada' : 'inexistente', escrito: c.escrito, codigo: c.codigo, nome: c.nome, sugestoes: c.existe ? [] : sugerirMidias(empresa, `${trecho} ${c.codigo.replace(/^#MIDIA_/, '').replace(/_/g, ' ')}`) });
@@ -442,6 +444,7 @@ function pendenciasDoPrompt(empresa) {
         if (!FALA_DE_MIDIA.test(trecho) || !VERBO_ENVIAR.test(trecho)) continue;
         const id = idPendencia(bot.id, campo, trecho);
         if (ignoradas.has(id)) continue;
+        if (campo === 'promptWhatsapp' && conexaoCerta(empresa, trecho)) continue; // a IA já recebe com o código certo
         lista.push({ ...base, id, tipo: 'sem-codigo', escrito: (trecho.match(FALA_DE_MIDIA) || [''])[0], sugestoes: sugerirMidias(empresa, trecho) });
       }
     }
@@ -460,6 +463,70 @@ function conectarNoPrompt(empresa, pendencia, codigoMidia) {
   if (pendencia.tipo === 'inexistente') novoTrecho = pendencia.trecho.split(pendencia.escrito).join(codigo);
   else novoTrecho = pendencia.trecho.replace(/\s*([.!?;:]*)$/, (_, pont) => ` (mídia ${codigo})${pont}`);
   return { bot, campo: pendencia.campo, textoNovo: texto.replace(pendencia.trecho, novoTrecho), novoTrecho };
+}
+
+// A mídia certa para um trecho do prompt, só quando não há dúvida: a melhor sugestão
+// combina com o trecho (nome/descrição/assunto) e ganha com folga da segunda
+function conexaoCerta(empresa, trecho) {
+  const [a, b] = sugerirMidias(empresa, trecho, 2);
+  if (!a || a.pontos < 5) return null;
+  if (b && b.pontos > a.pontos - 3) return null;
+  return a;
+}
+
+// Instruções que vão para a IA com as mídias conectadas: o trecho que fala de mídia sem
+// código ganha "(mídia #MIDIA_X)" e um código que não existe é trocado pelo certo — só
+// quando a mídia certa é clara. Não muda o texto salvo (o "Atualizar prompt" grava).
+// Devolve { texto, conectadas: [{ trecho, codigo, nome }] }
+const cacheConexoes = new Map(); // empresaId → { chave, r }
+function instrucoesComMidias(empresa, texto, botId = '') {
+  const original = String(texto || '').trim();
+  if (!empresa || !original) return { texto: original, conectadas: [] };
+  const chave = crypto
+    .createHash('sha1')
+    .update(JSON.stringify([botId, original, empresa.mencoesIgnoradas || [], midiasDa(empresa).map((m) => [m.codigo, m.nome, m.descricao, m.assuntos, m.pronta, m.tipo, m.albumId, m.pastaId]), albunsDa(empresa).map((a) => [a.codigo, a.nome, a.descricao, a.assuntos]), pastasDa(empresa).map((x) => [x.codigo, x.nome, x.descricao])]))
+    .digest('hex');
+  const guardado = cacheConexoes.get(`${empresa.id}|${botId}`);
+  if (guardado && guardado.chave === chave) return guardado.r;
+  const ignoradas = new Set(empresa.mencoesIgnoradas || []);
+  let saida = original;
+  const conectadas = [];
+  for (const trecho of trechosDe(original)) {
+    const citados = codigosCitados(empresa, trecho);
+    let novo = trecho;
+    if (citados.length) {
+      for (const c of citados.filter((x) => !x.existe)) {
+        if (ignoradas.has(idPendencia(botId, 'promptWhatsapp', trecho, c.escrito))) continue;
+        const certa = conexaoCerta(empresa, `${trecho} ${c.codigo.replace(/^#MIDIA_/, '').replace(/_/g, ' ')}`);
+        if (certa) {
+          novo = novo.split(c.escrito).join(certa.codigoVisivel);
+          conectadas.push({ trecho, codigo: certa.codigoVisivel, nome: certa.nome, trocou: c.escrito });
+        }
+      }
+    } else if (FALA_DE_MIDIA.test(trecho) && VERBO_ENVIAR.test(trecho) && !ignoradas.has(idPendencia(botId, 'promptWhatsapp', trecho))) {
+      const certa = conexaoCerta(empresa, trecho);
+      if (certa) {
+        novo = trecho.replace(/\s*([.!?;:]*)$/, (_, pont) => ` (mídia ${certa.codigoVisivel})${pont}`);
+        conectadas.push({ trecho, codigo: certa.codigoVisivel, nome: certa.nome });
+      }
+    }
+    if (novo !== trecho) saida = saida.replace(trecho, novo);
+  }
+  const r = { texto: saida, conectadas };
+  if (cacheConexoes.size > 500) cacheConexoes.clear();
+  cacheConexoes.set(`${empresa.id}|${botId}`, { chave, r });
+  return r;
+}
+
+// Códigos (mídia, álbum ou pasta) que as instruções do WhatsApp citam (com as conexões
+// automáticas): o dono mandou enviar, então a IA pode mandar mesmo "a configurar"
+function codigosDoPrompt(empresa) {
+  const set = new Set();
+  for (const bot of estado.bots.filter((b) => b.empresaId === empresa.id)) {
+    const texto = instrucoesComMidias(empresa, bot.promptWhatsapp, bot.id).texto;
+    for (const c of codigosCitados(empresa, texto)) if (c.existe) set.add(codigoDaEntrada(c.codigo));
+  }
+  return set;
 }
 
 function avisosDoPrompt(empresa) {
@@ -799,6 +866,9 @@ module.exports = {
   linkDiretoDrive,
   salvarMidiaDoLink,
   codigosCitados,
+  instrucoesComMidias,
+  conexaoCerta,
+  codigosDoPrompt,
   avisosDoPrompt,
   pendenciasDoPrompt,
   conectarNoPrompt,

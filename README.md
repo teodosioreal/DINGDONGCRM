@@ -200,8 +200,23 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
 ### IA: instruções, verdade, mensagem manual, localização
 
-- **Instruções da empresa** ficam no fim do prompt, marcadas como prioridade máxima
-  ("siga à risca"), acima das dicas gerais de venda. **Regras de verdade**: a IA só afirma
+- **Instruções da empresa** ficam no fim do prompt, acima das dicas gerais de venda, do
+  clone e dos aprendizados: a IA segue **com naturalidade** o que o dono pediu (sem
+  protocolo rígido nem reescrita automática). Ela não começa toda mensagem do mesmo jeito:
+  se repetir a abertura das últimas mensagens ("Legal!", "Perfeito!"…), o CRM tira.
+- **🆕 Atualizar prompt** (IA do WhatsApp): salva as instruções e, a partir dali, a IA
+  segue **só o prompt novo** — o clone e os aprendizados saem da IA (guardados; "Voltar
+  clone e aprendizados" desfaz) e, nas conversas em andamento, o que foi dito antes vira
+  só contexto (a IA não imita as respostas antigas). As mídias citadas no texto sem código
+  são conectadas sozinhas quando a mídia certa é clara.
+- **Mídias citadas no prompt**: "mande o vídeo do revestimento" chega para a IA com o
+  código certo (`(mídia #MIDIA_X)`) quando não há dúvida de qual é, e mídia citada nas
+  instruções do WhatsApp vale mesmo "a configurar". Se a IA diz que vai mandar e esquece
+  o código, o CRM manda a mídia que combina (só quando é clara).
+- **Não atropelar**: a IA espera a foto/áudio do cliente ser lido antes de responder, o
+  "digitando…" é feito pelo CRM (se o cliente escrever nesse meio-tempo, a resposta não sai
+  e a IA responde tudo junto) e o eco das mensagens da própria IA nunca é confundido com a
+  equipe (não pausa a IA nem vira exemplo do clone). **Regras de verdade**: a IA só afirma
   o que está escrito (instruções, Sobre a empresa, site, conversa) e diz "vou confirmar"
   em vez de inventar preço, prazo, endereço etc. O atendimento usa esforço médio e
   temperatura baixa (segue melhor e inventa menos).

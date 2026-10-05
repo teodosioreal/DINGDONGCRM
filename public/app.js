@@ -802,15 +802,23 @@ function painelInstrucoes(form, botId, canal) {
     const salvo = String(bot[campo] || '');
     const mudou = area.value !== salvo;
     const hist = (bot.historicoInstrucoes || []).filter((h) => h.canal === canal);
-    const regras = bot.regrasConferidas?.[canal] || [];
+    const pn = canal === 'whatsapp' ? bot.promptNovo : null;
     painel.innerHTML = `
       <div class="pi-linhas">
         <div class="pi-linha"><span class="pi-rot">Última mudança</span><span>${ed ? `<b>${esc(data(ed.em))}</b>${ed.por ? ` · ${esc(ed.por)}` : ''} · ${ed.caracteres} caracteres` : salvo ? 'antes do histórico começar' : '<span class="rotulo">nenhuma instrução salva</span>'}</span></div>
         <div class="pi-linha"><span class="pi-rot">Situação</span><span>${mudou ? '<span class="pi-tag aviso">● Alterações não salvas — a IA ainda usa a versão anterior</span>' : salvo ? '<span class="pi-tag ok">● Em uso pela IA</span> <span class="rotulo">vale na próxima mensagem de qualquer conversa</span>' : '<span class="pi-tag">● Sem instruções — a IA segue só o padrão</span>'}</span></div>
         <div class="pi-linha"><span class="pi-rot">Última conferência</span><span>${conf ? `${conf.antiga ? '<span class="pi-tag aviso">desatualizada (o texto mudou depois)</span> ' : `<span class="pi-tag ${conf.nota === 'ok' ? 'ok' : 'aviso'}">${esc(conf.placar)}</span> `}<span class="rotulo">${esc(data(conf.em))}</span>` : '<span class="rotulo">nunca — clique em <b>Atualizar e conferir</b></span>'}</span></div>
-        ${regras.length ? `<div class="pi-linha"><span class="pi-rot">Conferido antes de enviar</span><span>${regras.map((r) => `<span class="pi-regra">🛡️ ${esc(r)}</span>`).join(' ')}<br><span class="rotulo">Se a IA quebrar uma destas, o CRM faz ela reescrever antes de mandar.</span></span></div>` : ''}
+        ${pn ? `<div class="pi-linha"><span class="pi-rot">Só o prompt novo</span><span><span class="pi-tag ok">● Desde ${esc(data(pn.em))}</span> <span class="rotulo">a IA não usa ${[pn.guardado?.cloneResponder ? 'o clone' : '', pn.guardado?.aprendizadosNoPrompt ? 'os aprendizados' : ''].filter(Boolean).join(' nem ') || 'clone nem aprendizados'} e não imita as respostas antigas das conversas.</span> <button type="button" class="pequeno" data-voltar-prompt>↩️ Voltar clone e aprendizados</button></span></div>` : ''}
       </div>
       ${hist.length ? `<details class="pi-hist"><summary>Versões anteriores (${hist.length})</summary>${hist.map((h, i) => `<div class="pi-versao"><div class="rotulo">Usada até ${esc(data(h.ate))}${h.por ? ` · trocada por ${esc(h.por)}` : ''}</div><pre>${esc(h.texto.length > 400 ? `${h.texto.slice(0, 400)}…` : h.texto)}</pre><button type="button" class="pequeno" data-restaurar="${i}">Usar esta versão</button></div>`).join('')}</details>` : ''}`;
+    painel.querySelector('[data-voltar-prompt]')?.addEventListener('click', async (e) => {
+      if (!(await confirmar({ titulo: 'Voltar o clone e os aprendizados?', texto: 'A IA volta a usar o clone e os aprendizados como estavam antes do "Atualizar prompt" e volta a ler as conversas inteiras como antes. As instruções continuam as de agora.', botao: '↩️ Voltar' }))) return;
+      try {
+        await comEspera(e.currentTarget, () => api(`bots/${botId}/atualizar-prompt/voltar`, { method: 'POST', body: {} }));
+        aviso('Pronto: o clone e os aprendizados voltaram como estavam.');
+        atualizar();
+      } catch (err) { aviso(err.message, true); }
+    });
     $$('[data-restaurar]', painel).forEach((b) => {
       b.onclick = () => { area.value = hist[Number(b.dataset.restaurar)].texto; desenhar(); area.focus(); aviso('Versão antiga colocada no campo. Clique em Salvar ou em Atualizar e conferir para usar.'); };
     });
@@ -821,6 +829,33 @@ function painelInstrucoes(form, botId, canal) {
   area.addEventListener('input', () => { clearTimeout(area._pi); area._pi = setTimeout(desenhar, 250); });
   form._atualizarPainel = atualizar;
   atualizar();
+}
+
+// Botão "Atualizar prompt" (IA do WhatsApp): salva e, daqui para frente, a IA segue só o
+// prompt novo — sem clone nem aprendizados (guardados) e sem imitar as respostas antigas
+function ligarAtualizarPrompt(form, botId) {
+  const acoes = form.querySelector(':scope > .acoes');
+  if (!acoes || acoes.querySelector('.atualizar-prompt')) return;
+  const botao = document.createElement('button');
+  botao.type = 'button';
+  botao.className = 'atualizar-prompt primario';
+  botao.textContent = '🆕 Atualizar prompt';
+  botao.title = 'Salva e a IA passa a seguir só estas instruções (tira o clone e os aprendizados antigos, guardados para voltar)';
+  acoes.prepend(botao);
+  botao.onclick = async () => {
+    const area = form.elements.promptWhatsapp;
+    if (!area?.value.trim()) return aviso('Escreva as instruções antes de atualizar.', true);
+    if (!(await confirmar({ titulo: 'Atualizar prompt?', texto: '<p>A partir de agora a IA segue <b>só estas instruções</b>:</p><ul><li>o <b>clone</b> e os <b>aprendizados</b> saem da IA (ficam guardados — dá para voltar);</li><li>nas conversas em andamento ela <b>não imita as respostas antigas</b> (usa só para saber o que já foi falado);</li><li>as mídias citadas no texto são <b>conectadas</b> sozinhas quando a mídia certa é clara.</li></ul>', botao: '🆕 Atualizar prompt' }))) return;
+    try {
+      const r = await comEspera(botao, () => api(`bots/${botId}/atualizar-prompt`, { method: 'POST', body: { promptWhatsapp: area.value } }), 'Atualizando…');
+      area.value = r.bot.promptWhatsapp || '';
+      const partes = ['Prompt atualizado: a IA segue só as instruções novas.'];
+      if (r.conectadas.length) partes.push(`${r.conectadas.length} mídia(s) conectada(s): ${r.conectadas.map((c) => c.codigo).join(', ')}.`);
+      if (r.pendencias.length) partes.push(`${r.pendencias.length} trecho(s) falam de mídia sem conexão certa — veja em Mídias.`);
+      aviso(partes.join(' '), r.pendencias.length > 0);
+      form._atualizarPainel?.();
+    } catch (err) { aviso(err.message, true); }
+  };
 }
 
 // Botão "Atualizar e conferir": salva as instruções e testa a IA de verdade
@@ -1729,6 +1764,7 @@ async function paginaWhatsapp(id) {
       e.preventDefault();
       try { await salvarBot(bot.id, form); } catch (err) { aviso(err.message, true); }
     };
+    ligarAtualizarPrompt(form, bot.id);
     ligarConferirPrompt(form, bot.id, 'whatsapp');
     painelInstrucoes(form, bot.id, 'whatsapp');
     ligarChatTeste({ botId: bot.id, canal: 'whatsapp', rascunho: () => formParaObjeto(form), saudacao: () => '' });

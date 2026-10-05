@@ -55,6 +55,18 @@ async function evo(e, metodo, caminho) {
     const midiasLog = logs30.flatMap((l) => l.midias || []);
     const contaSt = (st) => midiasLog.filter((m) => m.status === st).length;
     console.log(`      respostas da IA (30 h, log): ${logs30.length} · com erro: ${logs30.filter((l) => (l.erros || []).length).length} · mídias enviadas: ${contaSt('enviada')} · já enviadas (não repetiu): ${contaSt('ja-enviada')} · código inexistente: ${contaSt('nao-existe')} · falha no envio: ${contaSt('erro')} · prometeu mídia sem código: ${logs30.filter((l) => (l.avisos || []).some((a) => /sem|nenhum código/.test(a))).length}`);
+    // IA: atropelo, mídias e "só o prompt novo" (só contagens: nada de conversa nem prompt)
+    const descartadas = logs30.filter((l) => l.situacao === 'descartada').length;
+    const respondeu = logs30.filter((l) => l.situacao === 'enviada' || l.situacao === 'pausada').length;
+    const porConversa = {};
+    for (const l of logs30.filter((x) => x.situacao === 'enviada')) porConversa[l.leadId] = (porConversa[l.leadId] || 0) + 1;
+    const emSeguida = logs30.filter((l, i) => l.situacao === 'enviada' && logs30.slice(0, i).some((a) => a.leadId === l.leadId && a.situacao === 'enviada' && new Date(l.em) - new Date(a.em) < 60000)).length;
+    const comCodigoMidia = logs30.filter((l) => (l.codigos || []).some((c) => c.tipo === 'midia')).length;
+    console.log(`      IA (30 h): respostas enviadas ${respondeu} · descartadas para não atropelar ${descartadas} · enviadas a menos de 1 min de outra na mesma conversa ${emSeguida} · com código de mídia ${comCodigoMidia}`);
+    const bots = (db.bots || []).filter((b) => b.empresaId === e.id);
+    const codigosNoPrompt = bots.reduce((n, b) => n + (String(b.promptWhatsapp || '').match(/#\s*MIDIA[_:-]\s*[A-Za-z0-9]/gi) || []).length, 0);
+    const pn = e.promptNovo;
+    console.log(`      prompt: só o prompt novo ${pn ? `SIM desde ${hora(pn.em)}` : 'não'} · clone respondendo: ${e.clone?.ativo && e.clone?.responder ? 'sim' : 'não'} · aprendizados no prompt: ${e.aprendizado?.texto && e.aprendizado?.usarNoPrompt !== false ? 'sim' : 'não'} · códigos de mídia escritos no prompt do WhatsApp: ${codigosNoPrompt} · mídias cadastradas: ${(e.midias || []).length} (a configurar: ${(e.midias || []).filter((m) => m.pronta === false).length})`);
     const ev = e.eventosIa || {};
     console.log(`      avisos internos ligados: ${Object.entries(ev).filter(([, v]) => v.ativo).map(([k, v]) => `${k}${v.minutos ? ` ${v.minutos} min` : ''}`).join(', ') || 'só o padrão (foto do cliente)'}`);
     const gc = e.gastos || {};

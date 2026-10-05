@@ -230,6 +230,7 @@ function motivoGeral(empresa, lead, f) {
   if (lead.naoDisparar) return 'pediu para não receber';
   if (leads.naListaNegra?.(empresa, lead)) return 'lista negra';
   if (lead.precisaHumano) return 'esperando a equipe';
+  if (whatsapp.iaOcupadaCom(lead.id)) return 'a IA está respondendo agora';
   if (lead.iaPausada && !f.incluirPausados) return 'equipe atendendo';
   if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return 'já tem mensagem agendada';
   return null;

@@ -518,6 +518,40 @@ function lembrarEnvio(resposta, destino) {
 }
 
 const foiEnviadoPeloCrm = (id) => enviadosPeloCrm.has(id);
+
+// O eco de uma mensagem do CRM (messages.upsert com fromMe) pode chegar ANTES de a
+// Evolution devolver o id do envio. Sem isto, a resposta da própria IA era tratada
+// como "a equipe respondeu pelo celular" (pausava a IA e virava exemplo do clone).
+// Guarda o texto/mídia que está saindo para cada destino por 3 minutos.
+const ecosEsperados = new Map(); // dígitos do destino → [{ texto, midia, em }]
+const digitosDe = (v) => String(v || '').split('@')[0].replace(/\D/g, '');
+const normalizarEco = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+function esperarEco(destino, { texto = '', midia = false } = {}) {
+  const k = digitosDe(destinoDe(destino));
+  if (!k) return;
+  const corte = Date.now() - 3 * 60 * 1000;
+  const lista = (ecosEsperados.get(k) || []).filter((x) => x.em > corte);
+  lista.push({ texto: normalizarEco(texto), midia, em: Date.now() });
+  ecosEsperados.set(k, lista.slice(-20));
+  if (ecosEsperados.size > 3000) ecosEsperados.delete(ecosEsperados.keys().next().value);
+}
+// esta mensagem "da empresa" é o eco de algo que o CRM acabou de mandar?
+function ehEcoDoCrm(msg, lead, texto) {
+  const chaves = new Set([msg?.key?.remoteJid, msg?.key?.remoteJidAlt, lead?.whatsappJid, lead?.lidJid, lead?.telefone].map(digitosDe).filter(Boolean));
+  const corte = Date.now() - 3 * 60 * 1000;
+  const m = msg?.message || {};
+  const ehMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage);
+  const alvo = normalizarEco(texto);
+  for (const k of chaves) {
+    const lista = ecosEsperados.get(k) || [];
+    const i = lista.findIndex((x) => x.em > corte && (ehMidia ? x.midia : !x.midia && x.texto && x.texto === alvo));
+    if (i >= 0) {
+      lista.splice(i, 1);
+      return true;
+    }
+  }
+  return false;
+}
 // a IA já vai responder (ou está escrevendo) para este contato?
 const iaOcupadaCom = (leadId) => agendadas.has(leadId) || emResposta.has(leadId);
 
@@ -549,6 +583,7 @@ function esperaParaResponder(empresa, lead) {
 }
 
 async function enviarTexto(empresa, destino, texto, { digitando = true } = {}) {
+  esperarEco(destino, { texto });
   const r = await evolution(empresa, 'POST', '/message/sendText/{instancia}', {
     number: destinoDe(destino),
     text: texto,
@@ -566,6 +601,7 @@ function videoTocaNoWhatsapp(midia) {
 async function enviarMidia(empresa, destino, midia, legenda = '') {
   if (midia.processando) throw erro(`O vídeo "${midia.codigo || midia.nome}" ainda está sendo convertido para o WhatsApp. Tente de novo em instantes.`, 409);
   const url = midias.urlPublica(midia);
+  esperarEco(destino, { midia: true });
   // o WhatsApp baixa o arquivo do CRM e sobe para os servidores dele: vídeo grande demora
   const tempo = midia.tipo === 'image' ? 60000 : 180000;
   const mandar = (mediatype) =>
@@ -820,7 +856,10 @@ async function receberWebhook(empresa, corpo) {
 
     if (msg.key.fromMe) {
       // enviada pelo próprio CRM (eco) → ignora; enviada pela equipe no celular → IA para
-      if (enviadosPeloCrm.has(msg.key.id)) continue;
+      if (enviadosPeloCrm.has(msg.key.id)) {
+        ehEcoDoCrm(msg, require('./identidade').acharCliente(empresa, msg), texto); // já reconhecido pelo id: tira da lista de ecos esperados
+        continue;
+      }
       // atalho digitado no celular (ex.: /preco) → o CRM manda a resposta pronta com a mídia
       const atalho = respostaPorAtalho(empresa, texto);
       if (atalho) {
@@ -830,6 +869,11 @@ async function receberWebhook(empresa, corpo) {
       // a equipe respondeu pelo celular: acha a conversa por qualquer endereço do cliente
       const lead = require('./identidade').acharCliente(empresa, msg);
       if (!lead) continue;
+      // eco da IA/automação que chegou antes da confirmação do envio: não é a equipe
+      if (ehEcoDoCrm(msg, lead, texto)) {
+        enviadosPeloCrm.set(msg.key.id, Date.now());
+        continue;
+      }
       const anexo = await baixarAnexo(empresa, lead, msg).catch(() => null);
       const NOME_TIPO = { image: 'uma foto', audio: 'um áudio', video: 'um vídeo', document: 'um arquivo' };
       const legenda = texto.replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '');
@@ -846,69 +890,89 @@ async function receberWebhook(empresa, corpo) {
     }
 
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
-    delete lead.historicoImportado; // o cliente escreveu de verdade agora
-    // número escondido pelo WhatsApp: pergunta à Evolution qual é o de verdade (sem travar a resposta)
-    if (/@lid$/.test(lead.whatsappJid || '') && (!lead.lidTentativaEm || Date.now() - new Date(lead.lidTentativaEm).getTime() > 6 * 3600 * 1000)) {
-      lead.lidTentativaEm = agora();
-      const lid = lead.whatsappJid;
-      require('./sincronizar').descobrirNumeroDoLid(empresa, lid).then((tel) => tel && (require('./sincronizar').consertarLid(empresa, lid, tel), salvar())).catch(() => {});
-    }
-    require('./fotos-clientes').agendar(lead); // foto de perfil do cliente (se ainda não tem ou está velha)
-    // cliente mandou mensagem de novo: a conversa volta para a lista
-    if (lead.arquivado) {
-      lead.arquivado = false;
-      lead.arquivadoPor = '';
-    }
-    // veio de um anúncio de clique para WhatsApp (Meta)? guarda qual
-    const anuncioMeta = origem.anuncioDoWhatsapp(msg);
-    if (anuncioMeta) origem.registrarAnuncioWhatsapp(lead, anuncioMeta);
-    // áudio vira texto e foto vira descrição, para a IA entender — só se a IA vai
-    // responder este cliente (economiza tokens); comprovante de Pix é lido sempre (sem IA)
-    let anexo = null;
+    // "não atropelar": enquanto esta mensagem é preparada (foto descrita pela IA, áudio
+    // transcrito…), a IA não responde este cliente — responde tudo junto depois
+    marcarChegando(lead.id, +1);
     try {
-      const r = await baixarAnexo(empresa, lead, msg, { entender: iaVaiResponder(empresa, lead), comprovante: true });
-      if (r) {
-        anexo = r.anexo;
-        if (r.entendido) texto = r.entendido;
-      }
-    } catch (err) {
-      console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
+      await receberDoCliente(empresa, lead, jid, msg, texto);
+    } finally {
+      marcarChegando(lead.id, -1);
     }
-    leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
-    require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
-    require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
-    require('./detector-agenda').observar(empresa, lead); // "pode ser", "vou ter que desmarcar"…
-    require('./sugestao-midia').observar(empresa, lead); // foto do volante / "meu carro é um civic" → sugere a mídia
-    origem.aplicarAnuncio(empresa, lead);
-    require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
-    lead.naoLidas = (lead.naoLidas || 0) + 1;
-    leads.aoChegarNoWhatsapp(lead, empresa);
-    leads.aoConversar(lead, empresa); // 2ª mensagem do cliente: Lead novo → Convertendo
-
-    // lista negra: a mensagem aparece em Conversas, mas ninguém (nem a IA) responde
-    if (leads.naListaNegra(empresa, lead)) {
-      lead.listaNegra = true;
-      salvar();
-      continue;
-    }
-
-    // resposta "SAIR" a um disparo em massa: não recebe mais disparos
-    if (lead.ultimoDisparoEm && pediuParaSair(texto)) {
-      lead.naoDisparar = true;
-      salvar();
-      const confirmacao = 'Pronto! Você não vai mais receber nossas mensagens automáticas. Se precisar, é só chamar aqui. 👍';
-      enviarTexto(empresa, jid, confirmacao)
-        .then(() => {
-          leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: confirmacao });
-          salvar();
-        })
-        .catch((err) => console.error(`[whatsapp ${lead.id}] sair:`, err.message));
-      continue;
-    }
-    salvar();
-    if (resolverSemIa(empresa, lead, texto, jid)) continue;
-    agendarResposta(empresa, lead);
   }
+}
+
+// Uma mensagem do cliente (já com a conversa achada)
+async function receberDoCliente(empresa, lead, jid, msg, texto) {
+  delete lead.historicoImportado; // o cliente escreveu de verdade agora
+  // número escondido pelo WhatsApp: pergunta à Evolution qual é o de verdade (sem travar a resposta)
+  if (/@lid$/.test(lead.whatsappJid || '') && (!lead.lidTentativaEm || Date.now() - new Date(lead.lidTentativaEm).getTime() > 6 * 3600 * 1000)) {
+    lead.lidTentativaEm = agora();
+    const lid = lead.whatsappJid;
+    require('./sincronizar').descobrirNumeroDoLid(empresa, lid).then((tel) => tel && (require('./sincronizar').consertarLid(empresa, lid, tel), salvar())).catch(() => {});
+  }
+  require('./fotos-clientes').agendar(lead); // foto de perfil do cliente (se ainda não tem ou está velha)
+  // cliente mandou mensagem de novo: a conversa volta para a lista
+  if (lead.arquivado) {
+    lead.arquivado = false;
+    lead.arquivadoPor = '';
+  }
+  // veio de um anúncio de clique para WhatsApp (Meta)? guarda qual
+  const anuncioMeta = origem.anuncioDoWhatsapp(msg);
+  if (anuncioMeta) origem.registrarAnuncioWhatsapp(lead, anuncioMeta);
+  // áudio vira texto e foto vira descrição, para a IA entender — só se a IA vai
+  // responder este cliente (economiza tokens); comprovante de Pix é lido sempre (sem IA)
+  let anexo = null;
+  try {
+    const r = await baixarAnexo(empresa, lead, msg, { entender: iaVaiResponder(empresa, lead), comprovante: true });
+    if (r) {
+      anexo = r.anexo;
+      if (r.entendido) texto = r.entendido;
+    }
+  } catch (err) {
+    console.error(`[whatsapp ${lead.id}] anexo:`, err.message);
+  }
+  // a busca de mensagens (sincronizar) pode ter trazido esta mesma mensagem enquanto a
+  // foto/áudio era preparado: completa a que já está lá em vez de duplicar
+  const jaTem = (lead.mensagens || []).find((m) => m.papel === 'visitante' && (m.wid === msg.key.id || m.wids?.includes(msg.key.id)));
+  if (jaTem) {
+    jaTem.texto = texto;
+    if (anexo && !jaTem.anexo) jaTem.anexo = anexo;
+    delete jaTem.importada;
+    lead.atualizadoEm = agora();
+  } else leads.adicionarMensagem(lead, { papel: 'visitante', canal: 'whatsapp', texto, anexo: anexo || undefined, wid: msg.key.id });
+  require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
+  require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
+  require('./detector-agenda').observar(empresa, lead); // "pode ser", "vou ter que desmarcar"…
+  require('./sugestao-midia').observar(empresa, lead); // foto do volante / "meu carro é um civic" → sugere a mídia
+  origem.aplicarAnuncio(empresa, lead);
+  require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
+  lead.naoLidas = (lead.naoLidas || 0) + 1;
+  leads.aoChegarNoWhatsapp(lead, empresa);
+  leads.aoConversar(lead, empresa); // 2ª mensagem do cliente: Lead novo → Convertendo
+
+  // lista negra: a mensagem aparece em Conversas, mas ninguém (nem a IA) responde
+  if (leads.naListaNegra(empresa, lead)) {
+    lead.listaNegra = true;
+    salvar();
+    return;
+  }
+
+  // resposta "SAIR" a um disparo em massa: não recebe mais disparos
+  if (lead.ultimoDisparoEm && pediuParaSair(texto)) {
+    lead.naoDisparar = true;
+    salvar();
+    const confirmacao = 'Pronto! Você não vai mais receber nossas mensagens automáticas. Se precisar, é só chamar aqui. 👍';
+    enviarTexto(empresa, jid, confirmacao)
+      .then(() => {
+        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: confirmacao });
+        salvar();
+      })
+      .catch((err) => console.error(`[whatsapp ${lead.id}] sair:`, err.message));
+    return;
+  }
+  salvar();
+  if (resolverSemIa(empresa, lead, texto, jid)) return;
+  agendarResposta(empresa, lead);
 }
 
 // ---------------------------------------------------------------- o que dá para resolver sem IA (economiza tokens)
@@ -932,7 +996,11 @@ function resolverSemIa(empresa, lead, texto, jid) {
   if (!iaVaiResponder(empresa, lead)) return false; // a IA nem ia responder: segue o fluxo normal (que registra o motivo)
   const nossas = (lead.mensagens || []).filter((m) => m.papel !== 'visitante' && !m.apagada);
   const ultimaNossa = nossas[nossas.length - 1];
-  if (soConfirmacao(texto) && ultimaNossa && !/\?\s*$/.test(ultimaNossa.texto || '')) {
+  // antes deste "ok" o cliente já tinha mandado algo sem resposta? então precisa responder
+  const visiveis = (lead.mensagens || []).filter((m) => !m.apagada);
+  const anterior = visiveis[visiveis.length - 2];
+  const temPendente = anterior?.papel === 'visitante' || clienteMandando(lead.id) || emResposta.has(lead.id) || agendadas.has(lead.id);
+  if (soConfirmacao(texto) && ultimaNossa && !temPendente && !/\?\s*$/.test(ultimaNossa.texto || '')) {
     registrarIa(empresa, lead, 'ignorou', 'Só confirmação ("ok", "obrigado", emoji…) — não precisava de resposta.');
     return true;
   }
@@ -1171,6 +1239,19 @@ function cancelarResposta(leadId) {
   agendadas.delete(leadId);
 }
 
+// Mensagens do cliente que ainda estão sendo preparadas (foto sendo descrita, áudio
+// sendo transcrito…). Enquanto houver alguma, a IA não responde nem envia: senão a
+// mensagem seguinte (mais rápida) era respondida antes e a foto gerava outra resposta.
+const chegando = new Map(); // leadId → quantas
+function marcarChegando(leadId, delta) {
+  const n = Math.max(0, (chegando.get(leadId) || 0) + delta);
+  if (n) chegando.set(leadId, n);
+  else chegando.delete(leadId);
+  // chegou mensagem nova enquanto a IA escrevia: a resposta em andamento é refeita
+  if (delta > 0 && emResposta.has(leadId)) emResposta.get(leadId).refazer = true;
+}
+const clienteMandando = (leadId) => (chegando.get(leadId) || 0) > 0;
+
 // ---------------------------------------------------------------- modo teste
 // Com o modo teste ligado, a IA (e as automações) só falam com os números de
 // teste. As mensagens dos outros clientes continuam chegando no CRM normalmente.
@@ -1225,14 +1306,15 @@ function agendarResposta(empresa, lead) {
     return registrarIa(empresa, lead, 'ignorou', numero ? `Modo teste ligado: o número +${numero} não está na lista de teste.` : 'Modo teste ligado e o WhatsApp não mostrou o número deste contato.');
   }
   cancelarResposta(lead.id);
-  agendadas.set(
-    lead.id,
-    setTimeout(() => {
-      agendadas.delete(lead.id);
-      responderLead(empresa.id, lead.id).catch((err) => console.error(`[whatsapp ${lead.id}]`, err.message));
-    }, esperaParaResponder(empresa, lead))
-  );
+  const disparar = () => {
+    // ainda chegando mensagem do cliente (ex.: foto sendo lida): espera mais um pouco
+    if (clienteMandando(lead.id)) return agendadas.set(lead.id, setTimeout(disparar, ESPERA_CHEGANDO_MS));
+    agendadas.delete(lead.id);
+    responderLead(empresa.id, lead.id).catch((err) => console.error(`[whatsapp ${lead.id}]`, err.message));
+  };
+  agendadas.set(lead.id, setTimeout(disparar, esperaParaResponder(empresa, lead)));
 }
+const ESPERA_CHEGANDO_MS = 1500;
 
 // "Não atropelar": se o cliente manda outra mensagem enquanto a IA ainda está
 // escrevendo, a resposta antiga é descartada (não sai) e a IA escreve de novo
@@ -1258,8 +1340,9 @@ async function responderLead(empresaId, leadId, tentativa = 0, opcoes = {}) {
     if (emResposta.get(leadId) === vez) emResposta.delete(leadId);
   }
   // o cliente mandou mais coisa enquanto a IA escrevia: responde tudo junto.
-  // Se já tem uma resposta agendada (cliente ainda digitando), ela cuida disso.
-  if (refazer && !agendadas.has(leadId)) return responderLead(empresaId, leadId, tentativa + 1);
+  // Se já tem uma resposta agendada (cliente ainda digitando) ou uma mensagem ainda
+  // sendo preparada (ela agenda a resposta quando terminar), elas cuidam disso.
+  if (refazer && !agendadas.has(leadId) && !clienteMandando(leadId)) return responderLead(empresaId, leadId, tentativa + 1);
 }
 
 // true = descartou a resposta porque o cliente mandou mensagem nova (precisa refazer)
@@ -1310,16 +1393,39 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA pensava.');
   }
   // o cliente mandou outra mensagem enquanto a IA escrevia → descarta e refaz com tudo (até 3 vezes)
-  if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || ultimaDoCliente(lead) !== ultimaAntes)) {
+  if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || clienteMandando(lead.id) || ultimaDoCliente(lead) !== ultimaAntes)) {
     logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['O cliente mandou outra mensagem enquanto a IA escrevia: esta resposta foi descartada e a IA respondeu tudo junto.'] });
     registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA escrevia: a resposta foi descartada e a IA vai responder tudo junto.');
     return true;
   }
-  if (logs.prometeuMidiaSemCodigo(r.texto, r.midias)) log.avisos.push('A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.');
+  if (logs.prometeuMidiaSemCodigo(r.texto, r.midias)) {
+    // a IA disse que ia mandar e esqueceu o código: se a mídia certa é clara (pelo que ela
+    // escreveu + o que o cliente pediu), o CRM manda; senão só avisa no log
+    const daIa = new Set(midias.paraIa(empresa).map((m) => m.codigo));
+    const certa = midias.conexaoCerta(empresa, `${r.texto} ${ultimaDoCliente(lead)?.texto || ''}`);
+    if (certa && daIa.has(certa.codigo) && !jaEnviouMidia(lead, certa.codigo)) {
+      r.midias = [...(r.midias || []), certa.codigo];
+      log.avisos.push(`A IA disse que ia mandar mídia sem escrever o código: o CRM mandou ${certa.codigoVisivel}, a que combina com a conversa.`);
+    } else log.avisos.push('A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.');
+  }
 
   if (r.texto) {
+    // "digitando…" aqui no CRM (e não dentro da Evolution): se o cliente mandar outra
+    // mensagem enquanto aparece "digitando…", esta resposta não sai e a IA responde tudo junto
+    const espera = tempoDigitando(r.texto, empresa);
+    evolution(empresa, 'POST', '/chat/sendPresence/{instancia}', { number: destinoDe(lead.whatsappJid), presence: 'composing', delay: espera }, { tempo: espera + 10000 }).catch(() => {});
+    await new Promise((ok) => setTimeout(ok, espera));
+    if (lead.iaPausada) {
+      logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['A equipe assumiu enquanto a IA digitava: nada foi enviado.'] });
+      return registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA digitava.');
+    }
+    if (naoAtropelar(empresa) && tentativa < 3 && (vez.refazer || clienteMandando(lead.id) || ultimaDoCliente(lead) !== ultimaAntes)) {
+      logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['O cliente mandou outra mensagem enquanto a IA digitava: esta resposta foi descartada e a IA respondeu tudo junto.'] });
+      registrarIa(empresa, lead, 'ignorou', 'O cliente mandou outra mensagem enquanto a IA digitava: a IA vai responder tudo junto.');
+      return true;
+    }
     try {
-      const env = await enviarTexto(empresa, lead.whatsappJid, r.texto);
+      const env = await enviarTexto(empresa, lead.whatsappJid, r.texto, { digitando: false });
       log.textoEnviado = r.texto;
       log.evolutionTexto = { endpoint: 'sendText', id: env?.key?.id || null, status: env?.status || null };
     } catch (err) {
@@ -1420,7 +1526,9 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
       continue;
     }
     // a IA (e as automações) só mandam mídia ATIVA (pronta); a equipe manda qualquer uma
-    const naoProntas = papel === 'assistente' ? pedido.itens.filter((m) => !midias.prontaParaIa(m)) : [];
+    // (mídia citada nas instruções do WhatsApp vale mesmo "a configurar": o dono mandou enviar)
+    const doPrompt = papel === 'assistente' ? midias.codigosDoPrompt(empresa) : new Set();
+    const naoProntas = papel === 'assistente' && !doPrompt.has(pedido.alvo.codigo) ? pedido.itens.filter((m) => !midias.prontaParaIa(m) && !doPrompt.has(m.codigo)) : [];
     const achadas = pedido.itens.filter((m) => !naoProntas.includes(m));
     if (naoProntas.length && !achadas.length) {
       resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'inativa', motivo: 'a mídia está desativada (a configurar)' });

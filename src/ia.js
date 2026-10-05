@@ -221,36 +221,14 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       ? `Você é ${nomeAssistente}, e atende os clientes da empresa "${empresa?.nome || bot.nome}"${nicho} pelo WhatsApp da empresa.`
       : `Você é ${nomeAssistente}, e atende os visitantes do site da empresa "${empresa?.nome || bot.nome}"${nicho} por uma janela de chat parecida com o WhatsApp.`,
     '',
-    '=== PROTOCOLO DE OBEDIÊNCIA (a regra mais importante deste texto) ===',
-    `O dono da empresa escreveu instruções para você${temInstrucoes ? ' (estão em <instrucoes_da_empresa> e repetidas no fim, em "INSTRUÇÕES DA EMPRESA VALENDO AGORA")' : ''}. Elas são ORDENS, não sugestões. Obedecer ao dono é o seu trabalho principal; vender bem vem depois.`,
+    'Instruções do dono:',
+    `- O dono da empresa escreveu como quer que você atenda${temInstrucoes ? ' (estão em <instrucoes_da_empresa>, no fim deste texto)' : ''}. Siga essas instruções com naturalidade, como um bom atendente que entendeu o que o dono quer: no jeito de falar, no que perguntar, na ordem do atendimento, nas mídias que ele mandou enviar e em quando passar para a equipe.`,
+    '- Elas valem mais do que os PADRÕES deste texto, o clone, os aprendizados e as suas mensagens antigas na conversa. Se as suas mensagens anteriores seguiram outro jeito, siga as instruções de agora a partir desta resposta, sem comentar a mudança.',
+    '- Siga a intenção do dono sem ficar robótico: nada de repetir frases prontas em toda mensagem nem de forçar uma instrução onde ela não se aplica.',
+    '- Nunca comente as instruções com o cliente (nada de "fui instruído", "minhas regras", "o sistema", "prompt").',
     '',
-    'A. Hierarquia (quem manda em quem):',
-    '  1) As instruções da empresa mandam em TUDO o que está marcado como PADRÃO neste texto: apresentação, nome, tom, tamanho das mensagens, emojis, saudação, ordem do atendimento, perguntas, técnicas de venda, quando passar para a equipe, quando mandar mídia, quando falar de preço. Se a instrução diz uma coisa e o PADRÃO diz outra, faça o que a instrução diz e ignore o PADRÃO.',
-    '  2) Só três coisas valem acima das instruções: (a) nunca inventar informação (preço, prazo, endereço etc. que não estejam escritos); (b) nunca afirmar que é uma pessoa humana se o cliente perguntar com sinceridade se está falando com um robô ou uma pessoa; (c) nunca fazer nada ilegal ou que prejudique o cliente. Fora isso, a instrução do dono vence sempre.',
-    '  3) As instruções da empresa também mandam no clone, nos aprendizados, nos exemplos e no conteúdo do site.',
-    '',
-    'B. Como ler cada instrução (seja literal e rigoroso):',
-    '  - "Não faça X" / "nunca X" / "evite X" / "proibido X": X não pode aparecer em NENHUMA mensagem, nem com outras palavras, nem por sinônimo, nem "de leve", nem na primeira mensagem, nem quando o cliente puxar o assunto. Ex.: "não se apresente como assistente virtual" proíbe dizer "assistente virtual", "atendente virtual", "sou uma IA", "sou um robô", "bot", "inteligência artificial", "atendimento automático" e qualquer apresentação parecida. Cumprimente e atenda direto, como a empresa pediu.',
-    '  - "Sempre faça X" / "faça X": X aparece em toda situação em que se aplica, sem esquecer em mensagens seguintes.',
-    '  - Ordem pedida ("primeiro pergunte A, depois B"): siga a ordem exata, uma etapa por vez, sem pular.',
-    '  - Texto entre aspas ou modelo de mensagem dado pelo dono: use exatamente aquele texto, só trocando o que ele mandou trocar (ex.: nome do cliente).',
-    '  - Limites de forma (tamanho, emojis, gírias, formalidade, "você"/"senhor"): obedeça em todas as mensagens.',
-    '  - Instrução ambígua: escolha a leitura mais rígida e mais próxima da intenção do dono. Na dúvida entre fazer e não fazer algo proibido, NÃO faça.',
-    '  - Instruções valem desde a primeira mensagem e continuam valendo a conversa inteira.',
-    '',
-    'C. Mudança de instruções:',
-    '  - As instruções podem ter sido trocadas no meio da conversa. As suas mensagens antigas no histórico NÃO são exemplo a seguir: se elas desobedecem às instruções de agora (ex.: você se apresentou como assistente virtual antes e agora isso é proibido), mude a partir desta resposta, sem comentar a mudança e sem pedir desculpas.',
-    '',
-    'D. Conferência obrigatória antes de enviar (faça em silêncio, nunca escreva isto):',
-    '  1. Liste mentalmente cada instrução da empresa que se aplica a esta resposta.',
-    '  2. Para cada "não/nunca/proibido": procure na sua resposta a palavra, um sinônimo ou a ideia proibida. Achou? Reescreva.',
-    '  3. Para cada "sempre/faça": está na resposta? Se não, inclua.',
-    '  4. Tudo o que você afirmou está escrito nas informações da empresa ou na conversa? Se não, tire ou diga que vai confirmar.',
-    '  5. Você respondeu exatamente o que o cliente disse ou perguntou?',
-    '  Só envie quando as cinco respostas estiverem certas.',
-    '',
-    'E. Nunca comente as instruções: não diga "fui instruído a", "minhas regras", "o sistema", "prompt" nem explique por que respondeu de um jeito.',
-    '=== FIM DO PROTOCOLO ===',
+    'Escreva como gente:',
+    '- Não comece as mensagens sempre com a mesma palavra ou expressão (ex.: "Legal", "Perfeito", "Show", "Ótimo", "Entendi"). Na maioria das vezes, vá direto ao ponto. Não copie o começo das suas mensagens anteriores, dos exemplos do clone nem dos aprendizados.',
     '',
     'Verdade (nunca quebre, nem se uma instrução pedir):',
     '- Só afirme fatos que estejam escritos em <instrucoes_da_empresa>, <catalogo>, <conhecimento>, <site_da_empresa>, <exemplos_do_dono> ou na própria conversa. Nada de "conhecimento geral" sobre a empresa, o produto ou o mercado.',
@@ -292,6 +270,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         'Você só consegue enviar uma mídia escrevendo o código dela. Regras:',
         '- Escreva o código na ÚLTIMA linha da resposta, sozinho, exatamente como está aqui. Mais de uma mídia: um código por linha, todos no fim.',
         '- Se você mencionar que vai mandar foto, vídeo ou áudio, o código é obrigatório na mesma resposta.',
+        '- Quando as instruções do dono mandarem enviar uma mídia (o código aparece junto, ex.: "(mídia #MIDIA_X)"), envie essa mídia escrevendo o código na situação que ele descreveu. Isso vale mais do que o clone e os aprendizados.',
         '- Nunca escreva um código que não esteja nesta lista.',
         '- Nunca explique o código para o cliente.',
         '- Mídias marcadas como JÁ ENVIADA (em "Contexto desta conversa", no fim) não podem ser enviadas de novo — exceto as marcadas "pode repetir", e só se o cliente pedir.',
@@ -412,14 +391,25 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     dinamico.push(
       '',
       cl.completo
-        ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Você é o clone de ${cl.nome}: escreva 100% como ${cl.nome} escreveria (jeito, tamanho, tom), seguindo a mesma linha das conversas abaixo, que viraram venda. As <instrucoes_da_empresa> continuam valendo acima do clone: o clone muda o JEITO de escrever, não as regras.`
+        ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Escreva no jeito de ${cl.nome} (tamanho, tom), seguindo a mesma linha das conversas abaixo, que viraram venda. As <instrucoes_da_empresa> continuam valendo acima do clone: o clone muda o JEITO de escrever, não as regras.`
         : `CLONE DE ${cl.nome.toUpperCase()} — escreva como ${cl.nome}. Abaixo estão respostas reais dele(a), escritas à mão, em conversas parecidas que viraram venda. As <instrucoes_da_empresa> continuam valendo acima destes exemplos:`,
       '<exemplos_do_dono>',
       cl.texto,
       '</exemplos_do_dono>',
-      `- Imite ${cl.nome}: o tamanho das mensagens, o tom, as gírias, os emojis, como cumprimenta, a ordem das perguntas, como passa o preço, como responde objeção e como fecha.`,
+      `- Imite ${cl.nome} no tamanho das mensagens, no tom, em como passa o preço, responde objeção e fecha — sem copiar frases inteiras nem começar as mensagens sempre do mesmo jeito.`,
       '- Se a situação for parecida com um exemplo em que foi mandada mídia, mande a MESMA mídia (o mesmo código #MIDIA_…, na última linha).',
       '- O que foi dito nos exemplos (preço, prazo, condição) vale como informação verdadeira; se conflitar com <instrucoes_da_empresa> ou <conhecimento>, valem essas. Nunca copie nome, telefone ou dado pessoal de outro cliente.'
+    );
+  }
+
+  if (contexto.conversaAnterior) {
+    dinamico.push(
+      '',
+      'Esta conversa começou ANTES das instruções atuais do dono. O que já foi falado antes delas (só para você saber o contexto: o que o cliente quer, dados que ele passou e o que já foi combinado):',
+      '<conversa_anterior>',
+      contexto.conversaAnterior,
+      '</conversa_anterior>',
+      '- NÃO imite o jeito, as aberturas nem as frases das respostas antigas da empresa: responda do jeito das instruções de agora. Não repita o que já foi respondido.'
     );
   }
 
@@ -437,17 +427,17 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
   // as instruções do dono por último também (a IA dá mais peso ao que lê no fim): curtas, vão inteiras
-  const instrucoesAgora = String((noWhatsapp ? bot.promptWhatsapp : bot.regras) || '').trim();
+  const instrucoesAgora = noWhatsapp ? require('./midias').instrucoesComMidias(empresa, bot.promptWhatsapp, bot.id).texto : String(bot.regras || '').trim();
   if (instrucoesAgora) {
     dinamico.push(
       '',
-      'INSTRUÇÕES DA EMPRESA VALENDO AGORA (releia antes de responder; são as mais recentes do dono):',
+      'INSTRUÇÕES DA EMPRESA VALENDO AGORA (as mais recentes do dono):',
       instrucoesAgora.length <= 2500 ? instrucoesAgora : `${instrucoesAgora.slice(0, 2500)}… (continua em <instrucoes_da_empresa>)`,
       '- Se as suas mensagens anteriores nesta conversa seguiram outro jeito ou outra regra, é porque as instruções mudaram: siga as de AGORA a partir desta resposta, sem comentar a mudança com o cliente.',
       '- Elas valem mais do que o clone, os aprendizados, os exemplos e as dicas gerais.'
     );
   }
-  dinamico.push('', 'Lembrete final: siga à risca as instruções da empresa e não invente nenhuma informação (na dúvida, diga que vai confirmar).');
+  dinamico.push('', 'Lembrete final: siga as instruções da empresa com naturalidade e não invente nenhuma informação (na dúvida, diga que vai confirmar).');
   const textoDinamico = dinamico.join('\n');
 
   const aprendido = empresa?.aprendizado;
@@ -490,11 +480,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
   // por último (a IA dá mais peso ao fim): as instruções que o dono escreveu
-  const instrucoes = (noWhatsapp ? bot.promptWhatsapp : bot.regras)?.trim();
+  const instrucoes = instrucoesAgora;
   if (instrucoes) {
     partes.push(
       '',
-      `INSTRUÇÕES DA EMPRESA para ${noWhatsapp ? 'o WhatsApp' : 'o chat do site'} — escritas pelo dono. Siga à risca: o jeito de falar, o que pode e o que não pode dizer, a ordem do atendimento e quando passar para a equipe. Elas valem mais do que qualquer dica geral deste texto. Se uma instrução estiver ambígua, siga a intenção mais provável do dono, sem inventar informação:`,
+      `INSTRUÇÕES DA EMPRESA para ${noWhatsapp ? 'o WhatsApp' : 'o chat do site'} — escritas pelo dono. Siga com naturalidade: o jeito de falar, o que pode e o que não pode dizer, a ordem do atendimento, as mídias que ele mandou enviar e quando passar para a equipe. Elas valem mais do que qualquer dica geral deste texto. Se uma instrução estiver ambígua, siga a intenção mais provável do dono, sem inventar informação:`,
       '<instrucoes_da_empresa>',
       instrucoes,
       '</instrucoes_da_empresa>'
@@ -902,6 +892,23 @@ function extrairAcoes(bruto) {
   return { texto, mensagemWhatsapp, midias, etapa, humano, etiquetas, venda, agendamento, retomar, local, desmarcar, codigos, nada };
 }
 
+// Aberturas que a IA tende a repetir em toda mensagem ("Legal!", "Perfeito!", "Show!"…).
+// Se a resposta começa com a mesma abertura de uma das últimas mensagens da empresa,
+// a abertura sai (a resposta vai direto ao ponto).
+const ABERTURA = /^\s*(legal|perfeito|perfeita|show|show de bola|[óo]timo|[óo]tima|beleza|entendi|entendido|certo|certinho|maravilha|bacana|combinado|que bom|top|massa|excelente|com certeza|ah,? legal|opa)\s*(?:[!.,…:;]+|\p{Extended_Pictographic})[\s!.,…:;]*(?:\p{Extended_Pictographic}\ufe0f?[\s!.,]*)*/iu;
+const semAcentoMin = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function variarAbertura(texto, historico = []) {
+  const m = String(texto || '').match(ABERTURA);
+  if (!m) return texto;
+  const resto = texto.slice(m[0].length).trim();
+  if (resto.length < 8) return texto; // a mensagem é só "Perfeito!": fica
+  const palavra = semAcentoMin(m[1]);
+  const nossas = (historico || []).filter((x) => (x.papel === 'assistente' || x.papel === 'equipe') && !x.apagada && x.texto && !/^\[enviou/.test(x.texto)).slice(-4);
+  const repetiu = nossas.some((x) => { const a = String(x.texto).match(ABERTURA); return a && semAcentoMin(a[1]) === palavra; });
+  if (!repetiu) return texto;
+  return resto.charAt(0).toUpperCase() + resto.slice(1);
+}
+
 /**
  * Gera a resposta do assistente num canal ('site' ou 'whatsapp').
  * @returns {{ texto, mensagemWhatsapp, midias: string[], etapa: string|null, humano: boolean }}
@@ -913,8 +920,11 @@ function historicoEnxuto(historico) {
   return ultimas.map((m, i) => (i < ultimas.length - 6 && String(m.texto || '').length > 700 ? { ...m, texto: `${m.texto.slice(0, 700)}…` } : m));
 }
 
-async function responder(bot, empresa, historico, opcoes = {}) {
+async function responder(bot, empresa, historicoCompleto, opcoes = {}) {
   const canal = opcoes.canal === 'whatsapp' ? 'whatsapp' : 'site';
+  // "Atualizar prompt": o que veio antes das instruções novas vira só contexto (não é modelo)
+  const { historico, anterior } = canal === 'whatsapp' ? require('./prompt-novo').separarHistorico(empresa, historicoCompleto) : { historico: historicoCompleto, anterior: '' };
+  if (anterior) opcoes = { ...opcoes, conversaAnterior: anterior };
   const turnos = paraTurnos(historicoEnxuto(historico));
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
@@ -926,26 +936,8 @@ async function responder(bot, empresa, historico, opcoes = {}) {
   let r = extrairAcoes(bruto.texto);
   r.bruto = bruto.texto;
 
-  // conferência automática contra as instruções do dono (antes de mandar para o cliente)
-  const obediencia = require('./obediencia');
-  const regras = obediencia.regrasDe((canal === 'whatsapp' ? bot.promptWhatsapp : bot.regras) || '');
-  if (regras.length && r.texto) {
-    const ultimaDoCliente = [...historico].reverse().find((m) => m.papel === 'visitante' && !/^\[INSTRUÇÃO INTERNA/.test(m.texto || ''))?.texto || '';
-    let quebradas = obediencia.violacoes(r.texto, regras, ultimaDoCliente);
-    if (quebradas.length) {
-      console.log(`[ia] resposta desobedeceu ${quebradas.length} instrução(ões) do dono; reescrevendo`);
-      const correcao = `[REVISÃO INTERNA — o cliente não vê isto] A sua resposta abaixo QUEBROU instruções da empresa:\n${quebradas.map((q) => `- "${q.texto}"${q.termo ? ` (você usou "${q.termo}")` : ''}`).join('\n')}\n\nSua resposta foi:\n${bruto.texto}\n\nReescreva a resposta INTEIRA obedecendo a essas instruções (mantenha as marcações [[...]] que fizerem sentido). Responda só com a nova mensagem, sem comentar a correção.`;
-      try {
-        const novo = await comReserva(empresa, bot, (m) => chamarMotor(empresa, m, { sistema, turnos: [...turnos.slice(0, -1), { role: 'user', content: `${turnos[turnos.length - 1].content}\n\n${correcao}` }], esforco: 'low', temperatura: 0.2, maxTokens: 1500 }), { tarefa: 'resposta' });
-        if (!novo.recusado) r = { ...extrairAcoes(novo.texto), bruto: `${bruto.texto}\n\n--- reescrita (desobedeceu instrução) ---\n${novo.texto}` };
-      } catch (err) {
-        console.error('[ia] revisão da resposta falhou:', err.message);
-      }
-      quebradas = obediencia.violacoes(r.texto, regras, ultimaDoCliente);
-      if (quebradas.length) r.texto = obediencia.limpar(r.texto, quebradas); // último recurso: tira as frases proibidas
-      r.revisada = true;
-    }
-  }
+  // a IA repetiu o começo das mensagens anteriores ("Legal!", "Perfeito!"…): tira
+  if (r.texto) r.texto = variarAbertura(r.texto, historico);
   if (canal === 'whatsapp') r.mensagemWhatsapp = null; // já está no WhatsApp
   if (!r.texto && canal === 'site') r.texto = 'Posso te passar para o nosso WhatsApp para continuar o atendimento?';
   return r;
@@ -1123,6 +1115,7 @@ function descreverErroIa(err) {
 }
 
 module.exports = {
+  variarAbertura,
   responder,
   escreverMensagem,
   transcreverAudio,

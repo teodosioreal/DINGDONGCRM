@@ -977,10 +977,7 @@ function ajustarPrincipal(bot, empresaAnterior) {
 function botComExtras(bot) {
   const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
   const uso = estado.uso[bot.id]?.data === hoje() ? estado.uso[bot.id].mensagens : 0;
-  const obediencia = require('./obediencia');
-  // regras que o CRM confere sozinho antes de mandar (o painel mostra ao lado das instruções)
-  const conferidas = (t) => obediencia.regrasDe(t || '').map((r) => (r.tipo === 'identidade' ? 'Não se apresentar como assistente virtual, IA ou robô' : `Não usar "${r.termo}"`));
-  return { ...bot, empresaNome: empresa?.nome || '—', mensagensHoje: uso, regrasConferidas: { site: conferidas(bot.regras), whatsapp: conferidas(bot.promptWhatsapp) } };
+  return { ...bot, empresaNome: empresa?.nome || '—', mensagensHoje: uso, promptNovo: empresa ? require('./prompt-novo').situacao(empresa) : null };
 }
 
 // Guarda cada versão das instruções (site e WhatsApp): quando mudou, quem mudou e o texto
@@ -1049,6 +1046,39 @@ router.put('/bots/:id', (req, res) => {
   for (const c of estado.conversas) if (c.botId === bot.id) c.empresaId = bot.empresaId;
   salvar();
   res.json(botComExtras(bot));
+});
+
+// 🆕 Atualizar prompt (IA do WhatsApp): salva as instruções, conecta as mídias citadas
+// (quando a mídia certa é clara) e, a partir daqui, a IA segue SÓ o prompt novo — o clone
+// e os aprendizados saem do prompt (guardados, dá para voltar) e, nas conversas em
+// andamento, as respostas antigas viram só contexto (a IA não imita mais).
+router.post('/bots/:id/atualizar-prompt', (req, res) => {
+  const bot = acharBot(req, res);
+  if (!bot) return;
+  const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
+  if (!empresa) return res.status(400).json({ erro: 'Este assistente não está ligado a uma empresa.' });
+  const textoNovo = 'promptWhatsapp' in (req.body || {}) ? texto(req.body.promptWhatsapp, 5000) : String(bot.promptWhatsapp || '');
+  if (!textoNovo.trim()) return res.status(400).json({ erro: 'Escreva as instruções antes de atualizar.' });
+  // mídias citadas sem código (ou com código errado): grava o código certo no texto
+  const { texto: comMidias, conectadas } = midias.instrucoesComMidias(empresa, textoNovo, bot.id);
+  const dados = { promptWhatsapp: comMidias.slice(0, 5000) };
+  registrarMudancaInstrucoes(bot, dados, req);
+  Object.assign(bot, dados, { atualizadoEm: agora() });
+  const situacao = require('./prompt-novo').aplicar(empresa, req.usuario?.nome || req.usuario?.email || '');
+  salvar();
+  const pendencias = midias.pendenciasDoPrompt(empresa).filter((p) => p.botId === bot.id && p.campo === 'promptWhatsapp');
+  const citadas = midias.codigosCitados(empresa, bot.promptWhatsapp).filter((c) => c.existe).map((c) => ({ codigo: c.codigo, nome: c.nome }));
+  res.json({ ok: true, bot: botComExtras(bot), promptNovo: situacao, conectadas, citadas, pendencias: pendencias.map((p) => ({ trecho: p.trecho, tipo: p.tipo, escrito: p.escrito || '' })) });
+});
+
+// Desfaz o "só o prompt novo": o clone e os aprendizados voltam como estavam
+router.post('/bots/:id/atualizar-prompt/voltar', (req, res) => {
+  const bot = acharBot(req, res);
+  if (!bot) return;
+  const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
+  if (!empresa) return res.status(400).json({ erro: 'Este assistente não está ligado a uma empresa.' });
+  const voltou = require('./prompt-novo').voltar(empresa);
+  res.json({ ok: true, voltou, bot: botComExtras(bot) });
 });
 
 router.delete('/bots/:id', (req, res) => {
