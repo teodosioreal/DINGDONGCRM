@@ -1440,6 +1440,12 @@ async function paginaWhatsapp(id) {
         ? '<b>Ligado (padrão):</b> a conversa do dia a dia usa um modelo mais em conta da mesma IA (ex.: Claude Sonnet no lugar do Opus — cerca de metade do preço). O modelo escolhido em <i>IAs e chaves</i> entra sozinho nos casos difíceis: objeção de preço, reclamação, negociação, mensagem longa ou quando o modelo econômico avisa que a conversa está difícil.'
         : '<b>Desligado:</b> todas as respostas usam o modelo escolhido em <i>IAs e chaves</i> (mais caro).'} Veja quanto cada tarefa gasta em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
     </div>
+    <div class="card" data-cfg="ia-agendados" data-pronto="ok" data-resumo="${emp.iaComAgendados ? 'Ligado: a IA atende quem agendou' : 'Desligado: quem agendou não gasta IA'}">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 IA para quem agendou</h2>${interruptor('ia-agendados', emp.iaComAgendados === true, emp.iaComAgendados ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0"><b>Quem já comprou</b> fica sempre com a IA <b>desligada</b> (sem respostas, sem follow-up e sem automações — só os pedidos de <b>avaliação</b> e de <b>comentário no anúncio</b> continuam). Volta só se você ligar a IA na conversa. ${emp.iaComAgendados
+        ? '<b>Ligado:</b> quem <b>agendou</b> continua sendo atendido pela IA e recebe as sequências feitas para quem agendou.'
+        : '<b>Desligado (padrão):</b> quem <b>agendou</b> também fica com a IA desligada e sem follow-up, até você ligar na conversa.'}</p>
+    </div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
     <div class="card" id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
@@ -1636,6 +1642,17 @@ async function paginaWhatsapp(id) {
     d.innerHTML = `⚠️ Este prompt cita <b>${n} mídia(s)</b> sem conexão certa — a IA não consegue mandar. <a href="${rotaEmpresa(id, 'midias')}">Conectar agora →</a>`;
     area.closest('.campo').after(d);
   }).catch(() => {});
+  $('#ia-agendados').onchange = async (e) => {
+    const ligar = e.target.checked;
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaComAgendados: ligar } });
+      aviso(ligar ? 'A IA volta a atender quem agendou (ligue a IA nas conversas que já foram desligadas).' : 'Quem agendou fica com a IA desligada.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !ligar;
+      aviso(err.message, true);
+    }
+  };
   $('#ia-economica').onchange = async (e) => {
     const ligar = e.target.checked;
     try {
@@ -1795,7 +1812,7 @@ const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '
 async function paginaMidias(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  const [todas, albuns, { assuntos: ASSUNTOS }, sugMidia, noPrompt, logsErro, botPrincipal] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/assuntos-midia`), api(`empresas/${id}/sugestao-midia`).catch(() => ({ ativo: true })), api(`empresas/${id}/midias/prompt`).catch(() => null), api(`empresas/${id}/logs-ia?soErros=1&limite=20`).catch(() => []), principalDa(id).catch(() => null)]);
+  const [todas, albuns, { assuntos: ASSUNTOS }, noPrompt, logsErro, botPrincipal] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/assuntos-midia`), api(`empresas/${id}/midias/prompt`).catch(() => null), api(`empresas/${id}/logs-ia?soErros=1&limite=20`).catch(() => []), principalDa(id).catch(() => null)]);
   const errosRecentes = (logsErro || []).filter((l) => l.erros.length && Date.now() - new Date(l.em).getTime() < 3 * 86400000);
   const lista = todas.filter((m) => !m.pastaId);
   const pastas = emp.drivePastas || [];
@@ -1818,11 +1835,6 @@ async function paginaMidias(id) {
       ${(noPrompt?.pendencias || []).length ? `<div class="det-erro forte pend-resumo">⚠️ Seu prompt cita <b>${noPrompt.pendencias.length} mídia(s)</b> que não estão conectadas do jeito certo — a IA não vai conseguir mandar. <button type="button" class="primario pequeno" id="resolver-prompt">Conectar agora</button></div>` : ''}
       ${noPrompt?.citados?.length && !(noPrompt.pendencias || []).length ? `<div class="rotulo">✓ Mídias citadas no prompt: ${[...new Set(noPrompt.citados.map((c) => c.codigo))].map((c) => `<span class="codigo-chip">${esc(c)}</span>`).join(' ')} — todas conectadas.</div>` : ''}
       ${errosRecentes.length ? `<div class="det-erro forte">✕ ${errosRecentes.length} resposta(s) com problema de mídia nos últimos 3 dias:<ul>${errosRecentes.slice(0, 5).map((l) => `<li><span class="rotulo">${esc(data(l.em))}${l.cliente ? ` · ${esc(l.cliente)}` : ''}</span> — ${esc(l.erros.join(' · '))}</li>`).join('')}</ul><a href="${rotaEmpresa(id, 'whatsapp')}">Ver o log completo →</a></div>` : ''}
-    </div>
-
-    <div class="card" id="card-sugestao-midia">
-      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">💡 Sugerir a mídia certa na conversa</h2>${interruptor('sug-midia-ativo', sugMidia.ativo, sugMidia.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0">Quando o cliente <b>manda uma foto</b> ou <b>diz o que tem ou quer</b> (ex.: <i>"tenho um Civic 2019"</i>, <i>"é um iPhone 13"</i>, <i>"quero o vestido azul"</i>), o CRM procura nas suas mídias pelo <b>nome, descrição, assuntos e serviços</b> e mostra na conversa: <b>📸 Sugestão para mandar</b> com a mídia que combina e o botão <b>Mandar</b>. Nada é enviado sozinho. Dica: coloque o modelo/tipo no nome ou na descrição de cada mídia (ex.: <i>"Volante Civic"</i>, <i>"Capinha iPhone 13"</i>).</p>
     </div>
 
     <div class="card" id="biblioteca">
@@ -2284,13 +2296,6 @@ async function paginaMidias(id) {
     try { sessionStorage.setItem(`midias_aba_${id}`, abaDoEnvio === 'followup' ? 'followup' : 'configurar'); } catch { /* ok */ }
     setTimeout(() => { if (location.hash === hashDaPagina) paginaMidias(id); }, ok < lista_.length ? 4000 : 800);
   }
-  $('#sug-midia-ativo').onchange = async (e) => {
-    try {
-      const r = await api(`empresas/${id}/sugestao-midia`, { method: 'PUT', body: { ativo: e.target.checked } });
-      e.target.closest('.interruptor').querySelector('span:last-child').textContent = r.ativo ? 'Ligado' : 'Desligado';
-      aviso(r.ativo ? 'Sugestão de mídia ligada.' : 'Sugestão de mídia desligada.');
-    } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
-  };
   $('#mais-midias').onchange = (e) => { if (e.target.files.length) enviarArquivos(e.target.files); };
   const zona = $('#soltar');
   zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('arrastando'); };
@@ -2392,7 +2397,7 @@ async function paginaOrganizar(id) {
 // ---------------------------------------------------------------- empresa: chave de IA
 
 // Onde os tokens foram nos últimos 7 dias: por tarefa e por modelo, com o custo estimado
-const NOME_TAREFA_IA = { resposta: '💬 Respostas no WhatsApp', site: '🌐 Chat do site', evento: '⏰ Avisos internos (sem resposta, follow-up com IA)', followup: '🔁 Follow-up e automações com IA', foto: '🖼️ Fotos dos clientes', audio: '🎤 Áudios dos clientes', comprovante: '🧾 Comprovantes', 'sugestao-midia': '📎 Sugestão de mídia', agenda: '📅 Detector de agendamento', 'aviso-agendamento': '📣 Aviso de agendamento', aprendizado: '📚 Aprendizado diário', catalogo: '🛍️ Catálogo (sugerir itens)', 'conferir-prompt': '✅ Atualizar e conferir', 'sugestao-equipe': '✍️ Sugestão de resposta para a equipe', teste: '🧪 Testes', outros: 'Outros' };
+const NOME_TAREFA_IA = { resposta: '💬 Respostas no WhatsApp', site: '🌐 Chat do site', evento: '⏰ Avisos internos (sem resposta, follow-up com IA)', followup: '🔁 Follow-up e automações com IA', foto: '🖼️ Fotos dos clientes', audio: '🎤 Áudios dos clientes', comprovante: '🧾 Comprovantes', 'sugestao-midia': '📎 Sugestão de mídia (removida)', agenda: '📅 Detector de agendamento', 'aviso-agendamento': '📣 Aviso de agendamento', aprendizado: '📚 Aprendizado diário', catalogo: '🛍️ Catálogo (sugerir itens)', 'conferir-prompt': '✅ Atualizar e conferir', 'sugestao-equipe': '✍️ Sugestão de resposta (removida)', teste: '🧪 Testes', outros: 'Outros' };
 function tabelaGastoIa(u) {
   const linhas = (obj, nome) => Object.entries(obj || {}).sort((a, b) => (b[1].custo || 0) - (a[1].custo || 0) || b[1].tokens - a[1].tokens).map(([k, x]) => `<tr><td>${esc(nome(k))}</td><td class="num">${(x.chamadas || 0).toLocaleString('pt-BR')}</td><td class="num">${numeroCurto(x.tokens)}</td><td class="num esconde-mobile">${numeroCurto(x.cache)}</td><td class="num">${x.custo ? (x.custo < 0.01 ? '&lt; US$ 0.01' : `US$ ${x.custo.toFixed(2)}`) : '—'}</td></tr>`).join('');
   const porTarefa = linhas(u?.porTarefa, (k) => NOME_TAREFA_IA[k] || k);
@@ -3306,6 +3311,27 @@ function diaDaMensagem(iso) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+// muda quando um tique muda (e a cada minuto enquanto algo espera confirmação)
+function assinaturaEntrega(l) {
+  const ultimas = l.mensagens.slice(-40);
+  const esperando = ultimas.some((m) => m.entrega === 'enviando');
+  return `${ultimas.map((m) => (m.entrega || '-')[0]).join('')}${esperando ? Math.floor(Date.now() / 60000) : ''}`;
+}
+
+// Tiques como no WhatsApp, pela confirmação que o WhatsApp devolve:
+// 🕓 aguardando · ✓ saiu · ✓✓ entregue · ✓✓ azul lida · ⚠️ não foi
+function htmlEntrega(m) {
+  const e = m.entrega;
+  if (!e || m.canal !== 'whatsapp') return ' <span class="checks lida">✓✓</span>'; // antigas e chat do site
+  if (e === 'lida') return ' <span class="checks lida" title="Lida pelo cliente">✓✓</span>';
+  if (e === 'entregue') return ' <span class="checks" title="Entregue no celular do cliente">✓✓</span>';
+  if (e === 'servidor') return ' <span class="checks" title="Enviada (o celular do cliente ainda não recebeu)">✓</span>';
+  if (e === 'erro') return ' <span class="entrega-erro" title="O WhatsApp não conseguiu entregar. Mande de novo.">⚠️ não enviada</span>';
+  // sem confirmação do WhatsApp depois de 3 minutos: avisa em vez de fingir que foi
+  if (Date.now() - new Date(m.em).getTime() > 3 * 60 * 1000) return ' <span class="entrega-erro" title="O WhatsApp não confirmou o envio. Confira no celular ou mande de novo.">⚠️ sem confirmação</span>';
+  return ' <span class="enviando" title="Aguardando o WhatsApp confirmar">🕓</span>';
+}
+
 // Uma mensagem no balão, do lado certo (cliente à esquerda, empresa à direita)
 function htmlMensagem(m, leadId, anterior) {
   const saida = m.papel !== 'visitante';
@@ -3323,7 +3349,7 @@ function htmlMensagem(m, leadId, anterior) {
     const quem = { cliente: 'O cliente apagou esta mensagem', celular: 'Apagada pelo celular da empresa', equipe: 'Você apagou esta mensagem' }[m.apagada.por] || 'Mensagem apagada';
     return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
   }
-  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? ' <span class="checks">✓✓</span>' : ''}</span></div>`;
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? htmlEntrega(m) : ''}</span></div>`;
 }
 
 // O que o modo clone aprendeu (dá para apagar exemplos ruins)
@@ -3909,22 +3935,6 @@ function avatarLead(l, classe = '') {
   return `<span class="avatar ${classe}"><img src="${esc(l.fotoUrl)}" alt="" loading="lazy" onerror="this.remove()"><span class="avatar-letra">${letra}</span></span>`;
 }
 
-// 📸 mídia sugerida pelo que o cliente disse/mostrou (foto, modelo, item)
-function htmlSugestaoMidia(l) {
-  const s = l.sugestaoMidia;
-  if (!s?.itens?.length || !l.podeReceber) return '';
-  return `<div class="sug-midia">
-    <div class="sug-midia-topo"><b>📸 Sugestão para mandar${s.item ? ` · ${esc(s.item)}` : ''}</b><span class="rotulo">${s.por === 'ia' ? '✨ a IA olhou a conversa' : 'pelo que o cliente escreveu'}</span>${s.itens.length > 1 ? '<button type="button" class="pequeno" data-sug-tirar="">Dispensar todas</button>' : ''}</div>
-    <div class="sug-midia-itens">${s.itens.map((x) => `
-      <div class="sug-midia-item">
-        ${x.capa ? `<img src="${esc(x.capa)}" alt="" loading="lazy">` : `<span class="sug-midia-icone">${x.tipo === 'album' ? '📁' : ICONE_TIPO[x.tipo] || '📎'}</span>`}
-        <div class="sug-midia-txt"><b>${esc(x.nome)}</b><span class="rotulo">${esc(codMidia(x.codigo))}${x.tipo === 'album' ? ` · álbum, ${x.quantidade} arquivos` : ''}${x.motivo ? ` · ${esc(x.motivo)}` : ''}</span></div>
-        <button type="button" class="pequeno primario" data-sug-enviar="${esc(x.codigo)}">Mandar</button>
-        <button type="button" class="pequeno" data-sug-tirar="${esc(x.codigo)}" title="Não é essa" aria-label="Dispensar">✕</button>
-      </div>`).join('')}</div>
-  </div>`;
-}
-
 async function paginaConversas(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -4035,11 +4045,11 @@ async function paginaConversas(id, params) {
       ${linhaOrigem(l.origemSite)}
       ${htmlPedidos(l)}
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
+      ${l.iaDesligadaPor ? `<div class="chat-aviso">${l.iaDesligadaPor === 'venda' ? '💰' : '📅'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')} <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button></div>` : ''}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
-      ${l.iaStatus && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
+      ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${htmlProximos(l)}
-      ${htmlSugestaoMidia(l)}
       ${l.podeReceber ? `
       <form class="chat-envio" id="chat-envio">
         <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
@@ -4047,7 +4057,6 @@ async function paginaConversas(id, params) {
           <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
-          <button type="button" class="pequeno" id="chat-sugerir" title="A IA escreve uma sugestão para você revisar">✨ Sugerir com IA</button>
           <button type="button" class="pequeno" id="chat-reiniciar-ia" title="A IA esquece o que leu desta conversa e começa do zero a partir da próxima mensagem">🔄 Reiniciar aprendizado da conversa</button>
           <button type="button" class="pequeno" id="chat-agendar" title="Mandar uma mensagem mais tarde">🕒 Mandar depois</button>
           ${l.vendaConcluida ? '<button type="button" class="pequeno" id="chat-venda" title="Lançar outra venda deste cliente (compra repetida)">➕ Outra venda</button>' : ''}
@@ -4071,10 +4080,11 @@ async function paginaConversas(id, params) {
     desenharLista();
     history.replaceState(null, '', `${rotaEmpresa(id, 'conversas')}?lead=${encodeURIComponent(leadId)}`);
     leadAberto = await api(`leads/${leadId}`);
-    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}|${leadAberto.sugestaoMidia?.itens.map((x) => x.codigo).join() || ''}`;
+    assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}|${assinaturaEntrega(leadAberto)}`;
     if (rolar) desenharChat();
+    // abriu a conversa: fica lida aqui e no WhatsApp (tiques azuis no celular do cliente)
+    api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
     if (leadAberto.naoLidas) {
-      api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
       const item = lista.find((c) => c.id === leadId);
       if (item) item.naoLidas = 0;
       desenharLista();
@@ -4084,7 +4094,7 @@ async function paginaConversas(id, params) {
   async function recarregarAberto() {
     if (!abertoId) return;
     const l = await api(`leads/${abertoId}`);
-    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}|${l.listaNegra}|${(l.etiquetas || []).join()}|${l.erroEtiquetaZap?.em || ''}|${l.sugestaoMidia?.itens.map((x) => x.codigo).join() || ''}`;
+    const assinatura = `${l.mensagens.length}|${l.atualizadoEm}|${l.tickets?.length || 0}|${l.mensagens.filter((m) => m.apagada).length}|${l.listaNegra}|${(l.etiquetas || []).join()}|${l.erroEtiquetaZap?.em || ''}|${assinaturaEntrega(l)}`;
     if (assinatura === assinaturaAberta) return;
     // não apaga o que a pessoa está digitando
     const rascunho = $('#chat-texto')?.value || '';
@@ -4096,7 +4106,8 @@ async function paginaConversas(id, params) {
       $('#chat-texto').value = rascunho;
       if (foco) $('#chat-texto').focus();
     }
-    if (l.naoLidas) api(`leads/${abertoId}/lido`, { method: 'POST' }).catch(() => {});
+    // chegou mensagem com a conversa aberta: também fica lida no WhatsApp
+    if (l.naoLidas || l.mensagens[l.mensagens.length - 1]?.papel === 'visitante') api(`leads/${abertoId}/lido`, { method: 'POST' }).catch(() => {});
   }
 
   async function enviarTexto(textoMsg) {
@@ -4159,6 +4170,14 @@ async function paginaConversas(id, params) {
       $('#inbox').classList.remove('com-chat');
       history.replaceState(null, '', rotaEmpresa(id, 'conversas'));
       desenharLista();
+    });
+    $('#ligar-ia-desligada')?.addEventListener('click', async (e) => {
+      try {
+        await comEspera(e.currentTarget, () => api(`leads/${abertoId}`, { method: 'PUT', body: { iaPausada: false } }), '…');
+        aviso('IA ligada nesta conversa. Ela volta a responder este cliente.');
+        assinaturaAberta = '';
+        recarregarAberto();
+      } catch (err) { aviso(err.message, true); }
     });
     $('#devolver-ia')?.addEventListener('click', async () => {
       try {
@@ -4324,39 +4343,10 @@ async function paginaConversas(id, params) {
         });
       });
     };
-    $$('[data-sug-enviar]').forEach((b) => {
-      b.onclick = async () => {
-        try {
-          await comEspera(b, () => api(`leads/${abertoId}/midia`, { method: 'POST', body: { nome: b.dataset.sugEnviar } }), 'Enviando…');
-          aviso('Enviado.');
-          assinaturaAberta = '';
-          recarregarAberto();
-        } catch (err) { aviso(err.message, true); }
-      };
-    });
-    $$('[data-sug-tirar]').forEach((b) => {
-      b.onclick = async () => {
-        try {
-          await api(`leads/${abertoId}/sugestao-midia/dispensar`, { method: 'POST', body: { codigo: b.dataset.sugTirar } });
-          assinaturaAberta = '';
-          recarregarAberto();
-        } catch (err) { aviso(err.message, true); }
-      };
-    });
     $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
     const recarregarJa = () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); };
     $('#chat-venda')?.addEventListener('click', () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome }));
     $('#chat-agendamento').onclick = () => modalAgendamento(abertoId, recarregarJa);
-    $('#chat-sugerir').onclick = async (e) => {
-      try {
-        const r = await comEspera(e.currentTarget, () => api(`leads/${abertoId}/sugerir`, { method: 'POST', body: { pedido: campo.value.trim() } }), 'Pensando…');
-        if (!r.texto) throw new Error('A IA não conseguiu escrever uma sugestão agora. Tente de novo.');
-        campo.value = r.texto;
-        ajustarAltura();
-        campo.focus();
-        aviso(r.midias?.length ? `Sugestão pronta — a IA também mandaria: ${r.midias.map((m) => `#${m}`).join(', ')} (use 🖼️ Mídias).` : 'Sugestão pronta — revise e clique em Enviar.');
-      } catch (err) { aviso(err.message, true); }
-    };
     $('#chat-agendar').onclick = () => {
       const amanha = new Date(Date.now() + 24 * 3600 * 1000);
       amanha.setHours(9, 0, 0, 0);

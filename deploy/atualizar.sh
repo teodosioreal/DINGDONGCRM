@@ -68,13 +68,6 @@ diagnostico() {
   DB_CRM="$(ler_env CRM_DB_PATH .env || true)"; DB_CRM="${DB_CRM:-$PASTA/data.json}"
   INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
   echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
-  # teste do "Sugerir com IA" (uma vez), numa cópia do banco; erros aparecem abaixo
-  MARCA_SUG="$(dirname "$DB_CRM")/.teste-sugestao-2"
-  if [ ! -f "$MARCA_SUG" ]; then
-    echo "    Teste do Sugerir com IA (cópia do banco, nada é gravado):"
-    touch "$MARCA_SUG"
-    CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 240 node deploy/teste-sugestao.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | grep -E "Empresa|erro|ERRO|sugerir" | head -n 20 || true
-  fi
   # teste pedido pelo dono (uma vez): reinicia só a instância do CRM e compara as etiquetas
   MARCA_SUSTO="$(dirname "$DB_CRM")/.susto-etiquetas-1"
   if [ -n "$INSTANCIAS" ] && [ ! -f "$MARCA_SUSTO" ]; then
@@ -87,6 +80,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
   echo "    Mídias citadas no prompt e fila do follow-up (cópia do banco, só contagens):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-prompt-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
+  echo "    Mídias enviadas nas últimas 12 h (anônimo, só leitura):"
+  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 120 node deploy/diagnostico-envio-midia.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
   echo "    Evolution × CRM (mensagens das últimas 24 h, anônimo, só leitura):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 120 node deploy/diagnostico-mensagens.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"

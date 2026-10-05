@@ -219,6 +219,7 @@ function observar(empresa, lead) {
   // - a IA que atende este cliente já marca/desmarca sozinha ([[AGENDAMENTO]] / [[DESMARCAR]]): não confere de novo
   // - sem confirmação perto do dia/hora (só falaram de horário), não há o que marcar
   if (require('./whatsapp').iaVaiResponder(empresa, lead)) return;
+  if (require('./ia-desligada').motivo(empresa, lead)) return; // já comprou/agendou: sem gastar IA
   if (!CONFIRMA.test(semAcento(ultimas.slice(-2).map((m) => m.texto).join(' ')))) return;
   // IA: espera a conversa assentar (várias mensagens seguidas viram uma leitura só)
   clearTimeout(timers.get(lead.id));

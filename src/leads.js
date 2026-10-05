@@ -183,10 +183,42 @@ function tirarDaListaNegra(empresa, { leadId, id } = {}) {
   return antes !== empresa.listaNegra.length;
 }
 
+// ---------------------------------------------------------------- entrega no WhatsApp
+// O WhatsApp confirma cada mensagem que sai (messages.update): 'servidor' (✓), 'entregue'
+// (✓✓), 'lida' (✓✓ azul) ou 'erro'. A confirmação pode chegar antes de a mensagem ser
+// salva no CRM: fica guardada uns minutos e é aplicada quando ela for salva.
+const ORDEM_ENTREGA = { enviando: 0, erro: 1, servidor: 2, entregue: 3, lida: 4 };
+const statusRecentes = new Map();
+function guardarStatusEntrega(wid, entrega) {
+  if (!wid || !(entrega in ORDEM_ENTREGA)) return;
+  const antes = statusRecentes.get(wid);
+  if (!antes || ORDEM_ENTREGA[entrega] > ORDEM_ENTREGA[antes.entrega]) statusRecentes.set(wid, { entrega, em: Date.now() });
+  if (statusRecentes.size > 3000) {
+    const corte = Date.now() - 10 * 60 * 1000;
+    for (const [k, v] of statusRecentes) if (v.em < corte) statusRecentes.delete(k);
+  }
+}
+// sobe o status da mensagem (nunca volta: "lida" não vira "entregue"); true se mudou
+function subirEntrega(m, entrega) {
+  if (!(entrega in ORDEM_ENTREGA) || (m.entrega && ORDEM_ENTREGA[m.entrega] >= ORDEM_ENTREGA[entrega])) return false;
+  m.entrega = entrega;
+  return true;
+}
+function aplicarStatusGuardado(m) {
+  for (const wid of [m.wid, ...(m.wids || [])].filter(Boolean)) {
+    const s = statusRecentes.get(wid);
+    if (s) subirEntrega(m, s.entrega);
+  }
+}
+
 function adicionarMensagem(lead, msg) {
   const saiuPeloWhatsapp = msg.canal === 'whatsapp' && msg.papel !== 'visitante' && !msg.wid && !msg.wids;
   const wids = saiuPeloWhatsapp ? tirarEnviosPendentes(lead) : [];
-  lead.mensagens.push({ id: novoId('msg'), em: agora(), ...msg, ...(wids.length ? { wids } : {}) });
+  // só quando a Evolution já manda as confirmações (senão ficaria "aguardando" para sempre)
+  const confirma = msg.canal === 'whatsapp' && msg.papel !== 'visitante' && !msg.entrega && estado.empresas.find((e) => e.id === lead.empresaId)?.whatsappConfig?.statusEntregaEm;
+  const nova = { id: novoId('msg'), em: agora(), ...msg, ...(wids.length ? { wids } : {}), ...(confirma ? { entrega: 'enviando' } : {}) };
+  aplicarStatusGuardado(nova);
+  lead.mensagens.push(nova);
   if (lead.mensagens.length > MAX_MENSAGENS_POR_LEAD) lead.mensagens.splice(0, lead.mensagens.length - MAX_MENSAGENS_POR_LEAD);
   lead.atualizadoEm = agora();
 }
@@ -360,6 +392,9 @@ function migrarLeads() {
 
 module.exports = {
   ETAPAS_PADRAO,
+  guardarStatusEntrega,
+  subirEntrega,
+  aplicarStatusGuardado,
   significadoEtapa,
   aoConversar,
   migrarFunilPadrao,

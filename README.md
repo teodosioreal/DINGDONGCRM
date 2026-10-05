@@ -116,7 +116,7 @@ precisa digitar Session ID nem API Key.
 - **Conversas** (estilo WhatsApp Web): lista com não lidas e "esperando você",
   chat com fotos, áudios (player + transcrição) e PDFs; mandar texto, arquivo
   do computador, mídia/álbum da biblioteca; **respostas prontas** (digite
-  `/atalho`); **✨ Sugerir com IA** (a IA escreve, você revisa); **agendar
+  `/atalho`); **agendar
   mensagem**; ligar/desligar a IA e mudar a etapa sem sair do chat.
 - **Automações** (Máquina de vendas), com receitas prontas de um clique:
   recuperar quem parou de responder (a IA retoma, até 2x), **pedir avaliação
@@ -217,7 +217,6 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   - Detector de agendamento: não chama a IA quando a IA atende o cliente (ela mesma marca),
     só chama quando há confirmação perto do dia/hora, e ao subir o servidor usa só código.
   - Etiqueta "Agendado": a data vem da conversa por código; a IA só se não achar.
-  - Sugestão de mídia: sem IA nas conversas que a IA atende.
   - Aprendizado diário: não roda se os aprendizados estão fora do prompt.
   - Avisos com IA "sem resposta"/"1º follow-up": não disparam para quem já está no
     follow-up sem IA. Varredura de vendas: IA só quando a conversa fala de pagamento.
@@ -248,10 +247,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   o modelo escolhido entra sozinho em objeção de preço, reclamação, negociação, mensagem
   longa ou quando o modelo econômico responde `#DIFICIL`.
 - **Foto lida uma vez só**: quando a IA vai responder, a foto é descrita uma vez e a
-  descrição serve para a resposta, a sugestão de mídia e para decidir se é comprovante (a
+  descrição serve para a resposta e para decidir se é comprovante (a
   leitura de comprovante com IA só roda se a foto parece pagamento).
 - **Para onde foram os tokens** (IAs e chaves): tokens, chamadas e custo estimado dos
-  últimos 7 dias por tarefa (respostas, fotos, comprovantes, agenda, sugestão de mídia,
+  últimos 7 dias por tarefa (respostas, fotos, comprovantes, agenda,
   aprendizado…) e por modelo.
 - **Mídias citadas no prompt**: "mande o vídeo do revestimento" chega para a IA com o
   código certo (`(mídia #MIDIA_X)`) quando não há dúvida de qual é, e mídia citada nas
@@ -278,8 +277,19 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   (cache de números, mensagens guardadas, contatos) ao chegar mensagem e a cada busca. O CRM sempre usa o número de verdade (`remoteJidAlt`),
   junta a conversa duplicada do mesmo cliente e nunca mostra o id como telefone. Celular
   salvo sem o 9 aparece com o 9. Foto de perfil é buscada pelo número de verdade.
-- **Sugerir com IA** lê a conversa inteira, sabe quem falou por último e há quanto
-  tempo, usa as anotações da equipe e responde ao que o cliente disse.
+- **Abriu a conversa no CRM = lida no WhatsApp**: as mensagens do cliente (últimos 7 dias)
+  ficam lidas também no celular (tiques azuis para o cliente, sem o número de não lidas),
+  inclusive as que chegam com a conversa aberta.
+- **Tiques de entrega como no WhatsApp**: 🕓 aguardando · ✓ saiu · ✓✓ entregue · ✓✓ azul
+  lida · ⚠️ não enviada / sem confirmação (o WhatsApp não confirmou em 3 min). Vem da
+  confirmação do próprio WhatsApp (evento `MESSAGES_UPDATE`, ligado sozinho no webhook).
+- **Quem já comprou: IA desligada** (aparece no chat com o botão "Ligar a IA"): sem
+  respostas, sem follow-up (nem o de pós-venda), sem automações e sem gastar IA lendo
+  foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
+  você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
+  padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+- Sem "Sugerir com IA" e sem sugestão automática de mídia: para mandar mídia, use
+  **🖼️ Mídias** no chat e escolha.
 - Faixa "Modo teste": o "desligar" desliga na hora (Início e Conversas).
 
 ### Nenhuma mensagem do WhatsApp fica de fora
@@ -298,8 +308,8 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
 ### Economia de tokens (o que é feito por código, sem IA)
 
-A IA só é usada para **responder** os clientes, nos follow-ups/automações em modo IA, no
-"Sugerir com IA" e no Aprendizado. Todo o resto é código:
+A IA só é usada para **responder** os clientes, nos follow-ups/automações em modo IA e no
+Aprendizado. Todo o resto é código:
 - "ok", "obrigado", "valeu 👍", emoji ou figurinha depois de uma resposta nossa sem
   pergunta: **não chama a IA**. "Quero falar com um atendente/pessoa": o CRM avisa o
   cliente, pausa a IA e chama a equipe (alerta 🔔), sem IA.

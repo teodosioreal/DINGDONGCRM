@@ -240,6 +240,12 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (!whatsapp.liberadoNoModoTeste(empresa, lead)) return 'modo teste';
   if (lead.naoDisparar) return 'pediu para não receber';
   if (lead.precisaHumano) return 'esperando a equipe';
+  // já comprou/agendou: só os pedidos de avaliação e de comentário no anúncio continuam
+  if (!require('./ia-desligada').RECEITAS_LIBERADAS.has(regra.receita)) {
+    const venda = require('./comprovantes').jaVendeu(empresa, lead);
+    if (venda) return 'já comprou';
+    if (!require('./ia-desligada').iaComAgendados(empresa) && require('./followup').jaAgendou(empresa, lead)) return 'já agendou';
+  }
   if (lead.iaPausada && !regra.incluirPausados) return 'equipe atendendo';
   if (regra.gatilho.tipo === 'sem_resposta') return 'o Follow-up cuida disso'; // (regra antiga, antes de migrar)
   if (regra.filtro.etapas.length && !regra.filtro.etapas.includes(lead.etapa)) return 'fora do filtro';
@@ -434,12 +440,11 @@ async function enviarAgendadas(empresa) {
           salvar();
           continue;
         }
-        // follow-up da IA combinado ANTES de o cliente comprar: não sai (o que foi combinado
-        // depois da venda, ex.: lembrar da entrega, continua)
-        const venda = a.modo === 'ia' || a.criadoPor === 'IA' ? require('./comprovantes').jaVendeu(empresa, lead) : null;
-        if (venda && venda.em && String(venda.em) >= String(a.criadoEm || '')) {
+        // follow-up que a IA combinou: não sai para quem já comprou (ou agendou, por padrão)
+        const desligada = a.modo === 'ia' || a.criadoPor === 'IA' ? require('./ia-desligada').motivo(empresa, lead) : null;
+        if (desligada) {
           a.status = 'cancelada';
-          a.motivo = `o cliente já comprou (${venda.por})`;
+          a.motivo = desligada.por === 'venda' ? 'o cliente já comprou' : 'o cliente agendou';
           salvar();
           continue;
         }

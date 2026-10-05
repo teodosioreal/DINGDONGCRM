@@ -235,7 +235,7 @@ function ehNossoWebhook(empresa, url) {
 
 // Eventos que o CRM escuta: mensagens, conexão e conversa apagada no celular
 // MESSAGES_SET: histórico que o celular manda ao reconectar (entra nas conversas, sem a IA responder)
-const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE', 'LABELS_EDIT', 'LABELS_ASSOCIATION'];
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_SET', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE', 'CHATS_DELETE', 'LABELS_EDIT', 'LABELS_ASSOCIATION'];
 
 // Motivo da queda que a Evolution manda em connection.update (data.statusReason,
 // o código HTTP que o Baileys usa internamente pra DisconnectReason). Serve pra
@@ -826,6 +826,11 @@ async function receberWebhook(empresa, corpo) {
     salvar();
     return;
   }
+  // confirmação do WhatsApp para o que saiu (✓ servidor, ✓✓ entregue, azul lida, erro)
+  if (eventoDe(corpo) === 'messages.update') {
+    receberStatusEntrega(empresa, corpo?.data);
+    return;
+  }
   // mensagem apagada "para todos" no WhatsApp (pelo cliente ou pelo celular da empresa)
   if (eventoDe(corpo) === 'messages.delete') {
     const itens = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];
@@ -947,7 +952,6 @@ async function receberDoCliente(empresa, lead, jid, msg, texto) {
   require('./localizacao').lerMensagem(lead, texto); // "sou de Petrópolis" → 📍 Petrópolis
   require('./tickets').agendamentoDaMensagem(empresa, lead, texto, 'cliente'); // "confirmado sábado 9h"
   require('./detector-agenda').observar(empresa, lead); // "pode ser", "vou ter que desmarcar"…
-  require('./sugestao-midia').observar(empresa, lead); // foto do volante / "meu carro é um civic" → sugere a mídia
   origem.aplicarAnuncio(empresa, lead);
   require('./automacoes').cancelarFollowupsDaIa(lead); // respondeu antes do follow-up
   lead.naoLidas = (lead.naoLidas || 0) + 1;
@@ -1102,7 +1106,7 @@ function recuperarAnexosRecentes() {
 // transcreve áudio e descreve foto para a IA responder ao conteúdo.
 // A IA vai responder este cliente? (senão não vale gastar tokens entendendo foto/áudio)
 function iaVaiResponder(empresa, lead) {
-  return Boolean(configDa(empresa).iaAtiva && empresa.ativa !== false && !lead.iaPausada && liberadoNoModoTeste(empresa, lead));
+  return Boolean(configDa(empresa).iaAtiva && empresa.ativa !== false && !lead.iaPausada && liberadoNoModoTeste(empresa, lead) && !require('./ia-desligada').motivo(empresa, lead));
 }
 
 async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante = entender, soChave = false } = {}) {
@@ -1305,6 +1309,9 @@ function registrarIa(empresa, lead, tipo, motivo) {
 
 function agendarResposta(empresa, lead) {
   if (!configDa(empresa).iaAtiva) return registrarIa(empresa, lead, 'ignorou', 'A IA do WhatsApp está desligada.');
+  // já comprou (ou agendou): a IA fica desligada nesta conversa até você ligar à mão
+  const desligada = require('./ia-desligada').conferir(empresa, lead);
+  if (desligada) return registrarIa(empresa, lead, 'ignorou', desligada.texto);
   if (lead.iaPausada) return registrarIa(empresa, lead, 'ignorou', `IA pausada neste cliente: ${lead.iaPausadaMotivo || 'a equipe assumiu'}.`);
   if (!liberadoNoModoTeste(empresa, lead)) {
     const numero = numeroDoLead(lead);
@@ -1349,6 +1356,55 @@ async function responderLead(empresaId, leadId, tentativa = 0, opcoes = {}) {
   // Se já tem uma resposta agendada (cliente ainda digitando) ou uma mensagem ainda
   // sendo preparada (ela agenda a resposta quando terminar), elas cuidam disso.
   if (refazer && !agendadas.has(leadId) && !clienteMandando(leadId)) return responderLead(empresaId, leadId, tentativa + 1);
+}
+
+// ---------------------------------------------------------------- entrega no WhatsApp
+// messages.update da Evolution: v2 manda { keyId, remoteJid, fromMe, status: 'DELIVERY_ACK' };
+// o formato do Baileys é { key: { id, remoteJid, fromMe }, update: { status: 3 } }.
+const STATUS_ENTREGA = { ERROR: 'erro', PENDING: 'enviando', SERVER_ACK: 'servidor', DELIVERY_ACK: 'entregue', READ: 'lida', PLAYED: 'lida', 0: 'erro', 1: 'enviando', 2: 'servidor', 3: 'entregue', 4: 'lida', 5: 'lida' };
+function receberStatusEntrega(empresa, dados) {
+  let mudou = false;
+  if (!empresa.whatsappConfig.statusEntregaEm) {
+    empresa.whatsappConfig.statusEntregaEm = agora(); // a partir daqui as mensagens que saem mostram "aguardando"
+    mudou = true;
+  }
+  for (const d of Array.isArray(dados) ? dados : [dados]) {
+    const fromMe = d?.fromMe ?? d?.key?.fromMe;
+    const wid = d?.keyId || d?.key?.id;
+    const entrega = STATUS_ENTREGA[d?.status ?? d?.update?.status];
+    if (fromMe === false || !wid || !entrega) continue;
+    const jid = d?.remoteJid || d?.key?.remoteJid || '';
+    const lead = jid && estado.conversas.find((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || c.lidJid === jid) && (c.mensagens || []).some((m) => m.wid === wid || m.wids?.includes(wid)));
+    const m = lead && [...lead.mensagens].reverse().find((x) => x.papel !== 'visitante' && (x.wid === wid || x.wids?.includes(wid)));
+    if (!m) {
+      leads.guardarStatusEntrega(wid, entrega); // a mensagem ainda vai ser salva
+      continue;
+    }
+    if (!leads.subirEntrega(m, entrega)) continue;
+    mudou = true;
+    if (entrega === 'erro') {
+      const oque = m.anexo || m.midiaId ? 'Uma mídia' : 'Uma mensagem';
+      require('./alertas').registrar(empresa, 'whatsapp-envio', `${oque} não foi entregue: o WhatsApp devolveu erro no envio. Tente mandar de novo.`, { leadId: lead.id });
+    }
+  }
+  if (mudou) salvar();
+}
+
+// ---------------------------------------------------------------- "lido" no WhatsApp
+// Abriu a conversa no painel: as mensagens do cliente ficam como lidas também no WhatsApp
+// (tiques azuis para o cliente e sem o número de não lidas no celular).
+async function marcarComoLidas(empresa, lead) {
+  if (!configurado(empresa) || !lead?.whatsappJid) return 0;
+  const limite = Date.now() - 7 * 86400000;
+  const pendentes = (lead.mensagens || []).filter((m) => m.papel === 'visitante' && m.wid && !m.lidaNoZap && !m.apagada && new Date(m.em).getTime() > limite).slice(-50);
+  if (!pendentes.length) return 0;
+  // o mesmo cliente pode ter mensagens no número e no id escondido (LID)
+  const jids = [...new Set([lead.whatsappJid, lead.lidJid].filter(Boolean))];
+  const readMessages = pendentes.flatMap((m) => jids.map((remoteJid) => ({ remoteJid, fromMe: false, id: m.wid })));
+  await evolution(empresa, 'POST', '/chat/markMessageAsRead/{instancia}', { readMessages }, { tempo: 15000 });
+  for (const m of pendentes) m.lidaNoZap = true;
+  salvar();
+  return pendentes.length;
 }
 
 // ---------------------------------------------------------------- respostas prontas automáticas (sem IA)
@@ -1418,6 +1474,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
   const lead = estado.conversas.find((c) => c.id === leadId);
   if (!empresa || !lead || lead.iaPausada || !configDa(empresa).iaAtiva) return;
+  if (require('./ia-desligada').conferir(empresa, lead)) return; // já comprou/agendou
   if (empresa.ativa === false) return registrarIa(empresa, lead, 'ignorou', MOTIVO_EMPRESA_PAUSADA);
   if (!liberadoNoModoTeste(empresa, lead)) return;
   if (!leads.iaPodeFalarCom(lead)) return; // só responde quem escreveu e está em Conversas
@@ -1780,6 +1837,7 @@ async function diagnostico(empresa) {
 
 module.exports = {
   iaVaiResponder,
+  marcarComoLidas,
   respostaAutomatica,
   anexoAtrasado,
   recuperarAnexosRecentes,

@@ -113,7 +113,7 @@ async function verificar() {
         if (n >= MAX_POR_RODADA) break;
         if (lead.empresaId !== empresa.id || !lead.whatsappJid || lead.iaPausada || lead.arquivado || lead.naoDisparar || String(lead.atualizadoEm || '') < limite) continue;
         if (!leads.iaPodeFalarCom(lead) || !whatsapp.liberadoNoModoTeste(empresa, lead) || whatsapp.iaOcupadaCom(lead.id)) continue;
-        if (require('./comprovantes').jaVendeu(empresa, lead)) continue; // já comprou: sem follow-up
+        if (require('./ia-desligada').motivo(empresa, lead)) continue; // já comprou/agendou: IA desligada
         const ev = eventoVencido(empresa, lead, cfg);
         if (!ev) continue;
         // "sem resposta" / "1º follow-up" com IA: se o follow-up sem IA já vai cuidar deste cliente, não gasta IA (nem manda em dobro)

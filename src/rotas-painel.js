@@ -426,6 +426,7 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   if (b.iaAposManual !== undefined) empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
   if (b.naoAtropelar !== undefined) empresa.whatsappConfig.naoAtropelar = b.naoAtropelar !== false;
   if (b.iaEconomica !== undefined) empresa.iaEconomica = b.iaEconomica !== false;
+  if (b.iaComAgendados !== undefined) empresa.iaComAgendados = b.iaComAgendados === true;
   if (b.numerosTeste !== undefined) {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
@@ -480,7 +481,7 @@ router.post('/empresas/:id/whatsapp/:acao', async (req, res) => {
         // devolve para a IA todas as conversas pausadas (a IA volta a responder)
         let n = 0;
         for (const l of estado.conversas) {
-          if (l.empresaId === empresa.id && l.iaPausada) {
+          if (l.empresaId === empresa.id && l.iaPausada && !l.iaDesligadaPor) {
             l.iaPausada = false;
             l.iaPausadaMotivo = '';
             l.precisaHumano = false;
@@ -1446,7 +1447,6 @@ router.get('/leads/:id', (req, res) => {
     vendaConcluida: c.vendaConcluidaManual === true || comprovantes.ehEtapaDeVenda(c.etapa || '') || (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     temVendaRegistrada: (estado.vendas || []).some((v) => v.leadId === c.id && v.status !== 'cancelada'),
     erroEtiquetaZap: c.erroEtiquetaZap || null,
-    sugestaoMidia: require('./sugestao-midia').paraPainel(empresa, c),
     noWhatsapp: Boolean(whatsappJid),
     podeReceber: Boolean(whatsapp.destinoDoLead(c)),
     botNome: bot?.nome || '—',
@@ -1505,6 +1505,9 @@ router.put('/leads/:id', (req, res) => {
   if (b.iaPausada !== undefined) {
     c.iaPausada = b.iaPausada === true;
     c.iaPausadaMotivo = c.iaPausada ? 'Pausada pela equipe no painel' : '';
+    // ligou à mão: vale também para quem já comprou/agendou (até uma venda nova)
+    if (!c.iaPausada) require('./ia-desligada').ligadaAMao(c);
+    else delete c.iaDesligadaPor;
     if (!c.iaPausada) c.precisaHumano = false;
     if (c.iaPausada) whatsapp.cancelarResposta(c.id);
   }
@@ -1642,6 +1645,7 @@ router.delete('/leads/:id', (req, res) => {
 function manterIa(lead, manter) {
   if (manter === undefined) return;
   if (manter) {
+    if (lead.iaDesligadaPor) return; // já comprou/agendou: só volta pelo botão de ligar a IA
     lead.iaPausada = false;
     lead.iaPausadaMotivo = '';
     lead.precisaHumano = false;
@@ -1687,14 +1691,22 @@ router.get('/empresas/:id/conversas', (req, res) => {
   res.json(lista);
 });
 
-router.post('/leads/:id/lido', (req, res) => {
+// Abriu a conversa: zera as não lidas aqui e marca como lidas no WhatsApp também
+router.post('/leads/:id/lido', async (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   if (c.naoLidas) {
     c.naoLidas = 0;
     salvar();
   }
-  res.json({ ok: true });
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  let noWhatsapp = 0;
+  try {
+    noWhatsapp = await whatsapp.marcarComoLidas(empresa, c);
+  } catch (err) {
+    console.error(`[lido ${c.id}] WhatsApp:`, err.message); // não atrapalha o painel
+  }
+  res.json({ ok: true, noWhatsapp });
 });
 
 // Apagar uma mensagem: só do CRM, ou para todos (some também do WhatsApp do cliente)
@@ -2097,7 +2109,10 @@ router.post('/leads/:id/arquivo/envio/:envioId/concluir', async (req, res) => {
     const { tipo, wid } = await whatsapp.enviarAnexoPorUrl(empresa, destino, c.id, anexo, anexo.tipo === 'audio' ? '' : legenda);
     msg.envio = 'ok';
     require('./clone').aprenderAnexo(empresa, c, anexo, legenda);
-    if (wid) msg.wids = [wid];
+    if (wid) {
+      msg.wids = [wid];
+      leads.aplicarStatusGuardado(msg);
+    }
     if (tipo === 'document' && anexo.tipo !== 'document') msg.comoArquivo = true;
   } catch (err) {
     msg.envio = 'erro';
@@ -2121,8 +2136,6 @@ router.post('/leads/:id/reiniciar-aprendizado', (req, res) => {
     c.iaReiniciadaEm = agora();
     c.iaReiniciadaPor = req.usuario.email;
     delete c.agendaConferidaAte; // o detector de agendamento relê do zero
-    delete c.sugestaoMidia;
-    c.sugestaoMidiaConferidaAte = c.iaReiniciadaEm;
     const aprendizado = require('./aprendizado');
     for (const jid of [c.whatsappJid, c.lidJid].filter(Boolean)) aprendizado.esquecerConversa(empresa, jid);
   }
@@ -2130,25 +2143,6 @@ router.post('/leads/:id/reiniciar-aprendizado', (req, res) => {
   res.json({ ok: true, iaReiniciadaEm: c.iaReiniciadaEm || null });
 });
 
-// Sugestão de mídia na conversa: dispensar uma (codigo) ou todas
-router.post('/leads/:id/sugestao-midia/dispensar', (req, res) => {
-  const c = acharLead(req, res);
-  if (!c) return;
-  require('./sugestao-midia').dispensar(c, texto(req.body?.codigo, 60));
-  res.json({ ok: true });
-});
-
-// Liga/desliga a sugestão de mídia da empresa
-router.get('/empresas/:id/sugestao-midia', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  res.json({ ativo: require('./sugestao-midia').configDa(empresa).ativo !== false });
-});
-router.put('/empresas/:id/sugestao-midia', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  res.json(require('./sugestao-midia').ligar(empresa, req.body?.ativo === true));
-});
 
 // Equipe manda uma mídia (ou álbum) da biblioteca
 router.post('/leads/:id/midia', async (req, res) => {
@@ -2160,95 +2154,11 @@ router.post('/leads/:id/midia', async (req, res) => {
   if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
   const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
   if (r.enviadas) require('./clone').registrar(empresa, c, { midias: [midias.resolverPedido(empresa, nome).alvo?.codigo] });
-  if (r.enviadas) require('./sugestao-midia').enviada(c, midias.resolverPedido(empresa, nome).alvo?.codigo);
   salvar();
   if (r.falhas.length && !r.enviadas) return res.status(502).json({ erro: `Não foi enviada. ${r.falhas.join(' · ')}` });
   res.json({ ...resumoLead(c), avisoEnvio: r.falhas.length ? `Algumas não foram: ${r.falhas.join(' · ')}` : '' });
 });
 
-// O que a IA precisa saber para sugerir a próxima mensagem certa: quem falou
-// por último, o que o cliente disse, há quanto tempo e as anotações da equipe
-function instrucaoDeSugestao(lead, conversa, pedido) {
-  const ultima = conversa[conversa.length - 1];
-  const ultimaDoCliente = [...conversa].reverse().find((m) => m.papel === 'visitante');
-  const horas = (Date.now() - new Date(ultima.em).getTime()) / 3600e3;
-  const quando = horas < 1 ? 'agora há pouco' : horas < 24 ? `há ${Math.round(horas)} h` : `há ${Math.round(horas / 24)} dia(s)`;
-  const linhas = ['Tarefa: sugerir a PRÓXIMA mensagem que a equipe vai mandar a este cliente. Leia a conversa inteira acima antes de escrever.'];
-  if (ultima.papel === 'visitante') {
-    linhas.push(`A última mensagem é do CLIENTE (${quando}): "${ultima.texto.slice(0, 600)}". Responda diretamente a ela — o que ele perguntou, pediu ou objetou — sem mudar de assunto.`);
-  } else {
-    linhas.push(`A última mensagem foi NOSSA (${quando}) e o cliente ainda não respondeu. Sugira um retorno curto e gentil que retome exatamente o último assunto${ultimaDoCliente ? ` (o que o cliente tinha dito por último: "${ultimaDoCliente.texto.slice(0, 300)}")` : ''}, sem repetir a mensagem anterior.`);
-  }
-  if (lead.anotacoes?.trim()) linhas.push(`Anotações internas da equipe sobre este cliente (não cite ao cliente): ${lead.anotacoes.trim().slice(0, 800)}`);
-  linhas.push('Leve em conta o que já foi combinado, perguntado e respondido (não repita perguntas já respondidas). Se fizer sentido, conduza para o próximo passo da venda, mas sem ignorar o que o cliente disse. Use só informações que estão na conversa ou nas informações da empresa.');
-  if (pedido) linhas.push(`Pedido da equipe para esta sugestão: ${pedido}`);
-  return linhas.join(' ');
-}
-
-// A IA sugere a próxima mensagem (a equipe revisa antes de enviar)
-router.post('/leads/:id/sugerir', async (req, res) => {
-  const c = acharLead(req, res);
-  if (!c) return;
-  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
-  const bot = whatsapp.botDoWhatsapp(empresa);
-  if (!bot) return res.status(400).json({ erro: 'A empresa não tem assistente.' });
-  const pedido = texto(req.body?.pedido, 500);
-  const conversa = leads.historicoParaIa(c).filter((m) => !m.apagada && m.texto);
-  if (!conversa.length) return res.status(400).json({ erro: 'Ainda não há conversa com este cliente para a IA ler.' });
-  const contexto = async () => ({
-    etapas: leads.etapasDa(empresa),
-    etapaAtual: c.etapa,
-    links: midias.linksDa(empresa),
-    midias: midias.paraIa(empresa),
-    tickets: tickets.paraIa(c),
-    localizacao: localizacao.paraIa(c),
-    origem: await origem.contextoParaIa(c, bot, 'whatsapp', empresa).catch(() => '')
-  });
-  const resultado = await sugerirMensagem(empresa, bot, c, conversa, pedido, contexto);
-  if (resultado.texto) return res.json(resultado);
-  res.status(502).json({ erro: resultado.erro });
-});
-
-// 1º jeito: a IA de atendimento escreve (com mídias, etapas, instruções do dono);
-// 2º: de novo, pedindo texto puro; 3º (reserva): um pedido simples, só com a
-// conversa em texto, que funciona mesmo quando o atendimento completo falha.
-async function sugerirMensagem(empresa, bot, c, conversa, pedido, contexto) {
-  let ultimoErro = null;
-  const MARCADORES = ' Você está escrevendo uma SUGESTÃO para a equipe revisar: escreva só o texto da mensagem para o cliente; não use marcadores [[...]] (nada de HUMANO, RETOMAR, ETAPA) e não deixe vazio.';
-  for (let tentativa = 0; tentativa < 2; tentativa++) {
-    try {
-      const instrucao = instrucaoDeSugestao(c, conversa, pedido) + MARCADORES + (tentativa ? ' IMPORTANTE: a tentativa anterior veio vazia — escreva a mensagem agora.' : '');
-      const r = await ia.escreverMensagem(bot, empresa, leads.historicoParaIa(c), instrucao, { ...(await contexto()), tarefa: 'sugestao-equipe' });
-      const sugestao = limparSugestao(r.texto);
-      if (sugestao) return { texto: sugestao, midias: r.midias || [], via: 'atendimento' };
-      console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1}: a IA devolveu texto vazio`);
-    } catch (err) {
-      ultimoErro = err;
-      console.error(`[sugerir ${c.id}] tentativa ${tentativa + 1} falhou: ${err?.status || ''} ${String(err?.message || err).slice(0, 300)}`);
-      if (err?.status && err.status < 500 && err.status !== 429 && err.status !== 400) break; // chave inválida, sem crédito: não adianta repetir
-    }
-  }
-  try {
-    const linhas = conversa.slice(-25).map((m) => `${m.papel === 'visitante' ? 'Cliente' : m.papel === 'equipe' ? 'Equipe' : 'Empresa'}: ${String(m.texto).slice(0, 600)}`);
-    const instrucoes = String(bot.promptWhatsapp || '').trim();
-    const sistema = `Você escreve mensagens de WhatsApp para a equipe da empresa "${empresa.nome}" mandar a um cliente. Responda SOMENTE com o texto da mensagem, em português do Brasil, curto e natural, sem aspas, sem explicação e sem inventar preço, prazo ou dado que não esteja na conversa ou nas informações abaixo.${instrucoes ? `\n\nInstruções do dono (obedeça):\n${instrucoes.slice(0, 3000)}` : ''}\n\nInformações da empresa:\n${String(bot.conhecimento || '').slice(0, 6000)}${require('./catalogo').paraIa(empresa) ? `\n\nServiços, produtos e preços OFICIAIS (valem acima de qualquer outro preço):\n${require('./catalogo').paraIa(empresa).replace(/\[\[MIDIA: [^\]]+\]\]/g, '').slice(0, 6000)}` : ''}`;
-    const texto = limparSugestao(await ia.comTarefa('sugestao-equipe', () => ia.gerarTexto(bot, empresa, sistema, `Conversa:\n${linhas.join('\n')}\n\n${instrucaoDeSugestao(c, conversa, pedido)}`, 800)));
-    if (texto) return { texto, midias: [], via: 'reserva' };
-  } catch (err) {
-    ultimoErro = err;
-    console.error(`[sugerir ${c.id}] reserva falhou: ${err?.status || ''} ${String(err?.message || err).slice(0, 300)}`);
-  }
-  return { erro: ultimoErro ? ia.descreverErroIa(ultimoErro) : 'A IA não conseguiu escrever uma sugestão agora. Tente de novo.' };
-}
-
-// Tira o que a IA às vezes põe em volta: "Sugestão:", aspas, marcadores que sobraram
-function limparSugestao(t) {
-  return String(t || '')
-    .replace(/\[\[[^\]]*\]\]/g, '')
-    .replace(/^\s*(sugest[aã]o( de mensagem)?|mensagem( sugerida)?|resposta)\s*:\s*/i, '')
-    .replace(/^["“”']+|["“”']+$/g, '')
-    .trim();
-}
 
 router.post('/leads/:id/agendar', (req, res) => {
   const c = acharLead(req, res);
@@ -3092,5 +3002,3 @@ router.delete('/usuarios/:id', auth.exigirAdmin, (req, res) => {
 });
 
 module.exports = router;
-module.exports.sugerirMensagem = sugerirMensagem;
-module.exports.instrucaoDeSugestao = instrucaoDeSugestao;

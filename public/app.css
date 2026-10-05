@@ -694,7 +694,9 @@ html.dark .modo-teste.ligado { border-color: #78350f; }
 .conversa .msg.saida.cauda::before { right: -8px; background: #d9fdd3; clip-path: polygon(0 0, 100% 0, 0 100%); }
 .conversa .msg .msg-texto { display: inline; white-space: pre-wrap; }
 .msg-rodape { float: right; margin: 6px 0 -4px 10px; font-size: 11px; line-height: 15px; color: #667781; white-space: nowrap; }
-.msg-rodape .checks { color: #53bdeb; letter-spacing: -3px; margin-left: 2px; }
+.msg-rodape .checks { color: var(--suave); letter-spacing: -3px; margin-left: 2px; }
+.msg-rodape .checks.lida { color: #53bdeb; }
+.msg-rodape .entrega-erro { color: #e5534b; font-size: 11px; margin-left: 4px; }
 .conversa .msg .msg-origem { font-size: 12px; font-weight: 600; color: #1f7aec; margin-bottom: 1px; }
 .conversa .msg.saida .msg-origem { color: #0a7a3a; }
 .wa-dia { align-self: center; margin: 10px 0 4px; padding: 5px 12px; border-radius: 7.5px; background: #fff;
@@ -1318,14 +1320,6 @@ html.dark .funil-perda { color: #fca5a5; }
 .linha-perdido > span { display: flex; flex-direction: column; min-width: 0; }
 
 /* 📸 sugestão de mídia na conversa */
-.sug-midia { margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--acento); border-radius: 10px; background: var(--acento-suave); }
-.sug-midia-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
-.sug-midia-topo button { margin-left: auto; }
-.sug-midia-itens { display: grid; gap: 6px; }
-.sug-midia-item { display: flex; gap: 8px; align-items: center; min-width: 0; }
-.sug-midia-item img, .sug-midia-icone { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex: none; display: grid; place-items: center; background: var(--hover); font-size: 22px; }
-.sug-midia-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.sug-midia-txt b, .sug-midia-txt .rotulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 🔁 follow-up: lista simples, editor com prévia do WhatsApp */
 .lista-seq-fup { display: grid; gap: 8px; margin-top: 10px; }

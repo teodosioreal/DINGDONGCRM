@@ -82,18 +82,6 @@ function converterPasso(p, i) {
 }
 
 // Quem já agendou não entra no follow-up de "parou de responder"
-// Sequência feita para depois da venda (ex.: pedir avaliação): começa pela etiqueta ou pela
-// etapa de venda, ou só vale para quem tem etiqueta/etapa de venda
-function ehPosVenda(empresa, seq) {
-  const c = require('./comprovantes');
-  const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, t.nome]));
-  if (seq.inicio?.tipo === 'etiqueta' && c.ehEtiquetaDeVenda(nomes.get(seq.inicio.etiqueta) || '')) return true;
-  if (seq.inicio?.tipo === 'etapa' && c.ehEtapaDeVenda(seq.inicio.etapa || '')) return true;
-  if (seq.soEtiquetas?.length && seq.soEtiquetas.every((id) => c.ehEtiquetaDeVenda(nomes.get(id) || ''))) return true;
-  if (seq.soEtapas?.length && seq.soEtapas.every((e) => c.ehEtapaDeVenda(e))) return true;
-  return false;
-}
-
 // Sequência feita para quem agendou (ex.: lembrete do horário): começa pela etiqueta/etapa de agendamento
 function ehPosAgendamento(empresa, seq) {
   const nomes = new Map(require('./leads').etiquetasDa(empresa).map((t) => [t.id, sem(t.nome)]));
@@ -271,14 +259,13 @@ function estadoDe(lead, seq) {
 function situacaoNa(empresa, lead, seq, f, agoraMs) {
   if (!seq.ativa) return { motivo: 'sequência desligada' };
   // já comprou (venda no CRM, venda à mão, etiqueta de venda do WhatsApp ou etapa de venda):
-  // não recebe follow-up — só as sequências de pós-venda (que começam pela etiqueta/etapa de venda)
-  if (!ehPosVenda(empresa, seq)) {
-    const venda = require('./comprovantes').jaVendeu(empresa, lead);
-    if (venda) return { motivo: `já comprou (${venda.por})` };
-  }
+  // não recebe follow-up nenhum, nem o de pós-venda (avaliação e comentário são automações)
+  const venda = require('./comprovantes').jaVendeu(empresa, lead);
+  if (venda) return { motivo: `já comprou (${venda.por})` };
   if (!seq.passos.length) return { motivo: 'sequência sem passos' };
-  // agendou: a sequência é cancelada (menos as feitas para quem agendou, ex.: lembrete)
-  if (!ehPosAgendamento(empresa, seq) && jaAgendou(empresa, lead)) return { motivo: 'já agendou' };
+  // agendou: a sequência é cancelada. Só com "IA atende quem agendou" ligado as sequências
+  // feitas para quem agendou (ex.: lembrete) continuam
+  if (jaAgendou(empresa, lead) && !(ehPosAgendamento(empresa, seq) && require('./ia-desligada').iaComAgendados(empresa))) return { motivo: 'já agendou' };
   // colocado na fila à mão (painel → Follow-up): conta a partir de quando entrou na fila
   const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
   if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
@@ -474,9 +461,9 @@ function colocarNaFila(empresa, lead, seqId, { jaPrimeira = false, por = '' } = 
   if (!seq) throw erro('Escolha uma sequência.');
   if (!seq.ativa) throw erro(`A sequência "${seq.nome}" está desligada. Ligue ela primeiro.`);
   if (!seq.passos.length) throw erro('Essa sequência não tem mensagens.');
-  const venda = !ehPosVenda(empresa, seq) && require('./comprovantes').jaVendeu(empresa, lead);
+  const venda = require('./comprovantes').jaVendeu(empresa, lead);
   if (venda) throw erro(`Este cliente já comprou (${venda.por}): follow-up não vai para quem comprou.`);
-  if (!ehPosAgendamento(empresa, seq) && jaAgendou(empresa, lead)) throw erro('Este cliente já agendou: o follow-up não vai para quem agendou.');
+  if (jaAgendou(empresa, lead) && !(ehPosAgendamento(empresa, seq) && require('./ia-desligada').iaComAgendados(empresa))) throw erro('Este cliente já agendou: o follow-up não vai para quem agendou.');
   const geral = motivoGeral(empresa, lead, { ...f, ativo: true, paraManual: true });
   if (geral && geral !== 'follow-up desligado para este cliente') throw erro(`Não dá para colocar na fila: ${geral}.`);
   const antes = { desligado: lead.followupDesligado, desligadoEm: lead.followupDesligadoEm, manual: lead.followupManual };
