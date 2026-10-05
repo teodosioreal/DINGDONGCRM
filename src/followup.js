@@ -253,7 +253,10 @@ function motivoGeral(empresa, lead, f) {
   if (lead.precisaHumano && !manual) return 'esperando a equipe';
   if (whatsapp.iaOcupadaCom(lead.id)) return 'a IA está respondendo agora';
   if (lead.iaPausada && !f.incluirPausados && !manual) return 'equipe atendendo';
-  if ((lead.agendadas || []).some((a) => a.status === 'pendente')) return 'já tem mensagem agendada (cancele na conversa para usar o follow-up)';
+  // mensagem agendada pela EQUIPE ainda vai sair: não junta com o follow-up. (O follow-up
+  // que a IA combinou sozinha é trocado pela sequência quando o cliente é colocado à mão.)
+  const pendentes = (lead.agendadas || []).filter((a) => a.status === 'pendente' && !(manual && a.criadoPor === 'IA'));
+  if (pendentes.length) return 'já tem mensagem agendada pela equipe (cancele na conversa para usar o follow-up)';
   return null;
 }
 
@@ -279,7 +282,7 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   // colocado na fila à mão (painel → Follow-up): conta a partir de quando entrou na fila
   const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
   if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
-  if (seq.soEtapas?.length && !seq.soEtapas.includes(lead.etapa)) return { motivo: 'fora das etapas da sequência' };
+  if (!manual && seq.soEtapas?.length && !seq.soEtapas.includes(lead.etapa)) return { motivo: 'fora das etapas da sequência' };
   const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada);
   const ultima = msgs[msgs.length - 1];
   const ultimaDoCliente = [...msgs].reverse().find((m) => m.papel === 'visitante');
@@ -476,11 +479,23 @@ function colocarNaFila(empresa, lead, seqId, { jaPrimeira = false, por = '' } = 
   if (!ehPosAgendamento(empresa, seq) && jaAgendou(empresa, lead)) throw erro('Este cliente já agendou: o follow-up não vai para quem agendou.');
   const geral = motivoGeral(empresa, lead, { ...f, ativo: true, paraManual: true });
   if (geral && geral !== 'follow-up desligado para este cliente') throw erro(`Não dá para colocar na fila: ${geral}.`);
+  const antes = { desligado: lead.followupDesligado, desligadoEm: lead.followupDesligadoEm, manual: lead.followupManual };
   delete lead.followupDesligado;
   delete lead.followupDesligadoEm;
   lead.followupManual = { seqId: seq.id, desde: agora(), por, jaPrimeira: jaPrimeira === true };
+  const s = situacao(empresa, lead);
+  if (s.motivo) {
+    // não entrou de verdade: desfaz e diz o porquê (em vez de dizer que deu certo)
+    if (antes.desligado) lead.followupDesligado = antes.desligado;
+    if (antes.desligadoEm) lead.followupDesligadoEm = antes.desligadoEm;
+    if (antes.manual) lead.followupManual = antes.manual;
+    else delete lead.followupManual;
+    throw erro(`Não entrou na fila: ${s.motivo}${f.ativo ? '' : ' — ligue o follow-up no topo da página'}.`);
+  }
+  // o follow-up que a IA tinha combinado sozinha é trocado pela sequência escolhida
+  for (const a of lead.agendadas || []) if (a.status === 'pendente' && a.criadoPor === 'IA') Object.assign(a, { status: 'cancelada', motivo: 'trocado pelo follow-up colocado à mão' });
   salvar();
-  return situacao(empresa, lead);
+  return s;
 }
 
 // Liga/desliga o follow-up de UM cliente

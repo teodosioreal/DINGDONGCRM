@@ -35,12 +35,22 @@ try {
   const fup = require('../src/followup');
   const vendas = require('../src/comprovantes');
   for (const [n, e] of estado.empresas.entries()) {
-    if (!e.followup?.ativo) continue;
+    if (!e.followup) continue;
     const conversas = estado.conversas.filter((c) => c.empresaId === e.id);
     const comprou = conversas.filter((c) => vendas.jaVendeu(e, c));
     const porSinal = {};
     for (const c of comprou) { const k = vendas.jaVendeu(e, c).por.replace(/".*"/, '"…"'); porSinal[k] = (porSinal[k] || 0) + 1; }
     const f = fup.fila(e);
+    const lista = fup.buscar(e, '');
+    const bloqueios = {};
+    for (const x of lista) if (x.bloqueio) { const k = x.bloqueio.replace(/\(.*\)/, '').trim(); bloqueios[k] = (bloqueios[k] || 0) + 1; }
+    const seq = (fup.configDa(e).sequencias || []).find((q) => q.ativa && q.passos.length);
+    const simulacao = {};
+    for (const x of lista.filter((y) => !y.bloqueio)) {
+      const lead = estado.conversas.find((c) => c.id === x.leadId);
+      try { fup.colocarNaFila(e, lead, seq?.id || ''); simulacao.entrou = (simulacao.entrou || 0) + 1; } catch (err) { const k = err.message.replace(/\(.*\)/, '').slice(0, 70); simulacao[k] = (simulacao[k] || 0) + 1; }
+    }
+    console.log(`    Colocar à mão (simulado na cópia): lista ${lista.length} · bloqueados ${JSON.stringify(bloqueios)} · tentativa nos liberados ${JSON.stringify(simulacao)} · follow-up ${e.followup?.ativo ? 'ligado' : 'DESLIGADO'} · sequências ativas ${(fup.configDa(e).sequencias || []).filter((q) => q.ativa).length}`);
     console.log(`    Follow-up empresa ${n + 1}: na fila ${f.naFila.length} (à mão ${f.naFila.filter((x) => x.manual).length}) · desativados ${f.desligados.length} · já compraram (só pós-venda) ${comprou.length} ${JSON.stringify(porSinal)}`);
   }
 } finally {
