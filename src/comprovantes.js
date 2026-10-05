@@ -276,25 +276,71 @@ function aoVender(empresa, lead) {
   const cfg = configDa(empresa);
   const fechado = etapaFechado(empresa);
   if (cfg.moverParaFechado && fechado) leads.moverEtapa(lead, empresa, fechado, 'sistema');
-  trocarEtiquetaDeVenda(empresa, lead);
-  concluirAgendamentos(lead);
+  // o mesmo cliente pode ter mais de uma conversa (número com/sem 9, id escondido do WhatsApp):
+  // a venda tira TODAS do "agendado"
+  for (const c of conversasDoCliente(empresa, lead)) {
+    trocarEtiquetaDeVenda(empresa, c);
+    concluirAgendamentos(c);
+  }
 }
 
-// Uma vez: quem já vendeu nos últimos 3 dias e continuava como "agendado"
-function arrumarVendidosAgendados() {
+// ---------------------------------------------------------------- venda tira da agenda
+// Regra: teve venda (comprovante, frase, IA ou confirmada à mão) → o agendamento
+// sai de "Próximos" e vai para "Passados" como ✅ venda concluída. Vale para todas as
+// conversas do mesmo cliente. Agendamento marcado DEPOIS da venda (ex.: pagou e
+// agendou a entrega) continua na agenda.
+const digitos = (t) => String(t || '').replace(/\D/g, '');
+const sem9 = (n) => (/^55\d{2}9\d{8}$/.test(n) ? n.slice(0, 4) + n.slice(5) : n);
+function numeroDa(c) {
+  const doJid = /@s\.whatsapp\.net$/.test(c.whatsappJid || '') ? digitos(c.whatsappJid.split('@')[0]) : '';
+  const n = doJid || digitos(c.telefone);
+  return n.length >= 10 ? sem9(n.length <= 11 ? `55${n}` : n) : '';
+}
+function conversasDoCliente(empresa, lead) {
+  if (!lead) return [];
+  const num = numeroDa(lead);
+  const lids = new Set([lead.whatsappJid, ...(lead.jidsAlternativos || [])].filter(Boolean));
+  return estado.conversas.filter((c) => c.empresaId === empresa.id && (c === lead || (num && numeroDa(c) === num) || (c.whatsappJid && lids.has(c.whatsappJid))));
+}
+
+// A venda mais recente deste cliente (em qualquer conversa dele), ou null
+function ultimaVendaDoCliente(empresa, lead) {
+  const conversas = conversasDoCliente(empresa, lead);
+  const ids = new Set(conversas.map((c) => c.id));
+  const doCliente = vendasDa(empresa).filter((v) => v.status !== 'cancelada' && v.leadId && ids.has(v.leadId));
+  // "Venda concluída" marcada à mão (mesmo sem valor no Faturamento) também conta
+  for (const c of conversas) if (c.vendaConcluidaManual && c.vendaConcluidaEm) doCliente.push({ id: `manual-${c.id}`, leadId: c.id, criadoEm: c.vendaConcluidaEm, manual: true });
+  return doCliente.sort((a, b) => String(a.criadoEm || a.data).localeCompare(String(b.criadoEm || b.data))).pop() || null;
+}
+
+// Agendamento "agendado" que já tem venda depois (ou até 1 h antes) de ter sido marcado → concluído
+function concluirVendidos(empresa) {
   let n = 0;
-  for (const empresa of estado.empresas) {
-    if (empresa.vendaTiraAgendado === 1) continue;
-    empresa.vendaTiraAgendado = 1;
-    const limite = Date.now() - 3 * 86400000;
-    const vendeu = new Set(vendasDa(empresa).filter((v) => v.leadId && v.status !== 'cancelada' && new Date(v.criadoEm || v.data).getTime() > limite).map((v) => v.leadId));
-    for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id && vendeu.has(c.id))) {
-      aoVender(empresa, lead);
+  for (const lead of estado.conversas) {
+    if (lead.empresaId !== empresa.id || !(lead.agendamentos || []).some((a) => a.status === 'agendado')) continue;
+    const venda = ultimaVendaDoCliente(empresa, lead);
+    if (!venda) continue;
+    const tVenda = new Date(venda.criadoEm || venda.data).getTime();
+    const antes = n;
+    for (const a of lead.agendamentos) {
+      if (a.status !== 'agendado') continue;
+      if (tVenda < new Date(a.criadoEm || 0).getTime() - 3600 * 1000) continue; // marcado depois da venda: fica
+      a.status = 'concluido';
+      a.concluidoEm = agora();
+      a.concluidoPor = 'venda';
       n++;
     }
+    if (n > antes) trocarEtiquetaDeVenda(empresa, lead);
   }
-  if (n) console.log(`[faturamento] ${n} cliente(s) com venda recente saíram de "agendado"`);
-  salvar();
+  if (n) salvar();
+  return n;
+}
+
+// Ao ligar o servidor: arruma quem já vendeu e continuava em "agendado"
+function arrumarVendidosAgendados() {
+  let n = 0;
+  for (const empresa of estado.empresas) n += concluirVendidos(empresa);
+  if (n) console.log(`[faturamento] ${n} agendamento(s) com venda saíram de "Próximos"`);
   return n;
 }
 
@@ -303,6 +349,7 @@ function concluirAgendamentos(lead) {
     if (a.status !== 'agendado') continue;
     a.status = 'concluido';
     a.concluidoEm = new Date().toISOString();
+    a.concluidoPor = 'venda';
   }
 }
 
@@ -414,6 +461,9 @@ module.exports = {
   vendasDa,
   registrar,
   aoVender,
+  concluirVendidos,
+  ultimaVendaDoCliente,
+  conversasDoCliente,
   arrumarVendidosAgendados,
   trocarEtiquetaDeVenda,
   processarArquivo,

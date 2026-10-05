@@ -139,6 +139,13 @@ const DIAS_IMPORTACAO = 14;
 
 async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
   if (!empresa || !lead || (lead.agendamentos || []).some(ehAgendado)) return null; // já está na agenda
+  // acabou de vender (3 dias): a etiqueta "Agendado" que voltou é a antiga do celular — não volta para a agenda
+  const comprovantes = require('./comprovantes');
+  const venda = comprovantes.ultimaVendaDoCliente(empresa, lead);
+  if (venda && Date.now() - new Date(venda.criadoEm || venda.data).getTime() < 3 * 86400000) {
+    comprovantes.trocarEtiquetaDeVenda(empresa, lead);
+    return null;
+  }
   // etiqueta antiga vinda da leitura geral: só conversas recentes, sem IA e sem aviso
   if (!aoVivo && Date.now() - new Date(lead.atualizadoEm || lead.criadoEm || 0).getTime() > DIAS_IMPORTACAO * 86400000) return null;
   const tickets = require('./tickets');

@@ -381,6 +381,87 @@ function codigosCitados(empresa, texto) {
   return achados;
 }
 
+// ---------------------------------------------------------------- menções de mídia no prompt
+// O dono escreve no prompt "mande o vídeo do revestimento quando…" (sem código) ou cita
+// um código que não existe. O painel mostra cada trecho e ajuda a CONECTAR a mídia certa:
+// o CRM coloca o código #MIDIA_ certo no prompt.
+const FALA_DE_MIDIA = /\b(fotos?|imagens?|v[ií]deos?|[áa]udios?|pdfs?|cat[áa]logos?|tabelas?( de pre[cç]os?)?|portf[óo]lios?|card[áa]pios?|apresenta[cç](?:[ãa]o|[õo]es)|antes e depois|prints?|[áa]lbu(?:m|ns)|folders?|panfletos?|or[cç]amento em pdf)\b/i;
+const VERBO_ENVIAR = /\b(mand\w*|envi\w*|mostr\w*|pass\w*|compartilh\w*|segue|seguem|apresent\w*|exib\w*|disponibiliz\w*)\b/i;
+const PALAVRAS_VAZIAS = new Set('para quando cliente clientes pedir perguntar pergunta sobre como mande manda mandar envie enviar envia mostre mostrar depois antes sempre voce você ele ela isso esse essa este esta que com sem uma umas uns dos das nos nas pelo pela tambem também entao então foto fotos video videos vídeo vídeos audio audios áudio áudios imagem imagens midia mídia midias mídias'.split(' '));
+const tokens = (t) => new Set(limpar(t).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3 && !PALAVRAS_VAZIAS.has(w)));
+const idPendencia = (...partes) => crypto.createHash('sha1').update(partes.join('|')).digest('hex').slice(0, 12);
+
+// Quais mídias combinam com o trecho do prompt (pelo nome, "quando enviar", código, assunto e tipo)
+function sugerirMidias(empresa, trecho, max = 4) {
+  const alvo = tokens(trecho);
+  const t = limpar(trecho);
+  const querTipo = /v[ií]deo/.test(t) ? 'video' : /[áa]udio/.test(t) ? 'audio' : /pdf|tabela|catalogo|cardapio|apresenta|orcamento/.test(t) ? 'document' : /foto|imagem|antes e depois|print/.test(t) ? 'image' : '';
+  const todas = midiasDa(empresa);
+  const itens = [
+    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, quando: m.descricao || '', assuntos: m.assuntos || [], ativa: prontaParaIa(m), id: m.id, capa: m.tipo === 'image' ? urlPublica(m) : '' })),
+    ...albunsDa(empresa).map((a) => { const fs_ = todas.filter((m) => m.albumId === a.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: a.codigo, nome: a.nome, tipo: 'album', quando: a.descricao || '', assuntos: a.assuntos || [], ativa: fs_.some((m) => prontaParaIa(m)), quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; }),
+    ...pastasDa(empresa).map((p) => { const fs_ = todas.filter((m) => m.pastaId === p.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: p.codigo, nome: p.nome, tipo: 'album', quando: p.descricao || '', assuntos: [], ativa: fs_.length > 0, quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; })
+  ];
+  const pontuadas = itens.map((x) => {
+    const deles = tokens(`${x.nome} ${x.quando} ${x.codigo.replace(/-/g, ' ')} ${x.assuntos.join(' ')}`);
+    let pontos = 0;
+    for (const w of alvo) if (deles.has(w)) pontos += 3;
+    for (const w of alvo) if (w.length >= 5 && [...deles].some((d) => d.length >= 5 && (d.startsWith(w.slice(0, 5)) || w.startsWith(d.slice(0, 5))))) pontos += 1;
+    if (querTipo && (x.tipo === querTipo || (querTipo === 'image' && x.tipo === 'album'))) pontos += 2;
+    return { ...x, codigoVisivel: codigoVisivel(x.codigo), pontos };
+  });
+  return pontuadas.filter((x) => x.pontos > 0).sort((a, b) => b.pontos - a.pontos).slice(0, max);
+}
+
+function trechosDe(texto) {
+  return String(texto || '')
+    .split(/\n+/)
+    .flatMap((linha) => linha.split(/(?<=[.!?;])\s+/))
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 6);
+}
+
+// Pendências: código que não existe, mídia desativada e mídia citada sem código
+function pendenciasDoPrompt(empresa) {
+  const ignoradas = new Set(empresa.mencoesIgnoradas || []);
+  const lista = [];
+  for (const bot of estado.bots.filter((b) => b.empresaId === empresa.id)) {
+    for (const [campo, rotulo] of Object.entries(CAMPOS_PROMPT)) {
+      for (const trecho of trechosDe(bot[campo])) {
+        const citados = codigosCitados(empresa, trecho);
+        const base = { botId: bot.id, campo, onde: rotulo, trecho };
+        if (citados.length) {
+          for (const c of citados) {
+            if (c.existe && c.ativa) continue;
+            const id = idPendencia(bot.id, campo, trecho, c.escrito);
+            if (ignoradas.has(id)) continue;
+            lista.push({ ...base, id, tipo: c.existe ? 'desativada' : 'inexistente', escrito: c.escrito, codigo: c.codigo, nome: c.nome, sugestoes: c.existe ? [] : sugerirMidias(empresa, `${trecho} ${c.codigo.replace(/^#MIDIA_/, '').replace(/_/g, ' ')}`) });
+          }
+          continue;
+        }
+        if (!FALA_DE_MIDIA.test(trecho) || !VERBO_ENVIAR.test(trecho)) continue;
+        const id = idPendencia(bot.id, campo, trecho);
+        if (ignoradas.has(id)) continue;
+        lista.push({ ...base, id, tipo: 'sem-codigo', escrito: (trecho.match(FALA_DE_MIDIA) || [''])[0], sugestoes: sugerirMidias(empresa, trecho) });
+      }
+    }
+  }
+  return lista;
+}
+
+// Coloca o código certo no prompt: troca o código errado ou acrescenta "(mídia #MIDIA_X)" no trecho
+function conectarNoPrompt(empresa, pendencia, codigoMidia) {
+  const bot = estado.bots.find((b) => b.id === pendencia.botId && b.empresaId === empresa.id);
+  if (!bot) throw Object.assign(new Error('Assistente não encontrado.'), { status: 404 });
+  const texto = String(bot[pendencia.campo] || '');
+  if (!texto.includes(pendencia.trecho)) throw Object.assign(new Error('O prompt mudou desde que a página abriu. Recarregue e tente de novo.'), { status: 409 });
+  const codigo = codigoVisivel(codigoMidia);
+  let novoTrecho;
+  if (pendencia.tipo === 'inexistente') novoTrecho = pendencia.trecho.split(pendencia.escrito).join(codigo);
+  else novoTrecho = pendencia.trecho.replace(/\s*([.!?;:]*)$/, (_, pont) => ` (mídia ${codigo})${pont}`);
+  return { bot, campo: pendencia.campo, textoNovo: texto.replace(pendencia.trecho, novoTrecho), novoTrecho };
+}
+
 function avisosDoPrompt(empresa) {
   const bots = estado.bots.filter((b) => b.empresaId === empresa.id);
   const lista = [];
@@ -719,6 +800,9 @@ module.exports = {
   salvarMidiaDoLink,
   codigosCitados,
   avisosDoPrompt,
+  pendenciasDoPrompt,
+  conectarNoPrompt,
+  sugerirMidias,
   codigosEmUso,
   listaEtapas,
   resolverPedido,

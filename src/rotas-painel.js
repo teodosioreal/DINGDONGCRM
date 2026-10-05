@@ -656,12 +656,15 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
+    const descricao = texto(req.query.descricao, 300);
     const midia = midias.salvarMidia(empresa, {
       buffer: req.body,
       nomeArquivo: texto(req.query.arquivo, 200),
       nome: texto(req.query.nome, 80),
-      descricao: texto(req.query.descricao, 300),
-      mimetypeInformado: texto(req.query.tipo, 100)
+      descricao,
+      mimetypeInformado: texto(req.query.tipo, 100),
+      // código escolhido (ex.: o que o prompt cita) — já entra ativa se tiver "quando enviar"
+      extra: req.query.codigo ? { codigo: texto(req.query.codigo, 60), pronta: Boolean(descricao) } : {}
     });
     if (midias.midiasDa(empresa).filter((m) => m.nome.toLowerCase() === midia.nome.toLowerCase()).length > 1) {
       midias.apagarMidia(empresa, midia.id);
@@ -1099,7 +1102,49 @@ function planejarMidias(empresa, nomes, enviadas = new Set()) {
 router.get('/empresas/:id/midias/prompt', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.avisosDoPrompt(empresa));
+  res.json({ ...midias.avisosDoPrompt(empresa), pendencias: midias.pendenciasDoPrompt(empresa) });
+});
+
+// Conectar a mídia citada no prompt: coloca o código certo no texto do prompt
+// (ou ativa a mídia, se ela existe mas estava desativada)
+router.post('/empresas/:id/midias/prompt/conectar', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const pend = midias.pendenciasDoPrompt(empresa).find((x) => x.id === String(req.body?.id || ''));
+  if (!pend) return res.status(404).json({ erro: 'Este aviso já foi resolvido (ou o prompt mudou). Recarregue a página.' });
+  try {
+    if (pend.tipo === 'desativada') {
+      const alvo = midias.resolverPedido(empresa, pend.codigo);
+      for (const m of alvo.itens) m.pronta = true;
+      salvar();
+      return res.json({ ok: true, ativou: pend.codigo });
+    }
+    const escolhida = midias.resolverPedido(empresa, String(req.body?.codigo || '')).alvo;
+    if (!escolhida?.codigo) return res.status(400).json({ erro: 'Escolha uma mídia da lista.' });
+    const r = midias.conectarNoPrompt(empresa, pend, escolhida.codigo);
+    registrarMudancaInstrucoes(r.bot, { [r.campo]: r.textoNovo }, req);
+    r.bot[r.campo] = r.textoNovo;
+    // a mídia estava desativada: conectar no prompt já ativa (com o trecho como "quando enviar", se faltar)
+    for (const m of midias.resolverPedido(empresa, escolhida.codigo).itens) {
+      if (!m.descricao && !m.albumId && !m.pastaId) m.descricao = pend.trecho.slice(0, 300);
+      if (m.pronta === false && (m.descricao || m.albumId || m.pastaId)) m.pronta = true;
+    }
+    salvar();
+    res.json({ ok: true, trecho: r.novoTrecho, codigo: midias.codigoVisivel(escolhida.codigo) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+// "Não é mídia": some o aviso deste trecho
+router.post('/empresas/:id/midias/prompt/ignorar', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const id = String(req.body?.id || '').slice(0, 20);
+  if (!id) return res.status(400).json({ erro: 'Aviso inválido.' });
+  empresa.mencoesIgnoradas = [...new Set([...(empresa.mencoesIgnoradas || []), id])].slice(-300);
+  salvar();
+  res.json({ ok: true });
 });
 
 // Log das respostas da IA (texto bruto, códigos, mídias, Evolution, erros)
@@ -1490,6 +1535,7 @@ router.post('/leads/:id/pedido', async (req, res) => {
 router.get('/empresas/:id/agendamentos', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
+  comprovantes.concluirVendidos(empresa); // teve venda → sai de "Próximos" (todas as conversas do cliente)
   const agora_ = Date.now();
   const lista = [];
   for (const c of estado.conversas) {

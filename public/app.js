@@ -1584,6 +1584,17 @@ async function paginaWhatsapp(id) {
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   cartaoEventosIa(id);
   cartaoLogIa(id);
+  // o prompt cita mídia sem conexão certa? avisa aqui também
+  api(`empresas/${id}/midias/prompt`).then((r) => {
+    const n = (r.pendencias || []).length;
+    const area = $('textarea[name=promptWhatsapp]');
+    if (!n || !area || location.hash !== aqui) return;
+    const d = document.createElement('div');
+    d.className = 'det-aviso';
+    d.id = 'aviso-midias-prompt';
+    d.innerHTML = `⚠️ Este prompt cita <b>${n} mídia(s)</b> sem conexão certa — a IA não consegue mandar. <a href="${rotaEmpresa(id, 'midias')}">Conectar agora →</a>`;
+    area.closest('.campo').after(d);
+  }).catch(() => {});
   $('#nao-atropelar').onchange = async (e) => {
     const ligar = e.target.checked;
     try {
@@ -1751,9 +1762,8 @@ async function paginaMidias(id) {
     <div class="card card-midias-prompt" id="card-midias-prompt">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🧩 Mídias no prompt da IA</h2>${botPrincipal ? '<button type="button" class="primario pequeno" id="abrir-modo-teste">🧪 Modo teste</button>' : ''}</div>
       <p class="rotulo" style="margin:0 0 8px">A lista das mídias <b>ativas</b> (código, tipo e quando enviar) entra sozinha no fim do prompt a cada resposta. A IA escreve o código na última linha e o CRM troca pelo arquivo — o código nunca chega ao cliente.</p>
-      ${noPrompt?.inexistentes?.length ? `<div class="det-erro forte">✕ O prompt cita ${noPrompt.inexistentes.length === 1 ? 'um código que não existe' : `${noPrompt.inexistentes.length} códigos que não existem`} no cadastro: ${noPrompt.inexistentes.map((c) => `<b>${esc(c.codigo)}</b> <span class="rotulo">(em ${esc(c.onde)})</span>`).join(', ')}. Corrija no prompt ou cadastre a mídia com esse código.</div>` : ''}
-      ${noPrompt?.desativadas?.length ? `<div class="det-aviso">⚠️ O prompt cita mídia desativada: ${noPrompt.desativadas.map((c) => `<b>${esc(c.codigo)}</b>`).join(', ')} — a IA não vai conseguir enviar até você ativar.</div>` : ''}
-      ${noPrompt?.citados?.length && !noPrompt.inexistentes.length && !noPrompt.desativadas.length ? `<div class="rotulo">✓ Códigos citados no prompt: ${[...new Set(noPrompt.citados.map((c) => c.codigo))].map((c) => `<span class="codigo-chip">${esc(c)}</span>`).join(' ')} — todos existem.</div>` : ''}
+      ${(noPrompt?.pendencias || []).length ? `<div class="det-erro forte pend-resumo">⚠️ Seu prompt cita <b>${noPrompt.pendencias.length} mídia(s)</b> que não estão conectadas do jeito certo — a IA não vai conseguir mandar. <button type="button" class="primario pequeno" id="resolver-prompt">Conectar agora</button></div>` : ''}
+      ${noPrompt?.citados?.length && !(noPrompt.pendencias || []).length ? `<div class="rotulo">✓ Mídias citadas no prompt: ${[...new Set(noPrompt.citados.map((c) => c.codigo))].map((c) => `<span class="codigo-chip">${esc(c)}</span>`).join(' ')} — todas conectadas.</div>` : ''}
       ${errosRecentes.length ? `<div class="det-erro forte">✕ ${errosRecentes.length} resposta(s) com problema de mídia nos últimos 3 dias:<ul>${errosRecentes.slice(0, 5).map((l) => `<li><span class="rotulo">${esc(data(l.em))}${l.cliente ? ` · ${esc(l.cliente)}` : ''}</span> — ${esc(l.erros.join(' · '))}</li>`).join('')}</ul><a href="${rotaEmpresa(id, 'whatsapp')}">Ver o log completo →</a></div>` : ''}
     </div>
 
@@ -1814,6 +1824,20 @@ async function paginaMidias(id) {
     </div>
 `;
 
+  // ⚠️ mídias citadas no prompt sem conexão: o aviso abre sozinho (uma vez por sessão para o mesmo conjunto)
+  const pendencias = noPrompt?.pendencias || [];
+  const abrirPendencias = () => modalPendenciasPrompt(id, pendencias, [...lista.filter((m) => !m.albumId), ...albuns.map((a) => ({ ...a, tipo: 'album' })), ...pastas.map((p) => ({ ...p, tipo: 'album' }))], () => paginaMidias(id));
+  $('#resolver-prompt')?.addEventListener('click', abrirPendencias);
+  if (pendencias.length) {
+    const chave = `pend-prompt-${id}`;
+    const assinatura = pendencias.map((x) => x.id).sort().join(',');
+    let visto = '';
+    try { visto = sessionStorage.getItem(chave) || ''; } catch { /* ok */ }
+    if (visto !== assinatura) {
+      try { sessionStorage.setItem(chave, assinatura); } catch { /* ok */ }
+      abrirPendencias();
+    }
+  }
   $('#abrir-modo-teste')?.addEventListener('click', () => {
     abrirModal(`<div class="modal-teste">${htmlChatTeste('whatsapp', false)}</div><div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m) => {
       m.querySelector('.modal').classList.add('modal-largo');
@@ -5291,6 +5315,98 @@ function modalCategoriasGastos(id, gd, depois) {
         depois?.();
       } catch (err) { aviso(err.message, true); }
     };
+  });
+}
+
+// Sobe um arquivo em pedaços (aceita vídeo grande) e devolve a mídia criada
+async function subirMidiaEmPedacos(empresaId, arq) {
+  if (arq.size > 200 * 1024 * 1024) throw new Error(`O arquivo tem ${(arq.size / 1048576).toFixed(0)} MB — o máximo é 200 MB.`);
+  const ini = await api(`empresas/${empresaId}/midias/envio`, { method: 'POST', body: { arquivo: arq.name, tamanho: arq.size, tipo: arq.type || '' } });
+  for (let pos = 0; pos < arq.size; pos += ini.pedaco) {
+    const r = await fetch(`api/empresas/${empresaId}/midias/envio/${ini.envioId}/parte?pos=${pos}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arq.slice(pos, pos + ini.pedaco) });
+    if (!r.ok) throw new Error('A conexão caiu no meio do envio. Tente de novo.');
+  }
+  return api(`empresas/${empresaId}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
+}
+
+// Mídias citadas no prompt que não estão conectadas: mostra o trecho e conecta a mídia certa
+function modalPendenciasPrompt(empresaId, pendencias, opcoes, aoFechar) {
+  const TIPO = {
+    'sem-codigo': ['⚠️ Mídia citada sem código', 'O prompt fala de mídia, mas sem o código. A IA não sabe QUAL arquivo mandar. Escolha a mídia — o CRM coloca o código certo no prompt.'],
+    inexistente: ['✕ Código que não existe', 'Este código não está cadastrado (erro de digitação ou mídia apagada). Escolha a mídia certa — o CRM troca o código no prompt — ou envie o arquivo agora com esse código.'],
+    desativada: ['⚠️ Mídia desativada', 'A mídia existe, mas está desativada ("a configurar"). A IA não manda enquanto não ativar.']
+  };
+  const ICONE = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄', album: '🗂️' };
+  const marcar = (trecho, escrito) => (escrito ? esc(trecho).split(esc(escrito)).join(`<mark>${esc(escrito)}</mark>`) : esc(trecho));
+  let mudou = false;
+  abrirModal(`
+    <h2>⚠️ Conecte as mídias citadas no seu prompt</h2>
+    <p class="rotulo" style="margin:0 0 12px">Para a IA mandar o arquivo certo, cada mídia citada precisa do <b>código</b> dela (ex.: <code>#MIDIA_TABELA</code>). Resolva abaixo com um clique — o CRM ajusta o prompt para você.</p>
+    <div class="lista-pend">${pendencias.map((p) => `
+      <div class="pend-prompt" data-pend="${esc(p.id)}">
+        <div class="pend-tipo ${p.tipo}">${TIPO[p.tipo][0]} <span class="rotulo">· em ${esc(p.onde)}</span></div>
+        <blockquote class="pend-trecho">${marcar(p.trecho, p.escrito)}</blockquote>
+        <p class="rotulo" style="margin:4px 0 8px">${TIPO[p.tipo][1]}</p>
+        ${p.tipo === 'desativada' ? `<div class="acoes" style="margin:0"><button type="button" class="primario pequeno" data-ativar="${esc(p.id)}">Ativar ${esc(p.codigo)}</button><button type="button" class="pequeno" data-ignorar="${esc(p.id)}">Ignorar</button></div>` : `
+        ${p.sugestoes.length ? `<div class="sug-pend">${p.sugestoes.map((x, i) => `<label class="sug-pend-item"><input type="radio" name="esc-${esc(p.id)}" value="${esc(x.codigo)}" ${i === 0 ? 'checked' : ''}>${x.capa ? `<img src="${esc(x.capa)}" alt="" loading="lazy">` : `<span class="ic">${ICONE[x.tipo] || '📎'}</span>`}<span><b>${esc(x.nome)}</b>${i === 0 ? ' <span class="etiqueta ok">mais provável</span>' : ''}<br><span class="rotulo">${esc(x.codigoVisivel)}${x.ativa ? '' : ' · desativada (ativa ao conectar)'}</span></span></label>`).join('')}</div>` : '<p class="rotulo" style="margin:0 0 6px">Nenhuma mídia parecida. Escolha na lista ou envie o arquivo.</p>'}
+        <div class="linha-pend">
+          <select data-outra="${esc(p.id)}"><option value="">${p.sugestoes.length ? 'Ou escolha outra mídia…' : 'Escolha a mídia…'}</option>${opcoes.map((m) => `<option value="${esc(m.codigo)}">${ICONE[m.tipo] || '📎'} ${esc(m.nome)} · ${esc(codMidia(m.codigo))}</option>`).join('')}</select>
+          <button type="button" class="primario pequeno" data-conectar="${esc(p.id)}">Conectar</button>
+          <label class="botao pequeno" title="Envia o arquivo e já conecta">📤 Enviar arquivo novo<input type="file" hidden data-novo="${esc(p.id)}" accept="image/*,video/*,audio/*,.pdf"></label>
+          <button type="button" class="pequeno" data-ignorar="${esc(p.id)}">${p.tipo === 'sem-codigo' ? 'Não é mídia' : 'Ignorar'}</button>
+        </div>`}
+        <div class="pend-res" data-res="${esc(p.id)}"></div>
+      </div>`).join('')}</div>
+    <div class="acoes"><button type="button" class="primario" data-fechar>Pronto</button></div>`, (m, fechar) => {
+    m.querySelector('.modal').classList.add('modal-largo');
+    new MutationObserver((_, obs) => { if (!m.isConnected) { obs.disconnect(); if (mudou) aoFechar?.(); } }).observe(document.body, { childList: true });
+    const feito = (pid, html) => {
+      const card = $(`[data-pend="${pid}"]`, m);
+      card.classList.add('resolvida');
+      $$('button, select, input, label.botao', card).forEach((x) => { x.disabled = true; if (x.tagName === 'LABEL') x.hidden = true; });
+      $(`[data-res="${pid}"]`, m).innerHTML = html;
+      mudou = true;
+    };
+    const conectar = async (pid, codigo, botao) => {
+      const r = await comEspera(botao, () => api(`empresas/${empresaId}/midias/prompt/conectar`, { method: 'POST', body: { id: pid, codigo } }), 'Conectando…');
+      feito(pid, r.ativou ? `✓ ${esc(r.ativou)} ativada — a IA já pode mandar.` : `✓ Conectado com <b>${esc(r.codigo)}</b>. O prompt agora diz: <i>“${esc(r.trecho)}”</i>`);
+    };
+    $$('[data-conectar]', m).forEach((b) => {
+      b.onclick = async () => {
+        const pid = b.dataset.conectar;
+        const codigo = $(`[data-outra="${pid}"]`, m).value || $(`input[name="esc-${pid}"]:checked`, m)?.value;
+        if (!codigo) return aviso('Escolha a mídia que o prompt está citando.', true);
+        try { await conectar(pid, codigo, b); } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-ativar]', m).forEach((b) => { b.onclick = async () => { try { await conectar(b.dataset.ativar, '', b); } catch (err) { aviso(err.message, true); } }; });
+    $$('[data-ignorar]', m).forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await api(`empresas/${empresaId}/midias/prompt/ignorar`, { method: 'POST', body: { id: b.dataset.ignorar } });
+          feito(b.dataset.ignorar, '<span class="rotulo">Ignorado — este trecho não vai mais aparecer aqui.</span>');
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-novo]', m).forEach((inp) => {
+      inp.onchange = async () => {
+        const arq = inp.files[0];
+        inp.value = '';
+        if (!arq) return;
+        const p = pendencias.find((x) => x.id === inp.dataset.novo);
+        const res = $(`[data-res="${p.id}"]`, m);
+        res.innerHTML = '<span class="rotulo">⏳ Enviando o arquivo…</span>';
+        try {
+          const nova = await subirMidiaEmPedacos(empresaId, arq);
+          // código inexistente: a mídia nova ganha EXATAMENTE o código que o prompt cita
+          await api(`empresas/${empresaId}/midias/${nova.id}`, { method: 'PUT', body: { ...(p.tipo === 'inexistente' ? { codigo: p.codigo } : {}), descricao: p.trecho.slice(0, 300), pronta: true } });
+          if (p.tipo === 'inexistente') feito(p.id, `✓ Arquivo enviado com o código <b>${esc(p.codigo)}</b> — o prompt já funciona.`);
+          else await conectar(p.id, nova.codigo, null);
+        } catch (err) {
+          res.innerHTML = `<span class="det-erro">✕ ${esc(err.message)}</span>`;
+        }
+      };
+    });
   });
 }
 
