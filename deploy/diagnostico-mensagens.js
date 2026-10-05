@@ -47,7 +47,7 @@ async function evo(e, corpo) {
       // mensagem de conversa apagada no painel (antes de apagar) não conta como faltando
       const marcas = e.conversasApagadas || {};
       const chFone = (j) => { let d = String(j || '').split('@')[0].replace(/\D/g, ''); if (/^55\d{2}9\d{8}$/.test(d)) d = d.slice(0, 4) + d.slice(5); return d.length >= 10 ? `fone:${d}` : ''; };
-      const apagada = (m) => { const k = m.key || {}; return [k.remoteJid, k.remoteJidAlt, k.senderPn].filter(Boolean).some((j) => { const em = marcas[j] || marcas[chFone(j)]; return em && seg(m.messageTimestamp) * 1000 <= new Date(em).getTime(); }); };
+      const apagada = (m) => { const k = m.key || {}; return [k.remoteJid, k.remoteJidAlt, k.senderPn, k.senderLid, k.participantAlt, m.senderPn].filter(Boolean).some((j) => { const em = marcas[j] || marcas[chFone(j)]; return em && seg(m.messageTimestamp) * 1000 < Math.floor(new Date(em).getTime() / 1000) * 1000; }); };
       const falta = lista.filter((m) => !wids.has(m.key?.id) && !lixo.has(m.key?.id) && !apagada(m));
       console.log(`      mensagens ${rotulo}: ${lista.length} · no CRM: ${lista.length - falta.length} · FALTAM: ${falta.length}${falta.length ? ` → tipos ${JSON.stringify(conta(falta, (m) => m.messageType || '?'))}` : ''}`);
       if (rotulo === 'dos clientes' && falta.length) {

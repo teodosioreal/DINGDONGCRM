@@ -34,7 +34,8 @@ function mensagemApagada(empresa, msg, emMs, ...extras) {
   const k = msg?.key || {};
   for (const end of [k.remoteJid, k.remoteJidAlt, k.senderPn, k.senderLid, k.participantAlt, msg?.senderPn, ...extras].filter(Boolean)) {
     const em = apagadaEm(empresa, String(end));
-    if (em && emMs <= new Date(em).getTime()) return true;
+    // o WhatsApp manda o horário em segundos: mensagem do mesmo segundo em que apagou é nova
+    if (em && emMs < Math.floor(new Date(em).getTime() / 1000) * 1000) return true;
   }
   return false;
 }
@@ -45,6 +46,8 @@ function apagarConversa(lead, por = '') {
   if (i < 0) return false;
   const empresa = estado.empresas.find((e) => e.id === lead.empresaId);
   require('./whatsapp').cancelarResposta(lead.id);
+  // mensagens agendadas não saem mais (mesmo se um envio já estiver na fila)
+  for (const a of lead.agendadas || []) if (a.status === 'pendente') Object.assign(a, { status: 'cancelada', motivo: 'conversa apagada' });
   estado.conversas.splice(i, 1);
   marcarApagada(empresa, lead, agora(), por);
   preservarComprovantes(lead);

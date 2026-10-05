@@ -199,11 +199,15 @@ function moverEtapa(lead, empresa, nomeEtapa, por) {
   lead.etapaHistorico.push({ de: lead.etapa, para: etapa, por, em: agora() });
   lead.etapa = etapa;
   lead.atualizadoEm = agora();
-  // moveu para a etapa de venda ("Vendi", "Fechado"…): sai do agendado e ganha a etiqueta de venda
-  // (a venda pelo Pix/botão já faz isso e move com por = 'sistema')
-  if (por !== 'sistema') {
+  // a EQUIPE moveu para a etapa de venda ("Vendi", "Fechado"…): sai do agendado e ganha a etiqueta
+  // de venda; tirou de lá (sem venda registrada): volta como estava. (Pix, botão e IA vendem pelo
+  // registro de venda, que já troca as etiquetas.)
+  if (por === 'equipe') {
     const comprovantes = require('./comprovantes');
+    const antes = lead.etapaHistorico[lead.etapaHistorico.length - 1]?.de || '';
+    const temVenda = lead.vendaConcluidaManual || (estado.vendas || []).some((v) => v.leadId === lead.id && v.status !== 'cancelada');
     if (comprovantes.ehEtapaDeVenda(etapa)) comprovantes.marcarVendido(empresa, lead);
+    else if (antes && comprovantes.ehEtapaDeVenda(antes) && !temVenda) comprovantes.desfazerVendido(empresa, lead);
   }
   return true;
 }

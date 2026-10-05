@@ -790,6 +790,7 @@ async function receberWebhook(empresa, corpo) {
       }
       // voltou a conectar: busca o que chegou enquanto estava fora
       if (st === 'open' && antes !== 'open') {
+        empresa.whatsappConfig.reconectouEm = agora(); // o celular reenvia as etiquetas logo depois
         require('./alertas').resolverTipo(empresa, 'whatsapp-desconectado');
         require('./reconexao').registrarVolta(empresa);
         require('./sincronizar').aoReconectar(empresa);

@@ -161,11 +161,13 @@ function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   const comprovantes = require('./comprovantes');
   // "Agendado" (ou outra de antes da venda) que a venda tirou voltando velha: não volta no CRM
   // e o CRM tira de novo no WhatsApp (fica marcada como "está no zap" para o espelho remover)
-  if (tipo === 'add' && comprovantes.voltaVelha(empresa, lead, t.id)) {
+  if (tipo === 'add' && comprovantes.etiquetaChegandoEhVelha(empresa, lead, t.id, { aoVivo })) {
     lead.etiquetasZap = [...new Set([...(lead.etiquetasZap || []), t.id])];
     lead.etiquetas = (lead.etiquetas || []).filter((x) => x !== t.id);
     return false;
   }
+  // posta de propósito depois da venda (ex.: agendou a entrega): vale, e não é mais "tirada pela venda"
+  if (tipo === 'add' && lead.tiradasPelaVenda?.[t.id]) delete lead.tiradasPelaVenda[t.id];
   const atuais = new Set(lead.etiquetas || []);
   const zap = new Set(lead.etiquetasZap || []);
   const tinha = atuais.has(t.id);
@@ -179,7 +181,7 @@ function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
   lead.etiquetas = [...atuais];
   lead.etiquetasZap = [...zap]; // já está igual no WhatsApp: não manda de volta
   // colocou a etiqueta de venda ("Venda Concluída") no celular: sai do agendado (CRM e WhatsApp)
-  if (tipo === 'add' && !tinha && comprovantes.ehEtiquetaDeVenda(t.nome)) comprovantes.marcarVendido(empresa, lead);
+  if (tipo === 'add' && !tinha && comprovantes.ehEtiquetaDeVenda(t.nome)) comprovantes.marcarVendido(empresa, lead, { etiqueta: t.id });
   // etiqueta "Agendado": entra/sai da aba Agendamentos
   const agenda = require('./detector-agenda');
   if (agenda.ehEtiquetaAgendado(t.nome) && tipo === 'add' && !tinha) agenda.pelaEtiqueta(empresa, lead, { aoVivo }).catch((err) => console.error('[etiquetas-zap] agenda:', err.message));
@@ -219,10 +221,14 @@ async function espelharLead(empresa, lead) {
   if (!numero) return;
   const mudar = [...[...agoraSet].filter((id) => !zap.has(id)).map((id) => [id, 'add']), ...[...zap].filter((id) => !agoraSet.has(id)).map((id) => [id, 'remove'])];
   lead.falhasEtiquetaZap = lead.falhasEtiquetaZap || {};
+  const pendentes = new Set(mudar.map(([id, acao]) => `${id}:${acao}`));
+  for (const k of Object.keys(lead.falhasEtiquetaZap)) if (!pendentes.has(k)) delete lead.falhasEtiquetaZap[k]; // não precisa mais
+  let mudou = false;
   for (const [id, acao] of mudar) {
     const t = porId.get(id);
     const falha = lead.falhasEtiquetaZap[`${id}:${acao}`];
     if (falha && Date.now() < new Date(falha.proxima).getTime()) continue; // espera para tentar de novo
+    mudou = true;
     try {
       if (t?.zapId) await whatsapp.evolution(empresa, 'POST', '/label/handleLabel/{instancia}', { number: numero, labelId: t.zapId, action: acao });
       if (acao === 'add') zap.add(id);
@@ -246,7 +252,7 @@ async function espelharLead(empresa, lead) {
   }
   if (!Object.keys(lead.falhasEtiquetaZap).length) delete lead.falhasEtiquetaZap;
   lead.etiquetasZap = [...zap];
-  if (mudar.length) salvar();
+  if (mudou) salvar();
 }
 
 // ---------------------------------------------------------------- cópia vinda do servidor

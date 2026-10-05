@@ -359,13 +359,19 @@ function concluirAgendamentos(lead) {
 // a ordem é a preferência: "Venda Concluída" primeiro (é a que a empresa usa no celular)
 const ETIQUETA_VENDA = [/^venda conclu/, /^vend(id|a)/, /conclu/, /^pag[oa]s?\b|^pagamento (ok|confirmado|feito)/, /^fechad/, /^finaliz|^entregue/, /^client/];
 const ETIQUETA_ANTES_DA_VENDA = /^(agendad|orcament|negocia|aguardando pag|pendente|interessad|novo cliente|lead)/;
-function trocarEtiquetaDeVenda(empresa, lead) {
+function trocarEtiquetaDeVenda(empresa, lead, preferida = null) {
   const tags = leads.etiquetasDa(empresa);
-  let alvo = null;
-  for (const re of ETIQUETA_VENDA) {
-    alvo = tags.find((t) => re.test(limpar(t.nome).trim()));
-    if (alvo) break;
+  const valeComoVenda = (t) => !ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim()) && !/orcament/.test(limpar(t.nome));
+  // a etiqueta de venda que a pessoa pôs (ex.: "Pago" no celular) vale; senão a preferida da lista
+  let alvo = preferida ? tags.find((t) => t.id === preferida) || null : null;
+  if (!alvo) {
+    for (const re of ETIQUETA_VENDA) {
+      alvo = tags.find((t) => re.test(limpar(t.nome).trim()) && valeComoVenda(t));
+      if (alvo) break;
+    }
   }
+  // o cliente já tem uma etiqueta de venda: não põe outra
+  if (!preferida && (lead.etiquetas || []).some((id) => { const t = tags.find((x) => x.id === id); return t && ehEtiquetaDeVenda(t.nome); })) alvo = null;
   const tirar = new Set(tags.filter((t) => ETIQUETA_ANTES_DA_VENDA.test(limpar(t.nome).trim())).map((t) => t.id));
   const antes = (lead.etiquetas || []).join();
   // guarda o que a venda tirou: se a mesma etiqueta voltar "velha" (cópia do servidor,
@@ -389,11 +395,21 @@ function voltaVelha(empresa, lead, etiquetaId) {
   const em = lead.tiradasPelaVenda?.[etiquetaId];
   return Boolean(em && Date.now() - new Date(em).getTime() < DIAS_TIRADA * 86400000);
 }
+// Etiqueta chegando agora é a velha? Só quando vem da cópia do servidor ou do celular
+// reenviando tudo logo depois de reconectar — posta de propósito (no celular ou no CRM) vale
+function etiquetaChegandoEhVelha(empresa, lead, etiquetaId, { aoVivo = false } = {}) {
+  if (!voltaVelha(empresa, lead, etiquetaId) || (lead.etiquetas || []).includes(etiquetaId)) return false;
+  if (!aoVivo) return true;
+  const reconectou = empresa.whatsappConfig?.reconectouEm;
+  return Boolean(reconectou && Date.now() - new Date(reconectou).getTime() < 10 * 60 * 1000);
+}
 
 // "Desfazer venda": volta o que a venda mudou — as etiquetas que ela tirou (Agendado…), a
 // etiqueta de venda que ela pôs e os agendamentos que ela concluiu (se ainda não passaram)
 function desfazerVendido(empresa, lead) {
   for (const c of conversasDoCliente(empresa, lead)) {
+    // outra conversa do cliente com venda própria: fica como está
+    if (c !== lead && (c.vendaConcluidaManual || vendasDa(empresa).some((v) => v.leadId === c.id && v.status !== 'cancelada'))) continue;
     const volta = Object.keys(c.tiradasPelaVenda || {}).filter((id) => voltaVelha(empresa, c, id));
     let etiquetas = (c.etiquetas || []).filter((id) => id !== c.etiquetaVendaPeloCrm);
     etiquetas = [...new Set([...etiquetas, ...volta])];
@@ -413,9 +429,9 @@ function desfazerVendido(empresa, lead) {
 
 // Venda vinda do funil (etapa "Vendi") ou da etiqueta de venda posta no celular: troca as
 // etiquetas e conclui o agendamento em todas as conversas do cliente (sem registrar venda nova)
-function marcarVendido(empresa, lead) {
+function marcarVendido(empresa, lead, { etiqueta = null } = {}) {
   for (const c of conversasDoCliente(empresa, lead)) {
-    trocarEtiquetaDeVenda(empresa, c);
+    trocarEtiquetaDeVenda(empresa, c, etiqueta);
     concluirAgendamentos(c);
   }
 }
@@ -426,7 +442,7 @@ function marcarVendido(empresa, lead) {
 // concluída", "Vendido", "Pago", "Fechado", "Entregue"…) ou etapa de venda do funil.
 // Devolve { por, em } (em = quando, se der para saber) ou null.
 const ETIQUETA_JA_VENDEU = ETIQUETA_VENDA.filter((re) => !re.test('cliente'));
-const ETAPA_JA_VENDEU = /fechad|ganh|vendi|conclu/;
+const ETAPA_JA_VENDEU = /fechad|ganh|vendi|vendid|venda conclu|^conclu|^pag[oa]\b/;
 const ehEtiquetaDeVenda = (nome) => ETIQUETA_JA_VENDEU.some((re) => re.test(limpar(nome).trim())) && !ETIQUETA_ANTES_DA_VENDA.test(limpar(nome).trim());
 const ETAPA_PERDIDA = /\bnao\b|\bsem\b|perdid|desist|cancel/;
 const ehEtapaDeVenda = (nome) => ETAPA_JA_VENDEU.test(limpar(nome)) && !ETAPA_PERDIDA.test(limpar(nome));
@@ -545,6 +561,7 @@ function resumo(empresa) {
 module.exports = {
   jaVendeu,
   voltaVelha,
+  etiquetaChegandoEhVelha,
   marcarVendido,
   desfazerVendido,
   ehEtiquetaDeVenda,
