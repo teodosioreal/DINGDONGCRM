@@ -288,6 +288,13 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
   você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
   padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+- **Mídias sem dor de cabeça**: na aba "A configurar" cada mídia tem a **configuração rápida**
+  (quando mandar + código + "✓ Liberar para a IA"); no prompt do WhatsApp o botão
+  **📎 Inserir mídia no prompt** lista as mídias com foto e coloca o código certo no cursor.
+  Se a IA escrever um código que não existe, o CRM manda a mídia que combina com clareza (ou
+  nada, se houver dúvida). Os tiques de entrega acham a mensagem mesmo quando o WhatsApp
+  confirma pelo id escondido (@lid) e, a cada 2 min, o CRM confere na Evolution o que ficou
+  "aguardando".
 - **Resposta da IA em partes**: cada linha da resposta vira uma mensagem no WhatsApp, na
   ordem, e cada `#MIDIA_` sai no lugar onde a IA escreveu. Entre os envios o cliente vê
   "digitando…": 3 s antes da mídia, 10 s depois da mídia e 5 s entre textos (IA do WhatsApp →

@@ -1517,3 +1517,11 @@ html.dark .ag-status.hoje { background: #422006; color: #fde68a; }
 .galeria-miniaturas button.ativa { border-color: var(--acento, #6366f1); opacity: 1; }
 .galeria-miniaturas img { width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 520px) { .ag-grade { grid-template-columns: 1fr; } .ag-card-hora b { font-size: 22px; } }
+
+/* configuração rápida da mídia "a configurar" */
+.config-rapida { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border-radius: 10px; background: var(--aviso-fundo); border: 1px solid color-mix(in srgb, var(--aviso-texto) 25%, transparent); }
+.config-rapida label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--rotulo); }
+.config-rapida input { font-size: 13px; }
+html.dark .config-rapida { background: #2a1d05; }
+.inserir-midia { display: inline-flex; margin: 2px 0 6px; }
+#lista-midia-prompt .escolha .rotulo { word-break: break-all; font-family: ui-monospace, monospace; font-size: 11.5px; }

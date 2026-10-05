@@ -93,7 +93,7 @@ async function evo(e, metodo, caminho, corpo) {
       if (ids.length) {
         const r = await evo(e, 'POST', '/chat/findMessages/{i}', { where: { key: { id: ids[0] } } });
         const x = (r.j?.messages?.records || [])[0];
-        zap = x ? `na Evolution: ${x.messageType} status ${x.status || '?'} · destino ${String(x.key?.remoteJid || '').endsWith('@lid') ? 'lid' : 'número'}` : `não achada (HTTP ${r.status})`;
+        zap = x ? `na Evolution: ${x.messageType} status ${x.status || (x.MessageUpdate || []).slice(-1)[0]?.status || '?'} · destino ${String(x.key?.remoteJid || '').endsWith('@lid') ? 'lid' : 'número'}` : `não achada (HTTP ${r.status})`;
       }
       const cod = m.midiaCodigo ? midias.codigoVisivel(m.midiaCodigo) : m.anexo ? `arquivo ${m.anexo.tipo}` : '?';
       console.log(`      ${hora(m.em)} ${m.papel} · ${cod} · CRM=${m.entrega || 'sem status'}${m.envio ? `/${m.envio}` : ''} · ${zap} · conversa ${c.whatsappJid ? 'número' : 'só lid'}${c.lidJid ? '+lid' : ''}`);

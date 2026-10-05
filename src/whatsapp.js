@@ -1365,6 +1365,35 @@ async function responderLead(empresaId, leadId, tentativa = 0, opcoes = {}) {
 // messages.update da Evolution: v2 manda { keyId, remoteJid, fromMe, status: 'DELIVERY_ACK' };
 // o formato do Baileys é { key: { id, remoteJid, fromMe }, update: { status: 3 } }.
 const STATUS_ENTREGA = { ERROR: 'erro', PENDING: 'enviando', SERVER_ACK: 'servidor', DELIVERY_ACK: 'entregue', READ: 'lida', PLAYED: 'lida', 0: 'erro', 1: 'enviando', 2: 'servidor', 3: 'entregue', 4: 'lida', 5: 'lida' };
+// A mensagem que saiu com esse id. A confirmação pode vir com o id escondido (@lid) do cliente
+// e a conversa estar só com o número: primeiro procura pelo jid, depois em todas as conversas
+// da empresa (só nas mensagens mais recentes de cada uma).
+function acharMensagemSaida(empresa, wid, jid = '') {
+  const tem = (x) => x.papel !== 'visitante' && (x.wid === wid || x.wids?.includes(wid));
+  const procurar = (c) => {
+    const msgs = c.mensagens || [];
+    for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 60); i--) if (tem(msgs[i])) return msgs[i];
+    return null;
+  };
+  const daEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
+  if (jid) {
+    for (const c of daEmpresa) {
+      if (c.whatsappJid !== jid && c.lidJid !== jid) continue;
+      const m = procurar(c);
+      if (m) return { lead: c, m };
+    }
+  }
+  for (const c of daEmpresa) {
+    const m = procurar(c);
+    if (m) {
+      // aprendeu o id escondido desta conversa (ajuda as próximas confirmações)
+      if (jid && /@lid$/.test(jid) && !c.lidJid) c.lidJid = jid;
+      return { lead: c, m };
+    }
+  }
+  return null;
+}
+
 function receberStatusEntrega(empresa, dados) {
   let mudou = false;
   if (!empresa.whatsappConfig.statusEntregaEm) {
@@ -1376,9 +1405,9 @@ function receberStatusEntrega(empresa, dados) {
     const wid = d?.keyId || d?.key?.id;
     const entrega = STATUS_ENTREGA[d?.status ?? d?.update?.status];
     if (fromMe === false || !wid || !entrega) continue;
-    const jid = d?.remoteJid || d?.key?.remoteJid || '';
-    const lead = jid && estado.conversas.find((c) => c.empresaId === empresa.id && (c.whatsappJid === jid || c.lidJid === jid) && (c.mensagens || []).some((m) => m.wid === wid || m.wids?.includes(wid)));
-    const m = lead && [...lead.mensagens].reverse().find((x) => x.papel !== 'visitante' && (x.wid === wid || x.wids?.includes(wid)));
+    const achou = acharMensagemSaida(empresa, wid, d?.remoteJid || d?.key?.remoteJid || '');
+    const lead = achou?.lead;
+    const m = achou?.m;
     if (!m) {
       leads.guardarStatusEntrega(wid, entrega); // a mensagem ainda vai ser salva
       continue;
@@ -1391,6 +1420,45 @@ function receberStatusEntrega(empresa, dados) {
     }
   }
   if (mudou) salvar();
+}
+
+// Rede de segurança das confirmações: mensagem que saiu e ficou "aguardando" (o aviso do
+// WhatsApp se perdeu ou chegou antes de salvar) → pergunta à Evolution o status dela.
+const statusDoRegistro = (x) => STATUS_ENTREGA[x?.status] || STATUS_ENTREGA[(Array.isArray(x?.MessageUpdate) ? x.MessageUpdate[x.MessageUpdate.length - 1] : null)?.status] || null;
+async function conferirEntregasPendentes(empresa, { max = 25 } = {}) {
+  if (!configurado(empresa)) return 0;
+  const agoraMs = Date.now();
+  const pendentes = [];
+  for (const c of estado.conversas) {
+    if (c.empresaId !== empresa.id) continue;
+    const msgs = c.mensagens || [];
+    for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 30); i--) {
+      const m = msgs[i];
+      const idade = agoraMs - new Date(m.em).getTime();
+      if (m.entrega === 'enviando' && idade > 60 * 1000 && idade < 48 * 3600 * 1000 && (m.wid || m.wids?.length)) pendentes.push(m);
+    }
+  }
+  let mudou = 0;
+  for (const m of pendentes.slice(0, max)) {
+    const wid = m.wid || m.wids[0];
+    try {
+      const r = await evolution(empresa, 'POST', '/chat/findMessages/{instancia}', { where: { key: { id: wid } } }, { tempo: 15000 });
+      const reg = (r?.messages?.records || (Array.isArray(r) ? r : []))[0];
+      const entrega = statusDoRegistro(reg);
+      if (entrega && entrega !== 'enviando' && leads.subirEntrega(m, entrega)) mudou++;
+    } catch {
+      /* tenta de novo no próximo ciclo */
+    }
+  }
+  if (mudou) salvar();
+  return mudou;
+}
+function iniciarConferenciaEntregas() {
+  const ciclo = async () => {
+    for (const e of estado.empresas) await conferirEntregasPendentes(e).catch(() => {});
+  };
+  setTimeout(ciclo, 45 * 1000).unref?.();
+  setInterval(ciclo, 2 * 60 * 1000).unref?.();
 }
 
 // ---------------------------------------------------------------- "lido" no WhatsApp
@@ -1694,7 +1762,9 @@ async function enviarRespostaEmPartes(empresa, lead, r, { log, opcoes = {}, vez 
     } else {
       let itens = [];
       try {
-        itens = (await enviarMidiasPedidas(empresa, lead, [p.codigo])).itens;
+        const res = await enviarMidiasPedidas(empresa, lead, [p.codigo]);
+        itens = res.itens;
+        for (const t of res.trocas || []) log.avisos.push(`A IA escreveu o código ${t.pedido}, que não existe: o CRM mandou ${t.enviado}, a mídia que combina.`);
       } catch (err) {
         log.erros.push(`Falha ao enviar a mídia ${p.codigo}: ${err.message}`);
       }
@@ -1770,7 +1840,18 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
   const daIa = papel === 'assistente' && !followup;
   const jaNestaResposta = new Set();
   for (const nome of nomes || []) {
-    const pedido = midias.resolverPedido(empresa, nome);
+    let pedido = midias.resolverPedido(empresa, nome);
+    // a IA escreveu um código que não existe (inventou ou cortou): se as palavras do código
+    // apontam com clareza para uma mídia que ela pode mandar, manda essa
+    if (!pedido.alvo && papel === 'assistente') {
+      const palavras = String(nome).replace(/^#?\s*M[IÍ]DIA[_:\s-]*/i, '').replace(/[_-]+/g, ' ');
+      const certa = midias.conexaoCerta(empresa, palavras);
+      const pode = new Set(midias.paraIa(empresa, { followup }).map((x) => x.codigo));
+      if (certa && pode.has(certa.codigo)) {
+        pedido = midias.resolverPedido(empresa, certa.codigo);
+        resultado.trocas = [...(resultado.trocas || []), { pedido: String(nome), enviado: certa.codigoVisivel }];
+      }
+    }
     const codigoPedido = visivel(pedido.alvo?.codigo, nome);
     if (!pedido.alvo) {
       resultado.itens.push({ codigo: String(nome).startsWith('#') ? String(nome) : `#MIDIA_${String(nome).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`, status: 'nao-existe', motivo: 'não existe mídia com esse código nesta empresa' });
@@ -1956,6 +2037,8 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  conferirEntregasPendentes,
+  iniciarConferenciaEntregas,
   temposDeEnvio,
   partesDaResposta,
   iaVaiResponder,

@@ -1429,6 +1429,46 @@ async function paginaSite(id) {
 
 // ---------------------------------------------------------------- empresa: IA do WhatsApp
 
+// Lista as mídias e álbuns com foto; ao clicar, o código entra no prompt onde está o cursor.
+// Mídia "a configurar" citada no prompt também vale: o dono mandou enviar.
+async function escolherMidiaParaPrompt(id, area) {
+  let todas, albuns;
+  try { [todas, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`).catch(() => [])]); } catch (err) { return aviso(err.message, true); }
+  const itens = [
+    ...albuns.map((a) => ({ codigo: a.codigo, nome: a.nome, tipo: 'album', capa: (todas.find((m) => m.albumId === a.id && m.tipo === 'image') || {}).url, status: 'álbum' })),
+    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, capa: m.tipo === 'image' ? m.url : '', status: m.soFollowup ? 'só follow-up' : m.pronta === false ? 'a configurar' : 'pronta', quando: m.descricao || '' }))
+  ];
+  abrirModal(`
+    <h2>📎 Inserir mídia no prompt</h2>
+    <p class="rotulo">Clique na mídia: o código entra no prompt onde está o cursor (ex.: <i>"quando perguntarem do completo, mande ${esc(codMidia(itens[0]?.codigo || 'X'))}"</i>). Depois clique em Salvar.</p>
+    <input type="search" id="busca-midia-prompt" placeholder="Buscar pelo nome ou código" style="margin:6px 0 10px">
+    <div class="grade-escolha" id="lista-midia-prompt">
+      ${itens.map((x) => `<button type="button" class="escolha" data-cod="${esc(codMidia(x.codigo))}" data-busca="${esc(`${x.nome} ${codMidia(x.codigo)}`.toLowerCase())}">${x.capa ? `<img src="${esc(x.capa)}" alt="">` : `<span class="escolha-icone">${x.tipo === 'album' ? '🗂️' : ICONE_TIPO[x.tipo] || '📎'}</span>`}<b>${esc(x.nome)}</b><span class="rotulo">${esc(codMidia(x.codigo))}</span><span class="etiqueta ${x.status === 'pronta' ? 'ok' : x.status === 'a configurar' ? 'aviso' : ''}">${esc(x.status)}</span></button>`).join('') || '<p class="rotulo">Nenhuma mídia cadastrada.</p>'}
+    </div>
+    <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+    $('#busca-midia-prompt', m).oninput = (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      $$('[data-busca]', m).forEach((b) => { b.hidden = q && !b.dataset.busca.includes(q); });
+    };
+    $$('[data-cod]', m).forEach((b) => {
+      b.onclick = () => {
+        const cod = b.dataset.cod;
+        const ini = area.selectionStart ?? area.value.length;
+        const fim = area.selectionEnd ?? ini;
+        const antes = area.value.slice(0, ini);
+        const espaco = antes && !/\s$/.test(antes) ? ' ' : '';
+        area.value = `${antes}${espaco}${cod} ${area.value.slice(fim)}`;
+        const pos = ini + espaco.length + cod.length + 1;
+        area.focus();
+        area.setSelectionRange(pos, pos);
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+        fechar();
+        aviso(`${cod} colocado no prompt. Clique em Salvar para valer.`);
+      };
+    });
+  });
+}
+
 async function paginaWhatsapp(id) {
   const hashDaPagina = location.hash;
   const [emp, bot] = await Promise.all([definirEmpresaAtual(id), principalDa(id)]);
@@ -1756,6 +1796,17 @@ async function paginaWhatsapp(id) {
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   cartaoEventosIa(id);
   cartaoLogIa(id);
+  // 📎 Inserir mídia no prompt: escolhe na lista e o código certo entra onde está o cursor
+  const areaPrompt = $('textarea[name=promptWhatsapp]');
+  if (areaPrompt && !$('#inserir-midia-prompt')) {
+    const bt = document.createElement('button');
+    bt.type = 'button';
+    bt.className = 'pequeno inserir-midia';
+    bt.id = 'inserir-midia-prompt';
+    bt.textContent = '📎 Inserir mídia no prompt';
+    areaPrompt.before(bt);
+    bt.onclick = () => escolherMidiaParaPrompt(id, areaPrompt);
+  }
   // o prompt cita mídia sem conexão certa? avisa aqui também
   api(`empresas/${id}/midias/prompt`).then((r) => {
     const citados = r.citados || [];
@@ -2232,6 +2283,11 @@ async function paginaMidias(id) {
       ${(m.assuntos || []).length || m.soFollowup ? `<span class="rotulo">${chipsAssuntos(m)}</span>` : ''}
       ${statusVideo(m)}
       <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)} · ${m.pronta === false ? '<span class="etiqueta aviso">a configurar</span>' : '<span class="etiqueta ok">✓ ativa</span>'}${m.umaVezPorConversa === false ? ' <span class="etiqueta">pode repetir</span>' : ''}${m.legenda ? ' <span class="etiqueta" title="Tem legenda">💬 legenda</span>' : ''}</span>
+      ${m.pronta === false && !m.soFollowup ? `<form class="config-rapida" data-liberar="${esc(m.id)}">
+        <label>Quando a IA deve mandar?<input name="descricao" required maxlength="300" value="${esc(m.descricao || '')}" placeholder="Ex.: quando perguntarem do revestimento completo"></label>
+        <label>Código para o prompt<input name="codigo" maxlength="40" value="${esc(codMidia(m.codigo))}"></label>
+        <button type="submit" class="primario pequeno">✓ Liberar para a IA</button>
+      </form>` : ''}
       <div class="acoes" style="margin-top:8px"><button class="pequeno ${m.pronta === false ? 'primario' : ''}" data-editar="${esc(m.id)}">${m.pronta === false ? 'Configurar' : 'Editar'}</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   const cartaoAlbum = (a) => {
@@ -2310,6 +2366,21 @@ async function paginaMidias(id) {
       };
     });
     $$('[data-editar]').forEach((b) => { b.onclick = () => modalMidia(lista.find((x) => x.id === b.dataset.editar)); });
+    // configuração rápida: diz quando mandar, ajusta o código e libera para a IA
+    $$('[data-liberar]').forEach((f) => {
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const m = lista.find((x) => x.id === f.dataset.liberar);
+        const descricao = f.elements.descricao.value.trim();
+        if (!descricao) return aviso('Escreva quando a IA deve mandar esta mídia.', true);
+        try {
+          const r = await comEspera(f.querySelector('button'), () => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { descricao, codigo: f.elements.codigo.value.trim(), pronta: true } }));
+          Object.assign(m, { descricao: r.descricao, codigo: r.codigo, pronta: true });
+          aviso(`${r.codigoVisivel} liberada: a IA já pode mandar. Cole o código no prompt se quiser que ela mande num momento certo.`);
+          desenharBiblioteca();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
     $('#novo-album')?.addEventListener('click', () => modalAlbum(null, []));
     $$('[data-editar-album]').forEach((b) => { b.onclick = () => modalAlbum(albuns.find((a) => a.id === b.dataset.editarAlbum), null); });
     $$('[data-apagar-album]').forEach((b) => {
