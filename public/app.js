@@ -2160,6 +2160,8 @@ async function paginaMidias(id) {
   const semRegra = (m) => !m.descricao?.trim();
   const grupos = {
     configurar: { nome: '⚠️ A configurar', filtro: (m) => m.pronta === false && !m.soFollowup },
+    // todas as que a IA já pode mandar (fotos, vídeos, documentos e áudios), para revisar/editar
+    prontas: { nome: '✅ Prontas para envio', filtro: (m) => m.pronta !== false && !m.soFollowup && !m.pastaId },
     fotos: { nome: '📷 Fotos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'image' },
     videos: { nome: '🎬 Vídeos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'video' },
     docs: { nome: '📄 Documentos e áudios', filtro: (m) => m.pronta !== false && !m.soFollowup && !['image', 'video'].includes(m.tipo) },
@@ -2260,7 +2262,7 @@ async function paginaMidias(id) {
     } else {
       const itens = lista.filter((m) => grupos[aba].filtro(m) && passaAssunto(m));
       grade.innerHTML = (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
-        (itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : 'Nenhuma aqui ainda.'}</p>`);
+        (itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : aba === 'prontas' ? 'Nenhuma mídia pronta ainda — configure as da aba "A configurar".' : 'Nenhuma aqui ainda.'}</p>`);
     }
     const barra = $('#barra-selecao');
     barra.hidden = !selecionadas.size;
