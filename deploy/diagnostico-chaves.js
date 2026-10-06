@@ -15,18 +15,18 @@ const apelido = (k) => {
 };
 const admin = {};
 for (const p of Object.keys(CAMPO)) admin[p] = (db.config || {})[CAMPO[p]] || process.env[ENV[p]] || '';
-console.log(`  Chave do administrador: ${Object.keys(CAMPO).map((p) => `${p} ${admin[p] ? `chave ${apelido(admin[p])}` : 'nenhuma'}`).join(' · ')}`);
+console.log(`  Chave do servidor (não usada por nenhuma empresa): ${Object.keys(CAMPO).map((p) => `${p} ${admin[p] ? `chave ${apelido(admin[p])}` : 'nenhuma'}`).join(' · ')}`);
 const usoPorChave = {};
 const desde = Date.now() - 7 * 864e5;
 for (const [n, e] of (db.empresas || []).entries()) {
-  const podePadrao = e.usarChavePadrao !== false;
+  const podePadrao = false; // desde 06/10: nenhuma empresa usa a chave do servidor
   const conversas = (db.conversas || []).filter((c) => c.empresaId === e.id).length;
   const dias = Object.entries(e.usoIa?.dias || {}).filter(([d]) => new Date(d).getTime() > desde);
   const chamadas7d = dias.reduce((s, [, d]) => s + (d.chamadas || 0), 0);
   const linhas = [];
   const usadas = new Set();
   for (const p of Object.keys(CAMPO)) {
-    const propria = (e.chavesIa || {})[CAMPO[p]] || '';
+    const propria = (e.chavesIa || {})[CAMPO[p]] || ((Array.isArray(e.motoresIa) ? e.motoresIa : []).find((m) => (['gemini', 'openai'].includes(m?.provedor) ? m.provedor : 'anthropic') === p && m?.chave) || {}).chave || '';
     const final = propria || (podePadrao ? admin[p] : '');
     if (final) usadas.add(`${p}:${apelido(final)}`);
     linhas.push(`${p}: ${propria ? `própria (chave ${apelido(propria)})` : final ? `USA A DO ADMINISTRADOR (chave ${apelido(final)})` : 'sem chave'}`);
@@ -38,7 +38,7 @@ for (const [n, e] of (db.empresas || []).entries()) {
     return `${i + 1}ª ${p}/${m?.modelo || '?'} → ${m?.chave ? `chave só desta IA (${apelido(m.chave)})` : (e.chavesIa || {})[CAMPO[p]] ? `chave da empresa (${apelido(k)})` : k ? `CHAVE DO ADMINISTRADOR (${apelido(k)})` : 'SEM CHAVE'}`;
   });
   for (const u of usadas) (usoPorChave[u] = usoPorChave[u] || []).push(n + 1);
-  console.log(`  Empresa ${n + 1}${e.ativa === false ? ' (desativada)' : ''} · ${conversas} conversas · ${chamadas7d} chamadas de IA em 7 dias · pode usar a do administrador: ${podePadrao ? 'SIM' : 'não'}`);
+  console.log(`  Empresa ${n + 1}${e.ativa === false ? ' (desativada)' : ''} · ${conversas} conversas · ${chamadas7d} chamadas de IA em 7 dias `);
   console.log(`      ${linhas.join(' · ')}`);
   if (motores.length) console.log(`      ordem das IAs: ${motores.join(' · ')}`);
 }
