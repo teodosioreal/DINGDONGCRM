@@ -277,7 +277,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         '- Escreva o código na ÚLTIMA linha da resposta, sozinho, exatamente como está aqui. Mais de uma mídia: um código por linha, todos no fim.',
         '- Se você mencionar que vai mandar foto, vídeo ou áudio, o código é obrigatório na mesma resposta.',
         '- Quando as instruções do dono mandarem enviar uma mídia (o código aparece junto, ex.: "(mídia #MIDIA_X)"), envie essa mídia escrevendo o código na situação que ele descreveu. Isso vale mais do que o clone e os aprendizados.',
-        '- Nunca escreva um código que não esteja nesta lista.',
+        '- Nunca escreva um código que não esteja nesta lista. O cliente pediu foto de um modelo/item (ex.: "como fica no Cerato")? Procure o modelo no "mostra" e no "quando enviar" de cada mídia e use o código dela; se nenhuma for desse modelo, diga que não tem foto desse modelo agora (sem código).',
         '- Nunca explique o código para o cliente.',
         '- Mídias marcadas como JÁ ENVIADA (em "Contexto desta conversa", no fim) não podem ser enviadas de novo — exceto as marcadas "pode repetir", e só se o cliente pedir.',
         ...(midias.some((m) => m.etapas?.length) ? ['- "só na etapa": a mídia só sai quando o lead estiver nessa etapa do funil.'] : []),
@@ -288,10 +288,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
           [
             `- ${codigoVisivel(m.codigo)}`,
             m.album ? `álbum com ${m.quantidade} arquivos` : TIPO[m.tipo] || 'arquivo',
-            `quando enviar: ${m.quando || `quando ajudar o cliente (${m.nome})`}`,
+            m.nome ? `mostra: ${m.nome}` : '',
+            `quando enviar: ${m.quando || 'quando ajudar o cliente'}`,
             m.etapas?.length ? `só na etapa: ${m.etapas.join(' ou ')}` : '',
             m.assuntos?.length ? `assunto: ${m.assuntos.join(' ou ')}` : '',
-            m.servicos?.length ? `mostra: ${m.servicos.join(' / ')}` : '',
+            m.servicos?.length ? `serviço: ${m.servicos.join(' / ')}` : '',
             m.umaVez === false ? 'pode repetir' : ''
           ]
             .filter(Boolean)

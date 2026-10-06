@@ -61,6 +61,17 @@ async function evo(e, metodo, caminho, corpo) {
     const naIa = new Set(midias.paraIa(e).map((x) => midias.codigoVisivel(x.codigo)));
     console.log(`    prompt cita: ${av.citados.map((c) => `${c.codigo} ${c.existe ? (naIa.has(c.codigo) ? '(IA enxerga)' : '(existe, mas a IA NÃO enxerga)') : '(NÃO EXISTE)'}`).join(' · ') || 'nada'}`);
     console.log(`    a IA enxerga ${naIa.size} mídia(s)/álbum(ns): ${[...naIa].join(' ')}`);
+    // nome e "quando enviar" de cada mídia (texto do cadastro do dono, sem dados de cliente)
+    for (const m of todas.filter((x) => !x.pastaId)) console.log(`    · ${midias.codigoVisivel(m.codigo)} = "${limpo(m.nome).slice(0, 50)}" · quando: "${limpo(m.descricao).slice(0, 70)}"`);
+    // códigos que a IA escreveu e não existiam: o que o CRM faria agora
+    const naoExistiram = new Set();
+    for (const l of (estado.logRespostas || []).filter((x) => x.empresaId === e.id)) for (const it of l.midias || []) if (it.status === 'nao-existe') naoExistiram.add(it.codigo);
+    const pode = new Set(midias.paraIa(e).map((x) => x.codigo));
+    for (const cod of naoExistiram) {
+      const certa = midias.conexaoCerta(e, String(cod).replace(/^#?MIDIA_/i, '').replace(/[_-]+/g, ' '));
+      const sug = midias.sugerirMidias(e, String(cod).replace(/^#?MIDIA_/i, '').replace(/[_-]+/g, ' '), 3).map((x) => `${x.codigoVisivel}(${x.pontos})`).join(' ');
+      console.log(`    código inexistente ${cod} → hoje o CRM ${certa ? (pode.has(certa.codigo) ? `MANDA ${certa.codigoVisivel}` : `acharia ${certa.codigoVisivel}, mas ela não está liberada para a IA`) : 'não acha com certeza'} · candidatas: ${sug || 'nenhuma'}`);
+    }
     // C) o que a IA pediu (48 h)
     const logs = (estado.logRespostas || []).filter((l) => l.empresaId === e.id && new Date(l.em).getTime() > desde);
     const porStatus = {};
