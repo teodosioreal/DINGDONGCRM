@@ -277,7 +277,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         '- Escreva o código na ÚLTIMA linha da resposta, sozinho, exatamente como está aqui. Mais de uma mídia: um código por linha, todos no fim.',
         '- Se você mencionar que vai mandar foto, vídeo ou áudio, o código é obrigatório na mesma resposta.',
         '- Quando as instruções do dono mandarem enviar uma mídia (o código aparece junto, ex.: "(mídia #MIDIA_X)"), envie essa mídia escrevendo o código na situação que ele descreveu. Isso vale mais do que o clone e os aprendizados.',
-        '- Nunca escreva um código que não esteja nesta lista. O cliente pediu foto de um modelo/item (ex.: "como fica no Cerato")? Procure o modelo no "mostra" e no "quando enviar" de cada mídia e use o código dela; se nenhuma for desse modelo, diga que não tem foto desse modelo agora (sem código).',
+        '- Nunca escreva um código que não esteja nesta lista. O cliente pediu foto de um modelo, item, cor ou tamanho específico? Procure isso no "mostra" e no "quando enviar" de cada mídia e use o código dela; se nenhuma for disso, diga que não tem foto disso agora (sem código).',
         '- Nunca explique o código para o cliente.',
         '- Mídias marcadas como JÁ ENVIADA (em "Contexto desta conversa", no fim) não podem ser enviadas de novo — exceto as marcadas "pode repetir", e só se o cliente pedir.',
         ...(midias.some((m) => m.etapas?.length) ? ['- "só na etapa": a mídia só sai quando o lead estiver nessa etapa do funil.'] : []),
@@ -322,7 +322,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         '- Quando o cliente quiser fechar, agendar, pedir orçamento personalizado, falar com uma pessoa, ou quando você não souber responder, convide-o a continuar no WhatsApp.',
         '- Nesses casos, termine a sua resposta com uma linha separada exatamente neste formato:',
         '[[WHATSAPP]] <mensagem que o cliente vai enviar pelo WhatsApp, em primeira pessoa, resumindo o que ele quer e os dados que ele já passou>',
-        '- Exemplo: [[WHATSAPP]] Olá! Tenho um Onix 2020 e quero o revestimento completo. Moro no Quitandinha.',
+        '- Exemplo: [[WHATSAPP]] Olá! Quero o orçamento do serviço que vi no site. Moro no centro.',
         '- Use essa linha no máximo uma vez por resposta e só quando fizer sentido; o site transforma ela num botão "Continuar no WhatsApp".'
       );
     }

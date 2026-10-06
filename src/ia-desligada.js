@@ -12,13 +12,15 @@ const { salvar, agora } = require('./db');
 const RECEITAS_LIBERADAS = new Set(['avaliacao', 'comentario']);
 
 const iaComAgendados = (empresa) => empresa?.iaComAgendados === true;
+// ramos em que o cliente compra de novo sempre (loja, restaurante, salão…): a IA segue com quem já comprou
+const iaComCompradores = (empresa) => empresa?.iaComCompradores === true;
 
 // { por: 'venda' | 'agenda', texto } ou null
 function motivo(empresa, lead) {
   if (!empresa || !lead) return null;
   if (require('./entre-empresas').leadDeOutraEmpresa(empresa, lead)) return { por: 'empresa', texto: 'Este número é de outra empresa do CRM: a IA não conversa com ele.' };
   const manual = lead.iaLigadaManualEm || '';
-  const venda = require('./comprovantes').jaVendeu(empresa, lead);
+  const venda = !iaComCompradores(empresa) && require('./comprovantes').jaVendeu(empresa, lead);
   if (venda && (!manual || (venda.em && String(venda.em) > manual))) return { por: 'venda', texto: `Cliente já comprou (${venda.por}): IA desligada. Ligue de novo se quiser.` };
   if (!manual && !iaComAgendados(empresa) && require('./followup').jaAgendou(empresa, lead)) return { por: 'agenda', texto: 'Cliente agendou: IA desligada. Ligue de novo se quiser.' };
   return null;
@@ -76,4 +78,4 @@ function iniciar() {
   setInterval(() => { try { varrer(); } catch (err) { console.error('[ia-desligada]', err.message); } }, 10 * 60 * 1000).unref?.();
 }
 
-module.exports = { motivo, conferir, ligadaAMao, varrer, iniciar, RECEITAS_LIBERADAS, iaComAgendados };
+module.exports = { motivo, conferir, ligadaAMao, varrer, iniciar, RECEITAS_LIBERADAS, iaComAgendados, iaComCompradores };

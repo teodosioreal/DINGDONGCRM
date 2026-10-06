@@ -287,7 +287,8 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   respostas, sem follow-up (nem o de pós-venda), sem automações e sem gastar IA lendo
   foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
   você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
-  padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+  padrão. Em IA do WhatsApp → "🛍️ Quem já comprou e quem agendou" dá para ligar a IA para
+  quem comprou (ramos que vendem de novo sempre: loja, restaurante, salão) e para quem agendou.
 - **Mídias simples (número + nome)**: cada mídia e álbum tem um número fixo — `#MIDIA_1`,
   `#MIDIA_2`… — que nunca é reaproveitado. Para a IA mandar, cite o número no prompt (ou use
   "📎 Inserir mídia no prompt"); a descrição é opcional e, se escrita, já libera a mídia. Os

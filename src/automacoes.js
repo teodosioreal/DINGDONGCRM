@@ -243,7 +243,7 @@ function motivoInelegivel(regra, lead, empresa, agoraMs = Date.now()) {
   if (lead.precisaHumano) return 'esperando a equipe';
   // já comprou/agendou: só os pedidos de avaliação e de comentário no anúncio continuam
   if (!require('./ia-desligada').RECEITAS_LIBERADAS.has(regra.receita)) {
-    const venda = require('./comprovantes').jaVendeu(empresa, lead);
+    const venda = !require('./ia-desligada').iaComCompradores(empresa) && require('./comprovantes').jaVendeu(empresa, lead);
     if (venda) return 'já comprou';
     if (!require('./ia-desligada').iaComAgendados(empresa) && require('./followup').jaAgendou(empresa, lead)) return 'já agendou';
   }

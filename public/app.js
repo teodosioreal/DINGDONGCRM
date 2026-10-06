@@ -1607,11 +1607,16 @@ async function paginaWhatsapp(id) {
         <button type="button" id="ritmo-salvar">Salvar</button>
       </div>
     </div>
-    <div class="card" data-cfg="ia-agendados" data-pronto="ok" data-resumo="${emp.iaComAgendados ? 'Ligado: a IA atende quem agendou' : 'Desligado: quem agendou não gasta IA'}">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📅 IA para quem agendou</h2>${interruptor('ia-agendados', emp.iaComAgendados === true, emp.iaComAgendados ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0"><b>Quem já comprou</b> fica sempre com a IA <b>desligada</b> (sem respostas, sem follow-up e sem automações — só os pedidos de <b>avaliação</b> e de <b>comentário no anúncio</b> continuam). Volta só se você ligar a IA na conversa. ${emp.iaComAgendados
-        ? '<b>Ligado:</b> quem <b>agendou</b> continua sendo atendido pela IA e recebe as sequências feitas para quem agendou.'
-        : '<b>Desligado (padrão):</b> quem <b>agendou</b> também fica com a IA desligada e sem follow-up, até você ligar na conversa.'}</p>
+    <div class="card" data-cfg="ia-agendados" data-pronto="ok" data-resumo="${emp.iaComCompradores ? 'IA atende quem comprou' : 'Quem comprou: IA desligada'} · ${emp.iaComAgendados ? 'IA atende quem agendou' : 'quem agendou: IA desligada'}">
+      <h2 style="margin:0 0 8px">🛍️ Quem já comprou e quem agendou</h2>
+      <div class="cabecalho" style="margin-bottom:4px;padding-right:0"><b>IA para quem já comprou</b>${interruptor('ia-compradores', emp.iaComCompradores === true, emp.iaComCompradores ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0 0 12px">${emp.iaComCompradores
+        ? '<b>Ligado:</b> a IA continua atendendo quem já comprou (bom para quem vende de novo sempre: loja, restaurante, salão…), com follow-up e automações.'
+        : '<b>Desligado (padrão):</b> quem já comprou fica com a IA desligada — sem respostas, follow-up e automações (só avaliação e comentário no anúncio). Liga de novo em cada conversa se quiser.'}</p>
+      <div class="cabecalho" style="margin-bottom:4px;padding-right:0"><b>IA para quem agendou</b>${interruptor('ia-agendados', emp.iaComAgendados === true, emp.iaComAgendados ? 'Ligado' : 'Desligado')}</div>
+      <p class="rotulo" style="margin:0">${emp.iaComAgendados
+        ? '<b>Ligado:</b> quem agendou continua sendo atendido pela IA e recebe as sequências feitas para quem agendou.'
+        : '<b>Desligado (padrão):</b> quem agendou fica com a IA desligada e sem follow-up, até você ligar na conversa.'}</p>
     </div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
     <div class="card" id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div>
@@ -1828,11 +1833,22 @@ async function paginaWhatsapp(id) {
       recarregar();
     } catch (err) { aviso(err.message, true); }
   };
+  $('#ia-compradores').onchange = async (e) => {
+    const ligar = e.target.checked;
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaComCompradores: ligar } });
+      aviso(ligar ? 'A IA volta a atender quem já comprou.' : 'Quem já comprou fica com a IA desligada.');
+      recarregar();
+    } catch (err) {
+      e.target.checked = !ligar;
+      aviso(err.message, true);
+    }
+  };
   $('#ia-agendados').onchange = async (e) => {
     const ligar = e.target.checked;
     try {
       await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { iaComAgendados: ligar } });
-      aviso(ligar ? 'A IA volta a atender quem agendou (ligue a IA nas conversas que já foram desligadas).' : 'Quem agendou fica com a IA desligada.');
+      aviso(ligar ? 'A IA volta a atender quem agendou.' : 'Quem agendou fica com a IA desligada.');
       recarregar();
     } catch (err) {
       e.target.checked = !ligar;
@@ -2102,7 +2118,7 @@ async function paginaMidias(id) {
       <form id="f-midia-link">
         <div class="campo"><label>Link do arquivo *</label><input name="link" required placeholder="https://drive.google.com/file/d/…/view"></div>
         <div class="campos" style="margin-top:10px">
-          <div class="campo"><label>Nome *</label><input name="nome" required placeholder="Ex.: Vídeo revestimento completo"></div>
+          <div class="campo"><label>Nome *</label><input name="nome" required placeholder="Ex.: Vídeo do serviço completo"></div>
           <div class="campo"><label>Código (opcional)</label><input name="codigo" placeholder="#MIDIA_… (vazio = criado pelo nome)" style="text-transform:uppercase"></div>
         </div>
         <div class="campo" style="margin-top:10px"><label>Quando a IA deve enviar</label><textarea name="descricao" rows="2" placeholder="Ex.: quando o cliente perguntar do serviço completo"></textarea></div>

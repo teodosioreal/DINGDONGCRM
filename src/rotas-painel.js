@@ -428,6 +428,18 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   if (b.naoAtropelar !== undefined) empresa.whatsappConfig.naoAtropelar = b.naoAtropelar !== false;
   if (b.iaEconomica !== undefined) empresa.iaEconomica = b.iaEconomica !== false;
   if (b.iaComAgendados !== undefined) empresa.iaComAgendados = b.iaComAgendados === true;
+  if (b.iaComCompradores !== undefined) empresa.iaComCompradores = b.iaComCompradores === true;
+  // ligou a IA para quem comprou/agendou: as conversas que tinham sido desligadas por isso voltam
+  for (const [campo, por] of [['iaComCompradores', 'venda'], ['iaComAgendados', 'agenda']]) {
+    if (b[campo] !== true) continue;
+    for (const l of estado.conversas) {
+      if (l.empresaId !== empresa.id || l.iaDesligadaPor !== por) continue;
+      l.iaPausada = false;
+      l.iaPausadaMotivo = '';
+      delete l.iaDesligadaPor;
+      delete l.iaDesligadaEm;
+    }
+  }
   if (b.numerosTeste !== undefined) {
     const lista = String(b.numerosTeste || '').split(/[,;\n]+/).map((n) => numeroWhatsapp(n)).filter((n) => n.length >= 10);
     if (b.modoTeste === true && !lista.length) return res.status(400).json({ erro: 'Informe pelo menos um número de teste (com DDD).' });
