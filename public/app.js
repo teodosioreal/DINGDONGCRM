@@ -2697,18 +2697,26 @@ async function paginaChave(id) {
   const u = emp.usoHoje || {};
   const reserva = emp.iaReserva;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
+  const g = emp.chaves.gemini || {};
+  const modeloAtual = (emp.motores || []).find((m) => m.provedor === 'gemini')?.modelo || '';
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>IAs e chaves</h1><p class="sub">Qual IA responde seus clientes — e quem assume se ela falhar</p></div></div>
-    ${balao('Como funciona', passos([
-      'Cada empresa usa as <b>próprias chaves</b> de IA — os tokens gastos saem da conta da empresa e aparecem aqui embaixo. Cadastre a chave de <b>pelo menos uma</b> IA (lá embaixo). Quanto mais chaves, mais seguro.',
-      'Escolha a ordem: a <b>1ª</b> responde sempre. Se ela falhar (acabou o crédito, chave errada, fora do ar), a <b>2ª</b> responde na hora, e depois a <b>3ª</b>. O cliente não percebe.',
-      'Quando uma reserva precisar entrar, o CRM avisa você no sininho 🔔 (e no WhatsApp de avisos, se tiver).'
-    ]))}
+    <div class="cabecalho"><div><h1>Chave da IA</h1><p class="sub">Uma chave só por empresa: a do Gemini (Google). Os tokens gastos saem da conta dessa chave.</p></div></div>
     <div class="card">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧠 Ordem das IAs</h2>${emp.motores?.length ? `<span class="etiqueta ok">${emp.motores.length} ${emp.motores.length === 1 ? 'IA' : 'IAs'} em ordem</span>` : '<span class="etiqueta aviso">escolha e salve</span>'}</div>
-      <div id="motores">${[0, 1, 2].map(linhaMotor).join('')}</div>
-      <div class="acoes"><button type="button" class="primario" id="salvar-motores">Salvar ordem</button></div>
-      ${reserva ? `<p class="rotulo" style="margin:10px 0 0">Última vez que a reserva entrou: ${data(reserva.em)} — respondeu a ${esc(reserva.usou)}. Motivo: ${esc((reserva.falhas || []).join('; '))}</p>` : ''}
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔑 Gemini (Google)</h2>${g.propria ? `<span><span class="etiqueta ok">✓ Chave salva</span> <span class="rotulo">termina em ${esc(g.final)}</span></span>` : '<span class="etiqueta off">⚠️ Sem chave — a IA não responde</span>'}</div>
+      <details ${g.propria ? '' : 'open'}><summary>Como conseguir a chave</summary>${passos([
+        'Entre em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> com a conta Google da empresa.',
+        'Clique em <b>Create API key</b> (Criar chave de API) e depois no botão de <b>copiar</b> da chave (ela começa com <code>AIza</code> ou <code>AQ.</code>).',
+        'Cole aqui embaixo e clique em <b>Salvar e testar</b>.'
+      ])}</details>
+      <form data-provedor="gemini" style="margin-top:12px">
+        <div class="campo"><label>${g.propria ? 'Trocar a chave (cole a nova)' : 'Cole a chave aqui'}</label><input name="geminiApiKey" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="AIza… ou AQ.…"></div>
+        <div class="acoes">
+          <button class="primario" type="submit">Salvar e testar</button>
+          ${g.propria ? '<button type="button" data-testar>Testar</button><button type="button" class="perigo" data-remover>Excluir chave</button>' : ''}
+        </div>
+      </form>
+      ${modeloAtual && g.propria ? `<p class="rotulo" style="margin:10px 0 0">Modelo em uso: <b>${esc(modeloAtual)}</b> (escolhido sozinho pelo que a sua chave tem).</p>` : ''}
+      ${reserva ? `<p class="rotulo" style="margin:10px 0 0">Último problema: ${data(reserva.em)} — ${esc((reserva.falhas || []).join('; '))}</p>` : ''}
     </div>
     <div class="card">
       <h2 style="margin:0 0 8px">📊 Gasto de hoje</h2>
@@ -2717,25 +2725,8 @@ async function paginaChave(id) {
         ${numeroCard('Chamadas à IA', (u.chamadas || 0).toLocaleString('pt-BR'))}
         ${numeroCard('Vindos do cache (≈90% mais barato)', numeroCurto(u.cache))}
       </div>
-      <p class="rotulo" style="margin:10px 0 0">${Object.entries(u.porIa || {}).map(([p, n]) => `${NOME_IA_CURTO[p] || p}: ${numeroCurto(n)}`).join(' · ') || 'Nenhuma chamada hoje ainda.'} ${ajuda('Token é a unidade que as IAs cobram (≈ 4 letras). O CRM já economiza: a parte fixa das instruções fica em cache, comprovantes são lidos sem IA e fotos/comprovantes usam o modelo mais barato.')}</p>
     </div>
-    ${tabelaGastoIa(emp.uso7d)}
-    <h2 style="margin-top:24px">🔑 Chaves das IAs</h2>
-    ${bloco('gemini', 'geminiApiKey', 'AIza…', [
-      'Entre em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> com a sua conta Google.',
-      'Clique em <b>Create API key</b> (Criar chave de API).',
-      'Copie a chave (começa com <code>AIza</code>) e cole aqui embaixo.'
-    ], '<span class="etiqueta ok">tem faixa grátis · ouve áudio</span>')}
-    ${bloco('anthropic', 'anthropicApiKey', 'sk-ant-…', [
-      'Entre em <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> e crie a conta.',
-      'Em <b>Billing</b>, adicione créditos. Em <b>API Keys</b>, clique em <b>Create Key</b>.',
-      'Copie a chave (começa com <code>sk-ant-</code>) e cole aqui embaixo.'
-    ])}
-    ${bloco('openai', 'openaiApiKey', 'sk-…', [
-      'Entre em <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> e crie a conta.',
-      'Em <b>Billing</b>, adicione créditos. Depois clique em <b>Create new secret key</b>.',
-      'Copie a chave (começa com <code>sk-</code>) e cole aqui embaixo.'
-    ], '<span class="etiqueta">ouve áudio</span>')}`;
+    ${tabelaGastoIa(emp.uso7d)}`;
 
   // posições: modelo depende da IA escolhida
   $$('.motor').forEach((el) => {
@@ -2747,7 +2738,7 @@ async function paginaChave(id) {
     if (prov.value) prov.dataset.ligado = '1';
     mostrar();
   });
-  $('#salvar-motores').onclick = async (e) => {
+  if ($('#salvar-motores')) $('#salvar-motores').onclick = async (e) => {
     const lista = $$('.motor').map((el) => ({
       provedor: $('[data-prov]', el).value,
       modelo: $('[data-mod]', el).value,
@@ -2785,11 +2776,8 @@ async function paginaChave(id) {
       if (!Object.values(dados)[0]) return aviso('Cole a chave antes de salvar.', true);
       try {
         await comEspera(f.querySelector('button[type=submit]'), async () => {
+          // a chave do Gemini vira a IA da empresa (o servidor escolhe o modelo que a chave tem)
           await api(`empresas/${id}/chaves`, { method: 'PUT', body: dados });
-          // primeira chave da empresa: esta IA vira a principal
-          if (!emp.motores?.length && bot && !emp.chaves[bot.provedor]?.funciona) {
-            await api(`empresas/${id}/motores`, { method: 'PUT', body: { motores: [{ provedor }] } });
-          }
           await testar();
         }, 'Testando…');
         recarregar();
@@ -2797,7 +2785,7 @@ async function paginaChave(id) {
     };
     $('[data-testar]', f)?.addEventListener('click', testar);
     $('[data-remover]', f)?.addEventListener('click', async () => {
-      if (!(await confirmar({ titulo: 'Remover a chave?', texto: 'Se a IA usar esta chave, ela para de responder (a reserva assume, se tiver).', botao: 'Remover', perigo: true }))) return;
+      if (!(await confirmar({ titulo: 'Excluir a chave?', texto: 'Sem chave, a IA desta empresa para de responder até você colar outra.', botao: 'Excluir', perigo: true }))) return;
       try {
         await api(`empresas/${id}/chaves`, { method: 'PUT', body: { remover: [provedor] } });
         recarregar();

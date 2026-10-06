@@ -340,7 +340,7 @@ router.get('/empresas/:id', (req, res) => {
 });
 
 // Chaves de IA da empresa (a própria empresa ou o admin podem cadastrar)
-router.put('/empresas/:id/chaves', (req, res) => {
+router.put('/empresas/:id/chaves', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   empresa.chavesIa = empresa.chavesIa || {};
@@ -352,7 +352,19 @@ router.put('/empresas/:id/chaves', (req, res) => {
       // trocou a chave desta IA: as posições da ordem com chave antiga dela passam a usar a nova
       for (const m of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (ia.normalizarProvedor(m.provedor) === provedor && m.chave) delete m.chave;
     }
-    if ((req.body?.remover || []).includes(provedor)) delete empresa.chavesIa[campo];
+    if ((req.body?.remover || []).includes(provedor)) {
+      delete empresa.chavesIa[campo];
+      for (const m of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (ia.normalizarProvedor(m.provedor) === provedor) delete m.chave;
+    }
+  }
+  // Uma chave só por empresa (Gemini): salvou a chave → o Gemini vira a IA da empresa, com o
+  // modelo que ESTA chave tem (conta nova do Google não tem os modelos antigos)
+  const novaGemini = empresa.chavesIa.geminiApiKey && limparChave(req.body?.geminiApiKey);
+  if (novaGemini) {
+    const atual = (empresa.motoresIa || []).find((m) => ia.normalizarProvedor(m.provedor) === 'gemini')?.modelo || ia.MODELO_PADRAO.gemini;
+    const modelo = (await ia.modeloGeminiDaChave(empresa, empresa.chavesIa.geminiApiKey, atual).catch(() => null)) || atual;
+    empresa.motoresIa = [{ provedor: 'gemini', modelo }];
+    for (const b of estado.bots.filter((x) => x.empresaId === empresa.id)) Object.assign(b, { provedor: 'gemini', modelo });
   }
   salvar();
   res.json(empresaComExtras(empresa, req));

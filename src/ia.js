@@ -167,6 +167,47 @@ async function listarModelosGemini(empresa, forcar, chaveExplicita = '') {
 }
 
 // Modelos de chat que a chave da OpenAI pode usar
+// Modelo do Gemini que ESTA chave tem. Conta nova do Google não tem os modelos antigos
+// (ex.: gemini-2.5-flash): em vez de "modelo não encontrado", usa o equivalente que a chave
+// tiver (Flash → o Flash mais novo; Pro → o Pro mais novo; Lite → o Lite mais novo).
+const trocasGemini = new Map(); // `${chave}|${modelo pedido}` → modelo que a chave tem
+function versaoGemini(id) {
+  const m = String(id).match(/gemini-(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : 0;
+}
+async function modeloGeminiDaChave(empresa, k, desejado) {
+  let lista = [];
+  try { lista = await listarModelosGemini(empresa, false, k); } catch { return null; }
+  const ids = lista.map((x) => x.id);
+  if (ids.includes(desejado)) return desejado;
+  const tipo = /pro/i.test(desejado) ? 'pro' : /lite/i.test(desejado) ? 'lite' : 'flash';
+  const doTipo = (estavel) => ids.filter((id) => {
+    if (tipo === 'pro' ? !/pro/i.test(id) : !/flash/i.test(id)) return false;
+    if (tipo === 'flash' && /lite/i.test(id)) return false;
+    if (tipo === 'lite' && !/lite/i.test(id)) return false;
+    return !estavel || !/preview|exp|thinking|\d{3,}$|-\d{2}-\d{2}/i.test(id);
+  });
+  const candidatos = doTipo(true).length ? doTipo(true) : doTipo(false).length ? doTipo(false) : ids.filter((id) => /flash/i.test(id));
+  if (!candidatos.length) return ids[0] || null;
+  // "gemini-flash-latest" quando existir; senão a versão mais nova
+  return candidatos.find((id) => /latest/i.test(id)) || candidatos.sort((a, b) => versaoGemini(b) - versaoGemini(a) || a.length - b.length)[0];
+}
+async function comModeloGemini(empresa, k, desejado, fazer) {
+  const chaveTroca = `${k}|${desejado}`;
+  const atual = trocasGemini.get(chaveTroca) || desejado;
+  try {
+    return await fazer(atual);
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    const novo = await modeloGeminiDaChave(empresa, k, desejado);
+    if (!novo || novo === atual) throw err;
+    console.error(`[ia ${empresa?.id || '-'}] Gemini: "${atual}" não existe nesta chave; usando "${novo}"`);
+    if (trocasGemini.size > 500) trocasGemini.clear();
+    trocasGemini.set(chaveTroca, novo);
+    return fazer(novo);
+  }
+}
+
 async function listarModelosOpenai(chaveOpenai) {
   const dados = await chamarOpenai(chaveOpenai, 'models', null, { metodo: 'GET', timeout: 20000 });
   return (dados.data || [])
@@ -203,6 +244,14 @@ async function listarModelos(provedor, empresa) {
 async function testarChave(provedor, empresa, chaveExplicita = '') {
   if (provedor === 'gemini') {
     const lista = await listarModelosGemini(empresa, true, chaveExplicita);
+    // teste de verdade: o modelo que a empresa usa responde com esta chave (poucos tokens)
+    const motor = (empresa?.motoresIa || []).find((m) => normalizarProvedor(m.provedor) === 'gemini');
+    if (empresa && motor && !chaveExplicita) {
+      const k = chave('gemini', empresa);
+      const modelo = (await modeloGeminiDaChave(empresa, k, normalizarModelo('gemini', motor.modelo))) || motor.modelo;
+      await testarMotor(empresa, { provedor: 'gemini', modelo, chave: '' });
+      return `Chave do Gemini funcionando · o modelo ${modelo} respondeu. A IA já pode atender.`;
+    }
     return `Chave do Gemini funcionando (${lista.length} modelos de texto disponíveis).`;
   }
   if (provedor === 'openai') {
@@ -835,9 +884,10 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
     parts: i === ultimo && anexo ? [{ inline_data: { mime_type: anexo.mime, data: anexo.base64 } }, { text: t.content }] : [{ text: t.content }]
   }));
   const sis = [fixo, dinamico].filter(Boolean).join('\n\n');
-  const dados = await chamarGemini(
+  let modeloUsado = m.modelo;
+  const dados = await comModeloGemini(empresa, k, m.modelo, (modelo) => { modeloUsado = modelo; return chamarGemini(
     empresa,
-    `models/${encodeURIComponent(m.modelo)}:generateContent`,
+    `models/${encodeURIComponent(modelo)}:generateContent`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -848,15 +898,15 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
           temperature: temperatura,
           // Flash "pensa" por padrão e o pensamento é cobrado como saída (o token mais caro).
           // Nas respostas do dia a dia ele vai direto; o Pro (casos difíceis) continua pensando.
-          ...(semPensar && /^gemini-2\.5-flash/i.test(m.modelo) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+          ...(semPensar && /^gemini-2\.5-flash/i.test(modelo) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
         }
       })
     },
     k
-  );
+  ); });
   const u = dados.usageMetadata || {};
   const emCache = u.cachedContentTokenCount || 0;
-  registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache, modelo: m.modelo });
+  registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache, modelo: modeloUsado });
   const candidato = dados.candidates?.[0];
   if (!candidato || dados.promptFeedback?.blockReason) return { texto: RESPOSTA_RECUSA, recusado: true };
   const texto = (candidato.content?.parts || []).filter((p) => typeof p.text === 'string' && !p.thought).map((p) => p.text).join('');
@@ -1109,15 +1159,16 @@ async function transcreverAudioNa(empresa, base64, mimetype) {
   const tentativas = [];
   if (chave('gemini', empresa)) {
     tentativas.push(async () => {
-      const dados = await chamarGemini(empresa, `models/${MODELO_OUVIR}:generateContent`, {
+      let modeloUsado = MODELO_OUVIR;
+      const dados = await comModeloGemini(empresa, chave('gemini', empresa), MODELO_OUVIR, (modelo) => { modeloUsado = modelo; return chamarGemini(empresa, `models/${modelo}:generateContent`, {
         method: 'POST',
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_AUDIO }] }],
           generationConfig: { maxOutputTokens: 2000, temperature: 0 }
         })
-      });
+      }); });
       const u = dados.usageMetadata || {};
-      registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), modelo: MODELO_OUVIR });
+      registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), modelo: modeloUsado });
       return textoGemini(dados);
     });
   }
@@ -1259,6 +1310,7 @@ function descreverErroIa(err) {
 }
 
 module.exports = {
+  modeloGeminiDaChave,
   variarAbertura,
   casoDificil,
   MODELO_ECONOMICO,
