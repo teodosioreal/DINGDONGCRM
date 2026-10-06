@@ -44,3 +44,31 @@ for (const [n, e] of (db.empresas || []).entries()) {
 }
 const divididas = Object.entries(usoPorChave).filter(([, l]) => l.length > 1);
 console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: ${divididas.map(([k, l]) => `${k} → empresas ${l.join(', ')}`).join(' · ')}` : '  Nenhuma chave é usada por duas empresas.');
+
+// A chave funciona? (lista de modelos do Google/OpenAI: não gasta token) + últimas falhas da IA
+(async () => {
+  const limpo = (t) => String(t || '').replace(/AIza[\w-]{10,}|sk-[\w-]{10,}/g, '[chave]').replace(/\d{6,}/g, '[núm]').slice(0, 160);
+  for (const [n, e] of (db.empresas || []).entries()) {
+    const testadas = new Set();
+    const lista = [];
+    for (const m of Array.isArray(e.motoresIa) ? e.motoresIa : []) if (m?.chave) lista.push(['gemini', 'openai'].includes(m.provedor) ? m.provedor : 'anthropic', m.chave);
+    for (const [p, campo] of Object.entries(CAMPO)) if ((e.chavesIa || {})[campo]) lista.push(p, e.chavesIa[campo]);
+    for (let i = 0; i < lista.length; i += 2) {
+      const [p, k] = [lista[i], lista[i + 1]];
+      if (testadas.has(k)) continue;
+      testadas.add(k);
+      let r = '';
+      try {
+        if (p === 'gemini') r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { headers: { 'x-goog-api-key': k }, signal: AbortSignal.timeout(10000) }).then(async (x) => `HTTP ${x.status}${x.ok ? ' (aceita)' : ` ${limpo((await x.json().catch(() => ({}))).error?.message)}`}`);
+        else if (p === 'openai') r = await fetch('https://api.openai.com/v1/models', { headers: { authorization: `Bearer ${k}` }, signal: AbortSignal.timeout(10000) }).then((x) => `HTTP ${x.status}`);
+        else r = 'não testada';
+      } catch (err) { r = `erro de rede: ${err.message}`; }
+      console.log(`  Empresa ${n + 1} · ${p} chave ${apelido(k)}: ${r}`);
+    }
+    const res = e.iaReserva;
+    if (res) console.log(`  Empresa ${n + 1} · última vez que uma IA falhou e outra entrou: ${res.em} · ${res.tarefa} · usou ${res.usou} · falhas: ${(res.falhas || []).map(limpo).join(' | ')}`);
+    for (const a of (db.alertas || []).filter((x) => x.empresaId === e.id && /ia|chave/i.test(x.tipo)).slice(-5)) console.log(`  Empresa ${n + 1} · alerta ${a.tipo} (${a.ultimoEm || a.em}${a.resolvido ? ', resolvido' : ''}): ${limpo(a.mensagem)}`);
+    const dias = Object.keys(e.usoIa?.dias || {}).sort();
+    if (dias.length) console.log(`  Empresa ${n + 1} · último dia com uso de IA: ${dias[dias.length - 1]} (${e.usoIa.dias[dias[dias.length - 1]].chamadas} chamadas)`);
+  }
+})();

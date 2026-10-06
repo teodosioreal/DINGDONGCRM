@@ -335,7 +335,11 @@ router.put('/empresas/:id/chaves', (req, res) => {
   empresa.chavesIa = empresa.chavesIa || {};
   for (const [provedor, campo] of Object.entries(ia.CAMPO_CHAVE)) {
     const valor = texto(req.body?.[campo], 300);
-    if (valor) empresa.chavesIa[campo] = valor;
+    if (valor) {
+      empresa.chavesIa[campo] = valor;
+      // trocou a chave desta IA: as posições da ordem com chave antiga dela passam a usar a nova
+      for (const m of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (ia.normalizarProvedor(m.provedor) === provedor && m.chave) delete m.chave;
+    }
     if ((req.body?.remover || []).includes(provedor)) delete empresa.chavesIa[campo];
   }
   salvar();
