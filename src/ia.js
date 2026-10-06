@@ -179,41 +179,80 @@ async function listarModelosGemini(empresa, forcar, chaveExplicita = '') {
 // (ex.: gemini-2.5-flash): em vez de "modelo não encontrado", usa o equivalente que a chave
 // tiver (Flash → o Flash mais novo; Pro → o Pro mais novo; Lite → o Lite mais novo).
 const trocasGemini = new Map(); // `${chave}|${modelo pedido}` → modelo que a chave tem
+const foraDoAr = new Map(); // `${chave}|${modelo}` → até quando evitar (Google sobrecarregado)
+const aposentados = new Set(); // `${chave}|${modelo}`: "no longer available to new users"
+const ultimoGemini = new Map(); // chave → modelo que respondeu por último
+const semNivel = new Set(); // modelos que recusam o "pensar pouco" (thinkingLevel): vão sem ele
 function versaoGemini(id) {
   const m = String(id).match(/gemini-(\d+(?:\.\d+)?)/);
   return m ? Number(m[1]) : 0;
 }
-async function modeloGeminiDaChave(empresa, k, desejado) {
+// modelos de texto parecidos com o pedido, do melhor para o pior (sem os que falharam)
+async function candidatosGemini(empresa, k, desejado, evitar = []) {
   let lista = [];
-  try { lista = await listarModelosGemini(empresa, false, k); } catch { return null; }
-  const ids = lista.map((x) => x.id);
-  if (ids.includes(desejado)) return desejado;
+  try { lista = await listarModelosGemini(empresa, false, k); } catch { return []; }
+  const fora = (id) => evitar.includes(id) || aposentados.has(`${k}|${id}`) || (foraDoAr.get(`${k}|${id}`) || 0) > Date.now();
+  const ids = lista.map((x) => x.id).filter((id) => !/transcribe|omni|robotics|customtools|computer-use|antigravity|research|gemma|nano|lyria/i.test(id));
   const tipo = /pro/i.test(desejado) ? 'pro' : /lite/i.test(desejado) ? 'lite' : 'flash';
-  const doTipo = (estavel) => ids.filter((id) => {
-    if (tipo === 'pro' ? !/pro/i.test(id) : !/flash/i.test(id)) return false;
-    if (tipo === 'flash' && /lite/i.test(id)) return false;
-    if (tipo === 'lite' && !/lite/i.test(id)) return false;
-    return !estavel || !/preview|exp|thinking|\d{3,}$|-\d{2}-\d{2}/i.test(id);
-  });
-  const candidatos = doTipo(true).length ? doTipo(true) : doTipo(false).length ? doTipo(false) : ids.filter((id) => /flash/i.test(id));
-  if (!candidatos.length) return ids[0] || null;
-  // "gemini-flash-latest" quando existir; senão a versão mais nova
-  return candidatos.find((id) => /latest/i.test(id)) || candidatos.sort((a, b) => versaoGemini(b) - versaoGemini(a) || a.length - b.length)[0];
+  const doTipo = (id) => (tipo === 'pro' ? /pro/i.test(id) : /flash/i.test(id) && (tipo === 'lite') === /lite/i.test(id));
+  const estavel = (id) => !/preview|exp|thinking|latest|-\d{2}-\d{2}|\d{3,}$/i.test(id);
+  const ordem = (a, b) => versaoGemini(b) - versaoGemini(a) || a.length - b.length;
+  const grupos = [
+    ids.filter((id) => id === desejado),
+    ids.filter((id) => doTipo(id) && estavel(id)).sort(ordem),
+    ids.filter((id) => doTipo(id) && /latest/i.test(id)),
+    ids.filter((id) => doTipo(id)).sort(ordem),
+    ids.filter((id) => /flash/i.test(id) && estavel(id)).sort(ordem) // último recurso: qualquer Flash estável
+  ];
+  return [...new Set(grupos.flat())].filter((id) => !fora(id));
 }
+async function modeloGeminiDaChave(empresa, k, desejado, evitar = []) {
+  return (await candidatosGemini(empresa, k, desejado, evitar))[0] || null;
+}
+// Chama o Gemini com o modelo pedido; se o Google disser que ele não existe/aposentou (404)
+// troca para o que o Google indica (ou o melhor da chave) e guarda a troca; se estiver
+// sobrecarregado (503/500), tenta na hora o próximo modelo parecido (até 2), sem gravar nada.
 async function comModeloGemini(empresa, k, desejado, fazer) {
   const chaveTroca = `${k}|${desejado}`;
-  const atual = trocasGemini.get(chaveTroca) || desejado;
-  try {
-    return await fazer(atual);
-  } catch (err) {
-    if (err.status !== 404) throw err;
-    const novo = await modeloGeminiDaChave(empresa, k, desejado);
-    if (!novo || novo === atual) throw err;
-    console.error(`[ia ${empresa?.id || '-'}] Gemini: "${atual}" não existe nesta chave; usando "${novo}"`);
-    if (trocasGemini.size > 500) trocasGemini.clear();
-    trocasGemini.set(chaveTroca, novo);
-    return fazer(novo);
+  let atual = trocasGemini.get(chaveTroca) || desejado;
+  // sobrecarregado há pouco: já começa pelo próximo
+  if ((foraDoAr.get(`${k}|${atual}`) || 0) > Date.now()) atual = (await candidatosGemini(empresa, k, desejado, [atual]))[0] || atual;
+  const tentados = [];
+  for (let volta = 0; volta < 4; volta++) {
+    tentados.push(atual);
+    try {
+      const r = await fazer(atual);
+      if (ultimoGemini.size > 500) ultimoGemini.clear();
+      ultimoGemini.set(k, atual);
+      return r;
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (err.status === 404) {
+        aposentados.add(`${k}|${atual}`);
+        const indicado = msg.match(/use models\/([\w.-]+)/i)?.[1];
+        const lista = await candidatosGemini(empresa, k, desejado, tentados);
+        const novo = indicado && !tentados.includes(indicado) && lista.includes(indicado) ? indicado : lista[0];
+        if (!novo) throw err;
+        console.error(`[ia ${empresa?.id || '-'}] Gemini: "${atual}" não está disponível nesta chave; usando "${novo}"`);
+        if (trocasGemini.size > 500) trocasGemini.clear();
+        trocasGemini.set(chaveTroca, novo);
+        // a empresa passa a usar o modelo novo (aparece na tela Chave da IA)
+        for (const m of Array.isArray(empresa?.motoresIa) ? empresa.motoresIa : []) if (normalizarProvedor(m.provedor) === 'gemini' && m.modelo === atual) { m.modelo = novo; require('./db').salvar(); }
+        atual = novo;
+        continue;
+      }
+      if ((err.status === 503 || err.status === 500) && tentados.length < 3) {
+        foraDoAr.set(`${k}|${atual}`, Date.now() + 2 * 60 * 1000);
+        const proximo = (await candidatosGemini(empresa, k, desejado, tentados))[0];
+        if (!proximo) throw err;
+        console.error(`[ia ${empresa?.id || '-'}] Gemini: "${atual}" sobrecarregado; tentando "${proximo}"`);
+        atual = proximo;
+        continue;
+      }
+      throw err;
+    }
   }
+  throw new Error('O Gemini não respondeu com nenhum modelo da chave.');
 }
 
 async function listarModelosOpenai(chaveOpenai) {
@@ -260,7 +299,8 @@ async function testarChave(provedor, empresa, chaveExplicita = '') {
       const k = chave('gemini', empresa);
       const modelo = (await modeloGeminiDaChave(empresa, k, normalizarModelo('gemini', motor.modelo))) || motor.modelo;
       await testarMotor(empresa, { provedor: 'gemini', modelo, chave: '' });
-      return `Chave do Gemini funcionando · o modelo ${modelo} respondeu. A IA já pode atender.`;
+      const usado = ultimoGemini.get(k) || modelo;
+      return `Chave do Gemini funcionando · o modelo ${usado} respondeu. A IA já pode atender.`;
     }
     if (erroLista) throw erroLista;
     return `Chave do Gemini funcionando (${lista.length} modelos de texto disponíveis).`;
@@ -896,7 +936,7 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
   }));
   const sis = [fixo, dinamico].filter(Boolean).join('\n\n');
   let modeloUsado = m.modelo;
-  const dados = await comModeloGemini(empresa, k, m.modelo, (modelo) => { modeloUsado = modelo; return chamarGemini(
+  const dados = await comModeloGemini(empresa, k, m.modelo, async (modelo) => { modeloUsado = modelo; const pedir = () => chamarGemini(
     empresa,
     `models/${encodeURIComponent(modelo)}:generateContent`,
     {
@@ -909,12 +949,21 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
           temperature: temperatura,
           // Flash "pensa" por padrão e o pensamento é cobrado como saída (o token mais caro).
           // Nas respostas do dia a dia ele vai direto; o Pro (casos difíceis) continua pensando.
-          ...(semPensar && /^gemini-2\.5-flash/i.test(modelo) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+          ...(semPensar && /^gemini-2\.5-flash/i.test(modelo) ? { thinkingConfig: { thinkingBudget: 0 } } : semPensar && !semNivel.has(modelo) && /^gemini-3/i.test(modelo) && /flash/i.test(modelo) ? { thinkingConfig: { thinkingLevel: 'low' } } : {})
         }
       })
     },
     k
-  ); });
+  );
+    try {
+      return await pedir();
+    } catch (err) {
+      // o modelo não aceita o "pensar pouco": guarda e manda sem ele
+      if (err.status !== 400 || !/thinking/i.test(String(err.message || '')) || semNivel.has(modelo)) throw err;
+      semNivel.add(modelo);
+      return pedir();
+    }
+  });
   const u = dados.usageMetadata || {};
   const emCache = u.cachedContentTokenCount || 0;
   registrarUso(empresa, 'gemini', { entrada: (u.promptTokenCount || 0) - emCache, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cache: emCache, modelo: modeloUsado });
