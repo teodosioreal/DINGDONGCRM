@@ -80,6 +80,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
   echo "    Mídias citadas no prompt e fila do follow-up (cópia do banco, só contagens):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-prompt-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
+  echo "    Chaves de IA por empresa (só a origem; nunca a chave):"
+  CRM_DB_PATH="$DB_CRM" ANTHROPIC_API_KEY="$(ler_env ANTHROPIC_API_KEY .env)" GEMINI_API_KEY="$(ler_env GEMINI_API_KEY .env)" OPENAI_API_KEY="$(ler_env OPENAI_API_KEY .env)" timeout 30 node deploy/diagnostico-chaves.js 2>&1 | head -n 60 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Detalhe do envio para uma conversa (o que a Evolution guardou; sem texto):"
