@@ -381,7 +381,9 @@ router.post('/empresas/:id/motores/testar', async (req, res) => {
     await ia.testarMotor(empresa, motor);
     res.json({ ok: true, mensagem: `${ia.PROVEDORES[motor.provedor].nome} · ${motor.modelo} respondeu. Funcionando!` });
   } catch (err) {
-    res.status(400).json({ erro: ia.descreverErroIa(err) });
+    // diz qual chave foi testada (só o final), para saber se é a nova ou a antiga
+    const usada = (empresa.motoresIa || [])[Number(req.body?.indice) || 0]?.chave || ia.chave(motor.provedor, empresa);
+    res.status(400).json({ erro: `${ia.descreverErroIa(err)}${usada ? ` (chave testada termina em ${usada.slice(-4)})` : ''}` });
   }
 });
 

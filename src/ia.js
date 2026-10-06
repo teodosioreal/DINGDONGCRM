@@ -726,7 +726,24 @@ function limiteDeSaida(m, maxTokens) {
   return Math.max(maxTokens, PISO_SAIDA[m.provedor] || maxTokens);
 }
 
+// A chave guardada numa IA da ordem foi recusada (apagada/trocada no site da IA) e a
+// empresa tem outra chave dessa IA em "IAs e chaves": usa a da empresa e esquece a velha.
+const chaveRecusada = (err) => err instanceof Anthropic.AuthenticationError || [401, 403].includes(err?.status) || /API_KEY_INVALID|API key not valid|invalid.{0,10}api.?key|incorrect api key/i.test(String(err?.message || ''));
 async function chamarMotor(empresa, m, opcoes) {
+  try {
+    return await chamarMotorConferindo(empresa, m, opcoes);
+  } catch (err) {
+    const daEmpresa = (empresa?.chavesIa || {})[CAMPO_CHAVE[m.provedor]];
+    if (!m.chave || !daEmpresa || daEmpresa === m.chave || !chaveRecusada(err)) throw err;
+    const r = await chamarMotorConferindo(empresa, { ...m, chave: daEmpresa }, opcoes);
+    for (const x of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (x.chave === m.chave) delete x.chave;
+    require('./db').salvar();
+    console.error(`[ia ${empresa.id}] chave antiga da IA da ordem recusada: passou a usar a chave da empresa (${m.provedor})`);
+    return r;
+  }
+}
+
+async function chamarMotorConferindo(empresa, m, opcoes) {
   const r = await chamarMotorUmaVez(empresa, m, opcoes);
   // pensou até o limite e não escreveu nada: tenta uma vez com mais folga e pensando menos
   if (!r.recusado && !String(r.texto || '').trim() && r.cortado) {
