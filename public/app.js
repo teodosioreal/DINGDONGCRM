@@ -2715,7 +2715,14 @@ async function paginaChave(id) {
           ${g.propria ? '<button type="button" data-testar>Testar</button><button type="button" class="perigo" data-remover>Excluir chave</button>' : ''}
         </div>
       </form>
-      ${modeloAtual && g.propria ? `<p class="rotulo" style="margin:10px 0 0">Modelo em uso: <b>${esc(modeloAtual)}</b> (escolhido sozinho pelo que a sua chave tem).</p>` : ''}
+      ${g.propria ? `
+      <div class="campos" style="margin-top:14px;align-items:end">
+        <div class="campo largo"><label>Modelo do Gemini ${ajuda('A lista vem da sua chave: só aparece o que a conta do Google tem. Flash é rápido e barato (recomendado); Pro pensa mais e custa mais; Lite é o mais barato.')}</label>
+          <select id="prov-gemini" hidden><option value="gemini" selected>gemini</option></select>
+          <select id="modelo-gemini"><option value="${esc(modeloAtual)}">${esc(modeloAtual || '—')}</option></select>
+          <small id="aviso-modelo-gemini" class="rotulo"></small></div>
+      </div>
+      <div class="acoes"><button type="button" id="salvar-modelo-gemini">Salvar modelo</button></div>` : ''}
       ${reserva ? `<p class="rotulo" style="margin:10px 0 0">Último problema: ${data(reserva.em)} — ${esc((reserva.falhas || []).join('; '))}</p>` : ''}
     </div>
     <div class="card">
@@ -2727,6 +2734,22 @@ async function paginaChave(id) {
       </div>
     </div>
     ${tabelaGastoIa(emp.uso7d)}`;
+
+  if ($('#modelo-gemini')) {
+    ligarSeletorModelo(null, id, $('#prov-gemini'), $('#modelo-gemini'), $('#aviso-modelo-gemini'));
+    $('#salvar-modelo-gemini').onclick = async (e) => {
+      const modelo = $('#modelo-gemini').value;
+      if (!modelo || modelo === 'carregando…') return aviso('Espere a lista de modelos carregar.', true);
+      try {
+        await comEspera(e.target, async () => {
+          await api(`empresas/${id}/motores`, { method: 'PUT', body: { motores: [{ provedor: 'gemini', modelo }] } });
+          const r = await api(`empresas/${id}/chaves/testar`, { method: 'POST', body: { provedor: 'gemini' } }).catch((err) => ({ erro: err.message }));
+          aviso(r.erro || r.mensagem, Boolean(r.erro));
+        }, 'Testando…');
+        paginaChave(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  }
 
   // posições: modelo depende da IA escolhida
   $$('.motor').forEach((el) => {

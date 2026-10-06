@@ -29,6 +29,8 @@ const MODELOS_CLAUDE = [
 const COM_FALLBACK = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
 // Sugestões usadas só se não der para consultar a lista real da sua chave do Google
 const MODELOS_GEMINI_SUGERIDOS = [
+  { id: 'gemini-flash-latest', nome: 'Flash mais novo (gemini-flash-latest)' },
+  { id: 'gemini-flash-lite-latest', nome: 'Flash Lite mais novo (gemini-flash-lite-latest)' },
   { id: 'gemini-2.5-flash', nome: 'gemini-2.5-flash' },
   { id: 'gemini-2.5-pro', nome: 'gemini-2.5-pro' },
   { id: 'gemini-2.5-flash-lite', nome: 'gemini-2.5-flash-lite' }
@@ -127,12 +129,18 @@ async function chamarGemini(empresa, caminho, opcoes = {}, chaveExplicita = '') 
   const k = chaveExplicita || chave('gemini', empresa);
   if (!k) throw erroSemChave('gemini');
   let res;
+  const pedir = (naUrl) => fetch(`${GEMINI_BASE}/${caminho}${naUrl ? `${caminho.includes('?') ? '&' : '?'}key=${encodeURIComponent(k)}` : ''}`, {
+    ...opcoes,
+    headers: { 'Content-Type': 'application/json', ...(naUrl ? {} : { 'x-goog-api-key': k }), ...(opcoes.headers || {}) },
+    signal: AbortSignal.timeout(60000)
+  });
   try {
-    res = await fetch(`${GEMINI_BASE}/${caminho}`, {
-      ...opcoes,
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k, ...(opcoes.headers || {}) },
-      signal: AbortSignal.timeout(60000)
-    });
+    res = await pedir(false);
+    // chave no formato novo do Google ("AQ.…") recusada no cabeçalho: tenta do outro jeito (na URL)
+    if (!k.startsWith('AIza') && [401, 403, 404].includes(res.status)) {
+      const outra = await pedir(true);
+      if (outra.ok || outra.status !== res.status) res = outra;
+    }
   } catch (err) {
     const erro = new Error(`Falha de rede ao chamar o Gemini: ${err.message}`);
     erro.provedor = 'gemini';
@@ -243,7 +251,9 @@ async function listarModelos(provedor, empresa) {
 // `empresa` pode ser null para testar a chave padrão.
 async function testarChave(provedor, empresa, chaveExplicita = '') {
   if (provedor === 'gemini') {
-    const lista = await listarModelosGemini(empresa, true, chaveExplicita);
+    let lista = [];
+    let erroLista = null;
+    try { lista = await listarModelosGemini(empresa, true, chaveExplicita); } catch (err) { erroLista = err; }
     // teste de verdade: o modelo que a empresa usa responde com esta chave (poucos tokens)
     const motor = (empresa?.motoresIa || []).find((m) => normalizarProvedor(m.provedor) === 'gemini');
     if (empresa && motor && !chaveExplicita) {
@@ -252,6 +262,7 @@ async function testarChave(provedor, empresa, chaveExplicita = '') {
       await testarMotor(empresa, { provedor: 'gemini', modelo, chave: '' });
       return `Chave do Gemini funcionando · o modelo ${modelo} respondeu. A IA já pode atender.`;
     }
+    if (erroLista) throw erroLista;
     return `Chave do Gemini funcionando (${lista.length} modelos de texto disponíveis).`;
   }
   if (provedor === 'openai') {
@@ -1303,7 +1314,7 @@ function descreverErroIa(err) {
       return 'Chave do Gemini inválida ou sem permissão. Confira a chave de IA da empresa.';
     }
     if (err.status === 429) return 'Limite do Gemini atingido (cota da sua chave). Tente de novo mais tarde.';
-    if (err.status === 404) return 'Modelo do Gemini não encontrado para esta chave. Escolha outro no assistente.';
+    if (err.status === 404) return `Modelo do Gemini não encontrado para esta chave — escolha outro modelo na tela Chave da IA. (Google: ${String(err.message || '').replace(/AIza[\w-]+|AQ\.[\w.-]+/g, '[chave]').slice(0, 160)})`;
     return `Erro no Gemini: ${err.message}`;
   }
   return err.message || 'Erro desconhecido na IA.';
