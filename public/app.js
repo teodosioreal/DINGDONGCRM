@@ -2652,9 +2652,13 @@ async function paginaChave(id) {
       ? `<span class="etiqueta ok">✓ Chave cadastrada</span> <span class="rotulo">termina em ${esc(c.final)}</span>`
       : c.usaPadrao
         ? '<span class="etiqueta aviso">Usando a chave do administrador (custo na conta dele)</span>'
-        : '<span class="etiqueta off">Sem chave — cadastre a da empresa</span>';
+        : (emp.motores?.length ? emp.motores.map((m) => m.provedor) : [bot?.provedor || 'anthropic']).includes(provedor)
+          ? '<span class="etiqueta off">⚠️ Sem chave — a IA não responde. Cole a chave aqui embaixo</span>'
+          : '<span class="etiqueta off">Sem chave — cadastre a da empresa</span>';
     // pronto (tem chave) ou opcional (não é a IA principal): vira uma linha; a principal sem chave fica aberta
-    const principalSemChave = !c.propria && !c.usaPadrao && provedor === (bot?.provedor || 'anthropic');
+    // IA que está na ordem (1ª, 2ª ou 3ª) e sem chave: fica aberta e em vermelho — sem ela a IA não responde
+    const naOrdem = (emp.motores?.length ? emp.motores.map((m) => m.provedor) : [bot?.provedor || 'anthropic']).includes(provedor);
+    const principalSemChave = !c.propria && !c.usaPadrao && naOrdem;
     const pronto = c.propria || c.usaPadrao ? 'ok' : principalSemChave ? '' : 'off';
     const resumo = c.propria ? `Chave da empresa · termina em ${c.final}` : c.usaPadrao ? 'Usando a chave do administrador' : 'Sem chave · opcional (para usar como reserva)';
     return `
