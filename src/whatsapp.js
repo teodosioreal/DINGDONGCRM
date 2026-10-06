@@ -1845,8 +1845,9 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
     // apontam com clareza para uma mídia que ela pode mandar, manda essa
     if (!pedido.alvo && papel === 'assistente') {
       const palavras = String(nome).replace(/^#?\s*M[IÍ]DIA[_:\s-]*/i, '').replace(/[_-]+/g, ' ');
-      const certa = midias.conexaoCerta(empresa, palavras);
       const pode = new Set(midias.paraIa(empresa, { followup }).map((x) => x.codigo));
+      const porConexao = midias.conexaoCerta(empresa, palavras);
+      const certa = porConexao && pode.has(porConexao.codigo) ? porConexao : midias.midiaPorPalavraRara(empresa, palavras, pode);
       if (certa && pode.has(certa.codigo)) {
         pedido = midias.resolverPedido(empresa, certa.codigo);
         resultado.trocas = [...(resultado.trocas || []), { pedido: String(nome), enviado: certa.codigoVisivel }];

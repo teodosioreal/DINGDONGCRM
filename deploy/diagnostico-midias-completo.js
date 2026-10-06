@@ -68,7 +68,9 @@ async function evo(e, metodo, caminho, corpo) {
     for (const l of (estado.logRespostas || []).filter((x) => x.empresaId === e.id)) for (const it of l.midias || []) if (it.status === 'nao-existe') naoExistiram.add(it.codigo);
     const pode = new Set(midias.paraIa(e).map((x) => x.codigo));
     for (const cod of naoExistiram) {
-      const certa = midias.conexaoCerta(e, String(cod).replace(/^#?MIDIA_/i, '').replace(/[_-]+/g, ' '));
+      const palavras = String(cod).replace(/^#?MIDIA_/i, '').replace(/[_-]+/g, ' ');
+      const c1 = midias.conexaoCerta(e, palavras);
+      const certa = c1 && pode.has(c1.codigo) ? c1 : midias.midiaPorPalavraRara(e, palavras, pode);
       const sug = midias.sugerirMidias(e, String(cod).replace(/^#?MIDIA_/i, '').replace(/[_-]+/g, ' '), 3).map((x) => `${x.codigoVisivel}(${x.pontos})`).join(' ');
       console.log(`    código inexistente ${cod} → hoje o CRM ${certa ? (pode.has(certa.codigo) ? `MANDA ${certa.codigoVisivel}` : `acharia ${certa.codigoVisivel}, mas ela não está liberada para a IA`) : 'não acha com certeza'} · candidatas: ${sug || 'nenhuma'}`);
     }

@@ -465,6 +465,32 @@ function conectarNoPrompt(empresa, pendencia, codigoMidia) {
   return { bot, campo: pendencia.campo, textoNovo: texto.replace(pendencia.trecho, novoTrecho), novoTrecho };
 }
 
+// A IA escreveu um código que não existe (ex.: #MIDIA_VOLANTE_EM_COURO_CERATO): acha a mídia
+// pelas palavras RARAS do código (o modelo do carro, o produto…), que aparecem no nome, no
+// "quando enviar" ou no código de uma só mídia. Palavras comuns (volante, revestimento…)
+// não decidem. Só devolve quando exatamente uma mídia tem a palavra rara.
+function midiaPorPalavraRara(empresa, texto, permitidos = null) {
+  // raridade medida em TODAS as mídias da empresa (liberadas ou não)
+  const todos = [...midiasDa(empresa).filter((m) => !m.pastaId && !m.albumId), ...albunsDa(empresa)];
+  if (!todos.length) return null;
+  const tokensDe = (x) => tokens(`${x.nome || ''} ${x.descricao || ''} ${String(x.codigo || '').replace(/-/g, ' ')} ${(x.assuntos || []).join(' ')}`);
+  const deCada = todos.map((x) => ({ x, t: tokensDe(x) }));
+  // palavra que o prompt do dono usa muito é do ramo ("volante", "revestimento"): não decide
+  const doPrompt = estado.bots.filter((b) => b.empresaId === empresa.id).map((b) => limpar(b.promptWhatsapp || '')).join(' ');
+  const vezesNoPrompt = (w) => (doPrompt.match(new RegExp(`\\b${w}`, 'g')) || []).length;
+  const casa = (t, w) => t === w || (w.length >= 5 && t.length >= 5 && (t.startsWith(w.slice(0, 5)) || w.startsWith(t.slice(0, 5))));
+  let melhor = null;
+  for (const w of tokens(texto)) {
+    if (w.length < 3 || vezesNoPrompt(w) >= 2) continue;
+    const com = deCada.filter((d) => [...d.t].some((t) => casa(t, w)));
+    if (com.length !== 1) continue; // comum (ou ninguém tem): não decide
+    if (melhor && melhor !== com[0].x) return null; // duas palavras raras apontando para mídias diferentes: dúvida
+    melhor = com[0].x;
+  }
+  if (!melhor || (permitidos && !permitidos.has(melhor.codigo))) return null;
+  return { codigo: melhor.codigo, codigoVisivel: codigoVisivel(melhor.codigo), nome: melhor.nome };
+}
+
 // A mídia certa para um trecho do prompt, só quando não há dúvida: a melhor sugestão
 // combina com o trecho (nome/descrição/assunto) e ganha com folga da segunda
 function conexaoCerta(empresa, trecho) {
@@ -881,6 +907,7 @@ module.exports = {
   codigosCitados,
   instrucoesComMidias,
   conexaoCerta,
+  midiaPorPalavraRara,
   codigosDoPrompt,
   avisosDoPrompt,
   pendenciasDoPrompt,
