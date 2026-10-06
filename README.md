@@ -153,6 +153,17 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Previsão de faturamento (Agendamentos e Painel)
+
+- Cada agendamento mostra **quanto vai entrar** (💰 no card). O valor é lido **sem IA**: o que
+  você digitou no card → um preço escrito na descrição → o último preço combinado na conversa
+  (até 1 dia depois do horário). Com várias opções na mesma mensagem ("aro R$ 250 · completo
+  R$ 450") vale a que o cliente escolheu depois; sem escolha clara usa a menor e o card pede
+  para conferir. Parcela ("3x de R$ 150"), sinal, entrada, frete e desconto não contam.
+- Aba **Agendamentos**: total a entrar no período (Hoje, 7 dias, 30 dias, Este mês, Próximo
+  mês, Tudo à frente ou datas escolhidas), quantos estão sem valor e o já realizado no período.
+- **Painel** da empresa: hoje, próximos 7 dias e este mês, com atalho para a agenda.
+
 ### IAs e chaves: principal + 2 reservas
 
 - **Uma chave só por empresa: a do Gemini.** Tela *Chave da IA*: cola, salva e testa, troca

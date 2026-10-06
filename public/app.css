@@ -1537,3 +1537,19 @@ html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
 .midia-uso.fup { color: var(--suave); }
 .midia-desc { display: flex; gap: 6px; margin-top: 6px; }
 .midia-desc input { flex: 1; min-width: 0; font-size: 12.5px; padding: 6px 8px; }
+
+/* previsão de faturamento (aba Agendamentos e Painel) */
+.ag-previsao .ag-prev-topo { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; }
+.ag-previsao .ag-prev-topo > div { display: flex; flex-direction: column; gap: 2px; }
+.ag-prev-valor { font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; }
+.ag-prev-feito b { font-size: 18px; }
+.aviso-texto { color: var(--aviso-texto); }
+.ag-valor { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 10px; border: 1px dashed var(--borda); background: transparent; font-size: 13px; cursor: pointer; color: inherit; }
+.ag-valor b { font-size: 14px; }
+.ag-valor small { color: var(--suave); }
+.ag-valor > span { margin-left: auto; color: var(--suave); }
+.ag-valor:hover { border-style: solid; }
+.ag-valor.vazio small { color: var(--aviso-texto); }
+.ag-valor.incerto { border-color: var(--aviso-texto); }
+.painel-prev b { font-size: 22px; }
+@media (max-width: 640px) { .cat-resumo.painel-prev { grid-template-columns: 1fr; } .cat-resumo.painel-prev > div + div { border-left: 0; border-top: 1px solid var(--borda); } }

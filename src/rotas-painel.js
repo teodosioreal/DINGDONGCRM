@@ -12,6 +12,7 @@ const leads = require('./leads');
 const whatsapp = require('./whatsapp');
 const origem = require('./origem');
 const siteEmpresa = require('./site');
+const valorAgendamento = require('./valor-agendamento');
 const tickets = require('./tickets');
 const fotosClientes = require('./fotos-clientes');
 const lixeira = require('./lixeira');
@@ -1659,7 +1660,9 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
         id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
         quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
         avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm,
-        fotos, local: c.localizacao?.texto || ''
+        fotos, local: c.localizacao?.texto || '',
+        // quanto vai entrar (lido sem IA: valor digitado, descrição ou conversa)
+        ...(() => { const v = valorAgendamento.valorDo(c, a); return { valor: v.valor, valorOrigem: v.origem || '', valorIncerto: Boolean(v.incerto), valorTrecho: v.trecho || '' }; })()
       });
     }
   }
@@ -1711,6 +1714,23 @@ router.delete('/empresas/:id/horarios-ia/vagas/:vagaId', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   res.json(require('./horarios-ia').situacao(require('./horarios-ia').remover(empresa, req.params.vagaId) && empresa));
+});
+
+// Valor do agendamento digitado pela equipe (vazio = volta a ler da conversa)
+router.put('/leads/:id/agendamentos/:agId/valor', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const a = (c.agendamentos || []).find((x) => x.id === req.params.agId);
+  if (!a) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  const bruto = req.body?.valor;
+  if (bruto === null || bruto === undefined || String(bruto).trim() === '') delete a.valor;
+  else {
+    const v = tickets.valorDe(bruto);
+    if (!v) return res.status(400).json({ erro: 'Valor inválido. Ex.: 450 ou 1.250,00' });
+    a.valor = v;
+  }
+  salvar();
+  res.json({ ok: true, ...valorAgendamento.valorDo(c, a) });
 });
 
 // Agendamento marcado pela equipe (aparece como aviso na conversa)

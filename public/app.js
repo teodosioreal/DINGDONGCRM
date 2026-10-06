@@ -602,6 +602,7 @@ async function paginaEmpresa(id) {
       <div class="titulo-empresa"><button type="button" class="logo-botao" id="logo-inicio" title="Trocar a foto da empresa">${avatarEmpresa(emp, 'grande')}<span class="logo-lapis">✎</span></button><div><h1>${esc(emp.nome)}</h1><p class="sub">${esc(emp.nicho || 'Painel da empresa')} · faturamento no mês: <a href="${rotaEmpresa(id, 'faturamento')}"><b>${brl(emp.faturamentoMes)}</b></a></p></div></div>
       ${ehAdmin() ? '<button type="button" id="editar-emp">Editar empresa</button>' : ''}
     </div>
+    <div id="painel-previsao"></div>
 
     ${tudoPronto ? '' : `
     <div class="card primeiros-passos">
@@ -644,6 +645,20 @@ async function paginaEmpresa(id) {
     </div>` : ''}`;
   $('#editar-emp')?.addEventListener('click', () => modalEmpresa(emp));
   $('#logo-inicio').onclick = () => escolherLogo(emp, () => paginaEmpresa(id).then(() => montarMenu(rotaEmpresa(id))));
+  // 💰 previsão de faturamento pelos agendamentos (sem IA), carregada depois para não atrasar o painel
+  api(`empresas/${id}/agendamentos`).then((d) => {
+    const el = $('#painel-previsao');
+    if (!el || location.hash !== hashDaPagina || !(d.proximos || []).length && !(d.passados || []).length) return;
+    const p = (k) => somaPrevisao(d, periodoPrevisao(k));
+    const [h, s7, m] = [p('hoje'), p('7d'), p('mes')];
+    const bloco = (t, r) => `<div><span class="rotulo">${t}</span><b>${brl(r.aEntrar)}</b><span class="rotulo">${r.n} agendamento${r.n === 1 ? '' : 's'}${r.semValor ? ` · ${r.semValor} sem valor` : ''}</span></div>`;
+    el.innerHTML = `
+      <div class="card ag-previsao">
+        <div class="cabecalho" style="margin-bottom:10px;padding-right:0"><h2 style="margin:0">💰 Previsão de faturamento (agendamentos)</h2><a class="botao pequeno" href="${rotaEmpresa(id, 'agenda')}">Ver por data →</a></div>
+        <div class="cat-resumo painel-prev">${bloco('Hoje', h)}${bloco('Próximos 7 dias', s7)}${bloco('Este mês (a fazer)', m)}</div>
+        ${m.nFeitos ? `<p class="rotulo" style="margin:10px 0 0">Já realizados este mês: <b>${brl(m.realizado)}</b> em ${m.nFeitos} atendimento${m.nFeitos === 1 ? '' : 's'}.</p>` : ''}
+      </div>`;
+  }).catch(() => { /* sem agenda: o painel segue normal */ });
   for (const tipo of ['site', 'whatsapp']) {
     $(`#canal-${tipo}`).onchange = async (e) => {
       const ligado = e.target.checked;
@@ -901,6 +916,35 @@ function ligarConferirPrompt(form, botId, canal) {
 
 // ---------------------------------------------------------------- empresa: agendamentos (agenda simples)
 
+// Previsão de faturamento pelos agendamentos (valor lido sem IA: digitado, descrição ou conversa)
+const diaSp = (iso) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); // AAAA-MM-DD
+function periodoPrevisao(chave, de, ate) {
+  const hoje = diaSp(new Date().toISOString());
+  const somar = (dias) => diaSp(new Date(Date.now() + dias * 86400000).toISOString());
+  const [a, m] = hoje.split('-').map(Number);
+  const ultimoDia = (ano, mes) => new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const mesTxt = (ano, mes) => `${ano}-${String(mes).padStart(2, '0')}`;
+  if (chave === 'hoje') return { de: hoje, ate: hoje };
+  if (chave === '7d') return { de: hoje, ate: somar(6) };
+  if (chave === '30d') return { de: hoje, ate: somar(29) };
+  if (chave === 'mes') return { de: `${mesTxt(a, m)}-01`, ate: `${mesTxt(a, m)}-${ultimoDia(a, m)}` };
+  if (chave === 'proximo') { const [a2, m2] = m === 12 ? [a + 1, 1] : [a, m + 1]; return { de: `${mesTxt(a2, m2)}-01`, ate: `${mesTxt(a2, m2)}-${ultimoDia(a2, m2)}` }; }
+  if (chave === 'tudo') return { de: hoje, ate: '9999-12-31' };
+  return { de: de || hoje, ate: ate || de || hoje };
+}
+function somaPrevisao(d, { de, ate }) {
+  const dentro = (x) => x.quando && diaSp(x.quando) >= de && diaSp(x.quando) <= ate;
+  const futuros = (d.proximos || []).filter(dentro);
+  const feitos = (d.passados || []).filter((x) => dentro(x) && (x.status === 'realizado' || x.status === 'concluido'));
+  const total = (l) => l.reduce((n, x) => n + (Number(x.valor) || 0), 0);
+  return {
+    aEntrar: total(futuros), n: futuros.length, semValor: futuros.filter((x) => !x.valor).length, incertos: futuros.filter((x) => x.valorIncerto).length,
+    realizado: total(feitos), nFeitos: feitos.length,
+    semData: (d.proximos || []).filter((x) => !x.quando).length
+  };
+}
+const ORIGEM_VALOR = { manual: 'você colocou', descricao: 'da descrição', conversa: 'lido da conversa' };
+
 async function paginaAgenda(id, params) {
   const hashDaPagina = location.hash;
   await definirEmpresaAtual(id);
@@ -942,6 +986,7 @@ async function paginaAgenda(id, params) {
         <div><strong>${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}</strong><span>${esc(telefoneBonito(x.telefone) || '')}${x.local ? ` · 📍 ${esc(x.local)}` : ''}</span></div>
       </div>
       <p class="ag-card-servico">${esc(x.descricao || 'Serviço não descrito')}</p>
+      ${x.status === 'cancelado' || x.status === 'remarcado' ? '' : `<button type="button" class="ag-valor ${x.valor ? '' : 'vazio'} ${x.valorIncerto ? 'incerto' : ''}" data-ag-valor="${esc(x.id)}" title="${esc(x.valorTrecho || 'Clique para colocar ou corrigir o valor')}">💰 ${x.valor ? `<b>${brl(x.valor)}</b> <small>${esc(ORIGEM_VALOR[x.valorOrigem] || '')}${x.valorIncerto ? ' · ⚠️ confira' : ''}</small>` : '<small>Sem valor — clique para colocar</small>'} <span aria-hidden="true">✎</span></button>`}
       <div class="ag-card-info">
         <span title="Quem marcou">🗓️ ${esc(QUEM[x.por] || x.por || 'equipe')}</span>
         ${x.avisoStatus === 'enviado' ? '<span class="ok" title="O número de aviso recebeu">🔔 aviso enviado</span>' : x.avisoStatus === 'erro' ? `<span class="erro" title="${esc(x.avisoErro)}">🔔 aviso falhou</span>` : ''}
@@ -987,10 +1032,59 @@ async function paginaAgenda(id, params) {
       <div><span class="rotulo">Próximos 7 dias</span><b>${d.resumo.semana}</b></div>
       <div><span class="rotulo">Todos à frente</span><b>${d.resumo.proximos}</b></div>
     </div>
+    <div class="card ag-previsao" id="ag-previsao"></div>
     ${horas ? `<div class="card" id="card-horarios-ia"></div>` : ''}
     <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
     <div id="ag-conteudo"></div>`;
   $$('[data-ag-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.agAba; $$('[data-ag-aba]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
+  let filtro = { chave: 'mes', de: '', ate: '' };
+  try { filtro = { ...filtro, ...JSON.parse(localStorage.getItem('previsao-filtro') || '{}') }; } catch { /* sem preferência salva */ }
+  const PRESETS = [['hoje', 'Hoje'], ['7d', '7 dias'], ['30d', '30 dias'], ['mes', 'Este mês'], ['proximo', 'Próximo mês'], ['tudo', 'Tudo à frente'], ['datas', 'Escolher datas']];
+  const desenharPrevisao = () => {
+    const per = periodoPrevisao(filtro.chave, filtro.de, filtro.ate);
+    const r = somaPrevisao(d, per);
+    const fmt = (iso) => iso === '9999-12-31' ? 'em diante' : iso.split('-').reverse().join('/');
+    $('#ag-previsao').innerHTML = `
+      <div class="ag-prev-topo">
+        <div><span class="rotulo">💰 Previsão de faturamento · ${per.de === per.ate ? fmt(per.de) : `${fmt(per.de)} ${per.ate === '9999-12-31' ? 'em diante' : `a ${fmt(per.ate)}`}`}</span>
+          <b class="ag-prev-valor">${brl(r.aEntrar)}</b>
+          <span class="rotulo">${r.n} agendamento${r.n === 1 ? '' : 's'} a fazer${r.semValor ? ` · <span class="aviso-texto">${r.semValor} sem valor (clique no 💰 do card)</span>` : ''}${r.incertos ? ` · ${r.incertos} com várias opções — confira` : ''}</span></div>
+        ${r.nFeitos ? `<div class="ag-prev-feito"><span class="rotulo">Já realizados no período</span><b>${brl(r.realizado)}</b><span class="rotulo">${r.nFeitos} atendimento${r.nFeitos === 1 ? '' : 's'}</span></div>` : ''}
+      </div>
+      <div class="chips" style="margin-top:12px">${PRESETS.map(([k, t]) => `<button type="button" class="chip-filtro ${filtro.chave === k ? 'ativo' : ''}" data-prev="${k}">${t}</button>`).join('')}</div>
+      ${filtro.chave === 'datas' ? `<div class="campos" style="margin-top:10px"><div class="campo"><label>De</label><input type="date" id="prev-de" value="${esc(per.de)}"></div><div class="campo"><label>Até</label><input type="date" id="prev-ate" value="${esc(per.ate)}"></div></div>` : ''}
+      ${r.semData ? `<p class="rotulo" style="margin:8px 0 0">${r.semData} agendamento(s) com "data a combinar" não entram na conta.</p>` : ''}
+      <p class="rotulo" style="margin:8px 0 0">O valor de cada agendamento é lido sem IA: o que você digitou no card, um preço na descrição ou o último preço combinado na conversa.</p>`;
+    const guardar = () => { try { localStorage.setItem('previsao-filtro', JSON.stringify(filtro)); } catch { /* sem armazenamento */ } };
+    $$('[data-prev]').forEach((b) => { b.onclick = () => { filtro.chave = b.dataset.prev; if (filtro.chave === 'datas' && !filtro.de) Object.assign(filtro, periodoPrevisao('mes')); guardar(); desenharPrevisao(); }; });
+    const mudarData = () => { filtro.de = $('#prev-de').value; filtro.ate = $('#prev-ate').value; if (filtro.ate && filtro.de > filtro.ate) filtro.ate = filtro.de; guardar(); desenharPrevisao(); };
+    $('#prev-de')?.addEventListener('change', mudarData);
+    $('#prev-ate')?.addEventListener('change', mudarData);
+  };
+  desenharPrevisao();
+  // 💰 do card: colocar ou corrigir o valor (vazio = volta a ler da conversa)
+  $('#ag-conteudo').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-ag-valor]');
+    if (!b) return;
+    const x = [...d.proximos, ...d.passados].find((y) => y.id === b.dataset.agValor);
+    if (!x) return;
+    abrirModal(`
+      <h2>💰 Valor do agendamento</h2>
+      <p class="rotulo">${esc(x.nome || telefoneBonito(x.telefone) || 'Cliente')}${x.quando ? ` · ${esc(new Date(x.quando).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}` : ''}</p>
+      ${x.valor && x.valorOrigem !== 'manual' ? `<p class="texto-modal">O CRM leu <b>${brl(x.valor)}</b> (${esc(ORIGEM_VALOR[x.valorOrigem] || '')})${x.valorTrecho ? `: “${esc(x.valorTrecho)}”` : ''}.</p>` : ''}
+      <form id="f-valor-ag"><div class="campo"><label>Valor (R$)</label><input name="valor" inputmode="decimal" placeholder="Ex.: 450 ou 1.250,00" value="${x.valorOrigem === 'manual' ? esc(String(x.valor).replace('.', ',')) : ''}"></div>
+        <div class="acoes"><button class="primario" type="submit">Salvar</button>${x.valorOrigem === 'manual' ? '<button type="button" id="valor-auto">Voltar a ler da conversa</button>' : ''}<button type="button" data-fechar>Cancelar</button></div></form>`, (m, fechar) => {
+      const enviar = async (valor) => {
+        try {
+          const r = await api(`leads/${x.leadId}/agendamentos/${x.id}/valor`, { method: 'PUT', body: { valor } });
+          Object.assign(x, { valor: r.valor, valorOrigem: r.origem || '', valorIncerto: Boolean(r.incerto), valorTrecho: r.trecho || '' });
+          fechar(); desenhar(); desenharPrevisao(); aviso('Valor salvo.');
+        } catch (err) { aviso(err.message, true); }
+      };
+      $('#f-valor-ag', m).onsubmit = (e) => { e.preventDefault(); const v = e.target.valor.value.trim(); if (!v) return aviso('Digite o valor.', true); enviar(v); };
+      $('#valor-auto', m)?.addEventListener('click', () => enviar(null));
+    });
+  });
   desenhar();
   if (horas) desenharHorariosIa(id, horas);
 }

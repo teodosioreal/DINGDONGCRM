@@ -9,19 +9,20 @@
 const comprovantes = require('./comprovantes');
 
 const DINHEIRO = /R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)|\b(\d{2,3}(?:\.\d{3})*(?:,\d{1,2})?|\d{2,6})\s*(?:reais|real|conto|contos|pila)\b/gi;
-const NAO_E_PRECO = /\b\d+\s*x\b|\bparcel|\bsinal\b|\bentrada\b|\bfrete\b|\bdesconto\b|\bde volta\b|\btroco\b|\bjuros\b|\btaxa\b/i;
-const VAZIAS = new Set('para pelo pela mais menos esse essa este esta isso aqui fica ficaria valor preco preço reais real fazer faço fazemos voce você vocês voces quero queria pode sobre como qual quanto quantos tambem também muito muita com sem por que porque entao então ainda depois antes hoje amanha amanhã cliente obrigado obrigada beleza certo fechado fechou perfeito ótimo otimo sim não nao tudo bom boa dia tarde noite'.split(' '));
+// o que vem logo ANTES do valor diz se ele não é o preço do serviço ("3x de R$ 150", "sinal de R$ 50")
+const ANTES_NAO_E_PRECO = /(\d+\s*x\s*(de\s*)?|parcel\w*|sinal|entrada|frete|desconto|troco|juros|taxa|de volta)[^\d\n]{0,14}$/i;
+const VAZIAS = new Set('que com por sem uma uns dos das pra pro ele ela sim mas vai tem ser ter faz foi meu seu sua minha esta isto aqui ali oi ola olá bom boa dia ok blz vlw obg qual quanto pode para pelo pela mais menos esse essa este esta isso aqui fica ficaria valor preco preço reais real fazer faço fazemos voce você vocês voces quero queria pode sobre como qual quanto quantos tambem também muito muita com sem por que porque entao então ainda depois antes hoje amanha amanhã cliente obrigado obrigada beleza certo fechado fechou perfeito ótimo otimo sim não nao tudo bom boa dia tarde noite'.split(' '));
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-const palavras = (s) => new Set(semAcento(s).split(/[^a-z0-9]+/).filter((p) => p.length >= 4 && !VAZIAS.has(p) && !/^\d+$/.test(p)));
+const palavras = (s) => new Set(semAcento(s).split(/[^a-z0-9]+/).filter((p) => p.length >= 3 && !VAZIAS.has(p) && !/^\d+$/.test(p)));
 
 // preços de um texto, linha a linha: [{ valor, linha }]
 function precosDe(texto) {
   const lista = [];
   for (const linha of String(texto || '').split(/\n+/)) {
-    if (NAO_E_PRECO.test(linha)) continue;
     DINHEIRO.lastIndex = 0;
     let m;
     while ((m = DINHEIRO.exec(linha))) {
+      if (ANTES_NAO_E_PRECO.test(linha.slice(Math.max(0, m.index - 30), m.index))) continue;
       const n = comprovantes.paraNumero(m[1] || m[2]);
       if (Number.isFinite(n) && n >= 10 && n <= 1000000) lista.push({ valor: n, linha });
     }
@@ -32,7 +33,8 @@ function precosDe(texto) {
 const brl = (n) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function daConversa(lead, ag) {
-  const limite = ag.quando ? new Date(ag.quando).getTime() : Date.now();
+  // até 1 dia depois do horário (o preço às vezes é fechado na hora do serviço)
+  const limite = ag.quando ? new Date(ag.quando).getTime() + 86400000 : Date.now();
   const msgs = (lead.mensagens || []).filter((m) => !m.apagada && !m.eventoInterno && ['visitante', 'assistente', 'equipe'].includes(m.papel) && m.texto && new Date(m.em).getTime() <= limite);
   for (let i = msgs.length - 1; i >= 0; i--) {
     const precos = precosDe(msgs[i].texto);
