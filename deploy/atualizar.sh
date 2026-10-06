@@ -80,6 +80,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
   echo "    Mídias citadas no prompt e fila do follow-up (cópia do banco, só contagens):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-prompt-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
+  echo "    Gasto de IA (hoje e ontem, só números):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Detalhe do envio para uma conversa (o que a Evolution guardou; sem texto):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" DIAG_FINAL="TODAS" timeout 120 node deploy/diagnostico-envio-detalhe.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   EVO_C="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk '/evolution-api|evolution_api/ {print $1; exit}')"

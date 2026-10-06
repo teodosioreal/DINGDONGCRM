@@ -602,7 +602,16 @@ const PRECO_POR_MILHAO = {
   'claude-opus-5': [5, 25, 0.5],
   'claude-sonnet-5-5': [2, 10, 0.2],
   'claude-sonnet-5': [2, 10, 0.2],
-  'claude-haiku-4-5': [1, 5, 0.1]
+  'claude-haiku-4-5': [1, 5, 0.1],
+  // Gemini (US$ por milhão: entrada, saída — inclui o "pensamento" —, entrada em cache)
+  'gemini-2.5-flash': [0.3, 2.5, 0.075],
+  'gemini-2.5-flash-lite': [0.1, 0.4, 0.025],
+  'gemini-2.5-pro': [1.25, 10, 0.31],
+  // OpenAI
+  'gpt-5': [1.25, 10, 0.125],
+  'gpt-5-mini': [0.25, 2, 0.025],
+  'gpt-4.1': [2, 8, 0.5],
+  'gpt-4.1-mini': [0.4, 1.6, 0.1]
 };
 
 function registrarUso(empresa, provedor, { entrada = 0, saida = 0, cache = 0, modelo = '' } = {}) {
@@ -1072,7 +1081,7 @@ async function transcreverAudioNa(empresa, base64, mimetype) {
         })
       });
       const u = dados.usageMetadata || {};
-      registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: u.candidatesTokenCount || 0 });
+      registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), modelo: MODELO_OUVIR });
       return textoGemini(dados);
     });
   }
