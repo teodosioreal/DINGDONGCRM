@@ -246,6 +246,13 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   modelo mais em conta da mesma IA (Opus → Sonnet, GPT-5 → GPT-5 mini, Gemini Pro → Flash);
   o modelo escolhido entra sozinho em objeção de preço, reclamação, negociação, mensagem
   longa ou quando o modelo econômico responde `#DIFICIL`.
+- **Gemini Flash sem "pensamento"** nas respostas do WhatsApp (e no "Atualizar e conferir"):
+  o pensamento interno é cobrado como saída, o token mais caro. O Pro (casos difíceis),
+  fotos, comprovantes e áudios continuam como antes.
+- **"Atualizar e conferir" mais leve**: usa o modelo barato (Flash) e, se nada mudou
+  (instruções, mídias, IA escolhida) nas últimas 12 h, mostra o último resultado sem gastar IA.
+- **Avisos com IA no horário comercial** (sem resposta, 1º follow-up, conferir vídeo): com o
+  horário dos envios automáticos ligado (8h–20h), esperam abrir — nada roda de madrugada.
 - **Foto lida uma vez só**: quando a IA vai responder, a foto é descrita uma vez e a
   descrição serve para a resposta e para decidir se é comprovante (a
   leitura de comprovante com IA só roda se a foto parece pagamento).

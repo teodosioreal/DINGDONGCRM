@@ -96,6 +96,12 @@ function eventoVencido(empresa, lead, cfg, agoraMs = Date.now()) {
   return null;
 }
 
+function dentroDoHorario() {
+  const d = require('./disparos');
+  const h = d.horaEmSaoPaulo();
+  return h >= d.HORA_INICIO && h < d.HORA_FIM;
+}
+
 let rodando = false;
 async function verificar() {
   if (rodando) return 0;
@@ -108,6 +114,10 @@ async function verificar() {
       if (empresa.ativa === false || !whatsapp.configurado(empresa) || !whatsapp.configDa(empresa).iaAtiva) continue;
       const cfg = configDa(empresa);
       if (!cfg.semResposta.ativo && !cfg.checarVideo.ativo && !cfg.followup1.ativo) continue;
+      // fora do horário dos envios automáticos (8h–20h, se ligado): espera abrir — ninguém
+      // recebe cobrança de madrugada e a IA não gasta enquanto o cliente dorme
+      const auto = require('./automacoes');
+      if (auto.horarioAutomatico(empresa) && !dentroDoHorario()) continue;
       const limite = new Date(Date.now() - JANELA_DIAS * 86400000).toISOString();
       for (const lead of estado.conversas) {
         if (n >= MAX_POR_RODADA) break;

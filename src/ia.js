@@ -734,7 +734,7 @@ async function chamarMotor(empresa, m, opcoes) {
   return r;
 }
 
-async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true, esforco = 'low' }) {
+async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens = 4000, temperatura = 0.6, anexo = null, esforcoBaixo = true, esforco = 'low', semPensar = false }) {
   maxTokens = limiteDeSaida(m, maxTokens);
   const nivel = esforcoBaixo ? esforco : null; // quanto a IA "pensa" antes de responder
   const fixo = typeof sistema === 'string' ? sistema : sistema.fixo || '';
@@ -813,7 +813,13 @@ async function chamarMotorUmaVez(empresa, m, { sistema = '', turnos, maxTokens =
       body: JSON.stringify({
         ...(sis ? { systemInstruction: { parts: [{ text: sis }] } } : {}),
         contents,
-        generationConfig: { maxOutputTokens: maxTokens, temperature: temperatura }
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: temperatura,
+          // Flash "pensa" por padrão e o pensamento é cobrado como saída (o token mais caro).
+          // Nas respostas do dia a dia ele vai direto; o Pro (casos difíceis) continua pensando.
+          ...(semPensar && /^gemini-2\.5-flash/i.test(m.modelo) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+        }
       })
     },
     k
@@ -1018,7 +1024,7 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
       const barato = economico && MODELO_ECONOMICO[m.modelo];
       const motor = barato ? { ...m, modelo: barato } : m;
       const sis = barato ? { ...sistema, dinamico: `${sistema.dinamico || ''}${AVISO_ECONOMICO}` } : sistema;
-      return chamarMotor(empresa, motor, { sistema: sis, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500 }).then((r) => ({ ...r, modelo: motor.modelo, economico: Boolean(barato) }));
+      return chamarMotor(empresa, motor, { sistema: sis, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500, semPensar: true }).then((r) => ({ ...r, modelo: motor.modelo, economico: Boolean(barato) }));
     });
   const tentarEconomico = economicoLigado(empresa) && opcoes.semEconomia !== true && !casoDificil(historico);
   let bruto = await chamar(tentarEconomico);
@@ -1161,9 +1167,9 @@ async function lerComprovanteNa(bot, empresa, base64, mimetype) {
 
 // Chamada simples (um pedido, uma resposta) com as IAs da empresa, na ordem —
 // usada na varredura das conversas e no diagnóstico.
-async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000, { barato = false } = {}) {
+async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000, { barato = false, semPensar = false } = {}) {
   // barato: usa o modelo mais em conta de cada IA (ex.: aprendizado, que lê muito texto)
-  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, barato ? { ...m, modelo: MODELO_BARATO[m.provedor] || m.modelo } : m, { sistema, turnos: [{ role: 'user', content: pedido }], maxTokens, temperatura: 0.3 }), { tarefa: 'texto' });
+  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, barato ? { ...m, modelo: MODELO_BARATO[m.provedor] || m.modelo } : m, { sistema, turnos: [{ role: 'user', content: pedido }], maxTokens, temperatura: 0.3, semPensar }), { tarefa: 'texto' });
   if (r.recusado) throw new Error('A IA recusou o pedido.');
   return r.texto.trim();
 }

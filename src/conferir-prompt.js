@@ -15,6 +15,16 @@ const midias = require('./midias');
 const MAX_REGRAS = 6;
 const MAX_TESTES = 3;
 
+// Economia: clicar de novo sem ter mudado nada (instruções, mídias, IA escolhida)
+// devolve o último resultado em vez de gastar IA outra vez (guardado só na memória).
+const VALE_MS = 12 * 3600 * 1000;
+const ultimos = new Map();
+function assinatura(bot, empresa, canal, instrucoes) {
+  const motores = (ia.motoresDa ? ia.motoresDa(empresa, bot) : []).map((m) => `${m.provedor}|${m.modelo}`);
+  const lista = midias.paraIa(empresa).map((x) => [x.codigo, x.numero, x.nome, x.descricao]);
+  return require('crypto').createHash('sha256').update(JSON.stringify([bot.id, canal, instrucoes, motores, lista, empresa.iaEconomica])).digest('hex');
+}
+
 function lerJson(t) {
   const m = String(t || '').match(/\{[\s\S]*\}/);
   if (!m) throw new Error('a IA não devolveu o formato esperado');
@@ -49,6 +59,11 @@ async function conferirNa(bot, empresa, canal) {
   // 1. o prompt de verdade tem as instruções salvas?
   const prompt = ia.montarPromptSistema(bot, empresa, canal, contextoDoAtendimento(empresa, canal, 'oi'));
   const lendo = prompt.fixo.includes(instrucoes) && prompt.dinamico.includes(instrucoes.slice(0, 200));
+  const chave = assinatura(bot, empresa, canal, instrucoes);
+  const guardado = ultimos.get(`${empresa.id}|${bot.id}|${canal}`);
+  if (guardado && guardado.chave === chave && Date.now() - guardado.em < VALE_MS) {
+    return { ...guardado.r, lendo, repetido: true, resumo: `(Nada mudou desde a última conferência — mostrando o mesmo resultado, sem gastar IA.) ${guardado.r.resumo || ''}`.trim() };
+  }
 
   // 2. regras testáveis + mensagens de cliente que testam as regras
   const plano = lerJson(
@@ -61,7 +76,7 @@ async function conferirNa(bot, empresa, canal) {
         `(b) ${MAX_TESTES} mensagens curtas e realistas de um cliente chegando agora, cada uma pensada para testar uma ou mais regras (escreva como cliente de verdade escreve no WhatsApp).\n` +
         'JSON: {"regras": ["..."], "mensagens": ["..."]}',
       1200,
-      { barato: true }
+      { barato: true, semPensar: true }
     )
   );
   const regras = (Array.isArray(plano.regras) ? plano.regras : []).map((r) => curto(r, 200)).filter(Boolean).slice(0, MAX_REGRAS);
@@ -94,7 +109,8 @@ async function conferirNa(bot, empresa, canal) {
         'Para cada regra diga: "sim" (obedeceu em todos os testes em que a regra se aplicava), "nao" (desobedeceu em algum) ou "nao_testada" (nenhum teste deu chance de aplicar). Explique em uma frase curta, citando o teste. ' +
         'Depois, uma frase de resumo e, se houver desobediência, uma sugestão curta de como reescrever a instrução para ficar mais clara.\n' +
         'JSON: {"regras": [{"n": 1, "resultado": "sim|nao|nao_testada", "porque": "..."}], "resumo": "...", "sugestao": "..."}',
-      1500
+      1500,
+      { barato: true, semPensar: true }
     )
   );
   const porN = new Map((Array.isArray(fiscal.regras) ? fiscal.regras : []).map((r) => [Number(r.n), r]));
@@ -105,7 +121,7 @@ async function conferirNa(bot, empresa, canal) {
   });
   const obedeceu = resultado.filter((r) => r.resultado === 'sim').length;
   const desobedeceu = resultado.filter((r) => r.resultado === 'nao').length;
-  return {
+  const r = {
     canal,
     lendo,
     instrucoesSalvasEm: bot.atualizadoEm || null,
@@ -117,6 +133,8 @@ async function conferirNa(bot, empresa, canal) {
     resumo: curto(fiscal.resumo, 400),
     sugestao: desobedeceu ? curto(fiscal.sugestao, 500) : ''
   };
+  ultimos.set(`${empresa.id}|${bot.id}|${canal}`, { chave, em: Date.now(), r });
+  return r;
 }
 
 module.exports = { conferir };
