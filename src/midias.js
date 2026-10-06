@@ -344,8 +344,9 @@ function resolverPedido(empresa, ref) {
   // "#MIDIA_FOTO_ANTES" → FOTO-ANTES; um código antigo que começa com MIDIA- também vale
   const candidatos = [codigoDaEntrada(ref), slugCodigo(ref)].filter(Boolean);
   const todas = midiasDa(empresa);
-  // #MIDIA_7 → a mídia (ou álbum/pasta) número 7
-  if (/^\d+$/.test(candidatos[0] || '')) {
+  // #MIDIA_7 → a mídia (ou álbum/pasta) número 7 — menos quando existe um código de texto
+  // exatamente igual (ex.: alguém deu o código "001" a uma mídia): esse vale primeiro
+  if (/^\d+$/.test(candidatos[0] || '') && !codigosEmUso(empresa).has(candidatos[0])) {
     const n = Number(candidatos[0]);
     const m = todas.find((x) => !x.pastaId && x.numero === n);
     if (m) return { itens: [m], etapas: m.etapas || [], alvo: m };
