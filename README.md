@@ -155,10 +155,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 
 ### IAs e chaves: principal + 2 reservas
 
-- **Cada empresa usa as próprias chaves de IA** (e paga os próprios tokens).
-  Empresas novas não usam a chave padrão do administrador; o admin pode liberar
-  em *Editar empresa* ("Pode usar a chave de IA do administrador"). Empresas
-  criadas antes continuam liberadas para não pararem.
+- **Cada empresa usa SÓ as próprias chaves de IA** (e paga os próprios tokens). Não existe
+  chave geral: a empresa nasce sem chave e você cadastra a dela em *IAs e chaves* (ou numa
+  IA da ordem — essa chave vale também para áudio, fotos e Drive da mesma IA). Chaves no
+  `.env` ou nas Configurações do sistema não são usadas por nenhuma empresa.
 - Visão geral/Empresas: tabela **Tokens de IA por empresa** (hoje, 7 e 30 dias,
   por IA e chamadas). Excluir empresa: 🗑️ no cartão, confirmando pelo nome.
 
@@ -171,7 +171,6 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   lidos por OCR antes da IA; foto e comprovante usam o modelo mais barato de cada
   IA. **Tokens gastos no dia** aparecem ao lado da empresa, nos cartões e em IAs e chaves.
 - Áudio: Gemini ou ChatGPT (transcrição).
-- `OPENAI_API_KEY` no `.env` vira a chave padrão do ChatGPT (opcional).
 
 ### Mídias com código
 
@@ -764,8 +763,8 @@ direto para o WhatsApp.
 | `PORT` / `HOST` | Porta interna (padrão 3100, só em 127.0.0.1) |
 | `BASE_PATH` | Caminho no domínio (padrão `/crm`) |
 | `PUBLIC_URL` | Endereço público, usado no código de incorporação |
-| `ANTHROPIC_API_KEY` | Chave padrão do Claude (opcional — cada empresa cadastra a sua no painel) |
-| `GEMINI_API_KEY` | Chave padrão do Gemini (opcional — cada empresa cadastra a sua no painel) |
+| `ANTHROPIC_API_KEY` | Não é usada pelas empresas (cada uma cadastra a sua no painel) |
+| `GEMINI_API_KEY` | Não é usada pelas empresas (cada uma cadastra a sua no painel) |
 | `EVOLUTION_API_KEY` | Chave global da Evolution: o CRM cria as conexões sozinho (também dá para colar no painel) |
 | `EVOLUTION_API_URL` | Endereço da Evolution API onde ficam as instâncias (padrão `https://api.evolutiondingdong.online`; também dá para trocar no painel) |
 | `WHATSAPP_ESPERA_MS` | Espera (ms) o cliente parar de digitar antes de a IA responder (padrão 6000) |

@@ -516,7 +516,6 @@ function modalEmpresa(emp) {
         ${emp ? '' : `<div class="campo largo"><label>Site da empresa ${ajuda('O chat só aparece nos sites informados aqui. Pode preencher depois em IA do site.')}</label><input name="sites" placeholder="minhaloja.com.br"></div>`}
         <div class="campo largo"><label>Observações internas</label><textarea name="observacoes">${esc(emp?.observacoes)}</textarea></div>
         <div class="campo largo"><label class="linha-check"><input type="checkbox" name="ativa" ${emp?.ativa === false ? '' : 'checked'}> Empresa ativa (desmarque para pausar tudo dela)</label></div>
-        <div class="campo largo"><label class="linha-check"><input type="checkbox" name="usarChavePadrao" ${emp && emp.usarChavePadrao !== false ? 'checked' : ''}> Pode usar a chave de IA do administrador quando não tiver a própria ${ajuda('Desmarcado = a empresa usa só as chaves que ela mesma cadastrou em IAs e chaves (e paga os próprios tokens). Marcado = sem chave própria, usa a chave padrão das Configurações do sistema e o custo sai da sua conta.')}</label></div>
       </div>
       <div class="acoes">
         <button class="primario" type="submit">Salvar</button>
@@ -6228,11 +6227,8 @@ async function paginaConfiguracoes() {
       </div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button>${c.evolutionChave.origem === 'painel' ? '<button type="button" class="perigo" id="remover-evo">Remover chave</button>' : ''}</div>
     </form>
-    <h2 style="margin-top:24px">Chave de IA padrão (opcional)</h2>
-    ${balao('Normalmente fica vazia', 'Cada empresa cadastra a própria chave em <b>IAs e chaves</b>. A chave padrão só é usada por empresas sem chave — por exemplo, se você quiser pagar a IA de um cliente.')}
-    ${linha('gemini', 'Gemini (Google)', 'geminiApiKey', 'https://aistudio.google.com/apikey', 'AIza…')}
-    ${linha('anthropic', 'Claude (Anthropic)', 'anthropicApiKey', 'https://console.anthropic.com', 'sk-ant-…')}
-    ${linha('openai', 'ChatGPT (OpenAI)', 'openaiApiKey', 'https://platform.openai.com/api-keys', 'sk-…')}`;
+    <h2 style="margin-top:24px">Chaves de IA</h2>
+    ${balao('Cada empresa usa a própria chave', 'Não existe chave geral: cada empresa cadastra a sua em <b>IAs e chaves</b> e paga só o que ela gasta. Empresa sem chave fica sem IA até você cadastrar.')}`;
 
   $('#f-evolution').onsubmit = async (e) => {
     e.preventDefault();

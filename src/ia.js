@@ -51,10 +51,13 @@ const MARCADOR_WHATSAPP = /\[\[WHATSAPP\]\]\s*([\s\S]*)$/;
 
 const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', openai: 'openaiApiKey', gemini: 'geminiApiKey' };
 
-// Chave usada para uma empresa: a que a própria empresa cadastrou; se ela não
-// tiver, usa a chave padrão opcional (Configurações do administrador ou .env).
+// Chave usada para uma empresa: SÓ a dela — a de "IAs e chaves" ou, se não tiver, a que
+// ela pôs numa IA da ordem (mesma IA). Nunca a de outra empresa nem a do servidor.
 function chaveDaEmpresa(provedor, empresa) {
-  return (empresa?.chavesIa || {})[CAMPO_CHAVE[provedor]] || '';
+  const propria = (empresa?.chavesIa || {})[CAMPO_CHAVE[provedor]];
+  if (propria) return propria;
+  const daOrdem = (Array.isArray(empresa?.motoresIa) ? empresa.motoresIa : []).find((m) => normalizarProvedor(m?.provedor) === provedor && m?.chave);
+  return daOrdem?.chave || '';
 }
 
 function chavePadrao(provedor) {
@@ -62,10 +65,10 @@ function chavePadrao(provedor) {
   return salvas[CAMPO_CHAVE[provedor]] || config[CAMPO_CHAVE[provedor]] || '';
 }
 
-// Cada empresa usa as PRÓPRIAS chaves. A chave padrão do administrador só entra
-// para empresas liberadas (as antigas já usavam; as novas começam sem).
+// Cada empresa usa SÓ as próprias chaves: a chave do servidor (Configurações/.env)
+// não é usada por nenhuma empresa (o gasto de uma nunca cai na conta de outra).
 function podeUsarChavePadrao(empresa) {
-  return !empresa || empresa.usarChavePadrao !== false;
+  return !empresa;
 }
 
 function chave(provedor, empresa) {
