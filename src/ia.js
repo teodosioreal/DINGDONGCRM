@@ -202,7 +202,8 @@ async function candidatosGemini(empresa, k, desejado, evitar = []) {
     ids.filter((id) => doTipo(id) && estavel(id)).sort(ordem),
     ids.filter((id) => doTipo(id) && /latest/i.test(id)),
     ids.filter((id) => doTipo(id)).sort(ordem),
-    ids.filter((id) => /flash/i.test(id) && estavel(id)).sort(ordem) // último recurso: qualquer Flash estável
+    ids.filter((id) => /flash/i.test(id) && estavel(id)).sort(ordem), // qualquer Flash estável (inclui Lite)
+    ids.filter((id) => /flash/i.test(id) && /latest/i.test(id)) // último recurso: os "latest" (Lite costuma estar livre)
   ];
   return [...new Set(grupos.flat())].filter((id) => !fora(id));
 }
@@ -216,9 +217,13 @@ async function comModeloGemini(empresa, k, desejado, fazer) {
   const chaveTroca = `${k}|${desejado}`;
   let atual = trocasGemini.get(chaveTroca) || desejado;
   // sobrecarregado há pouco: já começa pelo próximo
-  if ((foraDoAr.get(`${k}|${atual}`) || 0) > Date.now()) atual = (await candidatosGemini(empresa, k, desejado, [atual]))[0] || atual;
+  if ((foraDoAr.get(`${k}|${atual}`) || 0) > Date.now()) {
+    const ultimo = ultimoGemini.get(k);
+    atual = ultimo && (foraDoAr.get(`${k}|${ultimo}`) || 0) <= Date.now() ? ultimo : (await candidatosGemini(empresa, k, desejado, [atual]))[0] || atual;
+  }
   const tentados = [];
-  for (let volta = 0; volta < 4; volta++) {
+  let sobrecargas = 0;
+  for (let volta = 0; volta < 7; volta++) {
     tentados.push(atual);
     try {
       const r = await fazer(atual);
@@ -241,9 +246,12 @@ async function comModeloGemini(empresa, k, desejado, fazer) {
         atual = novo;
         continue;
       }
-      if ((err.status === 503 || err.status === 500) && tentados.length < 3) {
+      if ((err.status === 503 || err.status === 500 || /timeout|aborted|rede/i.test(msg)) && tentados.length < 5) {
         foraDoAr.set(`${k}|${atual}`, Date.now() + 2 * 60 * 1000);
-        const proximo = (await candidatosGemini(empresa, k, desejado, tentados))[0];
+        sobrecargas++;
+        const lista = await candidatosGemini(empresa, k, desejado, tentados);
+        // 2 Flash sobrecarregados seguidos: vai para um Lite (costuma estar livre quando o Flash lota)
+        const proximo = sobrecargas >= 2 ? lista.find((id) => /lite/i.test(id)) || lista[0] : lista[0];
         if (!proximo) throw err;
         console.error(`[ia ${empresa?.id || '-'}] Gemini: "${atual}" sobrecarregado; tentando "${proximo}"`);
         atual = proximo;
