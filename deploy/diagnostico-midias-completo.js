@@ -58,7 +58,7 @@ async function evo(e, metodo, caminho, corpo) {
     console.log(`    resumo do cadastro: ${JSON.stringify(problemas)}`);
     // B) prompt
     const av = midias.avisosDoPrompt(e);
-    const naIa = new Set(midias.paraIa(e).map((x) => midias.codigoVisivel(x.codigo)));
+    const naIa = new Set(midias.paraIa(e).flatMap((x) => [midias.codigoVisivel(x.codigo), x.numero ? `#MIDIA_${x.numero}` : '']).filter(Boolean));
     console.log(`    prompt cita: ${av.citados.map((c) => `${c.codigo} ${c.existe ? (naIa.has(c.codigo) ? '(IA enxerga)' : '(existe, mas a IA NÃO enxerga)') : '(NÃO EXISTE)'}`).join(' · ') || 'nada'}`);
     console.log(`    a IA enxerga ${naIa.size} mídia(s)/álbum(ns): ${[...naIa].join(' ')}`);
     // nome e "quando enviar" de cada mídia (texto do cadastro do dono, sem dados de cliente)

@@ -80,8 +80,6 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
   echo "    Mídias citadas no prompt e fila do follow-up (cópia do banco, só contagens):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-prompt-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
-  echo "    Uma conversa (pelo final do número; só códigos e status):"
-  CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" DIAG_FINAL="6632" timeout 60 node deploy/diagnostico-conversa-midia.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Mídias: cadastro, prompt, pedidos da IA e envios (48 h, anônimo, cópia do banco):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 240 node deploy/diagnostico-midias-completo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
   echo "    Mídias enviadas nas últimas 12 h (anônimo, só leitura):"
