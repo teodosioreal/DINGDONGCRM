@@ -67,7 +67,7 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
     }
     const res = e.iaReserva;
     if (res) console.log(`  Empresa ${n + 1} · última vez que uma IA falhou e outra entrou: ${res.em} · ${res.tarefa} · usou ${res.usou} · falhas: ${(res.falhas || []).map(limpo).join(' | ')}`);
-    for (const a of (db.alertas || []).filter((x) => x.empresaId === e.id && /ia|chave/i.test(x.tipo)).slice(-5)) console.log(`  Empresa ${n + 1} · alerta ${a.tipo} (${a.ultimoEm || a.em}${a.resolvido ? ', resolvido' : ''}): ${limpo(a.mensagem)}`);
+    for (const a of (db.alertas || []).filter((x) => x.empresaId === e.id && /ia|chave/i.test(x.tipo)).slice(-5)) console.log(`  Empresa ${n + 1} · alerta ${a.tipo} (${a.ultimoEm || a.em}${a.resolvido ? ', resolvido' : ''}): ${limpo(String(a.mensagem || '').replace(/^Cliente [^:]{0,60}:\s*/, ''))}`);
     const dias = Object.keys(e.usoIa?.dias || {}).sort();
     if (dias.length) console.log(`  Empresa ${n + 1} · último dia com uso de IA: ${dias[dias.length - 1]} (${e.usoIa.dias[dias[dias.length - 1]].chamadas} chamadas)`);
   }
