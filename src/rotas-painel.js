@@ -162,6 +162,9 @@ function dadosEmpresa(body) {
   };
 }
 
+// chave colada com espaço, quebra de linha, aspas ou caractere invisível no meio: limpa
+const limparChave = (v) => texto(v, 400).replace(/[\s\u200B-\u200D\uFEFF"'`]+/g, '').slice(0, 300);
+
 function mascarar(k) {
   return k ? `••••${k.slice(-4)}` : '';
 }
@@ -334,7 +337,7 @@ router.put('/empresas/:id/chaves', (req, res) => {
   if (!empresa) return;
   empresa.chavesIa = empresa.chavesIa || {};
   for (const [provedor, campo] of Object.entries(ia.CAMPO_CHAVE)) {
-    const valor = texto(req.body?.[campo], 300);
+    const valor = limparChave(req.body?.[campo]);
     if (valor) {
       empresa.chavesIa[campo] = valor;
       // trocou a chave desta IA: as posições da ordem com chave antiga dela passam a usar a nova
@@ -357,7 +360,7 @@ router.put('/empresas/:id/motores', (req, res) => {
     if (!m || !m.provedor) continue;
     const provedor = ia.normalizarProvedor(m.provedor);
     const novo = { provedor, modelo: ia.normalizarModelo(provedor, m.modelo) };
-    const chaveNova = texto(m.chave, 300);
+    const chaveNova = limparChave(m.chave);
     // chave vazia = mantém a chave própria que já estava nesta posição (se for a mesma IA)
     if (chaveNova) novo.chave = chaveNova;
     else if (!m.removerChave && antigos[i]?.chave && ia.normalizarProvedor(antigos[i].provedor) === provedor) novo.chave = antigos[i].chave;
