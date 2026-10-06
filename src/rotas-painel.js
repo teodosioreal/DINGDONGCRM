@@ -180,6 +180,8 @@ function mascarar(k) {
 // Situação das chaves de IA de uma empresa — NUNCA devolve a chave em si
 function situacaoChavesEmpresa(e) {
   const saida = {};
+  const kv = ia.chaveVerificacoes(e);
+  saida.geminiVerificacoes = { propria: Boolean(kv), final: mascarar(kv), usaPadrao: false, funciona: Boolean(kv) };
   for (const provedor of Object.keys(ia.PROVEDORES)) {
     const propria = ia.chaveDaEmpresa(provedor, e);
     const padrao = ia.podeUsarChavePadrao(e) ? ia.chavePadrao(provedor) : '';
@@ -357,6 +359,13 @@ router.put('/empresas/:id/chaves', async (req, res) => {
       for (const m of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (ia.normalizarProvedor(m.provedor) === provedor) delete m.chave;
     }
   }
+  // 2ª chave do Gemini (opcional): só para as verificações do CRM
+  const verif = limparChave(req.body?.geminiApiKeyVerificacoes);
+  if (verif) {
+    try { conferirFormatoChave('gemini', verif); } catch (err) { return res.status(400).json({ erro: err.message }); }
+    empresa.chavesIa.geminiApiKeyVerificacoes = verif;
+  }
+  if ((req.body?.remover || []).includes('gemini-verificacoes')) delete empresa.chavesIa.geminiApiKeyVerificacoes;
   // Uma chave só por empresa (Gemini): salvou a chave → o Gemini vira a IA da empresa, com o
   // modelo que ESTA chave tem (conta nova do Google não tem os modelos antigos)
   const novaGemini = empresa.chavesIa.geminiApiKey && limparChave(req.body?.geminiApiKey);
@@ -418,6 +427,12 @@ router.post('/empresas/:id/chaves/testar', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
+    if (req.body?.qual === 'verificacoes') {
+      const kv = ia.chaveVerificacoes(empresa);
+      if (!kv) return res.status(400).json({ erro: 'Cole a chave das verificações primeiro.' });
+      const msg = await ia.testarChave('gemini', empresa, kv);
+      return res.json({ ok: true, mensagem: msg.replace('Chave do Gemini funcionando', 'Chave das verificações funcionando').replace(' A IA já pode atender.', '') });
+    }
     res.json({ ok: true, mensagem: await ia.testarChave(ia.normalizarProvedor(req.body?.provedor), empresa) });
   } catch (err) {
     res.status(400).json({ erro: ia.descreverErroIa(err) });

@@ -158,6 +158,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - **Uma chave só por empresa: a do Gemini.** Tela *Chave da IA*: cola, salva e testa, troca
   (cola a nova) ou exclui. O modelo é escolhido sozinho pelo que a chave tem (conta nova do
   Google sem o modelo antigo → usa o Flash mais novo dela, sem "modelo não encontrado").
+- **2ª chave do Gemini (opcional), só para as verificações**: fotos, comprovantes, áudios,
+  detector de agendamento, "Atualizar e conferir" e aprendizado usam ela; conversa com cliente,
+  follow-up, avisos e o botão Testar ficam na principal. Os limites das duas somam; se a 2ª
+  falhar (limite/chave recusada), o CRM faz com a principal na hora.
 - **Cada empresa usa SÓ as próprias chaves de IA** (e paga os próprios tokens). Não existe
   chave geral: a empresa nasce sem chave e você cadastra a dela em *IAs e chaves* (ou numa
   IA da ordem — essa chave vale também para áudio, fotos e Drive da mesma IA). Chaves no

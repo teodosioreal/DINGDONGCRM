@@ -2698,9 +2698,10 @@ async function paginaChave(id) {
   const reserva = emp.iaReserva;
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   const g = emp.chaves.gemini || {};
+  const gv = emp.chaves.geminiVerificacoes || {};
   const modeloAtual = (emp.motores || []).find((m) => m.provedor === 'gemini')?.modelo || '';
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Chave da IA</h1><p class="sub">Uma chave só por empresa: a do Gemini (Google). Os tokens gastos saem da conta dessa chave.</p></div></div>
+    <div class="cabecalho"><div><h1>Chave da IA</h1><p class="sub">Chave do Gemini (Google) desta empresa — e, se quiser, uma 2ª só para as verificações. Os tokens saem da conta de cada chave.</p></div></div>
     <div class="card">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔑 Gemini (Google)</h2>${g.propria ? `<span><span class="etiqueta ok">✓ Chave salva</span> <span class="rotulo">termina em ${esc(g.final)}</span></span>` : '<span class="etiqueta off">⚠️ Sem chave — a IA não responde</span>'}</div>
       <details ${g.propria ? '' : 'open'}><summary>Como conseguir a chave</summary>${passos([
@@ -2726,6 +2727,17 @@ async function paginaChave(id) {
       ${reserva ? `<p class="rotulo" style="margin:10px 0 0">Último problema: ${data(reserva.em)} — ${esc((reserva.falhas || []).join('; '))}</p>` : ''}
     </div>
     <div class="card">
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🔎 Chave das verificações <span class="rotulo" style="font-weight:400">(opcional)</span></h2>${gv.propria ? `<span><span class="etiqueta ok">✓ Chave salva</span> <span class="rotulo">termina em ${esc(gv.final)}</span></span>` : '<span class="etiqueta">Usando a chave principal</span>'}</div>
+      <p class="rotulo" style="margin:0 0 10px">Uma 2ª chave do Gemini (pode ser de outra conta Google) só para o que o CRM confere sozinho: <b>fotos, comprovantes, áudios, detector de agendamento, "Atualizar e conferir" e aprendizado</b>. As conversas com o cliente continuam na chave principal. Assim os limites de uso das duas somam. Se ela falhar, o CRM usa a principal naquela hora.</p>
+      <form id="f-chave-verif">
+        <div class="campo"><label>${gv.propria ? 'Trocar a chave das verificações' : 'Cole a 2ª chave aqui'}</label><input name="geminiApiKeyVerificacoes" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="AIza… ou AQ.…"></div>
+        <div class="acoes">
+          <button class="primario" type="submit">Salvar e testar</button>
+          ${gv.propria ? '<button type="button" id="testar-verif">Testar</button><button type="button" class="perigo" id="excluir-verif">Excluir</button>' : ''}
+        </div>
+      </form>
+    </div>
+    <div class="card">
       <h2 style="margin:0 0 8px">📊 Gasto de hoje</h2>
       <div class="grade-resumo" style="margin:0">
         ${numeroCard('Tokens hoje', numeroCurto(u.total))}
@@ -2734,6 +2746,32 @@ async function paginaChave(id) {
       </div>
     </div>
     ${tabelaGastoIa(emp.uso7d)}`;
+
+  if ($('#f-chave-verif')) {
+    const testarVerif = async () => {
+      try {
+        const r = await api(`empresas/${id}/chaves/testar`, { method: 'POST', body: { provedor: 'gemini', qual: 'verificacoes' } });
+        aviso(r.mensagem);
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#f-chave-verif').onsubmit = async (e) => {
+      e.preventDefault();
+      const dados = formParaObjeto(e.target);
+      if (!dados.geminiApiKeyVerificacoes) return aviso('Cole a chave antes de salvar.', true);
+      try {
+        await comEspera(e.target.querySelector('button[type=submit]'), async () => {
+          await api(`empresas/${id}/chaves`, { method: 'PUT', body: dados });
+          await testarVerif();
+        }, 'Testando…');
+        paginaChave(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+    $('#testar-verif')?.addEventListener('click', testarVerif);
+    $('#excluir-verif')?.addEventListener('click', async () => {
+      if (!(await confirmar({ titulo: 'Excluir a chave das verificações?', texto: 'As verificações voltam a usar a chave principal.', botao: 'Excluir', perigo: true }))) return;
+      try { await api(`empresas/${id}/chaves`, { method: 'PUT', body: { remover: ['gemini-verificacoes'] } }); paginaChave(id); } catch (err) { aviso(err.message, true); }
+    });
+  }
 
   if ($('#modelo-gemini')) {
     ligarSeletorModelo(null, id, $('#prov-gemini'), $('#modelo-gemini'), $('#aviso-modelo-gemini'));

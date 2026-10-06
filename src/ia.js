@@ -82,7 +82,21 @@ function podeUsarChavePadrao(empresa) {
   return !empresa;
 }
 
+// 2ª chave do Gemini (opcional) só para as verificações do CRM: fotos, comprovantes, áudios,
+// detector de agendamento, "Atualizar e conferir", aprendizado… As conversas com o cliente
+// (resposta, follow-up, avisos) e o botão Testar ficam sempre na chave principal.
+const TAREFAS_DE_RESPOSTA = new Set(['resposta', 'site', 'followup', 'evento', 'teste', 'outros']);
+function chaveVerificacoes(empresa) {
+  const k = (empresa?.chavesIa || {}).geminiApiKeyVerificacoes;
+  return k && formatoDeChave('gemini', k) ? k : '';
+}
+
 function chave(provedor, empresa) {
+  if (provedor === 'gemini') {
+    const tarefa = tarefaAtual.getStore();
+    const verif = chaveVerificacoes(empresa);
+    if (verif && tarefa && !TAREFAS_DE_RESPOSTA.has(tarefa)) return verif;
+  }
   return chaveDaEmpresa(provedor, empresa) || (podeUsarChavePadrao(empresa) ? chavePadrao(provedor) : '');
 }
 
@@ -303,10 +317,10 @@ async function testarChave(provedor, empresa, chaveExplicita = '') {
     try { lista = await listarModelosGemini(empresa, true, chaveExplicita); } catch (err) { erroLista = err; }
     // teste de verdade: o modelo que a empresa usa responde com esta chave (poucos tokens)
     const motor = (empresa?.motoresIa || []).find((m) => normalizarProvedor(m.provedor) === 'gemini');
-    if (empresa && motor && !chaveExplicita) {
-      const k = chave('gemini', empresa);
+    if (empresa && motor) {
+      const k = chaveExplicita || chave('gemini', empresa);
       const modelo = (await modeloGeminiDaChave(empresa, k, normalizarModelo('gemini', motor.modelo))) || motor.modelo;
-      await testarMotor(empresa, { provedor: 'gemini', modelo, chave: '' });
+      await testarMotor(empresa, { provedor: 'gemini', modelo, chave: chaveExplicita || '' });
       const usado = ultimoGemini.get(k) || modelo;
       return `Chave do Gemini funcionando · o modelo ${usado} respondeu. A IA já pode atender.`;
     }
@@ -851,6 +865,13 @@ async function chamarMotor(empresa, m, opcoes) {
   try {
     return await chamarMotorConferindo(empresa, m, opcoes);
   } catch (err) {
+    // a chave das verificações falhou (limite, chave recusada): faz com a chave principal
+    const verif = m.provedor === 'gemini' && !m.chave ? chaveVerificacoes(empresa) : '';
+    const principal = verif ? chaveDaEmpresa('gemini', empresa) : '';
+    if (verif && principal && principal !== verif && chaveDoMotor(m, empresa) === verif && (err.status === 429 || chaveRecusada(err))) {
+      console.error(`[ia ${empresa.id}] chave das verificações falhou (${descreverErroIa(err)}); usando a chave principal`);
+      return chamarMotorConferindo(empresa, { ...m, chave: principal }, opcoes);
+    }
     const daEmpresa = (empresa?.chavesIa || {})[CAMPO_CHAVE[m.provedor]];
     if (!m.chave || !daEmpresa || daEmpresa === m.chave || !chaveRecusada(err)) throw err;
     const r = await chamarMotorConferindo(empresa, { ...m, chave: daEmpresa }, opcoes);
@@ -1225,16 +1246,17 @@ async function transcreverAudio(empresa, base64, mimetype) {
 async function transcreverAudioNa(empresa, base64, mimetype) {
   const mime = String(mimetype || 'audio/ogg').split(';')[0];
   const tentativas = [];
-  if (chave('gemini', empresa)) {
+  // chave das verificações (se tiver) e, se ela falhar, a principal
+  for (const kAudio of [...new Set([chave('gemini', empresa), chaveDaEmpresa('gemini', empresa)].filter(Boolean))]) {
     tentativas.push(async () => {
       let modeloUsado = MODELO_OUVIR;
-      const dados = await comModeloGemini(empresa, chave('gemini', empresa), MODELO_OUVIR, (modelo) => { modeloUsado = modelo; return chamarGemini(empresa, `models/${modelo}:generateContent`, {
+      const dados = await comModeloGemini(empresa, kAudio, MODELO_OUVIR, (modelo) => { modeloUsado = modelo; return chamarGemini(empresa, `models/${modelo}:generateContent`, {
         method: 'POST',
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mime, data: base64 } }, { text: PEDIDO_AUDIO }] }],
           generationConfig: { maxOutputTokens: 2000, temperature: 0 }
         })
-      }); });
+      }, kAudio); });
       const u = dados.usageMetadata || {};
       registrarUso(empresa, 'gemini', { entrada: u.promptTokenCount || 0, saida: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), modelo: modeloUsado });
       return textoGemini(dados);
@@ -1378,6 +1400,7 @@ function descreverErroIa(err) {
 }
 
 module.exports = {
+  chaveVerificacoes,
   modeloGeminiDaChave,
   variarAbertura,
   casoDificil,
