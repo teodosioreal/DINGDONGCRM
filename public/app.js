@@ -1502,7 +1502,7 @@ async function paginaWhatsapp(id) {
       <div class="card" id="f-chave-global">
         <h2>1. Conecte o WhatsApp da empresa</h2>
         ${balao('Só uma vez: a chave global da Evolution API', 'É a mesma <code>EVOLUTION_API_KEY</code> do DingDong Tracking (a <code>AUTHENTICATION_API_KEY</code> do servidor da Evolution). Com ela o CRM cria a conexão de cada empresa sozinho. Fica guardada só no servidor e vale para todas as empresas.', 'aviso')}
-        <div class="campo"><label>Chave global da Evolution API</label><input id="chave-global" type="password" autocomplete="off" placeholder="cole a chave global"></div>
+        <div class="campo"><label>Chave global da Evolution API</label><input id="chave-global" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="cole a chave global"></div>
         <div id="chave-global-erro"></div>
         <div class="acoes"><button type="button" class="primario" id="salvar-chave-global">Salvar e gerar QR code</button></div>
         ${areaQr}
@@ -1963,7 +1963,7 @@ async function paginaWhatsapp(id) {
     <h2>Trocar Session ID / API Key</h2>
     <form id="f-trocar">
       <div class="campo"><label>Session ID</label><input name="sessionId" required value="${esc(w.sessao)}" autocomplete="off"></div>
-      <div class="campo" style="margin-top:12px"><label>API Key</label><input name="apiKey" type="password" autocomplete="off" placeholder="vazio = manter a atual (${esc(w.apiKeyFinal)})"></div>
+      <div class="campo" style="margin-top:12px"><label>API Key</label><input name="apiKey" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="vazio = manter a atual (${esc(w.apiKeyFinal)})"></div>
       <div id="trocar-erro"></div>
       <div class="acoes"><button class="primario" type="submit">Conectar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {
@@ -2662,7 +2662,7 @@ async function paginaChave(id) {
         <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${NOME_PROVEDOR[provedor]} ${extra}</h2>${situacao}</div>
         <details ${principalSemChave ? 'open' : ''}><summary>Como conseguir a chave</summary>${passos(passosCriar)}</details>
         <form data-provedor="${provedor}" style="margin-top:12px">
-          <div class="campo"><label>${c.propria ? 'Trocar chave' : 'Cole a chave aqui'}</label><input name="${campo}" type="password" autocomplete="off" placeholder="${esc(dica)}"></div>
+          <div class="campo"><label>${c.propria ? 'Trocar chave' : 'Cole a chave aqui'}</label><input name="${campo}" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="${esc(dica)}"></div>
           <div class="acoes">
             <button class="primario" type="submit">Salvar e testar</button>
             ${c.funciona ? '<button type="button" data-testar>Testar</button>' : ''}
@@ -6207,7 +6207,7 @@ async function paginaConfiguracoes() {
     <div class="card">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">${nome}</h2>${c[id].configurada ? `<span><span class="etiqueta ok">Configurada</span> <span class="rotulo">termina em ${esc(c[id].final)}</span></span>` : '<span class="etiqueta">Sem chave padrão</span>'}</div>
       <form data-provedor="${id}">
-        <div class="campo"><label>${c[id].configurada ? 'Trocar chave' : 'Chave de API'}</label><input name="${campo}" type="password" autocomplete="off" placeholder="${esc(dica)}"><small>Crie em <a href="${onde}" target="_blank" rel="noopener">${onde.replace('https://', '')}</a>.</small></div>
+        <div class="campo"><label>${c[id].configurada ? 'Trocar chave' : 'Chave de API'}</label><input name="${campo}" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="${esc(dica)}"><small>Crie em <a href="${onde}" target="_blank" rel="noopener">${onde.replace('https://', '')}</a>.</small></div>
         <div class="acoes">
           <button class="primario" type="submit">Salvar</button>
           ${c[id].configurada ? '<button type="button" data-testar>Testar</button>' : ''}
@@ -6223,7 +6223,7 @@ async function paginaConfiguracoes() {
       ${balao('O cliente só clica em "Gerar QR code"', 'Com a <b>chave global</b> da sua Evolution API, o CRM cria a conexão (instância) de cada empresa sozinho e já liga as mensagens no CRM — igual ao DingDong Tracking. A chave fica só no servidor.')}
       <div class="campos">
         <div class="campo largo"><label>Endereço da Evolution API</label><input name="evolutionUrl" value="${esc(c.evolutionUrl)}" placeholder="https://api.suaevolution.com"></div>
-        <div class="campo largo"><label>Chave global (AUTHENTICATION_API_KEY) ${ajuda('É a chave do servidor da Evolution (a mesma EVOLUTION_API_KEY do .env do DingDong Tracking). Não é a API Key de uma instância.')}</label><input name="evolutionApiKey" type="password" autocomplete="off" placeholder="${c.evolutionChave.configurada ? `salva — termina em ${esc(c.evolutionChave.final)} (deixe vazio para manter)` : 'cole a chave global'}"></div>
+        <div class="campo largo"><label>Chave global (AUTHENTICATION_API_KEY) ${ajuda('É a chave do servidor da Evolution (a mesma EVOLUTION_API_KEY do .env do DingDong Tracking). Não é a API Key de uma instância.')}</label><input name="evolutionApiKey" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="${c.evolutionChave.configurada ? `salva — termina em ${esc(c.evolutionChave.final)} (deixe vazio para manter)` : 'cole a chave global'}"></div>
       </div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button>${c.evolutionChave.origem === 'painel' ? '<button type="button" class="perigo" id="remover-evo">Remover chave</button>' : ''}</div>
     </form>

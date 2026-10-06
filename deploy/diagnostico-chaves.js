@@ -63,7 +63,7 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
         else if (p === 'openai') r = await fetch('https://api.openai.com/v1/models', { headers: { authorization: `Bearer ${k}` }, signal: AbortSignal.timeout(10000) }).then((x) => `HTTP ${x.status}`);
         else r = 'não testada';
       } catch (err) { r = `erro de rede: ${err.message}`; }
-      const formato = `${k.length} caracteres${p === 'gemini' ? (k.startsWith('AIza') ? ', começa com AIza' : ', NÃO começa com AIza') : ''}${/[\s"'`\u200B-\u200D\uFEFF]/.test(k) ? ', TEM espaço/aspas/caractere invisível' : ''}, termina em ${k.slice(-4)}`;
+      const formato = `${k.length} caracteres${p === 'gemini' ? (k.startsWith('AIza') ? ', começa com AIza' : ', NÃO começa com AIza') : ''}${/[\s"'`\u200B-\u200D\uFEFF]/.test(k) ? ', TEM espaço/aspas/caractere invisível' : ''}`;
       console.log(`  Empresa ${n + 1} · ${p} chave ${apelido(k)} (${formato}): ${r}`);
     }
     const res = e.iaReserva;

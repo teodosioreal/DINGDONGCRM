@@ -269,9 +269,9 @@ function resumoMotores(e) {
     ordem: i + 1,
     provedor: ia.normalizarProvedor(m.provedor),
     modelo: ia.normalizarModelo(ia.normalizarProvedor(m.provedor), m.modelo),
-    chavePropria: Boolean(m.chave),
+    chavePropria: ia.formatoDeChave(ia.normalizarProvedor(m.provedor), m.chave),
     chaveFinal: mascarar(m.chave),
-    temChave: Boolean(m.chave || ia.chave(ia.normalizarProvedor(m.provedor), e))
+    temChave: Boolean(ia.chaveDoMotor({ ...m, provedor: ia.normalizarProvedor(m.provedor) }, e))
   }));
 }
 
@@ -376,7 +376,7 @@ router.put('/empresas/:id/motores', (req, res) => {
     }
     // chave vazia = mantém a chave própria que já estava nesta posição (se for a mesma IA)
     if (chaveNova) novo.chave = chaveNova;
-    else if (!m.removerChave && antigos[i]?.chave && ia.normalizarProvedor(antigos[i].provedor) === provedor) novo.chave = antigos[i].chave;
+    else if (!m.removerChave && ia.formatoDeChave(provedor, antigos[i]?.chave) && ia.normalizarProvedor(antigos[i].provedor) === provedor) novo.chave = antigos[i].chave;
     lista.push(novo);
   }
   empresa.motoresIa = lista;
@@ -398,7 +398,7 @@ router.post('/empresas/:id/motores/testar', async (req, res) => {
     res.json({ ok: true, mensagem: `${ia.PROVEDORES[motor.provedor].nome} · ${motor.modelo} respondeu. Funcionando!` });
   } catch (err) {
     // diz qual chave foi testada (só o final), para saber se é a nova ou a antiga
-    const usada = (empresa.motoresIa || [])[Number(req.body?.indice) || 0]?.chave || ia.chave(motor.provedor, empresa);
+    const usada = ia.chaveDoMotor(motor, empresa);
     res.status(400).json({ erro: `${ia.descreverErroIa(err)}${usada ? ` (chave testada termina em ${usada.slice(-4)})` : ''}` });
   }
 });

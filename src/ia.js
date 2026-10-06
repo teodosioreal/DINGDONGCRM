@@ -53,10 +53,18 @@ const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', openai: 'openaiApiKey', gemi
 
 // Chave usada para uma empresa: SÓ a dela — a de "IAs e chaves" ou, se não tiver, a que
 // ela pôs numa IA da ordem (mesma IA). Nunca a de outra empresa nem a do servidor.
+// formato de chave de cada IA (uma senha preenchida sozinha pelo navegador não passa)
+function formatoDeChave(provedor, k) {
+  const v = String(k || '');
+  if (provedor === 'gemini') return /^AIza[\w-]{30,}$/.test(v);
+  if (provedor === 'anthropic') return /^sk-ant-[\w-]{20,}$/.test(v);
+  return /^sk-[\w-]{20,}$/.test(v);
+}
+
 function chaveDaEmpresa(provedor, empresa) {
   const propria = (empresa?.chavesIa || {})[CAMPO_CHAVE[provedor]];
   if (propria) return propria;
-  const daOrdem = (Array.isArray(empresa?.motoresIa) ? empresa.motoresIa : []).find((m) => normalizarProvedor(m?.provedor) === provedor && m?.chave);
+  const daOrdem = (Array.isArray(empresa?.motoresIa) ? empresa.motoresIa : []).find((m) => normalizarProvedor(m?.provedor) === provedor && formatoDeChave(provedor, m?.chave));
   return daOrdem?.chave || '';
 }
 
@@ -532,7 +540,8 @@ const RESPOSTA_RECUSA = 'Desculpe, não consigo ajudar com isso por aqui. Posso 
 // depois a 3ª, sem o cliente perceber. Cada uma pode ter a própria chave.
 
 function chaveDoMotor(m, empresa) {
-  return m.chave || chave(m.provedor, empresa);
+  // chave da posição com formato errado (ex.: senha do navegador): ignora e usa a da empresa
+  return (formatoDeChave(m.provedor, m.chave) && m.chave) || chave(m.provedor, empresa);
 }
 
 function motoresDa(empresa, bot) {
@@ -1268,6 +1277,8 @@ module.exports = {
   testarChave,
   testarMotor,
   motoresDa,
+  formatoDeChave,
+  chaveDoMotor,
   usoDoDia,
   usoDoPeriodo,
   registrarUso,
