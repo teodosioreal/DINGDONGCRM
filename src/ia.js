@@ -286,7 +286,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         'Lista:',
         ...midias.map((m) =>
           [
-            `- ${codigoVisivel(m.codigo)}`,
+            `- ${m.numero ? `#MIDIA_${m.numero}` : codigoVisivel(m.codigo)}`,
             m.album ? `álbum com ${m.quantidade} arquivos` : TIPO[m.tipo] || 'arquivo',
             m.nome ? `mostra: ${m.nome}` : '',
             `quando enviar: ${m.quando || 'quando ajudar o cliente'}`,
@@ -391,7 +391,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
-  if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
+  if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${String(c).startsWith('#') ? c : require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 
   if (contexto.clone) {
     // clone: respostas reais (escritas à mão) de conversas que viraram venda

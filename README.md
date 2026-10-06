@@ -288,6 +288,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
   foto/áudio — só os pedidos de avaliação e de comentário no anúncio continuam. Volta só se
   você ligar; comprou de novo depois disso, desliga de novo. **Quem agendou**: o mesmo, por
   padrão (IA do WhatsApp → "📅 IA para quem agendou" liga para eles).
+- **Mídias simples (número + nome)**: cada mídia e álbum tem um número fixo — `#MIDIA_1`,
+  `#MIDIA_2`… — que nunca é reaproveitado. Para a IA mandar, cite o número no prompt (ou use
+  "📎 Inserir mídia no prompt"); a descrição é opcional e, se escrita, já libera a mídia. Os
+  códigos de texto antigos continuam valendo. Vídeos vão sempre na qualidade original.
 - **Mídias sem dor de cabeça**: na aba "A configurar" cada mídia tem a **configuração rápida**
   (quando mandar + código + "✓ Liberar para a IA"); no prompt do WhatsApp o botão
   **📎 Inserir mídia no prompt** lista as mídias com foto e coloca o código certo no cursor.

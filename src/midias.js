@@ -119,7 +119,7 @@ const tiposRevisados = new WeakSet();
 function midiasDa(empresa) {
   const lista = empresa.midias || [];
   // mídias antigas ganham código e ficam "prontas" (a IA já usava)
-  if (lista.some((m) => !m.codigo) || albunsDa(empresa).some((a) => !a.codigo) || pastasDa(empresa).some((p) => !p.codigo)) garantirCodigos(empresa);
+  if (lista.some((m) => !m.codigo || (!m.pastaId && !m.numero)) || albunsDa(empresa).some((a) => !a.codigo || !a.numero) || pastasDa(empresa).some((p) => !p.codigo || !p.numero)) garantirCodigos(empresa);
   if (!tiposRevisados.has(empresa)) {
     tiposRevisados.add(empresa);
     corrigirTipos(empresa);
@@ -184,6 +184,7 @@ function novoCodigo(empresa, base, excetoId = null) {
 function validarCodigo(empresa, codigo, excetoId) {
   const c = codigoDaEntrada(codigo);
   if (!c || c.length < 2) throw Object.assign(new Error('O código precisa ter pelo menos 2 letras ou números depois de #MIDIA_ (ex.: #MIDIA_TABELA, #MIDIA_FOTO_ANTES_DEPOIS).'), { status: 400 });
+  if (/^\d+$/.test(c)) throw Object.assign(new Error('Código só com números é o número da mídia (ele é automático). Use letras no código de texto ou cite o número no prompt.'), { status: 400 });
   if (codigosEmUso(empresa, excetoId).has(c)) throw Object.assign(new Error(`O código ${codigoVisivel(c)} já está em uso nesta empresa. Escolha outro.`), { status: 400 });
   return c;
 }
@@ -195,7 +196,35 @@ function garantirCodigos(empresa) {
   }
   for (const a of empresa.albuns || []) if (!a.codigo) a.codigo = novoCodigo(empresa, a.nome, a.id);
   for (const p of empresa.drivePastas || []) if (!p.codigo) p.codigo = novoCodigo(empresa, p.nome, p.id);
+  numerar(empresa);
   salvar();
+}
+
+// NÚMERO de cada mídia, álbum e pasta: #MIDIA_1, #MIDIA_2… (o jeito simples de citar no prompt).
+// Vai na ordem em que foram cadastradas e nunca é reaproveitado (apagou a #MIDIA_5, nenhuma
+// outra vira #MIDIA_5): um prompt antigo nunca manda a mídia errada. Os códigos de texto
+// antigos (#MIDIA_REVESTIMENTO_COMPLETO) continuam valendo.
+function numerar(empresa) {
+  const itens = [
+    ...(empresa.midias || []).filter((m) => !m.pastaId),
+    ...(empresa.albuns || []),
+    ...(empresa.drivePastas || [])
+  ];
+  const maior = itens.reduce((n, x) => Math.max(n, Number(x.numero) || 0), 0);
+  let proximo = Math.max(Number(empresa.proximoNumeroMidia) || 1, maior + 1);
+  const sem = itens.filter((x) => !x.numero).sort((a, b) => String(a.criadoEm || '').localeCompare(String(b.criadoEm || '')));
+  for (const x of sem) x.numero = proximo++;
+  empresa.proximoNumeroMidia = proximo;
+}
+
+// Código que aparece no painel e para a IA: o número (#MIDIA_7); sem número, o de texto
+function codigoNumerico(x) {
+  return x?.numero ? `#MIDIA_${x.numero}` : codigoVisivel(x?.codigo);
+}
+// Código guardado (texto) → como a IA/o painel vê (número)
+function numeroDoCodigo(empresa, codigo) {
+  const x = [...(empresa.midias || []), ...(empresa.albuns || []), ...(empresa.drivePastas || [])].find((y) => y.codigo === codigo);
+  return x ? codigoNumerico(x) : codigoVisivel(codigo);
 }
 
 // ---------------------------------------------------------------- álbuns (grupos de mídias enviados juntos)
@@ -314,8 +343,19 @@ const MAX_POR_ALBUM = 10;
 function resolverPedido(empresa, ref) {
   // "#MIDIA_FOTO_ANTES" → FOTO-ANTES; um código antigo que começa com MIDIA- também vale
   const candidatos = [codigoDaEntrada(ref), slugCodigo(ref)].filter(Boolean);
-  const codigo = candidatos.find((c) => codigosEmUso(empresa).has(c)) || candidatos[0] || '';
   const todas = midiasDa(empresa);
+  // #MIDIA_7 → a mídia (ou álbum/pasta) número 7
+  if (/^\d+$/.test(candidatos[0] || '')) {
+    const n = Number(candidatos[0]);
+    const m = todas.find((x) => !x.pastaId && x.numero === n);
+    if (m) return { itens: [m], etapas: m.etapas || [], alvo: m };
+    const al = albunsDa(empresa).find((a) => a.numero === n);
+    if (al) return { itens: todas.filter((x) => x.albumId === al.id).slice(0, MAX_POR_ALBUM), etapas: al.etapas || [], alvo: al };
+    const pa = pastasDa(empresa).find((p) => p.numero === n);
+    if (pa) return { itens: todas.filter((x) => x.pastaId === pa.id).slice(0, MAX_POR_ALBUM), etapas: pa.etapas || [], alvo: pa };
+    return { itens: [], etapas: [], alvo: null };
+  }
+  const codigo = candidatos.find((c) => codigosEmUso(empresa).has(c)) || candidatos[0] || '';
   const porCodigo = todas.find((m) => m.codigo === codigo);
   if (porCodigo) return { itens: [porCodigo], etapas: porCodigo.etapas || [], alvo: porCodigo };
   const album = albunsDa(empresa).find((a) => a.codigo === codigo) || albunsDa(empresa).find((a) => limpar(a.nome) === limpar(ref));
@@ -348,13 +388,13 @@ function paraIa(empresa, { followup = false } = {}) {
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
     .filter((m) => !m.pastaId && !m.albumId && valeAqui(m))
-    .map((m) => ({ codigo: m.codigo, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo) }));
+    .map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
-    .map((a) => ({ codigo: a.codigo, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo) || doPrompt.has(a.codigo))).length, servicos: servicos(a.codigo) }))
+    .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo) || doPrompt.has(a.codigo))).length, servicos: servicos(a.codigo) }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
-    .map((p) => ({ codigo: p.codigo, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
+    .map((p) => ({ codigo: p.codigo, numero: p.numero, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
     .filter((a) => a.quantidade > 0);
   return [...avulsas, ...albuns, ...pastas];
 }
@@ -400,9 +440,9 @@ function sugerirMidias(empresa, trecho, max = 4) {
   const querTipo = /v[ií]deo/.test(t) ? 'video' : /[áa]udio/.test(t) ? 'audio' : /pdf|tabela|catalogo|cardapio|apresenta|orcamento/.test(t) ? 'document' : /foto|imagem|antes e depois|print/.test(t) ? 'image' : '';
   const todas = midiasDa(empresa);
   const itens = [
-    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, quando: m.descricao || '', assuntos: m.assuntos || [], ativa: prontaParaIa(m), id: m.id, capa: m.tipo === 'image' ? urlPublica(m) : '' })),
-    ...albunsDa(empresa).map((a) => { const fs_ = todas.filter((m) => m.albumId === a.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: a.codigo, nome: a.nome, tipo: 'album', quando: a.descricao || '', assuntos: a.assuntos || [], ativa: fs_.some((m) => prontaParaIa(m)), quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; }),
-    ...pastasDa(empresa).map((p) => { const fs_ = todas.filter((m) => m.pastaId === p.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: p.codigo, nome: p.nome, tipo: 'album', quando: p.descricao || '', assuntos: [], ativa: fs_.length > 0, quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; })
+    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, tipo: m.tipo, quando: m.descricao || '', assuntos: m.assuntos || [], ativa: prontaParaIa(m), id: m.id, capa: m.tipo === 'image' ? urlPublica(m) : '' })),
+    ...albunsDa(empresa).map((a) => { const fs_ = todas.filter((m) => m.albumId === a.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: a.codigo, numero: a.numero, nome: a.nome, tipo: 'album', quando: a.descricao || '', assuntos: a.assuntos || [], ativa: fs_.some((m) => prontaParaIa(m)), quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; }),
+    ...pastasDa(empresa).map((p) => { const fs_ = todas.filter((m) => m.pastaId === p.id); const capa = fs_.find((m) => m.tipo === 'image'); return { codigo: p.codigo, numero: p.numero, nome: p.nome, tipo: 'album', quando: p.descricao || '', assuntos: [], ativa: fs_.length > 0, quantidade: fs_.length, capa: capa ? urlPublica(capa) : '' }; })
   ];
   const pontuadas = itens.map((x) => {
     const deles = tokens(`${x.nome} ${x.quando} ${x.codigo.replace(/-/g, ' ')} ${x.assuntos.join(' ')}`);
@@ -410,7 +450,7 @@ function sugerirMidias(empresa, trecho, max = 4) {
     for (const w of alvo) if (deles.has(w)) pontos += 3;
     for (const w of alvo) if (w.length >= 5 && [...deles].some((d) => d.length >= 5 && (d.startsWith(w.slice(0, 5)) || w.startsWith(d.slice(0, 5))))) pontos += 1;
     if (querTipo && (x.tipo === querTipo || (querTipo === 'image' && x.tipo === 'album'))) pontos += 2;
-    return { ...x, codigoVisivel: codigoVisivel(x.codigo), pontos };
+    return { ...x, codigoVisivel: codigoNumerico(x), pontos };
   });
   return pontuadas.filter((x) => x.pontos > 0).sort((a, b) => b.pontos - a.pontos).slice(0, max);
 }
@@ -458,7 +498,7 @@ function conectarNoPrompt(empresa, pendencia, codigoMidia) {
   if (!bot) throw Object.assign(new Error('Assistente não encontrado.'), { status: 404 });
   const texto = String(bot[pendencia.campo] || '');
   if (!texto.includes(pendencia.trecho)) throw Object.assign(new Error('O prompt mudou desde que a página abriu. Recarregue e tente de novo.'), { status: 409 });
-  const codigo = codigoVisivel(codigoMidia);
+  const codigo = numeroDoCodigo(empresa, codigoDaEntrada(codigoMidia));
   let novoTrecho;
   if (pendencia.tipo === 'inexistente') novoTrecho = pendencia.trecho.split(pendencia.escrito).join(codigo);
   else novoTrecho = pendencia.trecho.replace(/\s*([.!?;:]*)$/, (_, pont) => ` (mídia ${codigo})${pont}`);
@@ -488,7 +528,7 @@ function midiaPorPalavraRara(empresa, texto, permitidos = null) {
     melhor = com[0].x;
   }
   if (!melhor || (permitidos && !permitidos.has(melhor.codigo))) return null;
-  return { codigo: melhor.codigo, codigoVisivel: codigoVisivel(melhor.codigo), nome: melhor.nome };
+  return { codigo: melhor.codigo, codigoVisivel: codigoNumerico(melhor), nome: melhor.nome };
 }
 
 // A mídia certa para um trecho do prompt, só quando não há dúvida: a melhor sugestão
@@ -565,9 +605,13 @@ function avisosDoPrompt(empresa) {
   // cadastro da empresa: mídias, álbuns e pastas, pelo código como aparece no painel
   const cadastro = new Map();
   const todas = midiasDa(empresa);
-  for (const p of pastasDa(empresa)) cadastro.set(codigoVisivel(p.codigo), { nome: p.nome, ativa: todas.some((m) => m.pastaId === p.id) });
-  for (const a of albunsDa(empresa)) cadastro.set(codigoVisivel(a.codigo), { nome: a.nome, ativa: todas.some((m) => m.albumId === a.id && prontaParaIa(m)) });
-  for (const m of todas) if (!m.pastaId && !m.albumId) cadastro.set(codigoVisivel(m.codigo), { nome: m.nome, ativa: prontaParaIa(m) });
+  const por = (x, dados) => {
+    cadastro.set(codigoVisivel(x.codigo), dados);
+    if (x.numero) cadastro.set(`#MIDIA_${x.numero}`, dados);
+  };
+  for (const p of pastasDa(empresa)) por(p, { nome: p.nome, ativa: todas.some((m) => m.pastaId === p.id) });
+  for (const a of albunsDa(empresa)) por(a, { nome: a.nome, ativa: todas.some((m) => m.albumId === a.id && prontaParaIa(m)) });
+  for (const m of todas) if (!m.pastaId) por(m, { nome: m.nome, ativa: prontaParaIa(m) });
   const unicos = new Map();
   for (const bot of bots) {
     for (const codigo of String(bot.promptWhatsapp || '').match(RE_CODIGO_MIDIA) || []) {
@@ -901,6 +945,9 @@ module.exports = {
   slugCodigo,
   codigoDaEntrada,
   codigoVisivel,
+  codigoNumerico,
+  numeroDoCodigo,
+  numerar,
   idDoArquivoDrive,
   linkDiretoDrive,
   salvarMidiaDoLink,

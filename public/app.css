@@ -1525,3 +1525,15 @@ html.dark .ag-status.hoje { background: #422006; color: #fde68a; }
 html.dark .config-rapida { background: #2a1d05; }
 .inserir-midia { display: inline-flex; margin: 2px 0 6px; }
 #lista-midia-prompt .escolha .rotulo { word-break: break-all; font-family: ui-monospace, monospace; font-size: 11.5px; }
+
+/* mídia simples: número grande, uso pela IA e descrição na hora */
+.codigo-num { align-self: flex-start; display: inline-flex; align-items: baseline; gap: 8px; margin: 8px 0 2px; padding: 4px 10px; border-radius: 8px; border: 1px dashed var(--acento); background: var(--acento-suave); color: var(--acento); font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; }
+.codigo-num span { font: 600 11px system-ui, sans-serif; opacity: .8; }
+html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
+.codigo-num-txt { font-family: ui-monospace, monospace; }
+.midia-uso { font-size: 12.5px; line-height: 1.35; }
+.midia-uso.ok { color: var(--ok-texto); }
+.midia-uso.off { color: var(--aviso-texto); }
+.midia-uso.fup { color: var(--suave); }
+.midia-desc { display: flex; gap: 6px; margin-top: 6px; }
+.midia-desc input { flex: 1; min-width: 0; font-size: 12.5px; padding: 6px 8px; }

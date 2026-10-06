@@ -641,7 +641,7 @@ router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
 router.get('/empresas/:id/midias', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoVisivel(m.codigo) })));
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m) })));
 });
 
 // Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)
@@ -653,7 +653,7 @@ router.post('/empresas/:id/midias/link', async (req, res) => {
     const extra = { pronta: b.ativa !== false && Boolean(texto(b.descricao, 300)), legenda: texto(b.legenda, 1000), umaVezPorConversa: b.umaVezPorConversa !== false };
     if (b.codigo) extra.codigo = b.codigo;
     const midia = await midias.salvarMidiaDoLink(empresa, { link: texto(b.link, 1000), nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), extra });
-    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -677,7 +677,7 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
       midias.apagarMidia(empresa, midia.id);
       return res.status(400).json({ erro: `Já existe uma mídia chamada "${midia.nome}". Use outro nome.` });
     }
-    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -702,13 +702,15 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
     if (b.pronta !== undefined) midia.pronta = b.pronta === true;
+    // escreveu a descrição (quando mandar): a mídia já vale para a IA
+    else if (b.descricao !== undefined && midia.descricao && !midia.soFollowup) midia.pronta = true;
     if (b.assuntos !== undefined) midia.assuntos = midias.listaAssuntos(empresa, b.assuntos);
     if (b.soFollowup !== undefined) midia.soFollowup = b.soFollowup === true;
   } catch (err) {
     return res.status(err.status || 400).json({ erro: err.message });
   }
   salvar();
-  res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoVisivel(midia.codigo) });
+  res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
 });
 
 // Várias de uma vez: marcar prontas / a configurar, pôr num álbum, apagar
@@ -759,7 +761,7 @@ router.post('/empresas/:id/midias/envio/:envioId/concluir', (req, res) => {
   try {
     const b = req.body || {};
     const m = midias.concluirEnvio(empresa, req.params.envioId, { nome: texto(b.nome, 80), descricao: texto(b.descricao, 300), codigo: b.codigo ? texto(b.codigo, 40) : '', pronta: b.pronta === true, etapas: b.etapas });
-    res.status(201).json({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoVisivel(m.codigo) });
+    res.status(201).json({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -1111,17 +1113,17 @@ function planejarMidias(empresa, nomes, enviadas = new Set()) {
     }
     const prontas = pedido.itens.filter((m) => midias.prontaParaIa(m));
     if (!prontas.length) {
-      lista.push({ codigo: midias.codigoVisivel(pedido.alvo.codigo), nome: pedido.alvo.nome, status: 'inativa', motivo: 'mídia desativada' });
+      lista.push({ codigo: midias.codigoNumerico(pedido.alvo), nome: pedido.alvo.nome, status: 'inativa', motivo: 'mídia desativada' });
       continue;
     }
     if (pedido.alvo.soFollowup) {
-      lista.push({ codigo: midias.codigoVisivel(pedido.alvo.codigo), nome: pedido.alvo.nome, status: 'pulada', motivo: 'é só do follow-up' });
+      lista.push({ codigo: midias.codigoNumerico(pedido.alvo), nome: pedido.alvo.nome, status: 'pulada', motivo: 'é só do follow-up' });
       continue;
     }
     for (const m of prontas) {
       const ja = m.umaVezPorConversa !== false && enviadas.has(m.codigo);
       lista.push({
-        codigo: midias.codigoVisivel(m.codigo),
+        codigo: midias.codigoNumerico(m),
         nome: m.nome,
         tipo: m.tipo,
         url: midias.urlPublica(m),
@@ -1167,7 +1169,7 @@ router.post('/empresas/:id/midias/prompt/conectar', (req, res) => {
       if (m.pronta === false && (m.descricao || m.albumId || m.pastaId)) m.pronta = true;
     }
     salvar();
-    res.json({ ok: true, trecho: r.novoTrecho, codigo: midias.codigoVisivel(escolhida.codigo) });
+    res.json({ ok: true, trecho: r.novoTrecho, codigo: midias.codigoNumerico(escolhida) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }

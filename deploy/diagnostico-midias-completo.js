@@ -53,7 +53,7 @@ async function evo(e, metodo, caminho, corpo) {
       if (m.pronta === false) conta('a configurar');
       if (!String(m.descricao || '').trim()) conta('sem "quando enviar"');
       if (m.tipo === 'video' && m.tamanho > 16 * 1048576) conta('vídeo > 16 MB');
-      console.log(`    ${midias.codigoVisivel(m.codigo)} · ${m.tipo} ${m.mimetype || '?'} ${mb(m.tamanho)}${vid ? ` · vídeo ${vid}` : ''} · ${pronta ? 'pronta p/ IA' : m.pronta === false ? 'a configurar' : 'não pronta'}${m.soFollowup ? ' · só follow-up' : ''}${m.etapas?.length ? ` · só etapas ${m.etapas.length}` : ''}${m.assuntos?.length ? ` · assuntos ${m.assuntos.length}` : ''}${m.albumId ? ' · em álbum' : ''}${m.pastaId ? ' · do Drive' : ''}${m.umaVezPorConversa === false ? ' · repete' : ''}${marcas.length ? ` · ⚠️ ${marcas.join(' · ')}` : ''}`);
+      console.log(`    ${midias.codigoNumerico(m)} (${midias.codigoVisivel(m.codigo)}) · ${m.tipo} ${m.mimetype || '?'} ${mb(m.tamanho)}${vid ? ` · vídeo ${vid}` : ''} · ${pronta ? 'pronta p/ IA' : m.pronta === false ? 'a configurar' : 'não pronta'}${m.soFollowup ? ' · só follow-up' : ''}${m.etapas?.length ? ` · só etapas ${m.etapas.length}` : ''}${m.assuntos?.length ? ` · assuntos ${m.assuntos.length}` : ''}${m.albumId ? ' · em álbum' : ''}${m.pastaId ? ' · do Drive' : ''}${m.umaVezPorConversa === false ? ' · repete' : ''}${marcas.length ? ` · ⚠️ ${marcas.join(' · ')}` : ''}`);
     }
     console.log(`    resumo do cadastro: ${JSON.stringify(problemas)}`);
     // B) prompt

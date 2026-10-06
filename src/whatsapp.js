@@ -1578,7 +1578,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       canal: 'whatsapp',
       tarefa: opcoes.evento ? 'evento' : 'resposta',
       origem: origemIa,
-      midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])],
+      midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])].map((c) => midias.numeroDoCodigo(empresa, c)),
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
       clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
@@ -1836,7 +1836,7 @@ function anotarMidiaEnviada(lead, midia) {
 async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', { papelMensagem = papel, followup = false } = {}) {
   // itens: o que aconteceu com cada mídia (vai para o log da resposta)
   const resultado = { enviadas: 0, falhas: [], itens: [] };
-  const visivel = (c, ref) => (c ? midias.codigoVisivel(c) : String(ref || ''));
+  const visivel = (c, ref) => (c ? midias.numeroDoCodigo(empresa, c) : String(ref || ''));
   const daIa = papel === 'assistente' && !followup;
   const jaNestaResposta = new Set();
   for (const nome of nomes || []) {

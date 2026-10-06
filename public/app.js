@@ -138,6 +138,8 @@ function numeroCurto(n) {
 const rotaEmpresa = (id, sub = '') => `#/empresas/${id}${sub ? `/${sub}` : ''}`;
 // código de mídia como aparece no prompt: #MIDIA_FOTO_ANTES (guardado como FOTO-ANTES)
 const codMidia = (c) => (c ? `#MIDIA_${String(c).replace(/-/g, '_')}` : '');
+// o código simples de cada mídia/álbum: o número (#MIDIA_7); sem número, o de texto
+const codNum = (x) => (x?.numero ? `#MIDIA_${x.numero}` : codMidia(x?.codigo));
 const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); // sem acento, minúsculo (busca)
 
 // ---------------------------------------------------------------- componentes de ajuda
@@ -1099,7 +1101,7 @@ async function opcoesDeMidia(id, emp) {
 
 function miniaturaMidia(o, extra = '') {
   const icone = o.tipo === 'album' ? '🗂️' : o.tipo === 'drive' ? '📁' : ICONE_TIPO[o.tipo] || '📎';
-  return `<span class="mini-midia ${extra}" title="${esc(o.nome)} · ${esc(codMidia(o.codigo))}">${o.capa ? `<img src="${esc(o.capa)}" alt="" loading="lazy">` : `<span>${icone}</span>`}${o.tipo === 'video' ? '<i>▶</i>' : o.tipo === 'album' ? `<i>${o.quantidade || ''}</i>` : ''}</span>`;
+  return `<span class="mini-midia ${extra}" title="${esc(o.nome)} · ${esc(o.numero ? `#MIDIA_${o.numero}` : codMidia(o.codigo))}">${o.capa ? `<img src="${esc(o.capa)}" alt="" loading="lazy">` : `<span>${icone}</span>`}${o.tipo === 'video' ? '<i>▶</i>' : o.tipo === 'album' ? `<i>${o.quantidade || ''}</i>` : ''}</span>`;
 }
 
 async function paginaCatalogo(id) {
@@ -1435,15 +1437,15 @@ async function escolherMidiaParaPrompt(id, area) {
   let todas, albuns;
   try { [todas, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`).catch(() => [])]); } catch (err) { return aviso(err.message, true); }
   const itens = [
-    ...albuns.map((a) => ({ codigo: a.codigo, nome: a.nome, tipo: 'album', capa: (todas.find((m) => m.albumId === a.id && m.tipo === 'image') || {}).url, status: 'álbum' })),
-    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, capa: m.tipo === 'image' ? m.url : '', status: m.soFollowup ? 'só follow-up' : m.pronta === false ? 'a configurar' : 'pronta', quando: m.descricao || '' }))
+    ...albuns.map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, tipo: 'album', capa: (todas.find((m) => m.albumId === a.id && m.tipo === 'image') || {}).url, status: 'álbum' })),
+    ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, tipo: m.tipo, capa: m.tipo === 'image' ? m.url : '', status: m.soFollowup ? 'só follow-up' : m.pronta === false ? 'a configurar' : 'pronta', quando: m.descricao || '' }))
   ];
   abrirModal(`
     <h2>📎 Inserir mídia no prompt</h2>
-    <p class="rotulo">Clique na mídia: o código entra no prompt onde está o cursor (ex.: <i>"quando perguntarem do completo, mande ${esc(codMidia(itens[0]?.codigo || 'X'))}"</i>). Depois clique em Salvar.</p>
+    <p class="rotulo">Clique na mídia: o código entra no prompt onde está o cursor (ex.: <i>"quando perguntarem do completo, mande ${esc(itens[0] ? codNum(itens[0]) : '#MIDIA_1')}"</i>). Depois clique em Salvar.</p>
     <input type="search" id="busca-midia-prompt" placeholder="Buscar pelo nome ou código" style="margin:6px 0 10px">
     <div class="grade-escolha" id="lista-midia-prompt">
-      ${itens.map((x) => `<button type="button" class="escolha" data-cod="${esc(codMidia(x.codigo))}" data-busca="${esc(`${x.nome} ${codMidia(x.codigo)}`.toLowerCase())}">${x.capa ? `<img src="${esc(x.capa)}" alt="">` : `<span class="escolha-icone">${x.tipo === 'album' ? '🗂️' : ICONE_TIPO[x.tipo] || '📎'}</span>`}<b>${esc(x.nome)}</b><span class="rotulo">${esc(codMidia(x.codigo))}</span><span class="etiqueta ${x.status === 'pronta' ? 'ok' : x.status === 'a configurar' ? 'aviso' : ''}">${esc(x.status)}</span></button>`).join('') || '<p class="rotulo">Nenhuma mídia cadastrada.</p>'}
+      ${itens.map((x) => `<button type="button" class="escolha" data-cod="${esc(codNum(x))}" data-busca="${esc(`${x.nome} ${codNum(x)} ${codMidia(x.codigo)}`.toLowerCase())}">${x.capa ? `<img src="${esc(x.capa)}" alt="">` : `<span class="escolha-icone">${x.tipo === 'album' ? '🗂️' : ICONE_TIPO[x.tipo] || '📎'}</span>`}<b>${esc(x.nome)}</b><span class="rotulo">${esc(codNum(x))}</span><span class="etiqueta ${x.status === 'pronta' ? 'ok' : x.status === 'a configurar' ? 'aviso' : ''}">${esc(x.status)}</span></button>`).join('') || '<p class="rotulo">Nenhuma mídia cadastrada.</p>'}
     </div>
     <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
     $('#busca-midia-prompt', m).oninput = (e) => {
@@ -2052,7 +2054,7 @@ async function paginaMidias(id) {
           return `
           <div class="pasta">
             <div class="pasta-fotos">${fotos.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>📁</span>'}</div>
-            <div class="pasta-info"><strong>${esc(p.nome)} ${p.codigo ? `<button type="button" class="codigo-chip" data-copiar="${esc(codMidia(p.codigo))}" title="Copiar código">${esc(codMidia(p.codigo))} ⧉</button>` : ''}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
+            <div class="pasta-info"><strong>${esc(p.nome)} ${p.codigo ? `<button type="button" class="codigo-chip" data-copiar="${esc(codNum(p))}" title="Copiar código">${esc(codNum(p))} ⧉</button>` : ''}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
             <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-sinc="${esc(p.id)}">🔄 Sincronizar</button><button type="button" class="pequeno" data-editar-pasta="${esc(p.id)}">Editar</button><button type="button" class="pequeno perigo" data-tirar-pasta="${esc(p.id)}">Remover</button></div>
           </div>`;
         }).join('')}
@@ -2210,9 +2212,9 @@ async function paginaMidias(id) {
   const ETAPAS = emp.etapas || [];
   const semRegra = (m) => !m.descricao?.trim();
   const grupos = {
-    configurar: { nome: '⚠️ A configurar', filtro: (m) => m.pronta === false && !m.soFollowup },
+    configurar: { nome: '⚪ A IA ainda não usa', filtro: (m) => m.pronta === false && !m.soFollowup && !citada(m) },
     // todas as que a IA já pode mandar (fotos, vídeos, documentos e áudios), para revisar/editar
-    prontas: { nome: '✅ Prontas para envio', filtro: (m) => m.pronta !== false && !m.soFollowup && !m.pastaId },
+    prontas: { nome: '✅ A IA usa', filtro: (m) => (m.pronta !== false || citada(m)) && !m.soFollowup && !m.pastaId },
     fotos: { nome: '📷 Fotos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'image' },
     videos: { nome: '🎬 Vídeos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'video' },
     docs: { nome: '📄 Documentos e áudios', filtro: (m) => m.pronta !== false && !m.soFollowup && !['image', 'video'].includes(m.tipo) },
@@ -2272,30 +2274,40 @@ async function paginaMidias(id) {
     return '';
   };
   const chipEtapas = (etapas) => (etapas?.length ? etapas.map((e) => `<span class="etiqueta">${esc(e)}</span>`).join(' ') : '');
+  // a IA usa esta mídia? (citada no prompt, com descrição, ou marcada pronta)
+  const citadas = new Set((noPrompt?.citados || []).filter((c) => c.existe).map((c) => c.codigo));
+  const citada = (m) => citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo));
+  const statusIa = (m) => m.soFollowup
+    ? '<span class="midia-uso fup">🔁 Só no follow-up</span>'
+    : citada(m)
+      ? '<span class="midia-uso ok">📌 Está no prompt — a IA manda quando o prompt pedir</span>'
+      : m.pronta !== false
+        ? `<span class="midia-uso ok">✅ A IA manda ${m.descricao ? 'quando combinar com a descrição' : 'quando ajudar o cliente'}</span>`
+        : `<span class="midia-uso off">⚪ A IA ainda não usa — cite <b>${esc(codNum(m))}</b> no prompt ou escreva uma descrição</span>`;
   const cartao = (m) => `
-    <div class="card midia ${selecionadas.has(m.id) ? 'selecionada' : ''} ${m.pronta === false ? 'a-configurar' : ''}">
+    <div class="card midia ${selecionadas.has(m.id) ? 'selecionada' : ''} ${m.pronta === false && !citada(m) && !m.soFollowup ? 'a-configurar' : ''}">
       <label class="midia-check" title="Selecionar"><input type="checkbox" data-sel="${esc(m.id)}" ${selecionadas.has(m.id) ? 'checked' : ''}></label>
       <a class="midia-previa" href="${esc(m.url)}" target="_blank" rel="noopener">${previa(m)}</a>
+      <button type="button" class="codigo-num" data-copiar="${esc(codNum(m))}" title="Copiar o código para colar no prompt">${esc(codNum(m))} <span>⧉ copiar</span></button>
       <strong>${esc(m.nome)}</strong>
-      <span><button type="button" class="codigo-chip" data-copiar="${esc(codMidia(m.codigo))}" title="Copiar código para colar no prompt">${esc(codMidia(m.codigo))} ⧉ copiar código</button>${albumDe(m) ? ` <span class="etiqueta">🗂️ ${esc(albumDe(m).nome)}</span>` : ''}</span>
-      <span class="rotulo">${semRegra(m) ? '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>' : `Quando: ${esc(m.descricao)}`}</span>
+      ${statusIa(m)}
+      ${m.soFollowup ? '' : `<form class="midia-desc" data-desc="${esc(m.id)}">
+        <input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Descrição (opcional): quando a IA deve mandar">
+        <button type="submit" class="pequeno" title="Salvar a descrição">Salvar</button>
+      </form>`}
+      ${albumDe(m) ? `<span class="rotulo">🗂️ No álbum ${esc(albumDe(m).nome)}</span>` : ''}
       ${m.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(m.etapas)}</span>` : ''}
-      ${(m.assuntos || []).length || m.soFollowup ? `<span class="rotulo">${chipsAssuntos(m)}</span>` : ''}
+      ${(m.assuntos || []).length ? `<span class="rotulo">${chipsAssuntos({ ...m, soFollowup: false })}</span>` : ''}
       ${statusVideo(m)}
-      <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)} · ${m.pronta === false ? '<span class="etiqueta aviso">a configurar</span>' : '<span class="etiqueta ok">✓ ativa</span>'}${m.umaVezPorConversa === false ? ' <span class="etiqueta">pode repetir</span>' : ''}${m.legenda ? ' <span class="etiqueta" title="Tem legenda">💬 legenda</span>' : ''}</span>
-      ${m.pronta === false && !m.soFollowup ? `<form class="config-rapida" data-liberar="${esc(m.id)}">
-        <label>Quando a IA deve mandar?<input name="descricao" required maxlength="300" value="${esc(m.descricao || '')}" placeholder="Ex.: quando perguntarem do revestimento completo"></label>
-        <label>Código para o prompt<input name="codigo" maxlength="40" value="${esc(codMidia(m.codigo))}"></label>
-        <button type="submit" class="primario pequeno">✓ Liberar para a IA</button>
-      </form>` : ''}
-      <div class="acoes" style="margin-top:8px"><button class="pequeno ${m.pronta === false ? 'primario' : ''}" data-editar="${esc(m.id)}">${m.pronta === false ? 'Configurar' : 'Editar'}</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
+      <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)}${m.umaVezPorConversa === false ? ' · pode repetir' : ''}${m.legenda ? ' · 💬 legenda' : ''}</span>
+      <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   const cartaoAlbum = (a) => {
     const itens = lista.filter((m) => m.albumId === a.id);
     return `
     <div class="pasta">
       <div class="pasta-fotos">${itens.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>🗂️</span>'}</div>
-      <div class="pasta-info"><strong>${esc(a.nome)} <button type="button" class="codigo-chip" data-copiar="${esc(codMidia(a.codigo))}" title="Copiar código">${esc(codMidia(a.codigo))} ⧉</button></strong><span class="rotulo">${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}${itens.some((m) => m.pronta === false || m.processando) ? ` · <span class="aviso-texto">⚠️ só ${itens.filter((m) => m.pronta !== false && !m.processando).length} pronta(s) — a IA manda só as prontas</span>` : ''} · ${a.descricao ? `quando: ${esc(a.descricao)}` : '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>'}</span>${a.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(a.etapas)}</span>` : ''}${(a.assuntos || []).length || a.soFollowup ? `<span class="rotulo">${chipsAssuntos(a)}</span>` : ''}</div>
+      <div class="pasta-info"><strong>${esc(a.nome)} <button type="button" class="codigo-chip" data-copiar="${esc(codNum(a))}" title="Copiar código">${esc(codNum(a))} ⧉</button></strong><span class="rotulo">${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}${itens.some((m) => m.pronta === false || m.processando) ? ` · <span class="aviso-texto">⚠️ só ${itens.filter((m) => m.pronta !== false && !m.processando).length} pronta(s) — a IA manda só as prontas</span>` : ''} · ${a.descricao ? `quando: ${esc(a.descricao)}` : '<span class="aviso-texto">⚠️ falta dizer quando enviar</span>'}</span>${a.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(a.etapas)}</span>` : ''}${(a.assuntos || []).length || a.soFollowup ? `<span class="rotulo">${chipsAssuntos(a)}</span>` : ''}</div>
       <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-editar-album="${esc(a.id)}">Editar</button><button type="button" class="pequeno perigo" data-apagar-album="${esc(a.id)}">Apagar álbum</button></div>
     </div>`;
   };
@@ -2366,17 +2378,16 @@ async function paginaMidias(id) {
       };
     });
     $$('[data-editar]').forEach((b) => { b.onclick = () => modalMidia(lista.find((x) => x.id === b.dataset.editar)); });
-    // configuração rápida: diz quando mandar, ajusta o código e libera para a IA
-    $$('[data-liberar]').forEach((f) => {
+    // descrição na hora (opcional): escreveu, a IA já pode usar a mídia
+    $$('[data-desc]').forEach((f) => {
       f.onsubmit = async (e) => {
         e.preventDefault();
-        const m = lista.find((x) => x.id === f.dataset.liberar);
+        const m = lista.find((x) => x.id === f.dataset.desc);
         const descricao = f.elements.descricao.value.trim();
-        if (!descricao) return aviso('Escreva quando a IA deve mandar esta mídia.', true);
         try {
-          const r = await comEspera(f.querySelector('button'), () => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { descricao, codigo: f.elements.codigo.value.trim(), pronta: true } }));
-          Object.assign(m, { descricao: r.descricao, codigo: r.codigo, pronta: true });
-          aviso(`${r.codigoVisivel} liberada: a IA já pode mandar. Cole o código no prompt se quiser que ela mande num momento certo.`);
+          const r = await comEspera(f.querySelector('button'), () => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { descricao } }));
+          Object.assign(m, { descricao: r.descricao, pronta: r.pronta });
+          aviso(descricao ? `Descrição salva: a IA já pode mandar ${codNum(m)}.` : 'Descrição apagada.');
           desenharBiblioteca();
         } catch (err) { aviso(err.message, true); }
       };
@@ -2410,9 +2421,9 @@ async function paginaMidias(id) {
       <form id="f-ed-midia">
         <div class="campos">
           <div class="campo"><label>Nome</label><input name="nome" required value="${esc(m.nome)}"></div>
-          <div class="campo"><label>Código ${ajuda('É assim que a IA pede esta mídia, sem risco de mandar outra. Formato #MIDIA_ + MAIÚSCULAS e _ (o CRM ajeita sozinho). Pode citar nas instruções da IA: "envie #MIDIA_TABELA quando…".')}</label><input name="codigo" required value="${esc(codMidia(m.codigo))}" style="text-transform:uppercase"></div>
+          <div class="campo"><label>Código de texto (opcional) ${ajuda(`Use o número ${codNum(m)} no prompt — é o mais simples. Este código de texto também funciona (para quem já usava). Formato #MIDIA_ + MAIÚSCULAS e _.`)}</label><input name="codigo" required value="${esc(codMidia(m.codigo))}" style="text-transform:uppercase"></div>
         </div>
-        <p class="rotulo" style="margin:6px 0 0">Tipo: <b>${esc(TIPO_MIDIA_TXT[m.tipo] || m.tipo)}</b>${m.origemLink ? ` · veio do link <a href="${esc(m.origemLink)}" target="_blank" rel="noopener">Google Drive</a>` : ''}</p>
+        <p class="rotulo" style="margin:6px 0 0">Código para o prompt: <b class="codigo-num-txt">${esc(codNum(m))}</b> · Tipo: <b>${esc(TIPO_MIDIA_TXT[m.tipo] || m.tipo)}</b>${m.origemLink ? ` · veio do link <a href="${esc(m.origemLink)}" target="_blank" rel="noopener">Google Drive</a>` : ''}</p>
         ${camposQuando(m)}
         ${m.tipo === 'audio' ? '' : `<div class="campo" style="margin-top:12px"><label>Legenda (opcional) ${ajuda('Texto que vai junto com a foto/vídeo/documento no WhatsApp.')}</label><input name="legenda" value="${esc(m.legenda || '')}" maxlength="1000" placeholder="Ex.: Resultado do serviço completo ✨"></div>`}
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="umaVez" ${m.umaVezPorConversa === false ? '' : 'checked'}> Enviar <b>uma vez por conversa</b> (a IA não repete para o mesmo cliente)</label>
@@ -4632,9 +4643,9 @@ async function modalRespostasRapidas(emp, aoEscolher) {
   const [todas, albunsRr] = await Promise.all([api(`empresas/${emp.id}/midias`).catch(() => []), api(`empresas/${emp.id}/albuns`).catch(() => [])]);
   // a mídia é escolhida pelo CÓDIGO (nunca manda a errada, mesmo se renomear)
   const opcoesMidia = [
-    ...albunsRr.filter((a) => a.quantidade).map((a) => ({ nome: a.codigo, rotulo: `🗂️ ${a.nome} (álbum) · ${codMidia(a.codigo)}` })),
+    ...albunsRr.filter((a) => a.quantidade).map((a) => ({ nome: a.codigo, rotulo: `🗂️ ${a.nome} (álbum) · ${codNum(a)}` })),
     ...(emp.drivePastas || []).filter((p) => p.total).map((p) => ({ nome: p.codigo || p.nome, rotulo: `📁 ${p.nome} (Drive) · #${p.codigo || ''}` })),
-    ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.codigo, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome} · ${codMidia(m.codigo)}` }))
+    ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.codigo, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome} · ${codNum(m)}` }))
   ];
   const casa = (o, r) => o.nome === r.midia || o.rotulo.includes(` ${r.midia} `);
   abrirModal(`
@@ -4709,7 +4720,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
   const capa = (itens) => itens.find((m) => m.tipo === 'image')?.url || '';
   const opcoes = [
     ...todas.filter((m) => !m.pastaId && !m.albumId).map((m) => ({ codigo: m.codigo, nome: m.nome, tipo: m.tipo, url: m.tipo === 'image' ? m.url : '', soFollowup: m.soFollowup })),
-    ...albuns.map((a) => ({ codigo: a.codigo, nome: a.nome, tipo: 'album', url: capa(todas.filter((m) => m.albumId === a.id)), soFollowup: a.soFollowup, qtd: todas.filter((m) => m.albumId === a.id).length })),
+    ...albuns.map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, tipo: 'album', url: capa(todas.filter((m) => m.albumId === a.id)), soFollowup: a.soFollowup, qtd: todas.filter((m) => m.albumId === a.id).length })),
     ...(emp.drivePastas || []).map((p) => ({ codigo: p.codigo, nome: p.nome, tipo: 'album', url: capa(todas.filter((m) => m.pastaId === p.id)), qtd: p.total }))
   ].filter((o) => o.codigo);
   const porCodigo = Object.fromEntries(opcoes.map((o) => [o.codigo, o]));
