@@ -168,10 +168,9 @@ const limparChave = (v) => texto(v, 400).replace(/[\s\u200B-\u200D\uFEFF"'`]+/g,
 // chave com formato errado (ex.: copiou a versão escondida "…ra95" da tela do Google): recusa já ao salvar
 function conferirFormatoChave(provedor, k) {
   const nome = ia.PROVEDORES[provedor]?.nome || provedor;
-  const ok = provedor === 'gemini' ? /^AIza[\w-]{30,}$/.test(k) : provedor === 'anthropic' ? /^sk-ant-[\w-]{20,}$/.test(k) : /^sk-[\w-]{20,}$/.test(k);
-  if (ok) return;
-  const comeco = provedor === 'gemini' ? 'AIza' : provedor === 'anthropic' ? 'sk-ant-' : 'sk-';
-  throw Object.assign(new Error(`Essa não parece uma chave do ${nome}: ela começa com "${comeco}" e é bem comprida (a do Gemini tem 39 letras e números). A que você colou tem ${k.length}. No site, abra a chave e use o botão de copiar — não copie a versão escondida com "…".`), { status: 400 });
+  if (ia.formatoDeChave(provedor, k)) return;
+  const comeco = provedor === 'gemini' ? 'começa com "AIza" ou "AQ." e tem mais de 30 letras e números' : provedor === 'anthropic' ? 'começa com "sk-ant-" e é bem comprida' : 'começa com "sk-" e é bem comprida';
+  throw Object.assign(new Error(`Essa não parece uma chave do ${nome}: ela ${comeco}. A que você colou tem ${k.length}. No site, use o botão de copiar da chave — não copie a versão escondida com "…".`), { status: 400 });
 }
 
 function mascarar(k) {

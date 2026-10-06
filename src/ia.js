@@ -56,7 +56,8 @@ const CAMPO_CHAVE = { anthropic: 'anthropicApiKey', openai: 'openaiApiKey', gemi
 // formato de chave de cada IA (uma senha preenchida sozinha pelo navegador não passa)
 function formatoDeChave(provedor, k) {
   const v = String(k || '');
-  if (provedor === 'gemini') return /^AIza[\w-]{30,}$/.test(v);
+  // Google: "AIza…" (antigas) ou "AQ.…" (formato novo); o que importa é ser comprida e sem espaço
+  if (provedor === 'gemini') return /^[\w.-]{30,}$/.test(v);
   if (provedor === 'anthropic') return /^sk-ant-[\w-]{20,}$/.test(v);
   return /^sk-[\w-]{20,}$/.test(v);
 }
