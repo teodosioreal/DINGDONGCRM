@@ -614,7 +614,7 @@ async function enviarMidia(empresa, destino, midia, legenda = '') {
         mediatype,
         mimetype: midia.mimetype,
         media: url,
-        fileName: midia.arquivo,
+        fileName: midias.nomeComExtensao(midia.arquivo, midia.mimetype),
         caption: legenda || '',
         delay: 1200
       },
@@ -1197,7 +1197,7 @@ const PARECE_PAGAMENTO = /comprovante|pix|transfer[eê]ncia|pagamento|\bpag[oa]\
 async function enviarAnexoPorUrl(empresa, destino, leadId, anexo, legenda = '') {
   const url = midias.linkTemporario(leadId, anexo);
   const tempo = Math.min(15 * 60 * 1000, 60000 + Math.ceil((anexo.tamanho || 0) / 1048576) * 3000);
-  const corpo = (mediatype) => ({ number: destinoDe(destino), mediatype, mimetype: anexo.mimetype, media: url, fileName: anexo.nome || anexo.arquivo, caption: legenda || '' });
+  const corpo = (mediatype) => ({ number: destinoDe(destino), mediatype, mimetype: anexo.mimetype, media: url, fileName: midias.nomeComExtensao(anexo.nome || anexo.arquivo, anexo.mimetype), caption: legenda || '' });
   let tipo = anexo.tipo;
   if (tipo === 'video' && (anexo.mimetype !== 'video/mp4' || anexo.tamanho > require('./video').LIMITE_WHATSAPP)) tipo = 'document';
   let r;
@@ -1236,7 +1236,7 @@ async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda
             mediatype: tipo,
             mimetype,
             media: base64,
-            fileName: nome || `arquivo${tipo === 'image' ? '.jpg' : ''}`,
+            fileName: midias.nomeComExtensao(nome || 'arquivo', mimetype),
             caption: legenda
           },
           { tempo }

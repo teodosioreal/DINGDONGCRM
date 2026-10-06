@@ -318,8 +318,27 @@ function apagarTodasDa(empresa) {
 }
 
 // Endereço público do arquivo (o WhatsApp baixa daqui)
+// Nome do arquivo SEMPRE com a extensão do tipo real (.jpg, .png, .mp4, .pdf…). Sem ela, a
+// Evolution/WhatsApp não reconhece o tipo da imagem (grava "false") e o cliente não vê a foto.
+const EXTENSAO_DO_TIPO = {
+  'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic',
+  'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'video/3gpp': '.3gp',
+  'audio/ogg': '.ogg', 'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/aac': '.aac', 'audio/wav': '.wav',
+  'application/pdf': '.pdf', 'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx'
+};
+function nomeComExtensao(nome, mimetype) {
+  const base = String(nome || 'arquivo').trim() || 'arquivo';
+  const ext = EXTENSAO_DO_TIPO[String(mimetype || '').split(';')[0].trim().toLowerCase()];
+  if (!ext) return base;
+  const atual = path.extname(base).toLowerCase();
+  if (atual && (atual === ext || EXTENSAO_DO_TIPO[mimeDe(base, '')] === ext || (ext === '.jpg' && atual === '.jpeg'))) return base;
+  return `${base}${ext}`;
+}
+
 function urlPublica(midia) {
-  return `${config.urlPublica}/midia/${midia.id}/${encodeURIComponent(midia.arquivo)}`;
+  // o servidor acha a mídia pelo id; o nome no fim do link é só para o WhatsApp reconhecer o tipo
+  return `${config.urlPublica}/midia/${midia.id}/${encodeURIComponent(nomeComExtensao(midia.arquivo, midia.mimetype))}`;
 }
 
 function acharPorId(id) {
@@ -994,6 +1013,7 @@ module.exports = {
   apagarTodasDa,
   caminhoDoArquivo,
   urlPublica,
+  nomeComExtensao,
   acharPorId,
   acharPorNome
 };
