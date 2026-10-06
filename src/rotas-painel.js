@@ -165,6 +165,15 @@ function dadosEmpresa(body) {
 // chave colada com espaço, quebra de linha, aspas ou caractere invisível no meio: limpa
 const limparChave = (v) => texto(v, 400).replace(/[\s\u200B-\u200D\uFEFF"'`]+/g, '').slice(0, 300);
 
+// chave com formato errado (ex.: copiou a versão escondida "…ra95" da tela do Google): recusa já ao salvar
+function conferirFormatoChave(provedor, k) {
+  const nome = ia.PROVEDORES[provedor]?.nome || provedor;
+  const ok = provedor === 'gemini' ? /^AIza[\w-]{30,}$/.test(k) : provedor === 'anthropic' ? /^sk-ant-[\w-]{20,}$/.test(k) : /^sk-[\w-]{20,}$/.test(k);
+  if (ok) return;
+  const comeco = provedor === 'gemini' ? 'AIza' : provedor === 'anthropic' ? 'sk-ant-' : 'sk-';
+  throw Object.assign(new Error(`Essa não parece uma chave do ${nome}: ela começa com "${comeco}" e é bem comprida (a do Gemini tem 39 letras e números). A que você colou tem ${k.length}. No site, abra a chave e use o botão de copiar — não copie a versão escondida com "…".`), { status: 400 });
+}
+
 function mascarar(k) {
   return k ? `••••${k.slice(-4)}` : '';
 }
@@ -339,6 +348,7 @@ router.put('/empresas/:id/chaves', (req, res) => {
   for (const [provedor, campo] of Object.entries(ia.CAMPO_CHAVE)) {
     const valor = limparChave(req.body?.[campo]);
     if (valor) {
+      try { conferirFormatoChave(provedor, valor); } catch (err) { return res.status(400).json({ erro: err.message }); }
       empresa.chavesIa[campo] = valor;
       // trocou a chave desta IA: as posições da ordem com chave antiga dela passam a usar a nova
       for (const m of Array.isArray(empresa.motoresIa) ? empresa.motoresIa : []) if (ia.normalizarProvedor(m.provedor) === provedor && m.chave) delete m.chave;
@@ -361,6 +371,9 @@ router.put('/empresas/:id/motores', (req, res) => {
     const provedor = ia.normalizarProvedor(m.provedor);
     const novo = { provedor, modelo: ia.normalizarModelo(provedor, m.modelo) };
     const chaveNova = limparChave(m.chave);
+    if (chaveNova) {
+      try { conferirFormatoChave(provedor, chaveNova); } catch (err) { return res.status(400).json({ erro: `${i + 1}ª IA: ${err.message}` }); }
+    }
     // chave vazia = mantém a chave própria que já estava nesta posição (se for a mesma IA)
     if (chaveNova) novo.chave = chaveNova;
     else if (!m.removerChave && antigos[i]?.chave && ia.normalizarProvedor(antigos[i].provedor) === provedor) novo.chave = antigos[i].chave;
