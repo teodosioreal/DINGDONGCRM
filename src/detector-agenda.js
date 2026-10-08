@@ -285,4 +285,4 @@ function revisarRecentes() {
   }
 }
 
-module.exports = { pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE };
+module.exports = { pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE, ACEITE_FIRME, TEM_HORA, EMPRESA_CONFIRMA, DUVIDA };

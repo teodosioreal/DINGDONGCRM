@@ -84,6 +84,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" ANTHROPIC_API_KEY="$(ler_env ANTHROPIC_API_KEY .env)" GEMINI_API_KEY="$(ler_env GEMINI_API_KEY .env)" OPENAI_API_KEY="$(ler_env OPENAI_API_KEY .env)" timeout 30 node deploy/diagnostico-chaves.js 2>&1 | head -n 60 || true
   echo "    Configuração do WhatsApp na Evolution (só os interruptores):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 40 node deploy/diagnostico-config-zap.js 2>&1 | head -n 10 || true
+  echo "    Agendamentos de hoje e ontem (estrutura das mensagens, sem texto):"
+  CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-agenda-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Detalhe do envio para uma conversa (o que a Evolution guardou; sem texto):"
