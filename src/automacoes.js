@@ -51,7 +51,7 @@ const RECEITAS = {
     acao: {
       modo: 'texto',
       texto:
-        '{Oi|Olá} {nome}! Muito obrigado por escolher a {empresa} 🙏\n\nSe puder, conta pra gente como foi? Sua avaliação ajuda muito outras pessoas a nos conhecerem:\n{link_avaliacao}'
+        '{Opa|Oi|Olá}! {Muito obrigado|Muito obrigado mesmo|Obrigado de coração} pela preferência em realizar o serviço {comigo|com a gente|comigo} 🙏\n\n{Se puder, deixa|Se não for incômodo, deixa|Quando tiver um minutinho, deixa} sua avaliação no Google. Ajuda muito outras pessoas a conhecerem o trabalho:\n{link_avaliacao}'
     },
     maxPorLead: 1,
     incluirPausados: true,
@@ -64,7 +64,7 @@ const RECEITAS = {
     acao: {
       modo: 'texto',
       texto:
-        '{Oi|Olá} {nome}! Que bom que deu tudo certo 😊\n\nPosso te pedir uma ajuda rápida? Deixa um comentário no nosso post contando como foi com a {empresa}. Isso ajuda muito outras pessoas a confiarem na gente 🙏\n{link_anuncio}'
+        '{Opa|Oi|Olá}! {Muito obrigado|Muito obrigado mesmo|Obrigado de coração} pela preferência em realizar o serviço {comigo|com a gente|comigo} 🙏\n\n{Se puder, deixa|Se não for incômodo, deixa|Quando tiver um minutinho, deixa} um comentário no nosso anúncio contando como foi. Isso passa confiança pra quem está vendo:\n{link_anuncio}'
     },
     maxPorLead: 1,
     incluirPausados: true,
@@ -112,10 +112,23 @@ const RECEITAS = {
 
 const RECEITAS_DE_VENDA = new Set(['avaliacao', 'comentario', 'posvenda', 'recompra']);
 
+// textos PADRÃO antigos dos pedidos (citavam {nome}: sem nome salvo, saía o número do cliente).
+// Automação que ainda está com o texto padrão antigo passa para o novo; texto editado pela empresa fica.
+const TEXTOS_ANTIGOS = {
+  avaliacao: '{Oi|Olá} {nome}! Muito obrigado por escolher a {empresa} 🙏\n\nSe puder, conta pra gente como foi? Sua avaliação ajuda muito outras pessoas a nos conhecerem:\n{link_avaliacao}',
+  comentario: '{Oi|Olá} {nome}! Que bom que deu tudo certo 😊\n\nPosso te pedir uma ajuda rápida? Deixa um comentário no nosso post contando como foi com a {empresa}. Isso ajuda muito outras pessoas a confiarem na gente 🙏\n{link_anuncio}'
+};
+
 function automacoesDa(empresa) {
   const lista = Array.isArray(empresa.automacoes) ? empresa.automacoes : [];
   // regras antigas de pós-venda disparavam pela etapa "Fechado": agora é pela venda confirmada
   let mudou = false;
+  for (const r of lista) {
+    if (TEXTOS_ANTIGOS[r.receita] && r.acao?.texto === TEXTOS_ANTIGOS[r.receita]) {
+      r.acao.texto = RECEITAS[r.receita](empresa).acao.texto;
+      mudou = true;
+    }
+  }
   for (const r of lista) {
     if (RECEITAS_DE_VENDA.has(r.receita) && r.gatilho?.tipo === 'etapa' && !r.migradoParaVenda) {
       r.gatilho = { tipo: 'venda', horas: r.gatilho.horas };

@@ -72,7 +72,9 @@ function destinatariosPara(empresa, filtroBruto) {
 
 // {Oi|Olá|E aí} → escolhe uma; {nome} → primeiro nome; {nome_completo}; {empresa}
 function montarMensagem(modelo, lead, empresa) {
-  const nomeCompleto = String(lead?.nome || '').trim();
+  // "nome" que é número de telefone (cliente sem nome salvo) nunca entra na mensagem
+  const bruto = String(lead?.nome || '').trim();
+  const nomeCompleto = /\p{L}/u.test(bruto) && !/\d{4,}/.test(bruto.replace(/[\s()+-]/g, '')) ? bruto : '';
   const primeiro = nomeCompleto.split(/\s+/)[0] || '';
   const bot = estado.bots.find((b) => b.empresaId === empresa.id && b.principal) || estado.bots.find((b) => b.empresaId === empresa.id);
   const valores = {
