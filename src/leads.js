@@ -221,6 +221,14 @@ function adicionarMensagem(lead, msg) {
   lead.mensagens.push(nova);
   if (lead.mensagens.length > MAX_MENSAGENS_POR_LEAD) lead.mensagens.splice(0, lead.mensagens.length - MAX_MENSAGENS_POR_LEAD);
   lead.atualizadoEm = agora();
+  // a empresa mandou o link de avaliação/anúncio por conta própria: a automação desse pedido para
+  if (nova.papel !== 'visitante' && /https?:|www\.|g\.page|\.com|\.br\b/i.test(String(nova.texto || ''))) {
+    try {
+      require('./automacoes').percebeuPedidoManual(estado.empresas.find((e) => e.id === lead.empresaId), lead, nova.texto);
+    } catch (err) {
+      console.error('[pedido manual]', err.message);
+    }
+  }
 }
 
 // Muda a etapa (se for uma etapa válida da empresa). `por`: 'ia-site', 'ia-whatsapp', 'equipe', 'sistema'.

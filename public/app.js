@@ -4138,12 +4138,15 @@ function ligarRelogio() {
 function htmlProximos(l) {
   const lista = l.proximosEnvios || [];
   if (!lista.length) return '';
+  // avaliação no Google / comentário no anúncio: "Enviar agora" (a contagem para e a automação não manda de novo)
+  const pedido = (p) => (p.receita === 'avaliacao' || p.receita === 'comentario' ? p.receita : '');
   return `<div class="proximos-envios">${lista.map((p) => `
-    <div class="proximo ${p.porIa ? 'por-ia' : ''}" title="${esc(new Date(p.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}">
-      <span class="relogio">⏳</span>
-      <b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b>
-      <span class="proximo-texto"><b>${esc(p.titulo)}</b>${p.detalhe ? ` · <span class="rotulo">${esc(p.detalhe.slice(0, 90))}</span>` : ''} <span class="rotulo">(${esc(new Date(p.quando).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))})</span></span>
-      <button type="button" class="link-botao" ${p.tipo === 'agendada' ? `data-cancelar="${esc(p.id)}"` : `data-pular-automacao="${esc(p.id)}"`}>${p.tipo === 'agendada' ? 'cancelar' : 'não enviar'}</button>
+    <div class="proximo ${p.porIa ? 'por-ia' : ''}" ${p.quando ? `title="${esc(new Date(p.quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}"` : ''}>
+      <span class="relogio">${p.quando ? '⏳' : pedido(p) === 'avaliacao' ? '⭐' : '💬'}</span>
+      ${p.quando ? `<b class="contagem" data-contagem="${esc(p.quando)}">${textoContagem(p.quando)}</b>` : '<b class="contagem">manual</b>'}
+      <span class="proximo-texto"><b>${esc(p.titulo)}</b>${p.detalhe ? ` · <span class="rotulo">${esc(p.detalhe.slice(0, 90))}</span>` : ''}${p.quando ? ` <span class="rotulo">(${esc(new Date(p.quando).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))})</span>` : ''}</span>
+      ${pedido(p) ? `<button type="button" class="pequeno primario" data-pedido-agora="${esc(pedido(p))}">Enviar agora</button>` : ''}
+      ${p.tipo === 'pedido' ? '' : `<button type="button" class="link-botao" ${p.tipo === 'agendada' ? `data-cancelar="${esc(p.id)}"` : `data-pular-automacao="${esc(p.id)}"`}>${p.tipo === 'agendada' ? 'cancelar' : 'não enviar'}</button>`}
     </div>`).join('')}</div>`;
 }
 
@@ -4153,6 +4156,18 @@ function ligarProximos(raiz, leadId, depois) {
     b.onclick = async () => {
       await api(`leads/${leadId}/agendadas/${b.dataset.cancelar}`, { method: 'DELETE' }).catch((err) => aviso(err.message, true));
       aviso('Envio cancelado.');
+      depois?.();
+    };
+  });
+  $$('[data-pedido-agora]', raiz).forEach((b) => {
+    b.onclick = async () => {
+      const tipo = b.dataset.pedidoAgora;
+      const nome = tipo === 'avaliacao' ? 'o pedido de avaliação no Google' : 'o pedido de comentário no anúncio';
+      if (!(await confirmar({ titulo: 'Enviar agora?', texto: `Manda ${nome} para o cliente agora pelo WhatsApp. A contagem para e a automação não manda de novo.`, botao: 'Enviar agora' }))) return;
+      try {
+        await comEspera(b, () => api(`leads/${leadId}/pedido`, { method: 'POST', body: { tipo } }), 'Enviando…');
+        aviso('Enviado! A automação deste pedido não manda de novo para este cliente.');
+      } catch (err) { aviso(err.message, true); }
       depois?.();
     };
   });

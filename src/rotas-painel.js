@@ -1829,7 +1829,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
     .filter((c) => filtro !== 'iaPausada' || c.iaPausada)
     .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
     .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.slice(-30).map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
-    .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm, proximoEnvio: automacoes.proximosEnvios(c, empresa)[0] || null }))
+    .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm, proximoEnvio: automacoes.proximosEnvios(c, empresa).find((p) => p.quando) || null }))
     .sort((a, b) => (a.ultimaEm < b.ultimaEm ? 1 : -1))
     .slice(0, 300);
   res.json(lista);

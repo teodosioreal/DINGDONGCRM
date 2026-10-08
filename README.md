@@ -153,6 +153,14 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Avaliação no Google e comentário no anúncio na conversa
+
+- Na conversa de quem já comprou aparecem os dois pedidos (⭐ avaliação no Google e 💬 comentário
+  no anúncio) com **Enviar agora** — com a contagem ⏳ se a automação estiver ligada, ou "manual"
+  se não estiver. Enviou (pelo botão, pela automação ou **colando o link à mão** no celular ou no
+  painel): a contagem para e a automação não manda de novo para esse cliente. Link mandado pelo
+  cliente ou outro link qualquer não conta.
+
 ### Agendamento blindado (só o que foi marcado de verdade)
 
 - O CRM só agenda sozinho quando fica combinado **dia e horário** certos: proposta firme (com

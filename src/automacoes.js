@@ -332,10 +332,23 @@ function proximosEnvios(lead, empresa) {
         if (motivoInelegivel(regra, lead, empresa, quandoMs + 60 * 1000) !== null) continue;
       } else continue;
       if (horarioAutomatico(empresa)) quandoMs = noHorarioComercial(quandoMs);
-      lista.push({ tipo: 'automacao', id: regra.id, quando: new Date(Math.max(quandoMs, agoraMs)).toISOString(), titulo: regra.nome, detalhe: regra.acao.modo === 'ia' ? 'a IA escreve na hora' : regra.acao.texto.slice(0, 120), porIa: regra.acao.modo === 'ia' });
+      lista.push({ tipo: 'automacao', id: regra.id, receita: regra.receita || '', quando: new Date(Math.max(quandoMs, agoraMs)).toISOString(), titulo: regra.nome, detalhe: regra.acao.modo === 'ia' ? 'a IA escreve na hora' : regra.acao.texto.slice(0, 120), porIa: regra.acao.modo === 'ia' });
+    }
+    // quem já comprou: avaliação no Google e comentário no anúncio sempre aparecem (com "Enviar agora"),
+    // mesmo sem automação programada — até serem pedidos (pelo botão, pela automação ou link colado à mão)
+    if (vendaDoLead(lead, empresa)) {
+      const bot = whatsapp.botDoWhatsapp(empresa);
+      const feitos = pedidosFeitos(lead, empresa);
+      const NOMES = { avaliacao: 'Pedir avaliação no Google', comentario: 'Pedir comentário no anúncio' };
+      for (const [tipo, link] of [['avaliacao', bot?.linkAvaliacao], ['comentario', bot?.linkAnuncio]]) {
+        if (!link || feitos[tipo] || lista.some((x) => x.receita === tipo)) continue;
+        const pulado = automacoesDa(empresa).some((r) => r.receita === tipo && lead.automacoes?.[r.id]?.puladoEm);
+        if (pulado) continue; // você escolheu "não enviar" para este cliente
+        lista.push({ tipo: 'pedido', id: tipo, receita: tipo, quando: null, titulo: NOMES[tipo], detalhe: 'sem envio automático programado', porIa: false });
+      }
     }
   }
-  return lista.sort((a, b) => (a.quando < b.quando ? -1 : 1));
+  return lista.sort((a, b) => (!a.quando ? 1 : !b.quando ? -1 : a.quando < b.quando ? -1 : 1));
 }
 
 // A IA marcou [[RETOMAR: 2h | sobre o quê]]: follow-up que ela mesma vai escrever na hora
@@ -582,6 +595,33 @@ function mensagemDoPedido(empresa, tipo) {
   return regra ? regra.acao.texto : RECEITAS[tipo](empresa).acao.texto;
 }
 
+// o pedido foi feito (botão "Enviar agora" ou link colado à mão): a automação dele não manda de novo
+function marcarPedidoFeito(empresa, lead, tipo, usuario = '') {
+  lead.pedidosManuais = { ...(lead.pedidosManuais || {}), [tipo]: agora() };
+  for (const r of automacoesDa(empresa).filter((x) => x.receita === tipo)) {
+    const h = lead.automacoes?.[r.id] || { enviados: 0 };
+    lead.automacoes = { ...(lead.automacoes || {}), [r.id]: { ...h, enviados: Math.max(h.enviados || 0, r.maxPorLead), ultimoEm: agora(), manualPor: usuario } };
+  }
+}
+
+// A equipe mandou o link de avaliação / do anúncio por conta própria (celular ou painel):
+// conta como pedido feito — a contagem para e a automação não manda de novo.
+const semProtocolo = (u) => String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+function percebeuPedidoManual(empresa, lead, texto) {
+  const t = String(texto || '').toLowerCase();
+  if (!empresa || !lead || !/https?:|www\.|g\.page|\.com|\.br\b/.test(t)) return [];
+  const bot = whatsapp.botDoWhatsapp(empresa);
+  const achou = [];
+  const tem = (link) => link && t.replace(/https?:\/\/(www\.)?/g, '').includes(semProtocolo(link));
+  if (tem(bot?.linkAvaliacao) || /g\.page\/r\/|search\.google\.com\/local\/writereview|g\.co\/kgs\//.test(t)) achou.push('avaliacao');
+  if (tem(bot?.linkAnuncio)) achou.push('comentario');
+  const feitos = pedidosFeitos(lead, empresa);
+  const novos = achou.filter((tipo) => !feitos[tipo]);
+  for (const tipo of novos) marcarPedidoFeito(empresa, lead, tipo, 'link na conversa');
+  if (novos.length) salvar();
+  return novos;
+}
+
 async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario = '' } = {}) {
   if (!['avaliacao', 'comentario'].includes(tipo)) throw Object.assign(new Error('Pedido inválido.'), { status: 400 });
   const destino = whatsapp.destinoDoLead(lead);
@@ -594,12 +634,7 @@ async function enviarPedidoManual(empresa, lead, tipo, { forcar = false, usuario
   const texto = disparos.montarMensagem(mensagemDoPedido(empresa, tipo), lead, empresa);
   await whatsapp.enviarTexto(empresa, destino, texto);
   leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto, pedido: tipo });
-  lead.pedidosManuais = { ...(lead.pedidosManuais || {}), [tipo]: agora() };
-  // a automação do mesmo pedido não manda de novo para este cliente
-  for (const r of automacoesDa(empresa).filter((x) => x.receita === tipo)) {
-    const h = lead.automacoes?.[r.id] || { enviados: 0 };
-    lead.automacoes = { ...(lead.automacoes || {}), [r.id]: { ...h, enviados: Math.max(h.enviados, r.maxPorLead), ultimoEm: agora(), manualPor: usuario } };
-  }
+  marcarPedidoFeito(empresa, lead, tipo, usuario); // a automação do mesmo pedido não manda de novo
   salvar();
   return { texto };
 }
@@ -625,6 +660,7 @@ function naoMandarPedido(empresa, lead, tipo, usuario = '') {
 }
 
 module.exports = {
+  percebeuPedidoManual,
   posVenda,
   naoMandarPedido,
   noHorarioComercial,
