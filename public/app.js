@@ -2735,6 +2735,40 @@ async function paginaOrganizar(id) {
 
 // Onde os tokens foram nos últimos 7 dias: por tarefa e por modelo, com o custo estimado
 const NOME_TAREFA_IA = { resposta: '💬 Respostas no WhatsApp', site: '🌐 Chat do site', evento: '⏰ Avisos internos (sem resposta, follow-up com IA)', followup: '🔁 Follow-up e automações com IA', foto: '🖼️ Fotos dos clientes', audio: '🎤 Áudios dos clientes', comprovante: '🧾 Comprovantes', 'sugestao-midia': '📎 Sugestão de mídia (removida)', agenda: '📅 Detector de agendamento', 'aviso-agendamento': '📣 Aviso de agendamento', aprendizado: '📚 Aprendizado diário', catalogo: '🛍️ Catálogo (sugerir itens)', 'conferir-prompt': '✅ Atualizar e conferir', 'sugestao-equipe': '✍️ Sugestão de resposta (removida)', teste: '🧪 Testes', outros: 'Outros' };
+// Tokens divididos: respostas aos clientes × reconhecimento do CRM (fotos, áudios, comprovantes, agenda…)
+const TAREFAS_RESPOSTA = new Set(['resposta', 'site', 'followup', 'evento']);
+function cartaoRespostasXCrm(hoje, semana) {
+  const somar = (u, resp) => {
+    const r = { tokens: 0, chamadas: 0, itens: [] };
+    for (const [k, x] of Object.entries(u?.porTarefa || {})) {
+      if (TAREFAS_RESPOSTA.has(k) !== resp) continue;
+      r.tokens += x.tokens || 0;
+      r.chamadas += x.chamadas || 0;
+      r.itens.push([k, x]);
+    }
+    r.itens.sort((a, b) => b[1].tokens - a[1].tokens);
+    return r;
+  };
+  const lado = (titulo, icone, resp, dica) => {
+    const h = somar(hoje, resp);
+    const s7 = somar(semana, resp);
+    const total = somar(hoje, true).tokens + somar(hoje, false).tokens;
+    const pct = total ? Math.round((h.tokens / total) * 100) : 0;
+    return `<div class="rxc-lado">
+      <div class="rxc-topo"><span class="rxc-icone">${icone}</span><div><b>${titulo}</b><span class="rotulo">${dica}</span></div></div>
+      <div class="rxc-num"><b>${numeroCurto(h.tokens)}</b><span class="rotulo">tokens hoje · ${h.chamadas} chamada${h.chamadas === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}${resp && h.chamadas ? ` · média ${numeroCurto(Math.round(h.tokens / h.chamadas))} por resposta` : ''}</span></div>
+      <div class="rxc-barra"><span style="width:${pct}%"></span></div>
+      <p class="rotulo" style="margin:6px 0 0">7 dias: <b>${numeroCurto(s7.tokens)}</b> tokens em ${s7.chamadas} chamada${s7.chamadas === 1 ? '' : 's'}</p>
+      ${h.itens.length ? `<ul class="rxc-lista">${h.itens.map(([k, x]) => `<li><span>${esc(NOME_TAREFA_IA[k] || k)}</span><span>${x.chamadas}× · ${numeroCurto(x.tokens)}</span></li>`).join('')}</ul>` : '<p class="rotulo" style="margin:6px 0 0">Nada hoje.</p>'}
+    </div>`;
+  };
+  return `<div class="card">
+    <h2 style="margin:0 0 4px">🧮 Tokens hoje: respostas × reconhecimento do CRM</h2>
+    <p class="rotulo" style="margin:0 0 12px">Cada resposta manda para a IA as instruções, a lista de mídias e o fim da conversa — por isso uma resposta pesa bem mais que uma leitura de foto. Enxugar as instruções e as descrições das mídias é o que mais economiza.</p>
+    <div class="rxc">${lado('Respostas aos clientes', '💬', true, 'WhatsApp, chat do site, follow-up e avisos com IA')}${lado('Reconhecimento do CRM', '🔎', false, 'fotos, áudios, comprovantes, agenda, avisos e conferências')}</div>
+  </div>`;
+}
+
 function tabelaGastoIa(u) {
   const linhas = (obj, nome) => Object.entries(obj || {}).sort((a, b) => (b[1].custo || 0) - (a[1].custo || 0) || b[1].tokens - a[1].tokens).map(([k, x]) => `<tr><td>${esc(nome(k))}</td><td class="num">${(x.chamadas || 0).toLocaleString('pt-BR')}</td><td class="num">${numeroCurto(x.tokens)}</td><td class="num esconde-mobile">${numeroCurto(x.cache)}</td><td class="num">${x.custo ? (x.custo < 0.01 ? '&lt; US$ 0.01' : `US$ ${x.custo.toFixed(2)}`) : '—'}</td></tr>`).join('');
   const porTarefa = linhas(u?.porTarefa, (k) => NOME_TAREFA_IA[k] || k);
@@ -2744,7 +2778,7 @@ function tabelaGastoIa(u) {
       <h2 style="margin:0 0 8px">🔎 Para onde foram os tokens (7 dias)</h2>
       ${porTarefa ? `<div class="tabela-wrap"><table>${cab('Tarefa')}<tbody>${porTarefa}</tbody></table></div>
       <div class="tabela-wrap" style="margin-top:12px"><table>${cab('Modelo')}<tbody>${porModelo}</tbody></table></div>
-      <p class="rotulo" style="margin:10px 0 0">Custo estimado pelos preços de tabela do Claude (entrada, saída e leitura do cache); outras IAs aparecem sem custo. Começou a contar por tarefa nesta atualização.</p>` : '<p class="rotulo" style="margin:0">Ainda sem dados por tarefa — aparecem a partir das próximas chamadas à IA.</p>'}
+      <p class="rotulo" style="margin:10px 0 0">Custo estimado pelos preços de tabela (entrada, saída e cache). Modelos sem preço cadastrado (ex.: Gemini 3) aparecem sem custo — os tokens estão certos.</p>` : '<p class="rotulo" style="margin:0">Ainda sem dados por tarefa — aparecem a partir das próximas chamadas à IA.</p>'}
     </div>`;
 }
 
@@ -2850,6 +2884,7 @@ async function paginaChave(id) {
         ${numeroCard('Vindos do cache (≈90% mais barato)', numeroCurto(u.cache))}
       </div>
     </div>
+    ${cartaoRespostasXCrm(emp.usoHoje, emp.uso7d)}
     ${tabelaGastoIa(emp.uso7d)}`;
 
   if ($('#f-chave-verif')) {

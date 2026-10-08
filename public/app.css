@@ -1553,3 +1553,18 @@ html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
 .ag-valor.incerto { border-color: var(--aviso-texto); }
 .painel-prev b { font-size: 22px; }
 @media (max-width: 640px) { .cat-resumo.painel-prev { grid-template-columns: 1fr; } .cat-resumo.painel-prev > div + div { border-left: 0; border-top: 1px solid var(--borda); } }
+
+/* tokens: respostas × reconhecimento do CRM */
+.rxc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.rxc-lado { border: 1px solid var(--borda); border-radius: 12px; padding: 14px; background: var(--superficie-2); min-width: 0; }
+.rxc-topo { display: flex; gap: 10px; align-items: flex-start; }
+.rxc-topo > div { display: flex; flex-direction: column; gap: 2px; }
+.rxc-icone { font-size: 22px; line-height: 1; }
+.rxc-num { display: flex; flex-direction: column; margin-top: 10px; }
+.rxc-num b { font-size: 26px; letter-spacing: -0.02em; }
+.rxc-barra { height: 6px; border-radius: 99px; background: var(--borda); overflow: hidden; margin-top: 8px; }
+.rxc-barra span { display: block; height: 100%; background: var(--primario); border-radius: 99px; }
+.rxc-lista { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
+.rxc-lista li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-top: 1px dashed var(--borda); }
+.rxc-lista li span:last-child { color: var(--suave); white-space: nowrap; }
+@media (max-width: 720px) { .rxc { grid-template-columns: 1fr; } }
