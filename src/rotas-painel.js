@@ -1674,10 +1674,20 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
   };
   res.json({
     resumo,
+    regras: { exigeEndereco: empresa.agendaExigeEndereco !== false },
     proximos: lista.filter((x) => x.grupo === 'proximos').sort((a, b) => ord(a).localeCompare(ord(b))),
     passados: lista.filter((x) => x.grupo === 'passados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200),
     cancelados: lista.filter((x) => x.grupo === 'cancelados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200)
   });
+});
+
+// Regras do agendamento automático (aba Agendamentos): só agendar com o endereço do cliente
+router.put('/empresas/:id/agenda-regras', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (req.body?.exigeEndereco !== undefined) empresa.agendaExigeEndereco = req.body.exigeEndereco === true;
+  salvar();
+  res.json({ exigeEndereco: empresa.agendaExigeEndereco !== false });
 });
 
 // Horários que a IA pode agendar (aba Agendamentos)

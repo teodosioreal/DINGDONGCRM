@@ -1033,10 +1033,21 @@ async function paginaAgenda(id, params) {
       <div><span class="rotulo">Todos à frente</span><b>${d.resumo.proximos}</b></div>
     </div>
     <div class="card ag-previsao" id="ag-previsao"></div>
+    <div class="card">
+      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🛡️ Agendamento automático</h2>${interruptor('ag-exige-endereco', d.regras?.exigeEndereco !== false, 'Só agendar com o endereço do cliente')}</div>
+      <p class="rotulo" style="margin:0">O CRM só marca sozinho quando ficar combinado <b>dia e horário</b> (pergunta como "atende hoje?" não marca) — pela IA, pelo cliente aceitando uma proposta, ou quando <b>você</b> confirma por mensagem ("agendado sábado às 9h").${d.regras?.exigeEndereco !== false ? ' Com esta opção ligada, também precisa do <b>endereço</b> do cliente na conversa (rua e número, CEP ou localização do WhatsApp); sem ele, a IA pede o endereço e você recebe um aviso. Agendar à mão ou pela etiqueta Agendado continua livre.' : ''}</p>
+    </div>
     ${horas ? `<div class="card" id="card-horarios-ia"></div>` : ''}
     <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
     <div id="ag-conteudo"></div>`;
   $$('[data-ag-aba]').forEach((b) => { b.onclick = () => { aba = b.dataset.agAba; $$('[data-ag-aba]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
+  $('#ag-exige-endereco').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/agenda-regras`, { method: 'PUT', body: { exigeEndereco: e.target.checked } });
+      aviso(e.target.checked ? 'Ligado: só agenda com o endereço do cliente.' : 'Desligado: agenda sem exigir endereço.');
+      paginaAgenda(id, new URLSearchParams({ aba }));
+    } catch (err) { e.target.checked = !e.target.checked; aviso(err.message, true); }
+  };
   let filtro = { chave: 'mes', de: '', ate: '' };
   try { filtro = { ...filtro, ...JSON.parse(localStorage.getItem('previsao-filtro') || '{}') }; } catch { /* sem preferência salva */ }
   const PRESETS = [['hoje', 'Hoje'], ['7d', '7 dias'], ['30d', '30 dias'], ['mes', 'Este mês'], ['proximo', 'Próximo mês'], ['tudo', 'Tudo à frente'], ['datas', 'Escolher datas']];

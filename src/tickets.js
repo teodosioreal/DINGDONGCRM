@@ -309,6 +309,9 @@ function aplicarDaIa(empresa, lead, r) {
   const ocupado = r?.agendamento && iso && require('./horarios-ia').configDa(empresa).ativo ? require('./horarios-ia').conflito(empresa, iso, lead.id) : null;
   if (ocupado) {
     require('./alertas').registrar(empresa, 'agenda', `A IA combinou ${require('./horarios-ia').formatar(iso)} com um cliente, mas esse horário já está com outro cliente. Não foi agendado — combine outro horário com ele.`, { leadId: lead.id });
+  } else if (r?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [r.agendamento.descricao])) {
+    // última trava: a IA marcou sem o endereço do cliente → não registra (a conversa continua normal)
+    require('./alertas').registrar(empresa, `agenda:${lead.id}`, `📍 A IA quis agendar ${lead.nome || 'um cliente'}, mas ele ainda não passou o endereço — não agendei.`, { nivel: 'info', leadId: lead.id });
   } else if (r?.agendamento && !(iso && new Date(iso).getTime() < Date.now() - 3600 * 1000)) {
     const antes = (lead.agendamentos || []).filter((a) => a.status === 'agendado');
     const novo = registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' });

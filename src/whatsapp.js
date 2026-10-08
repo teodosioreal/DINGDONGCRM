@@ -1581,6 +1581,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])].map((c) => midias.numeroDoCodigo(empresa, c)),
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
+      endereco: require('./endereco').enderecoDo(lead),
       clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
@@ -1591,6 +1592,13 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   try {
     r = await pedirIa();
     // agenda da IA ligada: o horário marcado tem que estar livre na lista (confere antes de enviar)
+    // só agenda com o endereço do cliente (regra da aba Agendamentos): sem ele, a IA pede o endereço
+    const semEndereco = (x) => x?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [x.agendamento.descricao]);
+    if (semEndereco(r)) {
+      console.log(`[agenda-ia ${lead.id}] a IA marcou sem o endereço do cliente; reescrevendo`);
+      r = await pedirIa('- ATENÇÃO: na resposta anterior você marcou [[AGENDAMENTO]], mas o cliente ainda NÃO passou o endereço. Escreva de novo SEM [[AGENDAMENTO]]: confirme o dia/horário que ele quer e peça o endereço completo (rua, número e bairro) para finalizar o agendamento.');
+      if (semEndereco(r)) delete r.agendamento;
+    }
     const recusa = horarios.validar(empresa, lead, r);
     if (recusa) {
       console.log(`[agenda-ia ${lead.id}] a IA marcou fora da agenda (${recusa}); reescrevendo`);

@@ -513,6 +513,8 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | o serviço agendado]].',
     '- Quando o cliente DESMARCAR ou cancelar um agendamento já registrado (sem marcar outro), escreva numa linha separada: [[DESMARCAR]]. Se ele trocar de dia/horário, use [[AGENDAMENTO: …]] com o horário novo (o antigo sai sozinho).',
     '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.',
+    '- Pergunta sobre disponibilidade NÃO é agendamento: "atende hoje?", "tem horário amanhã?", "consegue sábado?" e um "sim" para isso não marcam nada. Só marque quando ficar combinado um DIA e um HORÁRIO certos.',
+    ...(empresa?.agendaExigeEndereco !== false ? ['- Antes de marcar [[AGENDAMENTO]], você precisa do ENDEREÇO completo do cliente (rua, número e bairro, ou a localização do WhatsApp). Se ainda não tiver (veja "Contexto desta conversa"), peça o endereço e só marque depois que ele mandar.'] : []),
     '',
     'Localização do cliente (a equipe vê como etiqueta 📍 na conversa):',
     '- Quando o cliente disser onde mora ou onde está (cidade, bairro, região), escreva numa linha separada: [[LOCAL: bairro/cidade - UF]] — ex.: [[LOCAL: Quitandinha, Petrópolis - RJ]] ou [[LOCAL: Niterói - RJ]]. Só com o que ele disse; nunca adivinhe. Não marque de novo se já estiver igual no "Contexto desta conversa".'
@@ -524,6 +526,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
+  if (contexto.endereco !== undefined && empresa?.agendaExigeEndereco !== false) dinamico.push(contexto.endereco ? `- Endereço do cliente (já informado): ${contexto.endereco}` : '- Endereço do cliente: ainda NÃO informado — peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]].');
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${String(c).startsWith('#') ? c : require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 

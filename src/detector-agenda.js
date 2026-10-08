@@ -13,7 +13,7 @@
 const { estado, salvar } = require('./db');
 
 const ESPERA_MS = Number(process.env.AGENDA_DETECTOR_ESPERA_MS) || 20000;
-const CONFIANCA_MINIMA = 0.7;
+const CONFIANCA_MINIMA = 0.8;
 const timers = new Map(); // leadId → timeout
 
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -25,6 +25,12 @@ const ACEITE = /^(?:\s*(?:ok+|okay|blz|beleza|fechado|fechou|combinado|perfeito|
 // confirmação perto de um dia/hora: só aí vale a IA conferir (falar de horário sem ninguém confirmar não marca nada)
 const CONFIRMA = /\b(pode ser|pode sim|fechado|fechou|combinado|confirmad\w*|confirmo|agendad\w*|agendei|marcad\w*|marquei|te espero|estarei|vou sim|beleza|blz|perfeito|ta bom|ta certo|certo|ok|sim|desmarc\w*|cancel\w*|remarc\w*)\b/;
 const DUVIDA = /\b(talvez|vou ver|vou verificar|se der|acho que|nao sei|depois (te )?(falo|aviso|confirmo)|vou confirmar|qualquer coisa)\b/;
+// agendamento de verdade tem HORÁRIO ("9h", "às 15", "14:30") — "atende hoje?" não marca nada
+const TEM_HORA = /\b(?:as|a partir das|pras|para as)\s+\d{1,2}(?:[:h]\d{2})?\b|\b\d{1,2}(?::\d{2}|\s*(?:h|hs|hrs|horas)(?:\d{2})?)\b/;
+// o aceite tem que ACEITAR ("obrigado", "valeu" sozinhos não confirmam horário)
+const ACEITE_FIRME = /\b(pode|fechado|fechou|combinado|confirmad\w*|confirmo|sim|ok|okay|beleza|blz|perfeito|marcado|agendado|te espero|estarei|vou sim|certo|ta bom|ta otimo|bora|vamos|claro)\b/;
+// a EMPRESA confirmando por mensagem: "agendado sábado às 9h", "fica marcado dia 12 às 14h"
+const EMPRESA_CONFIRMA = /\b(agendad[oa]|agendei|marquei|marcad[oa]|confirmad[oa]|confirmo|combinad[oa]|fica (agendado|marcado|combinado)|esta (agendado|marcado)|ficou (agendado|marcado))\b/;
 
 function ehAgendado(ag) {
   return ag.status === 'agendado' && (!ag.quando || new Date(ag.quando).getTime() > Date.now() - 6 * 3600 * 1000);
@@ -39,15 +45,25 @@ function porCodigo(empresa, lead) {
   const t = semAcento(ultima.texto);
   // "pode ser" / "fechado" respondendo a uma proposta com dia/hora do outro lado
   // a mensagem INTEIRA é um aceite curto (sem pergunta): "pode sim", "fechado!", "ok, obrigado"
-  if (ACEITE.test(t.trim()) && t.length < 60 && !t.includes('?')) {
+  const firme = (txt) => {
+    const x = semAcento(txt);
+    return !x.includes('?') && !DUVIDA.test(x) && TEM_HORA.test(x); // pergunta, "talvez" ou sem horário: não é proposta firme
+  };
+  // a empresa (equipe, pelo celular ou pelo painel) confirmou numa mensagem: "agendado sábado às 9h"
+  if (ultima.papel === 'equipe' && EMPRESA_CONFIRMA.test(t) && firme(ultima.texto)) {
+    const quando = tickets.quandoNoTexto(ultima.texto, new Date(ultima.em || Date.now()));
+    if (quando && new Date(quando).getTime() > Date.now() - 3600 * 1000) {
+      return { acao: 'agendar', quando, descricao: String(ultima.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: [ultima.texto] };
+    }
+  }
+  // "pode ser" / "fechado" respondendo a uma proposta FIRME (dia + horário, sem pergunta) do outro lado
+  if (ACEITE.test(t.trim()) && ACEITE_FIRME.test(t) && t.length < 60 && !t.includes('?')) {
     const lado = (m) => (m.papel === 'visitante' ? 'cliente' : 'empresa');
     const proposta = [...msgs.slice(0, -1)].reverse().find((m) => lado(m) !== lado(ultima) && tickets.quandoNoTexto(m.texto));
-    if (proposta && DUVIDA.test(semAcento(proposta.texto))) return null; // "talvez sábado, vou ver" não é proposta firme
-    if (proposta) {
-      const quando = tickets.quandoNoTexto(proposta.texto, new Date(proposta.em || Date.now()));
-      if (quando && new Date(quando).getTime() > Date.now() - 3600 * 1000) {
-        return { acao: 'agendar', quando, descricao: String(proposta.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo' };
-      }
+    if (!proposta || !firme(proposta.texto)) return null;
+    const quando = tickets.quandoNoTexto(proposta.texto, new Date(proposta.em || Date.now()));
+    if (quando && new Date(quando).getTime() > Date.now() - 3600 * 1000) {
+      return { acao: 'agendar', quando, descricao: String(proposta.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: [proposta.texto] };
     }
   }
   return null;
@@ -69,7 +85,8 @@ async function porIa(empresa, lead) {
   const sistema =
     'Você confere conversas de WhatsApp de uma empresa e diz se um AGENDAMENTO (visita, serviço, consulta, instalação, entrega, horário) foi MARCADO, REMARCADO ou CANCELADO. Responda SOMENTE com JSON, sem texto antes ou depois.\n' +
     'Regras:\n' +
-    '- "agendar": os dois lados combinaram um dia (e horário, se falaram) — a empresa propôs e o cliente aceitou, ou o cliente pediu e a empresa confirmou. Proposta ainda sem resposta, "vou ver" ou "talvez" = "nada".\n' +
+    '- "agendar": os dois lados combinaram um DIA E UM HORÁRIO certos — a empresa propôs e o cliente aceitou, ou o cliente pediu e a empresa confirmou ("agendado", "fica marcado"). Proposta ainda sem resposta, "vou ver", "talvez" ou sem horário = "nada".\n' +
+    '- PERGUNTA não é agendamento: "atende hoje?", "tem horário amanhã?", "esse serviço te atende hoje?", "consegue sábado?" e a resposta "sim/atende/tem" = "nada" (só falaram de disponibilidade, ninguém marcou um horário).\n' +
     '- "remarcar": já havia agendamento e combinaram outro dia/horário.\n' +
     '- "cancelar": o cliente ou a empresa desmarcou/cancelou um agendamento existente (sem marcar outro).\n' +
     '- "nada": qualquer outra situação (inclusive "te chamo amanhã", que é só retorno de contato, não horário marcado).\n' +
@@ -88,7 +105,8 @@ async function porIa(empresa, lead) {
   const j = JSON.parse(m[0]);
   if (!['agendar', 'remarcar', 'cancelar'].includes(j.acao) || !(Number(j.confianca) >= CONFIANCA_MINIMA)) return { acao: 'nada' };
   const quando = j.quando ? require('./tickets').quandoDe(j.quando) : null;
-  if ((j.acao === 'agendar' || j.acao === 'remarcar') && !quando) return { acao: 'nada' };
+  // marcar sem horário combinado não vale (era assim que "atende hoje?" + "sim" virava agendamento às 9h)
+  if ((j.acao === 'agendar' || j.acao === 'remarcar') && (!quando || j.semHora === true)) return { acao: 'nada' };
   return { acao: j.acao, quando, descricao: String(j.descricao || '').slice(0, 200), agendamentoId: String(j.agendamentoId || ''), trecho: String(j.trecho || '').slice(0, 200), fonte: 'ia' };
 }
 
@@ -110,6 +128,12 @@ function aplicar(empresa, lead, d) {
   }
   // agendar/remarcar: horário que já passou = nada a fazer
   if (!d.quando || new Date(d.quando).getTime() < Date.now() - 3600 * 1000) return null;
+  // sem o endereço do cliente na conversa não agenda (remarcar um que já existe pode)
+  const endereco = require('./endereco');
+  if (!ativos.length && !endereco.podeAgendar(empresa, lead, [d.descricao, d.trecho, ...(d.extras || [])])) {
+    avisar(`📍 Combinaram ${fmt(d.quando)} com ${nome}, mas o cliente ainda não passou o endereço — não agendei. Peça o endereço (rua, número e bairro) ou marque à mão.`);
+    return null;
+  }
   const jaMarcado = ativos.find((a) => a.quando === d.quando);
   if (d.acao === 'remarcar') {
     // o horário velho sai (mesmo que o novo já tenha sido marcado pelo código um instante antes)
