@@ -18,6 +18,10 @@ function ehEndereco(texto) {
   const t = sem(texto);
   if (!t) return false;
   if (LOCALIZACAO.test(t) || CEP.test(t)) return true;
+  // "Endereço: …" / "Local: …" com número, "nº 45", "bairro X, 120", link do Google Maps
+  if (/\b(endereco|local|localizacao)\s*:\s*[^\n]*?\b\d{1,5}\b(?!\s*(h|hs|hrs|horas|:\d|\/))/.test(t)) return true;
+  if (/\b(n|no|n°|nº|numero)\.?\s*\d{1,5}\b/.test(t) && /\b(rua|av|avenida|estrada|bairro|travessa|condominio|casa|apto|lote|quadra)\b/.test(t)) return true;
+  if (/maps\.(google|app\.goo)|goo\.gl\/maps|maps\.app\.goo\.gl/.test(t)) return true;
   // rua + número na mesma mensagem (ex.: "Rua das Flores 120", "Av. Brasil, 45 - Centro")
   return LOGRADOURO.test(t) && (NUMERO.test(t) || /\b(km|lote|casa)\s*\d+/.test(t));
 }

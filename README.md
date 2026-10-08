@@ -174,8 +174,10 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - O CRM só agenda sozinho quando fica combinado **dia e horário** certos: proposta firme (com
   horário, sem ser pergunta) aceita do outro lado ("pode ser", "fechado"), a IA marcando
   `[[AGENDAMENTO]]`, ou **você confirmando por mensagem** ("Agendado! Sábado às 14h").
-  Pergunta de disponibilidade ("atende hoje?", "tem horário amanhã?") + "sim" não marca nada;
-  "obrigado"/"valeu" sozinhos não confirmam.
+  Pergunta de disponibilidade sem horário ("atende hoje?", "tem horário amanhã?") + "sim" não
+  marca nada; proposta com horário, mesmo em pergunta ("pode ser amanhã às 10h?"), + aceite marca.
+  "obrigado"/"valeu" sozinhos não confirmam. O CRM olha as últimas mensagens juntas: se o
+  endereço (ou o "combinado") chegar depois do aceite, o agendamento entra nessa hora.
 - **Só agendar com o endereço do cliente** (ligado por padrão, aba Agendamentos): sem rua e
   número, CEP ou localização do WhatsApp mandados pelo cliente (ou escritos na própria
   mensagem que confirma), a IA pede o endereço e não marca; o detector avisa no sininho.

@@ -30,7 +30,7 @@ const TEM_HORA = /\b(?:as|a partir das|pras|para as)\s+\d{1,2}(?:[:h]\d{2})?\b|\
 // o aceite tem que ACEITAR ("obrigado", "valeu" sozinhos não confirmam horário)
 const ACEITE_FIRME = /\b(pode|fechado|fechou|combinado|confirmad\w*|confirmo|sim|ok|okay|beleza|blz|perfeito|marcado|agendado|te espero|estarei|vou sim|certo|ta bom|ta otimo|bora|vamos|claro)\b/;
 // a EMPRESA confirmando por mensagem: "agendado sábado às 9h", "fica marcado dia 12 às 14h"
-const EMPRESA_CONFIRMA = /\b(agendad[oa]|agendei|marquei|marcad[oa]|confirmad[oa]|confirmo|combinad[oa]|fica (agendado|marcado|combinado)|esta (agendado|marcado)|ficou (agendado|marcado))\b/;
+const EMPRESA_CONFIRMA = /\b(agendad[oa]|agendei|marquei|marcad[oa]|confirmad[oa]|confirmo|combinad[oa]|fechado|fechou|fica (agendado|marcado|combinado)|esta (agendado|marcado)|ficou (agendado|marcado)|te espero|estarei a[iy]|estou a[iy]|passo a[iy]|chego a[iy]|vou a[iy]|ate (amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|la))\b/;
 
 function ehAgendado(ag) {
   return ag.status === 'agendado' && (!ag.quando || new Date(ag.quando).getTime() > Date.now() - 6 * 3600 * 1000);
@@ -39,31 +39,39 @@ function ehAgendado(ag) {
 // ---------------------------------------------------------------- 1. código (na hora)
 function porCodigo(empresa, lead) {
   const tickets = require('./tickets');
-  const msgs = (lead.mensagens || []).filter((m) => m.texto && !m.apagada).slice(-4);
-  const ultima = msgs[msgs.length - 1];
-  if (!ultima) return null;
-  const t = semAcento(ultima.texto);
-  // "pode ser" / "fechado" respondendo a uma proposta com dia/hora do outro lado
-  // a mensagem INTEIRA é um aceite curto (sem pergunta): "pode sim", "fechado!", "ok, obrigado"
+  // olha as últimas mensagens JUNTAS (até 2 dias): o endereço ou o "combinado" podem vir depois do aceite
+  const limite = Date.now() - 2 * 86400000;
+  const msgs = (lead.mensagens || []).filter((m) => m.texto && !m.apagada && ['visitante', 'equipe', 'assistente'].includes(m.papel) && new Date(m.em || 0).getTime() > limite).slice(-12);
+  if (!msgs.length) return null;
+  const lado = (m) => (m.papel === 'visitante' ? 'cliente' : 'empresa');
+  // proposta firme: tem HORÁRIO e não é dúvida ("pode ser amanhã às 10h?" vale; "atende hoje?" não)
   const firme = (txt) => {
     const x = semAcento(txt);
-    return !x.includes('?') && !DUVIDA.test(x) && TEM_HORA.test(x); // pergunta, "talvez" ou sem horário: não é proposta firme
+    return !DUVIDA.test(x) && TEM_HORA.test(x);
   };
-  // a empresa (equipe, pelo celular ou pelo painel) confirmou numa mensagem: "agendado sábado às 9h"
-  if (ultima.papel === 'equipe' && EMPRESA_CONFIRMA.test(t) && firme(ultima.texto)) {
-    const quando = tickets.quandoNoTexto(ultima.texto, new Date(ultima.em || Date.now()));
-    if (quando && new Date(quando).getTime() > Date.now() - 3600 * 1000) {
-      return { acao: 'agendar', quando, descricao: String(ultima.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: [ultima.texto] };
+  // aceite: mensagem curta, sem pergunta, que aceita ("pode sim", "fechado, pode vir", "sim! confirmado")
+  const aceita = (txt) => {
+    const x = semAcento(txt).trim();
+    if (x.includes('?') || x.length > 120 || DUVIDA.test(x)) return false;
+    return (ACEITE.test(x) && ACEITE_FIRME.test(x)) || /^(sim|pode|ok|okay|fechado|fechou|combinado|confirmad\w*|confirmo|perfeito|beleza|blz|certo|ta bom|ta otimo|claro|bora|vamos|marcado|agendado)\b/.test(x);
+  };
+  const futuro = (q) => q && new Date(q).getTime() > Date.now() - 3600 * 1000;
+  const extrasDe = (i) => msgs.slice(i).filter((m) => m.papel !== 'visitante').map((m) => m.texto); // confirmação da empresa pode trazer o endereço
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    const t = semAcento(m.texto);
+    // a) a empresa confirmou numa mensagem: "agendado sábado às 9h", "fechado, amanhã 10h estou aí"
+    if (m.papel === 'equipe' && EMPRESA_CONFIRMA.test(t) && !t.includes('?') && firme(m.texto)) {
+      const quando = tickets.quandoNoTexto(m.texto, new Date(m.em || Date.now()));
+      if (futuro(quando)) return { acao: 'agendar', quando, descricao: String(m.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: extrasDe(i) };
     }
-  }
-  // "pode ser" / "fechado" respondendo a uma proposta FIRME (dia + horário, sem pergunta) do outro lado
-  if (ACEITE.test(t.trim()) && ACEITE_FIRME.test(t) && t.length < 60 && !t.includes('?')) {
-    const lado = (m) => (m.papel === 'visitante' ? 'cliente' : 'empresa');
-    const proposta = [...msgs.slice(0, -1)].reverse().find((m) => lado(m) !== lado(ultima) && tickets.quandoNoTexto(m.texto));
-    if (!proposta || !firme(proposta.texto)) return null;
-    const quando = tickets.quandoNoTexto(proposta.texto, new Date(proposta.em || Date.now()));
-    if (quando && new Date(quando).getTime() > Date.now() - 3600 * 1000) {
-      return { acao: 'agendar', quando, descricao: String(proposta.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: [proposta.texto] };
+    // b) aceite respondendo a uma proposta firme do outro lado (até 4 mensagens antes)
+    if (aceita(m.texto)) {
+      const antes = msgs.slice(Math.max(0, i - 4), i).reverse();
+      const proposta = antes.find((x) => lado(x) !== lado(m) && tickets.quandoNoTexto(x.texto) && firme(x.texto));
+      if (!proposta) continue;
+      const quando = tickets.quandoNoTexto(proposta.texto, new Date(proposta.em || Date.now()));
+      if (futuro(quando)) return { acao: 'agendar', quando, descricao: String(proposta.texto).replace(/\s+/g, ' ').trim().slice(0, 120), fonte: 'codigo', extras: [proposta.texto, ...extrasDe(i)] };
     }
   }
   return null;
@@ -135,6 +143,8 @@ function aplicar(empresa, lead, d) {
     return null;
   }
   const jaMarcado = ativos.find((a) => a.quando === d.quando);
+  // esse mesmo horário já foi marcado antes e cancelado/realizado/trocado: não marca de novo sozinho
+  if (!jaMarcado && d.fonte === 'codigo' && (lead.agendamentos || []).some((a) => a.quando === d.quando)) return null;
   if (d.acao === 'remarcar') {
     // o horário velho sai (mesmo que o novo já tenha sido marcado pelo código um instante antes)
     const outros = ativos.filter((a) => a.quando !== d.quando);
