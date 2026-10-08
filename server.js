@@ -167,6 +167,7 @@ const servidor = app.listen(config.port, config.host, () => {
     for (const e of estado.empresas) {
       if (!whatsapp.configurado(e)) continue;
       await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
+      await whatsapp.garantirSemLeituraAutomatica(e); // mensagem só fica lida quando alguém abre a conversa
       const ligouAgora = await whatsapp.garantirSyncFullHistory(e).catch(() => false);
       // reinicia o socket NO MÁXIMO UMA VEZ por número: se a Evolution não guardar a
       // opção, reiniciar a cada deploy derrubava o WhatsApp à toa

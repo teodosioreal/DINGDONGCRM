@@ -295,6 +295,25 @@ async function garantirSyncFullHistory(empresa) {
   }
 }
 
+// A Evolution tem a opção "readMessages" (ler sozinho): ligada, TODA mensagem que chega já fica
+// lida no WhatsApp (tiques azuis para o cliente e conversa sem bolinha no celular), mesmo sem
+// ninguém abrir. O CRM marca como lida só quando alguém abre a conversa — então ela fica desligada.
+// Mexe só na instância desta empresa, preservando o resto das configurações.
+async function garantirSemLeituraAutomatica(empresa) {
+  try {
+    const atual = await evolution(empresa, 'GET', '/settings/find/{instancia}');
+    const base = atual?.settings || atual || {};
+    if (base.readMessages !== true) return false;
+    const { id, instanceId, createdAt, updatedAt, ...resto } = base;
+    await evolution(empresa, 'POST', '/settings/set/{instancia}', { ...resto, readMessages: false });
+    console.log(`[whatsapp ${empresa.id}] a Evolution lia as mensagens sozinha (readMessages): desliguei`);
+    return true;
+  } catch (err) {
+    console.error(`[whatsapp ${empresa.id}] readMessages:`, err.message);
+    return false;
+  }
+}
+
 // Reinicia o socket da instância (Baileys reconecta sozinho; NÃO apaga a
 // sessão nem pede QR novo) -- usado só depois de ligar syncFullHistory numa
 // instância que já estava em uso, pra ajudar a resincronizar o estado atual
@@ -376,6 +395,7 @@ async function conectar(empresa, { sessionId, apiKey, forcar = false }) {
     throw err;
   }
   await garantirSyncFullHistory(empresa); // etiquetas e histórico completo também numa instância já existente
+  await garantirSemLeituraAutomatica(empresa); // lida só quando alguém abrir a conversa
   empresa.whatsappConfig.webhookLigadoEm = agora();
   // número movido de outra empresa deste CRM (você confirmou): ela deixa de usar este WhatsApp
   if (dona) {
@@ -2058,6 +2078,7 @@ module.exports = {
   diagnostico,
   evolutionUrlGlobal,
   garantirSyncFullHistory,
+  garantirSemLeituraAutomatica,
   reiniciarSocket,
   MOTIVOS_DESCONEXAO,
   numerosDeTeste,

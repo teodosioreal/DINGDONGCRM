@@ -153,6 +153,14 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Mensagem só fica lida quando você abre
+
+- A opção "ler sozinho" da Evolution (`readMessages`) fica **desligada** na instância de cada
+  empresa (o CRM confere ao subir e ao conectar, preservando o resto da configuração).
+- O CRM marca como lida (aqui e no WhatsApp) só quando você **abre** a conversa e está olhando:
+  conversa deixada aberta numa aba escondida ou em outro computador não marca nada; ao voltar
+  para a aba, aí sim fica lida.
+
 ### Avaliação no Google e comentário no anúncio na conversa
 
 - Na conversa de quem já comprou aparecem os dois pedidos (⭐ avaliação no Google e 💬 comentário

@@ -4134,6 +4134,9 @@ function ligarRelogio() {
   }, 1000);
 }
 
+// a pessoa está olhando a tela do CRM? (aba na frente e com foco)
+const estaOlhando = () => document.visibilityState === 'visible' && document.hasFocus();
+
 // Faixa na conversa: o que vai sair para o cliente e quando (com cronômetro)
 function htmlProximos(l) {
   const lista = l.proximosEnvios || [];
@@ -4488,8 +4491,8 @@ async function paginaConversas(id, params) {
     leadAberto = await api(`leads/${leadId}`);
     assinaturaAberta = `${leadAberto.mensagens.length}|${leadAberto.atualizadoEm}|${leadAberto.tickets?.length || 0}|${leadAberto.mensagens.filter((m) => m.apagada).length}|${leadAberto.listaNegra}|${(leadAberto.etiquetas || []).join()}|${leadAberto.erroEtiquetaZap?.em || ''}|${assinaturaEntrega(leadAberto)}`;
     if (rolar) desenharChat();
-    // abriu a conversa: fica lida aqui e no WhatsApp (tiques azuis no celular do cliente)
-    api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
+    // abriu a conversa (e está olhando): fica lida aqui e no WhatsApp (tiques azuis no celular do cliente)
+    if (document.visibilityState === 'visible') api(`leads/${leadId}/lido`, { method: 'POST' }).catch(() => {});
     if (leadAberto.naoLidas) {
       const item = lista.find((c) => c.id === leadId);
       if (item) item.naoLidas = 0;
@@ -4512,8 +4515,9 @@ async function paginaConversas(id, params) {
       $('#chat-texto').value = rascunho;
       if (foco) $('#chat-texto').focus();
     }
-    // chegou mensagem com a conversa aberta: também fica lida no WhatsApp
-    if (l.naoLidas || l.mensagens[l.mensagens.length - 1]?.papel === 'visitante') api(`leads/${abertoId}/lido`, { method: 'POST' }).catch(() => {});
+    // chegou mensagem com a conversa aberta: só fica lida se você está OLHANDO (aba na frente e com
+    // foco) — CRM aberto esquecido em outra aba/computador não marca nada como lido
+    if (estaOlhando() && (l.naoLidas || l.mensagens[l.mensagens.length - 1]?.papel === 'visitante')) api(`leads/${abertoId}/lido`, { method: 'POST' }).catch(() => {});
   }
 
   async function enviarTexto(textoMsg) {
@@ -4819,6 +4823,15 @@ async function paginaConversas(id, params) {
     recarregarAberto().catch(() => {});
     carregarLista().catch(() => {});
   });
+  // voltou para a aba com uma conversa aberta: agora sim fica lida
+  const aoVoltar = () => {
+    if (!location.hash.startsWith(aqui)) return void (window.removeEventListener('focus', aoVoltar), document.removeEventListener('visibilitychange', aoVoltar));
+    if (abertoId && estaOlhando() && leadAberto && (leadAberto.naoLidas || leadAberto.mensagens[leadAberto.mensagens.length - 1]?.papel === 'visitante')) {
+      api(`leads/${abertoId}/lido`, { method: 'POST' }).then(() => { leadAberto.naoLidas = 0; const item = lista.find((c) => c.id === abertoId); if (item) { item.naoLidas = 0; desenharLista(); } }).catch(() => {});
+    }
+  };
+  window.addEventListener('focus', aoVoltar);
+  document.addEventListener('visibilitychange', aoVoltar);
   atualizador = setInterval(() => {
     if (!location.hash.startsWith(aqui)) return void clearInterval(atualizador);
     carregarLista().catch(() => {});
