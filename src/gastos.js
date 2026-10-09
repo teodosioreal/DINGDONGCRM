@@ -346,7 +346,11 @@ function iniciar() {
 
 // ---------------------------------------------------------------- números para o painel
 
-const mesDe = (iso) => new Date(new Date(iso).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+// data inválida não derruba o Faturamento: fica fora de qualquer mês
+const mesDe = (iso) => {
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 7) : '';
+};
 
 function resumo(empresa, mes) {
   const alvo = mes || mesDe(new Date().toISOString());

@@ -164,7 +164,8 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--primario);
 textarea { resize: vertical; min-height: 80px; }
 textarea.grande { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 input:focus, select:focus, textarea:focus { border-color: var(--suave); }
-.linha-check { display: flex; align-items: center; gap: 8px; font-weight: 400 !important; }
+.linha-check { display: block; position: relative; padding-left: 26px; font-weight: 400 !important; line-height: 1.45; }
+.linha-check > input[type=checkbox]:first-child { position: absolute; left: 0; top: 0.15em; margin: 0; }
 .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .secao { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--borda); }
 

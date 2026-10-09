@@ -20,6 +20,8 @@ const VISITA_VALIDA_MS = 7 * 24 * 3600 * 1000;
 
 // ---------------------------------------------------------------- limpeza do que o widget manda
 
+// hora mandada pelo navegador do visitante: só vale se for um instante possível (senão, agora)
+const emValido = (v) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v - Date.now()) < 365 * 86400000 ? new Date(v).toISOString() : agora());
 const txt = (v, max) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
 
 function urlLimpa(v) {
@@ -38,7 +40,7 @@ function pagina(p) {
   if (!p || typeof p !== 'object') return null;
   const url = urlLimpa(p.url);
   if (!url) return null;
-  return { url, titulo: txt(p.titulo, 160), em: typeof p.em === 'number' ? new Date(p.em).toISOString() : agora() };
+  return { url, titulo: txt(p.titulo, 160), em: emValido(p.em) };
 }
 
 const CAMPOS_UTM = ['source', 'medium', 'campaign', 'term', 'content'];
@@ -67,7 +69,7 @@ function chegada(c) {
     referrer: urlLimpa(c.referrer),
     utm,
     clid,
-    em: typeof c.em === 'number' ? new Date(c.em).toISOString() : agora()
+    em: emValido(c.em)
   };
 }
 
