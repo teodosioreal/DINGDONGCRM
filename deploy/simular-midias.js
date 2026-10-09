@@ -53,6 +53,7 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
       for (const texto of c.msgs) {
         historico.push({ papel: 'visitante', canal: 'whatsapp', texto, em: new Date().toISOString() });
         let r;
+        await new Promise((ok) => setTimeout(ok, 13000)); // chave grátis tem limite por minuto: espaça as chamadas
         try { r = await ia.responder(bot, e, historico, contexto()); } catch (err) { linhas.push(`ERRO da IA: ${curto(ia.descreverErroIa(err), 100)}`); break; }
         const pedidas = (r.midias || []).map((x) => (String(x).startsWith('#') ? x : `#MIDIA_${x}`));
         const iriam = [];
