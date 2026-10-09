@@ -68,13 +68,6 @@ diagnostico() {
   DB_CRM="$(ler_env CRM_DB_PATH .env || true)"; DB_CRM="${DB_CRM:-$PASTA/data.json}"
   INSTANCIAS="$(CRM_DB_PATH="$DB_CRM" node -e 'try { const d = JSON.parse(require("fs").readFileSync(process.env.CRM_DB_PATH, "utf8")); process.stdout.write((d.empresas || []).map((e) => e.whatsappConfig && e.whatsappConfig.instancia).filter(Boolean).join(",")); } catch {}' 2>/dev/null || true)"
   echo "    Instâncias do WhatsApp no CRM: ${INSTANCIAS:-nenhuma}"
-  # teste pedido pelo dono (uma vez): reinicia só a instância do CRM e compara as etiquetas
-  MARCA_SUSTO="$(dirname "$DB_CRM")/.susto-etiquetas-1"
-  if [ -n "$INSTANCIAS" ] && [ ! -f "$MARCA_SUSTO" ]; then
-    echo "    Reiniciando só a instância do CRM na Evolution (teste das etiquetas):"
-    touch "$MARCA_SUSTO"
-    CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 150 node deploy/susto-etiquetas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 30 || true
-  fi
   EXPORTAR="$(dirname "$DB_CRM")/etiquetas-evolution.json" INSTANCIAS="$INSTANCIAS" timeout 60 bash deploy/evolution-etiquetas.sh 2>&1 | head -n 60 || true
   echo "    Últimas 30 h (conexão, fotos/comprovantes, vendas, etiquetas — anônimo, só leitura):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 90 node deploy/diagnostico-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 90 || true
@@ -84,10 +77,6 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" ANTHROPIC_API_KEY="$(ler_env ANTHROPIC_API_KEY .env)" GEMINI_API_KEY="$(ler_env GEMINI_API_KEY .env)" OPENAI_API_KEY="$(ler_env OPENAI_API_KEY .env)" timeout 30 node deploy/diagnostico-chaves.js 2>&1 | head -n 60 || true
   echo "    Configuração do WhatsApp na Evolution (só os interruptores):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 40 node deploy/diagnostico-config-zap.js 2>&1 | head -n 10 || true
-  echo "    Agendamentos de hoje e ontem (estrutura das mensagens, sem texto):"
-  CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-agenda-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
-  echo "    IA falando depois de mensagem manual (3 dias, sem texto):"
-  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-ia-apos-manual.js 2>&1 | head -n 60 || true
   echo "    Vídeos da biblioteca (formato e se toca liso no WhatsApp):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" timeout 90 node deploy/diagnostico-videos.js 2>&1 | head -n 30 || true
   echo "    Mídias e simulação de conversas (cópia do banco, nada é enviado):"
@@ -96,19 +85,6 @@ diagnostico() {
   CRM_DB_PATH_ORIGINAL="$DB_CRM" SIMULAR_IA="$SIMULAR_IA" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 300 node deploy/simular-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 80 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
-  echo "    Detalhe do envio para uma conversa (o que a Evolution guardou; sem texto):"
-  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" DIAG_FINAL="TODAS" timeout 120 node deploy/diagnostico-envio-detalhe.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
-  EVO_C="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk '/evolution-api|evolution_api/ {print $1; exit}')"
-  if [ -n "$EVO_C" ]; then
-    echo "    Erros de envio de mídia na Evolution (6 h, instância do CRM):"
-    docker logs "$EVO_C" --since 6h 2>&1 | grep -F "crm-madara" | grep -iE 'error|erro|fail|media|upload|sendMedia|ENOENT|timeout' | grep -viE 'labels? association' | sed -E 's/[0-9]{8,}/[núm]/g; s/\x1b\[[0-9;]*m//g; s/https?:\/\/[^ ]+/[link]/g' | cut -c1-230 | tail -n 25 | sed 's/^/       /' || true
-  fi
-  echo "    Mídias: cadastro, prompt, pedidos da IA e envios (48 h, anônimo, cópia do banco):"
-  CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 240 node deploy/diagnostico-midias-completo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
-  echo "    Mídias enviadas nas últimas 12 h (anônimo, só leitura):"
-  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 120 node deploy/diagnostico-envio-midia.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
-  echo "    Evolution × CRM (mensagens das últimas 24 h, anônimo, só leitura):"
-  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 120 node deploy/diagnostico-mensagens.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"
   pm2 logs "$NOME_PM2" --out --lines 1500 --nostream --raw 2>/dev/null \
     | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex" \

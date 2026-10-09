@@ -620,14 +620,22 @@ function marcarPedidoFeito(empresa, lead, tipo, usuario = '') {
 // A equipe mandou o link de avaliação / do anúncio por conta própria (celular ou painel):
 // conta como pedido feito — a contagem para e a automação não manda de novo.
 const semProtocolo = (u) => String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
-function percebeuPedidoManual(empresa, lead, texto) {
+// pedidos pós-venda num texto: o link de avaliação do Google e/ou o link do anúncio
+function pedidosNoTexto(empresa, texto) {
   const t = String(texto || '').toLowerCase();
-  if (!empresa || !lead || !/https?:|www\.|g\.page|\.com|\.br\b/.test(t)) return [];
+  if (!empresa || !/https?:|www\.|g\.page|\.com|\.br\b/.test(t)) return [];
   const bot = whatsapp.botDoWhatsapp(empresa);
   const achou = [];
   const tem = (link) => link && t.replace(/https?:\/\/(www\.)?/g, '').includes(semProtocolo(link));
   if (tem(bot?.linkAvaliacao) || /g\.page\/r\/|search\.google\.com\/local\/writereview|g\.co\/kgs\//.test(t)) achou.push('avaliacao');
   if (tem(bot?.linkAnuncio)) achou.push('comentario');
+  return achou;
+}
+
+function percebeuPedidoManual(empresa, lead, texto) {
+  if (!lead) return [];
+  const achou = pedidosNoTexto(empresa, texto);
+  if (!achou.length) return [];
   const feitos = pedidosFeitos(lead, empresa);
   const novos = achou.filter((tipo) => !feitos[tipo]);
   for (const tipo of novos) marcarPedidoFeito(empresa, lead, tipo, 'link na conversa');
@@ -673,6 +681,7 @@ function naoMandarPedido(empresa, lead, tipo, usuario = '') {
 }
 
 module.exports = {
+  pedidosNoTexto,
   percebeuPedidoManual,
   posVenda,
   naoMandarPedido,

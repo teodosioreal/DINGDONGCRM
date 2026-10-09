@@ -68,6 +68,13 @@ function vendaPerto(lead, em) {
   return (estado.vendas || []).find((v) => v.leadId === lead.id && v.status !== 'cancelada' && Math.abs(new Date(v.criadoEm || v.data).getTime() - t) < 48 * 3600 * 1000) || null;
 }
 
+// Pedido de avaliação/comentário, automação, follow-up: o "obrigado pela preferência"
+// dessas mensagens agradece uma venda que já aconteceu — não é venda nova
+function ehPosVenda(empresa, m) {
+  if (m.pedido || m.automacaoId || m.followupPasso || m.eventoInterno) return true;
+  return require('./automacoes').pedidosNoTexto(empresa, m.texto).length > 0;
+}
+
 // 1. frase de venda mandada pela empresa
 function porFrase(empresa, lead) {
   const frases = frasesDa(empresa);
@@ -78,6 +85,7 @@ function porFrase(empresa, lead) {
   (lead.mensagens || []).forEach((m, idx) => {
     if (m.vendaVarrida || m.papel === 'visitante' || !m.texto || new Date(m.em).getTime() < limite) return;
     m.vendaVarrida = true;
+    if (ehPosVenda(empresa, m)) return;
     const t = normal(m.texto);
     if (!frases.some((f) => t.includes(f))) return;
     const valor = valorDaVenda(lead, idx);

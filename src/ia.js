@@ -1348,15 +1348,6 @@ async function gerarTexto(bot, empresa, sistema, pedido, maxTokens = 4000, { bar
   return r.texto.trim();
 }
 
-// Igual ao gerarTexto barato, mas a IA também vê uma foto ({ base64, mime })
-async function perguntarComImagem(bot, empresa, sistema, pedido, foto, maxTokens = 800) {
-  const mime = String(foto?.mime || 'image/jpeg').split(';')[0];
-  if (!/^image\/(jpeg|png|webp|gif)$/.test(mime)) return gerarTexto(bot, empresa, sistema, pedido, maxTokens, { barato: true });
-  const r = await comReserva(empresa, bot, (m) => chamarMotor(empresa, { ...m, modelo: MODELO_BARATO[m.provedor] || m.modelo }, { sistema, turnos: [{ role: 'user', content: pedido }], anexo: { base64: foto.base64, mime }, maxTokens, temperatura: 0.2, esforcoBaixo: false }), { tarefa: 'foto' });
-  if (r.recusado) throw new Error('A IA recusou o pedido.');
-  return r.texto.trim();
-}
-
 // ---------------------------------------------------------------- mensagens escritas pela IA para a equipe
 
 // Escreve uma mensagem nova para o lead a partir de uma instrução interna
@@ -1415,7 +1406,6 @@ module.exports = {
   descreverImagem,
   lerComprovante,
   gerarTexto,
-  perguntarComImagem,
   podeOuvirAudio,
   extrairAcoes,
   descreverErroIa,

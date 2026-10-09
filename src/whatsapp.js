@@ -1414,6 +1414,29 @@ function acharMensagemSaida(empresa, wid, jid = '') {
   return null;
 }
 
+// Mensagem do cliente lida no celular da empresa: as não lidas da conversa ficam só as que
+// chegaram depois dela. true se mudou.
+function lidaNoCelular(empresa, wid, jid) {
+  const daEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id && c.naoLidas > 0);
+  const doJid = jid ? daEmpresa.filter((c) => c.whatsappJid === jid || c.lidJid === jid) : [];
+  for (const c of [...doJid, ...daEmpresa.filter((x) => !doJid.includes(x))]) {
+    const msgs = c.mensagens || [];
+    let depois = 0;
+    for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 60); i--) {
+      const m = msgs[i];
+      if (m.papel !== 'visitante') continue;
+      if (m.wid === wid || m.wids?.includes(wid)) {
+        if (depois >= c.naoLidas) return false;
+        c.naoLidas = depois;
+        console.log('[whatsapp] conversa lida no celular: não lidas atualizadas no CRM');
+        return true;
+      }
+      depois++;
+    }
+  }
+  return false;
+}
+
 function receberStatusEntrega(empresa, dados) {
   let mudou = false;
   if (!empresa.whatsappConfig.statusEntregaEm) {
@@ -1424,7 +1447,12 @@ function receberStatusEntrega(empresa, dados) {
     const fromMe = d?.fromMe ?? d?.key?.fromMe;
     const wid = d?.keyId || d?.key?.id;
     const entrega = STATUS_ENTREGA[d?.status ?? d?.update?.status];
-    if (fromMe === false || !wid || !entrega) continue;
+    if (fromMe === false) {
+      // a empresa leu a mensagem do cliente no celular: lida aqui também
+      if (wid && entrega === 'lida' && lidaNoCelular(empresa, wid, d?.remoteJid || d?.key?.remoteJid || '')) mudou = true;
+      continue;
+    }
+    if (!wid || !entrega) continue;
     const achou = acharMensagemSaida(empresa, wid, d?.remoteJid || d?.key?.remoteJid || '');
     const lead = achou?.lead;
     const m = achou?.m;
