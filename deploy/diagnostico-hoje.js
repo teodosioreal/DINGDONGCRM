@@ -43,7 +43,8 @@ async function evo(e, metodo, caminho) {
     console.log(`      mensagens de clientes (30 h): ${msgs.length} · ao vivo: ${msgs.filter((m) => !m.importada).length} · recuperadas depois de queda: ${msgs.filter((m) => m.importada).length}`);
     console.log(`      fotos/PDFs de clientes: ${midia.length} · com arquivo baixado: ${midia.filter((m) => m.anexo).length} · viraram venda: ${midia.filter((m) => m.anexo?.vendaId).length} · recuperadas sem arquivo: ${midia.filter((m) => m.importada && !m.anexo).length}`);
     for (const m of midia.slice(-12)) {
-      const t = String(m.texto || '').replace(/\d{6,}/g, '[núm]').slice(0, 90);
+      // só o tipo ("[o cliente enviou uma imagem]"), nunca o que o cliente escreveu ou falou
+      const t = (String(m.texto || '').match(/^\[[^\]]{0,60}\]/) || ['[mensagem]'])[0].replace(/ de R\$ ?[\d.,]+/, '');
       console.log(`        ${hora(m.em)} ${m.importada ? 'recuperada' : 'ao vivo'} · ${m.anexo ? `arquivo ${m.anexo.tipo || ''} ${m.anexo.mimetype || ''}${m.anexo.vendaId ? ' · VENDA' : ''}` : 'SEM arquivo'} · "${t}"`);
     }
     // vendas

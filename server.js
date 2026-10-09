@@ -168,6 +168,14 @@ const servidor = app.listen(config.port, config.host, () => {
       if (!whatsapp.configurado(e)) continue;
       await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
       await whatsapp.garantirSemLeituraAutomatica(e); // mensagem só fica lida quando alguém abre a conversa
+      // pedido do dono (09/10): a IA PARA quando a equipe manda mensagem manual. Corrige uma vez a
+      // opção "IA continua depois da mensagem manual" que estava ligada; depois vale o que ele escolher na tela
+      if (e.whatsappConfig.iaAposManual === true && !e.whatsappConfig.iaAposManualRevisadoEm) {
+        e.whatsappConfig.iaAposManual = false;
+        e.whatsappConfig.iaAposManualRevisadoEm = new Date().toISOString();
+        require('./src/db').salvar();
+        console.log(`[whatsapp ${e.id}] "IA continua depois da mensagem manual" estava ligada: desliguei (a IA para quando a equipe responde)`);
+      }
       const ligouAgora = await whatsapp.garantirSyncFullHistory(e).catch(() => false);
       // reinicia o socket NO MÁXIMO UMA VEZ por número: se a Evolution não guardar a
       // opção, reiniciar a cada deploy derrubava o WhatsApp à toa

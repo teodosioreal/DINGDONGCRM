@@ -3875,6 +3875,11 @@ async function cartaoLogIa(id, soErros = false) {
 
 async function trocarIaParaManual(empresaId, chk, depois) {
   const parar = chk.checked;
+  // desligar faz a IA continuar respondendo depois das suas mensagens: confirma (evita clique sem querer)
+  if (!parar && !(await confirmar({ titulo: 'A IA vai continuar respondendo?', texto: 'Desligado, a IA <b>continua</b> respondendo o cliente mesmo depois que você manda uma mensagem manual (pelo painel ou pelo celular). Ligado, ela para e você assume.', botao: 'Deixar a IA continuar' }))) {
+    chk.checked = true;
+    return;
+  }
   try {
     await api(`empresas/${empresaId}/whatsapp`, { method: 'PUT', body: { iaAposManual: !parar } });
     aviso(parar ? 'Ligado: a IA para de responder o cliente quando você manda uma mensagem manual.' : 'Desligado: a IA continua atendendo mesmo depois das suas mensagens manuais.');

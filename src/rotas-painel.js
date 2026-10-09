@@ -473,7 +473,10 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   empresa.whatsappConfig = empresa.whatsappConfig || {};
   if (b.iaAtiva !== undefined) empresa.whatsappConfig.iaAtiva = b.iaAtiva !== false;
   if (b.modoTeste !== undefined) empresa.whatsappConfig.modoTeste = b.modoTeste === true;
-  if (b.iaAposManual !== undefined) empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
+  if (b.iaAposManual !== undefined) {
+    empresa.whatsappConfig.iaAposManual = b.iaAposManual === true;
+    empresa.whatsappConfig.iaAposManualRevisadoEm = empresa.whatsappConfig.iaAposManualRevisadoEm || new Date().toISOString(); // escolha do dono: a correção automática não mexe mais
+  }
   if (b.naoAtropelar !== undefined) empresa.whatsappConfig.naoAtropelar = b.naoAtropelar !== false;
   if (b.iaEconomica !== undefined) empresa.iaEconomica = b.iaEconomica !== false;
   if (b.iaComAgendados !== undefined) empresa.iaComAgendados = b.iaComAgendados === true;
