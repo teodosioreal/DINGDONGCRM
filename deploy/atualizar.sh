@@ -88,6 +88,8 @@ diagnostico() {
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-agenda-hoje.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
   echo "    IA falando depois de mensagem manual (3 dias, sem texto):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-ia-apos-manual.js 2>&1 | head -n 60 || true
+  echo "    Vídeos da biblioteca (formato e se toca liso no WhatsApp):"
+  CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" timeout 90 node deploy/diagnostico-videos.js 2>&1 | head -n 30 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Detalhe do envio para uma conversa (o que a Evolution guardou; sem texto):"
