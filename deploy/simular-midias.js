@@ -36,8 +36,8 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
     console.log(`    prompt cita: ${av.citados.map((c) => c.codigo).join(' ')}`);
     console.log(`    problemas: ${problemas.length ? problemas.join(' · ') : 'nenhum'}`);
     console.log(`    próximo da vez no revezamento: ${JSON.stringify(e.revezamento || {})}`);
-    // simulação
-    if (!bot) continue;
+    // simulação (gasta tokens): só quando pedida (arquivo deploy/simular.pedido)
+    if (!bot || process.env.SIMULAR_IA !== 'sim') { console.log('    simulação com a IA: desligada (só roda quando pedida)'); continue; }
     const contexto = () => ({ canal: 'whatsapp', tarefa: 'teste', midias: midias.paraIa(e), links: midias.linksDa(e), etapas: require('../src/leads').etapasDa(e), etapaAtual: require('../src/leads').etapasDa(e)[0] });
     const clientes = [
       { nome: 'Cliente 1 (site, completo)', msgs: ['Olá! Tenho interesse no Revestimento Completo (Sintético). Meu carro: Onix 2020. Localidade: Petrópolis', 'qual a diferença pro aro?'] },
