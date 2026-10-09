@@ -2419,7 +2419,7 @@ async function paginaMidias(id) {
       ${m.etapas?.length ? `<span class="rotulo">Só na etapa: ${chipEtapas(m.etapas)}</span>` : ''}
       ${(m.assuntos || []).length ? `<span class="rotulo">${chipsAssuntos({ ...m, soFollowup: false })}</span>` : ''}
       ${statusVideo(m)}
-      <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)}${m.umaVezPorConversa === false ? ' · pode repetir' : ''}${m.legenda ? ' · 💬 legenda' : ''}</span>
+      <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)}${m.umaVezPorConversa === false ? ' · pode repetir' : ''}${m.legenda ? ' · 💬 legenda' : ''}${m.revezar ? ` · 🔁 reveza com ${esc(lista.filter((x) => x.id !== m.id && x.revezar === m.revezar).map((x) => codNum(x)).join(', '))}` : ''}</span>
       <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   const cartaoAlbum = (a) => {
@@ -2547,6 +2547,11 @@ async function paginaMidias(id) {
         ${camposQuando(m)}
         ${m.tipo === 'audio' ? '' : `<div class="campo" style="margin-top:12px"><label>Legenda (opcional) ${ajuda('Texto que vai junto com a foto/vídeo/documento no WhatsApp.')}</label><input name="legenda" value="${esc(m.legenda || '')}" maxlength="1000" placeholder="Ex.: Resultado do serviço completo ✨"></div>`}
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="umaVez" ${m.umaVezPorConversa === false ? '' : 'checked'}> Enviar <b>uma vez por conversa</b> (a IA não repete para o mesmo cliente)</label>
+        ${(() => {
+          const outras = lista.filter((x) => x.id !== m.id && x.tipo === m.tipo);
+          const par = m.revezar ? lista.find((x) => x.id !== m.id && x.revezar === m.revezar) : null;
+          return outras.length ? `<div class="campo" style="margin-top:12px"><label>🔁 Revezar com ${ajuda('Quando a IA pedir esta mídia (ou a outra), o CRM alterna entre as duas: o 1º cliente recebe uma, o próximo cliente recebe a outra, e assim por diante. O mesmo cliente nunca recebe as duas.')}</label><select name="revezarCom"><option value="">— não revezar —</option>${outras.map((x) => `<option value="${esc(x.id)}" ${par && par.id === x.id ? 'selected' : ''}>${esc(codNum(x))} · ${esc(x.nome)}</option>`).join('')}</select><small>Ex.: dois vídeos do serviço completo — cada cliente novo recebe um, alternando.</small></div>` : '';
+        })()}
         <div class="campo" style="margin-top:12px"><label>Álbum</label><select name="albumId"><option value="">— nenhum —</option>${albuns.map((a) => `<option value="${esc(a.id)}" ${a.id === m.albumId ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pronta" ${m.pronta === false ? '' : 'checked'}> <b>Ativa</b> — a IA já pode enviar (desmarcada = fica em "a configurar")</label>
         <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
@@ -2558,7 +2563,7 @@ async function paginaMidias(id) {
           if (!(await confirmar({ titulo: 'Sem "quando enviar"?', texto: 'Sem essa regra a IA decide sozinha quando mandar. Quer salvar assim mesmo?', botao: 'Salvar assim' }))) return;
         }
         try {
-          await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: lerEtapas(f), ...lerAssuntos(f), albumId: f.elements.albumId.value, pronta: f.elements.pronta.checked, umaVezPorConversa: f.elements.umaVez.checked, ...(f.elements.legenda ? { legenda: f.elements.legenda.value } : {}) } });
+          await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: lerEtapas(f), ...lerAssuntos(f), albumId: f.elements.albumId.value, pronta: f.elements.pronta.checked, umaVezPorConversa: f.elements.umaVez.checked, ...(f.elements.legenda ? { legenda: f.elements.legenda.value } : {}), ...(f.elements.revezarCom ? { revezarCom: f.elements.revezarCom.value } : {}) } });
           fechar();
           aviso('Mídia salva.');
           paginaMidias(id);

@@ -1793,6 +1793,7 @@ async function enviarRespostaEmPartes(empresa, lead, r, { log, opcoes = {}, vez 
         const res = await enviarMidiasPedidas(empresa, lead, [p.codigo]);
         itens = res.itens;
         for (const t of res.trocas || []) log.avisos.push(`A IA escreveu o código ${t.pedido}, que não existe: o CRM mandou ${t.enviado}, a mídia que combina.`);
+        for (const t of res.revezados || []) log.avisos.push(`🔁 Revezamento: a IA pediu ${t.pedido} e foi ${t.enviado} (a vez deste cliente).`);
       } catch (err) {
         log.erros.push(`Falha ao enviar a mídia ${p.codigo}: ${err.message}`);
       }
@@ -1879,6 +1880,14 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
       if (certa && pode.has(certa.codigo)) {
         pedido = midias.resolverPedido(empresa, certa.codigo);
         resultado.trocas = [...(resultado.trocas || []), { pedido: String(nome), enviado: certa.codigoVisivel }];
+      }
+    }
+    // revezamento: a IA pediu uma mídia que reveza com outra → vai a da vez deste cliente
+    if (papel === 'assistente' && pedido.alvo && pedido.itens.length === 1 && pedido.itens[0] === pedido.alvo && pedido.alvo.revezar) {
+      const daVez = midias.escolherRevezando(empresa, pedido.alvo, (m) => jaEnviouMidia(lead, m.codigo));
+      if (daVez !== pedido.alvo) {
+        resultado.revezados = [...(resultado.revezados || []), { pedido: visivel(pedido.alvo.codigo, nome), enviado: visivel(daVez.codigo) }];
+        pedido = midias.resolverPedido(empresa, daVez.codigo);
       }
     }
     const codigoPedido = visivel(pedido.alvo?.codigo, nome);

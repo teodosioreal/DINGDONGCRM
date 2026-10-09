@@ -387,6 +387,47 @@ function resolverPedido(empresa, ref) {
   return { itens: [], etapas: [], alvo: null };
 }
 
+// ---------------------------------------------------------------- revezamento
+// Duas (ou mais) mídias que se REVEZAM: a IA pede qualquer uma delas e o CRM manda uma por
+// cliente, alternando — 1º cliente recebe a A, o próximo a B, depois a A de novo. O mesmo
+// cliente nunca recebe as duas (se já recebeu uma, fica com ela).
+function revezamentoDe(empresa, midia) {
+  if (!midia?.revezar) return [];
+  return midiasDa(empresa).filter((m) => m.revezar === midia.revezar && !m.pastaId).sort((a, b) => (a.numero || 0) - (b.numero || 0));
+}
+
+function escolherRevezando(empresa, midia, jaRecebeu = () => false) {
+  const grupo = revezamentoDe(empresa, midia).filter((m) => m === midia || prontaParaIa(m));
+  if (grupo.length < 2) return midia;
+  const recebida = grupo.find((m) => jaRecebeu(m));
+  if (recebida) return recebida;
+  empresa.revezamento = empresa.revezamento || {};
+  const i = (Number(empresa.revezamento[midia.revezar]) || 0) % grupo.length;
+  empresa.revezamento[midia.revezar] = i + 1;
+  salvar();
+  return grupo[i];
+}
+
+// liga esta mídia a outra (entra no revezamento dela) ou tira (outroId vazio)
+function definirRevezamento(empresa, midia, outroId) {
+  const antigo = midia.revezar;
+  if (!outroId) {
+    delete midia.revezar;
+  } else {
+    const outra = midiasDa(empresa).find((m) => m.id === outroId && m.id !== midia.id && !m.pastaId);
+    if (!outra) throw Object.assign(new Error('Escolha a outra mídia do revezamento.'), { status: 400 });
+    if (outra.tipo !== midia.tipo) throw Object.assign(new Error('As mídias do revezamento precisam ser do mesmo tipo (vídeo com vídeo, foto com foto).'), { status: 400 });
+    const grupo = outra.revezar || midia.revezar || `rev${Date.now().toString(36)}`;
+    outra.revezar = grupo;
+    midia.revezar = grupo;
+  }
+  // sobrou uma sozinha no grupo antigo: deixa de revezar
+  if (antigo && antigo !== midia.revezar) {
+    const restantes = midiasDa(empresa).filter((m) => m.revezar === antigo);
+    if (restantes.length === 1) delete restantes[0].revezar;
+  }
+}
+
 function acharParaEnviar(empresa, ref) {
   return resolverPedido(empresa, ref).itens;
 }
@@ -958,6 +999,9 @@ function apagarAnexosDoLead(leadId) {
 }
 
 module.exports = {
+  revezamentoDe,
+  escolherRevezando,
+  definirRevezamento,
   TAMANHO_MAXIMO,
   albunsDa,
   novoCodigo,

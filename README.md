@@ -153,6 +153,12 @@ automática. O Início, a aba Conversas e o menu mostram quando está ligado.
 - No painel: card *De onde veio* no lead, linha no topo do chat em Conversas e
   *De onde vêm seus clientes* (30 dias) no Início.
 
+### Mídias que se revezam
+
+- Na edição da mídia, **🔁 Revezar com** liga duas (ou mais) mídias do mesmo tipo. A IA pede
+  qualquer uma delas e o CRM alterna por cliente: o 1º cliente recebe a A, o próximo a B, depois
+  a A de novo. O mesmo cliente nunca recebe as duas. O registro da resposta mostra "🔁 Revezamento".
+
 ### Mensagem só fica lida quando você abre
 
 - A opção "ler sozinho" da Evolution (`readMessages`) fica **desligada** na instância de cada

@@ -770,6 +770,7 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     else if (b.descricao !== undefined && midia.descricao && !midia.soFollowup) midia.pronta = true;
     if (b.assuntos !== undefined) midia.assuntos = midias.listaAssuntos(empresa, b.assuntos);
     if (b.soFollowup !== undefined) midia.soFollowup = b.soFollowup === true;
+    if (b.revezarCom !== undefined) midias.definirRevezamento(empresa, midia, String(b.revezarCom || ''));
   } catch (err) {
     return res.status(err.status || 400).json({ erro: err.message });
   }
