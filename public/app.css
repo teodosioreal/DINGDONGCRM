@@ -1583,3 +1583,8 @@ html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
 .meta-guia ul { padding-left: 18px; display: grid; gap: 6px; }
 .meta-guia code { word-break: break-all; }
 .texto-erro { color: var(--perigo); }
+
+/* Faturamento: resumo do período escolhido */
+.periodo-vendas { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 12px 0 4px; }
+.periodo-vendas > div { display: flex; flex-direction: column; }
+.periodo-vendas b { font-size: 1.15rem; }

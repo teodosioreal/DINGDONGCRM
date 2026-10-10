@@ -2766,13 +2766,28 @@ router.get('/empresas/:id/faturamento', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : '';
-  const lista = comprovantes
+  // período escolhido (dias de Brasília, AAAA-MM-DD): hoje, ontem, 7 dias, escolher datas…
+  const dia = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
+  const de = dia(req.query.de);
+  const ate = dia(req.query.ate) || de;
+  const diaSp = (iso) => {
+    const t = new Date(iso).getTime();
+    return Number.isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 10) : '';
+  };
+  const noPeriodo = comprovantes
     .vendasDa(empresa)
-    .filter((v) => !mes || new Date(new Date(v.data).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 7) === mes)
-    .sort((a, b) => (a.data < b.data ? 1 : -1))
-    .slice(0, 1000)
-    .map(vendaPublica);
-  res.json({ resumo: comprovantes.resumo(empresa), vendas: lista, config: comprovantes.configDa(empresa) });
+    .filter((v) => (!mes || diaSp(v.data).slice(0, 7) === mes) && (!de || (diaSp(v.data) >= de && diaSp(v.data) <= ate)))
+    .sort((a, b) => (a.data < b.data ? 1 : -1));
+  const confirmadas = noPeriodo.filter((v) => v.status === 'confirmada');
+  const total = Math.round(confirmadas.reduce((s, v) => s + (Number(v.valor) || 0), 0) * 100) / 100;
+  const periodo = {
+    total,
+    vendas: confirmadas.length,
+    ticket: confirmadas.length ? Math.round((total / confirmadas.length) * 100) / 100 : 0,
+    aConferir: noPeriodo.filter((v) => v.status === 'conferir').length,
+    canceladas: noPeriodo.filter((v) => v.status === 'cancelada').length
+  };
+  res.json({ resumo: comprovantes.resumo(empresa), vendas: noPeriodo.slice(0, 1000).map(vendaPublica), periodo, config: comprovantes.configDa(empresa) });
 });
 
 // Procurar vendas agora (a mesma varredura de hora em hora, sem IA)

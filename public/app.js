@@ -934,6 +934,26 @@ function periodoPrevisao(chave, de, ate) {
   if (chave === 'tudo') return { de: hoje, ate: '9999-12-31' };
   return { de: de || hoje, ate: ate || de || hoje };
 }
+// Faturamento: períodos para trás (hoje, ontem, últimos 7/30 dias, este mês, mês passado, escolher datas)
+const PERIODOS_VENDAS = [['hoje', 'Hoje'], ['ontem', 'Ontem'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'], ['mes', 'Este mês'], ['mespassado', 'Mês passado'], ['tudo', 'Tudo'], ['datas', 'Escolher datas']];
+function periodoVendas(chave, de, ate) {
+  const hoje = diaSp(new Date().toISOString());
+  const voltar = (dias) => diaSp(new Date(Date.now() - dias * 86400000).toISOString());
+  const [a, m] = hoje.split('-').map(Number);
+  const ultimoDia = (ano, mes) => new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const mesTxt = (ano, mes) => `${ano}-${String(mes).padStart(2, '0')}`;
+  if (chave === 'hoje') return { de: hoje, ate: hoje };
+  if (chave === 'ontem') return { de: voltar(1), ate: voltar(1) };
+  if (chave === '7d') return { de: voltar(6), ate: hoje };
+  if (chave === '30d') return { de: voltar(29), ate: hoje };
+  if (chave === 'mes') return { de: `${mesTxt(a, m)}-01`, ate: hoje };
+  if (chave === 'mespassado') { const [a2, m2] = m === 1 ? [a - 1, 12] : [a, m - 1]; return { de: `${mesTxt(a2, m2)}-01`, ate: `${mesTxt(a2, m2)}-${ultimoDia(a2, m2)}` }; }
+  if (chave === 'tudo') return { de: '', ate: '' };
+  const d1 = /^\d{4}-\d{2}-\d{2}$/.test(de || '') ? de : voltar(6);
+  const d2 = /^\d{4}-\d{2}-\d{2}$/.test(ate || '') ? ate : hoje;
+  return d1 <= d2 ? { de: d1, ate: d2 } : { de: d2, ate: d1 };
+}
+
 function somaPrevisao(d, { de, ate }) {
   const dentro = (x) => x.quando && diaSp(x.quando) >= de && diaSp(x.quando) <= ate;
   const futuros = (d.proximos || []).filter(dentro);
@@ -5732,17 +5752,17 @@ async function paginaFaturamento(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const mes = params.get('mes') || '';
-  const [d, gd] = await Promise.all([api(`empresas/${id}/faturamento?${new URLSearchParams({ mes })}`), api(`empresas/${id}/gastos?${new URLSearchParams({ mes })}`).catch(() => null)]);
+  // período da lista de vendas: o que veio no link, senão o último escolhido (fica lembrado)
+  let lembrado = {};
+  try { lembrado = JSON.parse(localStorage.getItem('faturamento-periodo') || '{}'); } catch { /* sem preferência */ }
+  const chavePer = mes ? 'datas' : params.get('periodo') || lembrado.chave || 'tudo';
+  const per = mes
+    ? (() => { const [a, m] = mes.split('-').map(Number); return { de: `${mes}-01`, ate: `${mes}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, '0')}` }; })()
+    : periodoVendas(chavePer, params.get('de') || lembrado.de, params.get('ate') || lembrado.ate);
+  const [d, gd] = await Promise.all([api(`empresas/${id}/faturamento?${new URLSearchParams({ de: per.de, ate: per.ate })}`), api(`empresas/${id}/gastos?${new URLSearchParams({ mes })}`).catch(() => null)]);
   const r = d.resumo;
   const cfg = d.config;
   const variacao = r.mesAnterior ? Math.round(((r.mes - r.mesAnterior) / r.mesAnterior) * 100) : null;
-  const meses = [];
-  for (let i = 0; i < 12; i++) {
-    const dt = new Date();
-    dt.setDate(1);
-    dt.setMonth(dt.getMonth() - i);
-    meses.push({ id: dt.toISOString().slice(0, 7), nome: dt.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
-  }
   const maxDia = Math.max(...r.porDia.map((x) => x.total), 0);
   const topo = maxDia ? Math.ceil(maxDia / 10 ** Math.floor(Math.log10(maxDia))) * 10 ** Math.floor(Math.log10(maxDia)) : 100;
   const iMaior = r.porDia.findIndex((x) => x.total === maxDia && maxDia > 0);
@@ -5796,8 +5816,16 @@ async function paginaFaturamento(id, params) {
 
     <p class="rotulo">📈 Vendas de quem veio de anúncio do Facebook/Instagram vão para a Meta pela aba <a href="${rotaEmpresa(id, 'meta-ads')}">Meta Ads</a>.</p>
     <div class="card tabela-wrap">
-      <div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Vendas</h2>
-        <select id="filtro-mes" style="width:auto"><option value="">Todas</option>${meses.map((m) => `<option value="${m.id}" ${m.id === mes ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
+      <div style="padding:16px 16px 0">
+        <h2 style="margin:0 0 8px">Vendas</h2>
+        <div class="chips">${PERIODOS_VENDAS.map(([k, t]) => `<button type="button" class="chip-filtro ${chavePer === k ? 'ativo' : ''}" data-per-venda="${k}">${t}</button>`).join('')}</div>
+        ${chavePer === 'datas' ? `<div class="campos" style="margin-top:10px"><div class="campo"><label>De</label><input type="date" id="venda-de" value="${esc(per.de)}"></div><div class="campo"><label>Até</label><input type="date" id="venda-ate" value="${esc(per.ate)}"></div></div>` : ''}
+        <div class="periodo-vendas">
+          <div><span class="rotulo">${per.de ? (per.de === per.ate ? per.de.split('-').reverse().join('/') : `${per.de.split('-').reverse().join('/')} a ${per.ate.split('-').reverse().join('/')}`) : 'Todo o período'}</span><b>${brl(d.periodo.total)}</b></div>
+          <div><span class="rotulo">Vendas confirmadas</span><b>${d.periodo.vendas}</b></div>
+          <div><span class="rotulo">Ticket médio</span><b>${brl(d.periodo.ticket)}</b></div>
+          ${d.periodo.aConferir ? `<div><span class="rotulo">A conferir</span><b class="aviso-texto">${d.periodo.aConferir}</b></div>` : ''}
+        </div>
       </div>
       <table>
         <thead><tr><th>Data</th><th>Cliente</th><th>Valor</th><th class="esconde-mobile">Como entrou</th><th>Situação</th><th></th></tr></thead>
@@ -5849,7 +5877,15 @@ async function paginaFaturamento(id, params) {
     c.onblur = () => { dica.hidden = true; };
   });
 
-  $('#filtro-mes').onchange = (e) => { location.hash = rotaEmpresa(id, 'faturamento') + (e.target.value ? `?mes=${e.target.value}` : ''); };
+  // período das vendas: muda o link (dá para voltar) e fica lembrado para a próxima vez
+  const irPeriodo = (chave, de = '', ate = '') => {
+    try { localStorage.setItem('faturamento-periodo', JSON.stringify({ chave, de, ate })); } catch { /* sem armazenamento */ }
+    location.hash = `${rotaEmpresa(id, 'faturamento')}?${new URLSearchParams(chave === 'datas' ? { periodo: chave, de, ate } : { periodo: chave })}`;
+  };
+  $$('[data-per-venda]').forEach((b) => { b.onclick = () => (b.dataset.perVenda === 'datas' ? irPeriodo('datas', per.de || periodoVendas('7d').de, per.ate || periodoVendas('7d').ate) : irPeriodo(b.dataset.perVenda)); });
+  const mudarDatas = () => irPeriodo('datas', $('#venda-de').value, $('#venda-ate').value);
+  $('#venda-de')?.addEventListener('change', mudarDatas);
+  $('#venda-ate')?.addEventListener('change', mudarDatas);
   if (gd) ligarGastos(id, gd, () => paginaFaturamento(id, params));
   $('#procurar-vendas').onclick = async (e) => {
     try {
