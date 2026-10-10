@@ -86,6 +86,34 @@ function tirarEtiqueta(empresa, zapId) {
   }
 }
 
+const nomeProvisorio = (labelId) => `Etiqueta nova do WhatsApp (nº ${labelId})`;
+function etiquetaProvisoria(empresa, labelId) {
+  const cfg = configDa(empresa);
+  if (!/^\d{1,6}$/.test(String(labelId))) return null;
+  cfg.labels[labelId] = { id: String(labelId), nome: nomeProvisorio(labelId), cor: 0, provisoria: true };
+  const t = etiquetaDoCrm(empresa, cfg.labels[labelId]);
+  require('./alertas').registrar(empresa, 'etiqueta-nova', 'Chegou uma etiqueta nova do WhatsApp, mas o celular não mandou o nome dela. Dê o nome em IA do WhatsApp → Etiquetas do WhatsApp Business (uma vez só).', { nivel: 'aviso' });
+  console.log(`[etiquetas-zap ${empresa.id}] etiqueta nova sem nome (nº ${labelId}): criada com nome provisório`);
+  return t;
+}
+
+// A empresa dá o nome de uma etiqueta que chegou sem nome (só as provisórias)
+function nomear(empresa, labelId, nome) {
+  const cfg = configDa(empresa);
+  const l = cfg.labels[String(labelId)];
+  if (!l?.provisoria) throw Object.assign(new Error('Só dá para dar nome aqui às etiquetas que chegaram sem nome. As outras mudam no celular.'), { status: 400 });
+  const limpo = String(nome || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!limpo) throw Object.assign(new Error('Escreva o nome igual ao do celular.'), { status: 400 });
+  const lista = require('./leads').etiquetasDa(empresa);
+  const t = lista.find((e) => e.zapId === l.id);
+  if (lista.some((e) => e !== t && limpar(e.nome) === limpar(limpo))) throw Object.assign(new Error('Já existe uma etiqueta com esse nome.'), { status: 400 });
+  l.nome = limpo;
+  l.nomeDadoNoCrm = true;
+  if (t) t.nome = limpo;
+  salvar();
+  return resumo(empresa);
+}
+
 // Uma etiqueta do WhatsApp chegou (lista inicial ou edição)
 function registrarLabel(empresa, l) {
   const cfg = configDa(empresa);
@@ -97,8 +125,21 @@ function registrarLabel(empresa, l) {
     return;
   }
   let nome = String(l.name || l.nome || '').trim();
-  if (!nome || ehListaDoWhatsapp(nome)) return;
+  if (ehListaDoWhatsapp(nome)) {
+    // Favoritos, Grupos, Não lidas…: lembra o número para nunca virar "etiqueta nova"
+    cfg.listasDoWhatsapp = { ...(cfg.listasDoWhatsapp || {}), [id]: true };
+    return;
+  }
+  if (!nome) return;
   const antigo = cfg.labels[id];
+  // chegou o nome de verdade de uma etiqueta que estava com nome provisório
+  if (antigo?.provisoria) {
+    const real = /[^\x20-\x7E]/.test(nome) ? nome : consertarAcentos(nome);
+    cfg.labels[id] = { id, nome: real, cor: l.color ?? l.cor ?? 0 };
+    const ligada = require('./leads').etiquetasDa(empresa).find((t) => t.zapId === id);
+    if (ligada) Object.assign(ligada, { nome: real.slice(0, 40), cor: corDoZap(l.color ?? l.cor ?? 0) });
+    return;
+  }
   // nome sem acento (cópia do banco da Evolution) não estraga um nome bom que já temos
   if (antigo && chaveAscii(antigo.nome) === chaveAscii(nome)) nome = /[^\x20-\x7E]/.test(nome) ? nome : antigo.nome;
   else if (!/[^\x20-\x7E]/.test(nome)) nome = consertarAcentos(nome);
@@ -156,8 +197,12 @@ function associar(empresa, jid, labelId, tipo, { aoVivo = false } = {}) {
     else delete cfg.pendentes[jid];
     return false;
   }
-  const t = label ? etiquetaDoCrm(empresa, label) : require('./leads').etiquetasDa(empresa).find((e) => e.zapId === labelId);
-  if (!t) return false; // etiqueta desconhecida: vem na próxima leitura da lista
+  let t = label ? etiquetaDoCrm(empresa, label) : require('./leads').etiquetasDa(empresa).find((e) => e.zapId === labelId);
+  // etiqueta criada no celular depois de conectar: o WhatsApp manda a marcação, mas nem sempre o
+  // nome. Cria já (com nome provisório) para o cliente não ficar sem ela; o nome certo chega na
+  // próxima leitura ou a empresa dá o nome na aba IA do WhatsApp
+  if (!t && tipo === 'add' && !cfg.listasDoWhatsapp?.[labelId]) t = etiquetaProvisoria(empresa, labelId);
+  if (!t) return false;
   const comprovantes = require('./comprovantes');
   // "Agendado" (ou outra de antes da venda) que a venda tirou voltando velha: não volta no CRM
   // e o CRM tira de novo no WhatsApp (fica marcada como "está no zap" para o espelho remover)
@@ -372,4 +417,4 @@ function iniciar() {
   setInterval(() => importarCopia(), Math.min(10 * 60 * 1000, INTERVALO_MS * 4)).unref?.();
 }
 
-module.exports = { consertarAcentos, importarCopia, configDa, carregar, receberWebhook, espelharLead, varrer, resumo, ligar, iniciar, associar, CORES_ZAP };
+module.exports = { nomear, consertarAcentos, importarCopia, configDa, carregar, receberWebhook, espelharLead, varrer, resumo, ligar, iniciar, associar, CORES_ZAP };

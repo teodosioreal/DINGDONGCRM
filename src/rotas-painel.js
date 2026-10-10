@@ -2041,6 +2041,16 @@ router.post('/empresas/:id/etiquetas-zap/carregar', async (req, res) => {
   res.json(await require('./etiquetas-zap').carregar(empresa));
 });
 
+router.put('/empresas/:id/etiquetas-zap/:labelId/nome', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(require('./etiquetas-zap').nomear(empresa, req.params.labelId, req.body?.nome));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 router.put('/empresas/:id/etiquetas-zap', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

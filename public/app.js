@@ -3942,16 +3942,20 @@ async function cartaoEtiquetasZap(id) {
   let r;
   try { r = await api(`empresas/${id}/etiquetas-zap`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
-  setTimeout(() => marcarPronto(el, !r.ativo ? 'off' : r.noZap.length ? 'ok' : null, !r.ativo ? 'Desligado' : `${r.noZap.length} etiqueta(s) ligadas ao celular`));
+  const semNome = r.noZap.filter((l) => l.provisoria && !l.nomeDadoNoCrm).length;
+  // etiqueta nova sem nome: o cartão fica aberto até dar o nome
+  setTimeout(() => marcarPronto(el, !r.ativo ? 'off' : semNome ? null : r.noZap.length ? 'ok' : null, !r.ativo ? 'Desligado' : semNome ? `${semNome} etiqueta(s) nova(s) sem nome — dê o nome` : `${r.noZap.length} etiqueta(s) ligadas ao celular`));
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🏷️ Etiquetas do WhatsApp Business</h2>${interruptor('etq-zap-ativo', r.ativo, r.ativo ? 'Ligado' : 'Desligado')}</div>
     <p class="rotulo" style="margin:0 0 10px">As etiquetas do CRM são <b>só as do WhatsApp Business</b>: criou, renomeou ou apagou no celular, muda aqui. Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Funciona só em número <b>WhatsApp Business</b>.</p>
     ${r.ativo ? `
-    <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ✓</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
+    <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ${l.provisoria && !l.nomeDadoNoCrm ? '⚠️' : '✓'}</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
+    ${r.noZap.filter((l) => l.provisoria).map((l) => `<form class="etq-nomear balao balao-aviso" data-etq-nomear="${esc(l.id)}" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div style="flex:1"><strong>${l.nomeDadoNoCrm ? `Etiqueta “${esc(l.nome)}”` : 'Etiqueta nova sem nome'}</strong><div class="balao-texto">O celular avisou que um cliente foi marcado com uma etiqueta nova (nº ${esc(l.id)}), mas não mandou o nome dela. Escreva o nome <b>igual ao do celular</b> — se o nome certo chegar depois, o CRM troca sozinho.</div><div class="linha-form" style="margin-top:8px"><input name="nome" value="${l.nomeDadoNoCrm ? esc(l.nome) : ''}" placeholder="ex.: Orçamento enviado" maxlength="40"><button type="submit" class="primario">Salvar nome</button></div></div></form>`).join('')}
     ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
     ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
     <p class="rotulo" style="margin:0 0 10px">📱 Celular ligado a esta empresa: <b>${r.numero ? `${esc(telefoneBonito(r.numero))} (final ${esc(r.numero.slice(-4))})` : 'número não lido ainda'}</b> · última etiqueta recebida do celular: <b>${r.ultimoEventoEm ? esc(data(r.ultimoEventoEm)) : 'nenhuma até agora'}</b>.<br>Para testar: neste celular, abra uma conversa e coloque uma etiqueta — ela aparece aqui em segundos. Se você coloca as etiquetas em <b>outro celular</b>, é ele que precisa estar conectado aqui.</p>
-    <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>` : ''}`;
+    <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>
+    ${r.noZap.length ? `<details style="margin-top:10px"><summary class="rotulo"><b>Criei uma etiqueta nova no celular e ela não apareceu</b></summary><div class="rotulo" style="margin-top:6px">O WhatsApp nem sempre avisa quando uma etiqueta é <b>criada</b> (só quando você <b>marca</b> um cliente com ela). Duas saídas:<ol style="margin:6px 0;padding-left:18px"><li><b>Mais rápido:</b> no celular, marque um cliente com a etiqueta nova. Ela aparece aqui em segundos como "Etiqueta nova sem nome" — escreva o nome uma vez e pronto.</li><li><b>Trazer todas com o nome certo:</b> reconecte o WhatsApp (escanear o QR code de novo com o mesmo celular). O celular manda todas as etiquetas. Leva 1 minuto; nenhuma conversa se perde.</li></ol><button type="button" id="etq-zap-reconectar2">🔄 Reconectar para trazer as etiquetas</button></div></details>` : ''}` : ''}`;
   // enquanto a tela está aberta, confere se chegou etiqueta nova (teste ao vivo)
   clearTimeout(cartaoEtiquetasZap.vigia);
   const vigiar = async () => {
@@ -3963,6 +3967,25 @@ async function cartaoEtiquetasZap(id) {
   $('#etq-zap-ativo').onchange = async (e) => {
     try { await api(`empresas/${id}/etiquetas-zap`, { method: 'PUT', body: { ativo: e.target.checked } }); if (e.target.checked) await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
   };
+  $$('[data-etq-nomear]').forEach((f) => {
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await comEspera(f.querySelector('button'), () => api(`empresas/${id}/etiquetas-zap/${encodeURIComponent(f.dataset.etqNomear)}/nome`, { method: 'PUT', body: { nome: f.elements.nome.value } }));
+        aviso('Nome salvo. A etiqueta já aparece com esse nome nos clientes.');
+        cartaoEtiquetasZap(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  const reconectar = async (e) => {
+    if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
+    try {
+      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/sair-numero`, { method: 'POST' }));
+      aviso('Agora escaneie o QR code com o mesmo celular.');
+      paginaWhatsapp(id).then(() => window.scrollTo(0, 0));
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#etq-zap-reconectar2')?.addEventListener('click', reconectar);
   $('#etq-zap-reconectar')?.addEventListener('click', async (e) => {
     if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
     try {
