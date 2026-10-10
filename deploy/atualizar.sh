@@ -83,6 +83,16 @@ diagnostico() {
   # a simulação usa a IA de verdade (gasta tokens): só roda quando o arquivo deploy/simular.pedido existe
   [ -f deploy/simular.pedido ] && SIMULAR_IA=sim || SIMULAR_IA=nao
   CRM_DB_PATH_ORIGINAL="$DB_CRM" SIMULAR_IA="$SIMULAR_IA" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 300 node deploy/simular-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 80 || true
+  EVO_C="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk '/evolution-api|evolution_api/ {print $1; exit}')"
+  if [ -n "$EVO_C" ]; then
+    echo "    Etiquetas na Evolution por dia (10 dias, instâncias do CRM; só contagens):"
+    docker logs "$EVO_C" --since 240h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -F "crm-madara" | grep -iE 'label' \
+      | grep -oE '(Mon|Tue|Wed|Thu|Fri|Sat|Sun) [A-Z][a-z]{2} [0-9]{2}' | sort | uniq -c | sed 's/^/       /' || true
+    echo "    Sincronização do celular / chaves (10 dias, erros e avisos, sem números):"
+    docker logs "$EVO_C" --since 240h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -iE 'app.?state|sync key|key not found|failed to (sync|decode|find)|resync|server_sync|appStateSync' \
+      | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(INFO|WARN|ERROR|VERBOSE|DEBUG|LOG)/\1/' | cut -c1-160 | sort | uniq -c | sort -rn | head -12 | sed 's/^/       /' || true
+    echo "    Nível de log da Evolution: $(docker inspect "$EVO_C" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^LOG_(LEVEL|BAILEYS)=' | tr '\n' ' ')"
+  fi
   echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-alertas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 70 || true
   echo "    Erros de entrega do WhatsApp (48 h, sem texto):"
