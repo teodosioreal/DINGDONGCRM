@@ -1675,6 +1675,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       }
     }
   } catch (err) {
+    usoHoje.mensagens = Math.max(0, usoHoje.mensagens - 1); // não respondeu: não conta no limite do dia
     logs.registrar(empresa, lead, { origem: origemLog, situacao: 'erro', erros: [`A IA não conseguiu responder: ${ia.descreverErroIa(err)}`] });
     // sem crédito / limite / Google fora: o cliente espera e a IA responde sozinha quando voltar
     const expediente = require('./expediente');
