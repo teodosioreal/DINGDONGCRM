@@ -229,9 +229,10 @@ async function pelaEtiqueta(empresa, lead, { aoVivo = true } = {}) {
   return r?.agendamento || null;
 }
 
+// Tirou a etiqueta Agendado (no celular ou no CRM): o cliente sai de Agendamentos
 function etiquetaTirada(empresa, lead) {
   const tickets = require('./tickets');
-  for (const a of (lead.agendamentos || []).filter((x) => x.status === 'agendado' && x.por === 'etiqueta')) {
+  for (const a of (lead.agendamentos || []).filter((x) => x.status === 'agendado')) {
     tickets.cancelarAgendamento(lead, a.id, { por: 'equipe', motivo: 'tirou a etiqueta Agendado', empresa });
   }
 }

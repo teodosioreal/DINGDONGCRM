@@ -174,6 +174,7 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', se
   }
   const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora() };
   lead.agendamentos.push(ag);
+  colocarEtiquetaAgendado(empresa, lead); // agendou no CRM → etiqueta Agendado aqui e no WhatsApp
   const etapa = acharEtapaAgendamento(empresa);
   if (etapa) {
     const etapas = leads.etapasDa(empresa);
@@ -209,6 +210,8 @@ function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado 
       leads.moverEtapa(lead, emp, volta, por === 'ia' ? 'ia-whatsapp' : por === 'detectado' ? 'sistema' : 'equipe');
     }
     require('./aviso-agendamento').agendamentoCancelado?.(emp, lead, ag);
+    // cancelou e não sobrou agendamento: a etiqueta Agendado sai (aqui e no WhatsApp)
+    if (!(lead.agendamentos || []).some((a) => a.status === 'agendado')) tirarEtiquetaAgendado(emp, lead);
   }
   lead.atualizadoEm = agora();
   salvar();
@@ -239,6 +242,10 @@ function finalizarPassados(empresa) {
     }
     if (mudou && !lead.agendamentos.some((a) => a.status === 'agendado')) tirarEtiquetaAgendado(empresa, lead);
   }
+  // agendado no CRM sem a etiqueta (ex.: de antes desta ligação): ganha a etiqueta
+  for (const lead of estado.conversas) {
+    if (lead.empresaId === empresa.id && (lead.agendamentos || []).some((a) => a.status === 'agendado') && colocarEtiquetaAgendado(empresa, lead)) n++;
+  }
   // já comprou e não tem agendamento ativo: a etiqueta Agendado que sobrou (velha) sai
   for (const lead of estado.conversas) {
     if (lead.empresaId !== empresa.id || !(lead.etiquetas || []).length || (lead.agendamentos || []).some((a) => a.status === 'agendado')) continue;
@@ -249,6 +256,20 @@ function finalizarPassados(empresa) {
   if (n) salvar();
   return n;
 }
+// a etiqueta "Agendado" da empresa (a ligada ao WhatsApp, se tiver)
+function etiquetaAgendado(empresa) {
+  const lista = leads.etiquetasDa(empresa).filter((t) => /^agendad/.test(semAcento(t.nome).trim()));
+  return lista.find((t) => t.zapId) || lista[0] || null;
+}
+// põe a etiqueta Agendado no cliente (o espelho manda para o WhatsApp em segundos); true se pôs
+function colocarEtiquetaAgendado(empresa, lead) {
+  const t = etiquetaAgendado(empresa);
+  if (!t || (lead.etiquetas || []).includes(t.id)) return false;
+  lead.etiquetas = [...(lead.etiquetas || []), t.id];
+  if (lead.tiradasPelaVenda?.[t.id]) delete lead.tiradasPelaVenda[t.id]; // posta de propósito: vale
+  return true;
+}
+
 function tirarEtiquetaAgendado(empresa, lead) {
   const ids = new Set(leads.etiquetasDa(empresa).filter((t) => /^agendad/.test(semAcento(t.nome).trim())).map((t) => t.id));
   const tiradas = (lead.etiquetas || []).filter((id) => ids.has(id));
@@ -322,4 +343,6 @@ function aplicarDaIa(empresa, lead, r) {
   return feitos;
 }
 
-module.exports = { finalizarPassados, quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };
+module.exports = {
+  colocarEtiquetaAgendado,
+  tirarEtiquetaAgendado, finalizarPassados, quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };
