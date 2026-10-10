@@ -2914,6 +2914,10 @@ router.put('/empresas/:id/vendas/:vendaId', (req, res) => {
       v.statusPor = req.usuario.email;
       const lead = v.leadId && estado.conversas.find((c) => c.id === v.leadId);
       if (b.status === 'confirmada' && lead) comprovantes.aoVender(empresa, lead);
+      // a equipe resolveu a venda "a conferir": o aviso dela sai do sininho
+      if (b.status !== 'conferir' && v.leadId && !comprovantes.vendasDa(empresa).some((x) => x.leadId === v.leadId && x.status === 'conferir')) {
+        for (const a of estado.alertas || []) if (a.empresaId === empresa.id && a.leadId === v.leadId && a.tipo === 'venda-sem-valor' && !a.resolvido) Object.assign(a, { resolvido: true, lido: true });
+      }
     }
     salvar();
     res.json(vendaPublica(v));

@@ -70,9 +70,18 @@ function vendaPerto(lead, em) {
 
 // Pedido de avaliação/comentário, automação, follow-up: o "obrigado pela preferência"
 // dessas mensagens agradece uma venda que já aconteceu — não é venda nova
+const PEDIDO_POS_VENDA = /\b(avali\w*|coment[aá]\w*|estrelas?|google|depoimento|feedback|indica[cç]\w*)\b/;
 function ehPosVenda(empresa, m) {
-  if (m.pedido || m.automacaoId || m.followupPasso || m.eventoInterno) return true;
+  if (m.pedido || m.automacaoId || m.followupPasso || m.eventoInterno || m.agendadaId) return true;
+  // pedido de avaliação/comentário escrito de qualquer jeito (com ou sem link)
+  if (PEDIDO_POS_VENDA.test(sem(m.texto))) return true;
   return require('./automacoes').pedidosNoTexto(empresa, m.texto).length > 0;
+}
+
+// o cliente já comprou nos 30 dias antes desta mensagem: o "obrigado pela preferência" é dessa venda
+function vendaAntes(lead, em) {
+  const t = new Date(em).getTime();
+  return (estado.vendas || []).find((v) => v.leadId === lead.id && v.status !== 'cancelada' && new Date(v.criadoEm || v.data).getTime() <= t + 60000 && t - new Date(v.criadoEm || v.data).getTime() < 30 * 86400000) || null;
 }
 
 // 1. frase de venda mandada pela empresa
@@ -89,7 +98,7 @@ function porFrase(empresa, lead) {
     const t = normal(m.texto);
     if (!frases.some((f) => t.includes(f))) return;
     const valor = valorDaVenda(lead, idx);
-    const recente = vendaPerto(lead, m.em);
+    const recente = vendaPerto(lead, m.em) || vendaAntes(lead, m.em);
     if (recente) {
       // já tinha venda (ex.: comprovante): só completa o valor que faltava
       if (!recente.valor && valor) Object.assign(recente, { valor, status: 'confirmada', confirmadaEm: agora(), motivoConferir: '' });
@@ -166,6 +175,11 @@ async function varrer() {
   try {
     const limite = new Date(Date.now() - JANELA_DIAS * 86400000).toISOString();
     for (const empresa of estado.empresas) {
+      // aviso "venda sem valor" de venda que a equipe já resolveu (confirmou/cancelou): sai do sininho
+      for (const a of estado.alertas || []) {
+        if (a.empresaId !== empresa.id || a.tipo !== 'venda-sem-valor' || a.resolvido || !a.leadId) continue;
+        if (!(estado.vendas || []).some((v) => v.leadId === a.leadId && v.status === 'conferir')) Object.assign(a, { resolvido: true, lido: true });
+      }
       if (empresa.ativa === false) continue;
       for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id && String(c.atualizadoEm || '') >= limite)) {
         r.frase += porFrase(empresa, lead);
