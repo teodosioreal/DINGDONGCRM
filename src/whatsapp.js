@@ -1319,6 +1319,7 @@ const MOTIVO_EMPRESA_PAUSADA = 'A empresa está pausada no CRM.';
 function registrarIa(empresa, lead, tipo, motivo) {
   const evento = { em: new Date().toISOString(), tipo, motivo: String(motivo || '').slice(0, 300), leadId: lead?.id || null, cliente: lead?.nome || (lead?.telefone ? `+${lead.telefone}` : '') };
   if (lead) lead.iaStatus = { em: evento.em, tipo, motivo: evento.motivo };
+  if (lead && tipo === 'respondeu') delete lead.iaEsperaCota; // respondeu: sai da fila de espera da IA
   if (empresa) {
     empresa.whatsappConfig = empresa.whatsappConfig || {};
     empresa.whatsappConfig.eventos = [evento, ...(empresa.whatsappConfig.eventos || [])].slice(0, 40);
@@ -1610,7 +1611,14 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   if (!bot) return registrarIa(empresa, lead, 'erro', 'A empresa não tem assistente de IA.');
 
   const usoHoje = estado.uso[bot.id]?.data === hoje() ? estado.uso[bot.id] : { data: hoje(), mensagens: 0 };
-  if (usoHoje.mensagens >= (bot.limiteDiario || 500)) return registrarIa(empresa, lead, 'ignorou', `Limite de ${bot.limiteDiario || 500} respostas por dia atingido.`);
+  if (usoHoje.mensagens >= (bot.limiteDiario || 500)) {
+    const motivo = `Limite de ${bot.limiteDiario || 500} respostas por dia atingido.`;
+    if (!opcoes.evento || opcoes.evento === 'RESPOSTA_ATRASADA') {
+      require('./expediente').esperarIa(empresa, lead, motivo);
+      return registrarIa(empresa, lead, 'aguardando-ia', `${motivo} Responde sozinha quando voltar.`);
+    }
+    return registrarIa(empresa, lead, 'ignorou', motivo);
+  }
   usoHoje.mensagens += 1;
   estado.uso[bot.id] = usoHoje;
 
@@ -1668,6 +1676,12 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     }
   } catch (err) {
     logs.registrar(empresa, lead, { origem: origemLog, situacao: 'erro', erros: [`A IA não conseguiu responder: ${ia.descreverErroIa(err)}`] });
+    // sem crédito / limite / Google fora: o cliente espera e a IA responde sozinha quando voltar
+    const expediente = require('./expediente');
+    if ((!opcoes.evento || opcoes.evento === 'RESPOSTA_ATRASADA') && expediente.vaiEsperar(err)) {
+      expediente.esperarIa(empresa, lead, ia.descreverErroIa(err));
+      return registrarIa(empresa, lead, 'aguardando-ia', `A IA não conseguiu responder agora (${ia.descreverErroIa(err).slice(0, 140)}). Responde sozinha quando voltar.`);
+    }
     return registrarIa(empresa, lead, 'erro', `A IA não conseguiu responder: ${ia.descreverErroIa(err)}`);
   }
   const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, modelo: r.modelo, escalou: r.escalou, midias: [], avisos: [], erros: [] };

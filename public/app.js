@@ -4503,7 +4503,7 @@ async function paginaConversas(id, params) {
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
       ${l.iaDesligadaPor ? `<div class="chat-aviso">${{ venda: '💰', agenda: '📅', empresa: '🏢' }[l.iaDesligadaPor] || '🤖'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')}${l.iaDesligadaPor === 'empresa' ? '' : ' <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button>'}</div>` : ''}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
-      ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">${l.iaStatus.tipo === 'aguardando' ? '🕗 <b>A IA responde quando abrir o horário:</b>' : '🤖 <b>A IA não respondeu:</b>'} ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
+      ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">${l.iaStatus.tipo === 'aguardando' ? '🕗 <b>A IA responde quando abrir o horário:</b>' : l.iaStatus.tipo === 'aguardando-ia' ? '⏳ <b>Esperando a IA voltar:</b>' : '🤖 <b>A IA não respondeu:</b>'} ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${htmlProximos(l)}
       ${l.podeReceber ? `
@@ -5352,6 +5352,7 @@ async function cartaoHorarioIa(id) {
       <label class="linha-check" style="margin:0"><input type="checkbox" name="ativo" ${h.ia.ativo ? 'checked' : ''}> <b>A IA só responde no horário</b> (Brasília)</label>
       <div class="horario-linha">das <input type="time" name="inicio" value="${esc(h.ia.inicio)}" required> às <input type="time" name="fim" value="${esc(h.ia.fim)}" required> <button type="submit" class="pequeno primario">Salvar</button></div>
       ${h.ia.esperando ? `<p class="rotulo" style="margin:6px 0 0">⏳ ${h.ia.esperando} cliente(s) esperando o horário abrir.</p>` : ''}
+      ${h.ia.esperandoCredito ? `<p class="rotulo" style="margin:6px 0 0">⏳ ${h.ia.esperandoCredito} cliente(s) esperando a IA voltar (sem crédito ou no limite) — ela responde sozinha quando voltar.</p>` : ''}
     </form>`;
   marcarPronto(el, h.ia.ativo ? 'ok' : 'off', h.ia.ativo ? `${h.ia.inicio}–${h.ia.fim}` : 'Responde a qualquer hora');
   $('#f-horario-ia').onsubmit = async (e) => {

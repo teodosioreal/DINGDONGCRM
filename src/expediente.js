@@ -6,6 +6,10 @@
 //     fora do horário, saem quando abrir.
 //   • Horário da IA responder (desligado por padrão): mensagem que chega fora dele
 //     fica esperando e a IA responde quando o horário abrir (alguns por minuto).
+//   • IA sem crédito/limite (chave grátis acabou, limite por minuto, Google fora): o
+//     cliente fica esperando; a cada 5 min o CRM testa com UM cliente (recusa não gasta)
+//     e, quando volta, responde a fila aos poucos com [RESPOSTA_ATRASADA] (a IA pede
+//     desculpas pela demora). Mais de 24 h sem resposta: não responde sozinha, avisa a equipe.
 
 const { estado, salvar, agora } = require('./db');
 
@@ -140,10 +144,89 @@ function verificar() {
   return n;
 }
 
+// ---------------------------------------------------------------- IA sem crédito / limite
+
+const TESTE_A_CADA_MS = Number(process.env.FILA_IA_TESTE_MS) || 5 * MIN;
+const ESPERA_MAX_MS = 24 * 3600 * 1000;
+const falhas = new Map(); // empresaId → quando a IA falhou por último (crédito/limite)
+const avisadoEm = new Map(); // empresaId → último aviso no sininho (não repete toda hora)
+
+// erro que passa sozinho (ou quando a chave for trocada)? 400 comum e recusa não entram
+function vaiEsperar(err) {
+  const lista = err?.todas && Array.isArray(err.falhas) ? err.falhas.map((f) => f.err) : [err];
+  return lista.some((e) => {
+    const st = Number(e?.status) || 0;
+    return !st || st === 429 || st >= 500 || [401, 402, 403, 404].includes(st) || /API_KEY_INVALID|API key not valid|quota|exhausted|credit|billing|limite/i.test(String(e?.message || ''));
+  });
+}
+
+// põe o cliente na fila "esperando a IA voltar"
+function esperarIa(empresa, lead, motivo) {
+  if (!lead.iaEsperaCota) lead.iaEsperaCota = agora();
+  falhas.set(empresa.id, Date.now());
+  const ultimoAviso = avisadoEm.get(empresa.id) || 0;
+  if (Date.now() - ultimoAviso > 6 * 3600 * 1000) {
+    avisadoEm.set(empresa.id, Date.now());
+    require('./alertas').registrar(empresa, 'ia-erro', `A IA está sem crédito ou no limite (${String(motivo).slice(0, 160)}). Os clientes ficam esperando e a IA responde sozinha quando voltar.`, { nivel: 'aviso', leadId: lead.id });
+  }
+  salvar();
+}
+
+const esperandoIa = (empresaId) => estado.conversas.filter((l) => l.empresaId === empresaId && l.iaEsperaCota);
+
+let rodandoCota = false;
+async function verificarCota() {
+  if (rodandoCota) return 0;
+  rodandoCota = true;
+  let n = 0;
+  try {
+    const whatsapp = require('./whatsapp');
+    for (const empresa of estado.empresas) {
+      const fila = esperandoIa(empresa.id).sort((a, b) => (a.iaEsperaCota < b.iaEsperaCota ? -1 : 1));
+      if (!fila.length || !iaNoHorario(empresa)) continue;
+      if (Date.now() - (falhas.get(empresa.id) || 0) < TESTE_A_CADA_MS) continue; // testa de 5 em 5 min
+      let feitos = 0;
+      let velhos = 0;
+      for (const lead of fila) {
+        if (feitos >= POR_MINUTO) break;
+        const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada && !m.eventoInterno);
+        const ultima = msgs[msgs.length - 1];
+        // a equipe já respondeu, comprou/agendou, IA pausada…: sai da fila sem responder
+        if (ultima?.papel !== 'visitante' || !whatsapp.iaVaiResponder(empresa, lead)) {
+          delete lead.iaEsperaCota;
+          continue;
+        }
+        if (Date.now() - new Date(ultima.em).getTime() > ESPERA_MAX_MS) {
+          delete lead.iaEsperaCota;
+          velhos++;
+          continue;
+        }
+        const antes = falhas.get(empresa.id);
+        await whatsapp.responderLead(empresa.id, lead.id, 0, { evento: 'RESPOSTA_ATRASADA' }).catch((err) => console.error(`[fila-ia ${lead.id}]`, err.message));
+        if (falhas.get(empresa.id) !== antes) break; // ainda sem crédito: testa de novo daqui a 5 min
+        delete lead.iaEsperaCota; // respondeu (ou não precisava mais)
+        feitos++;
+        n++;
+      }
+      if (velhos) require('./alertas').registrar(empresa, 'ia-erro', `${velhos} cliente(s) ficaram mais de 24 h sem resposta enquanto a IA estava sem crédito. A IA não responde sozinha tão tarde — confira em Conversas.`, { nivel: 'aviso' });
+      salvar();
+    }
+  } catch (err) {
+    console.error('[fila-ia]', err.message);
+  } finally {
+    rodandoCota = false;
+  }
+  if (n) console.log(`[fila-ia] a IA voltou: ${n} cliente(s) que ficaram sem resposta foram respondidos`);
+  return n;
+}
+
 let timer = null;
 function iniciar() {
   if (timer) return;
-  timer = setInterval(verificar, Number(process.env.EXPEDIENTE_MS) || MIN);
+  timer = setInterval(() => {
+    verificar();
+    verificarCota().catch(() => {});
+  }, Number(process.env.EXPEDIENTE_MS) || MIN);
   timer.unref?.();
 }
 
@@ -153,7 +236,7 @@ function paraPainel(empresa) {
   const c = configIa(empresa);
   return {
     envio: { inicio: textoDe(e.inicio), fim: textoDe(e.fim) },
-    ia: { ativo: c.ativo, inicio: textoDe(c.inicio), fim: textoDe(c.fim), esperando: estado.conversas.filter((l) => l.empresaId === empresa.id && l.iaEsperaHorario).length }
+    ia: { ativo: c.ativo, inicio: textoDe(c.inicio), fim: textoDe(c.fim), esperando: estado.conversas.filter((l) => l.empresaId === empresa.id && l.iaEsperaHorario).length, esperandoCredito: esperandoIa(empresa.id).length }
   };
 }
 
@@ -176,4 +259,4 @@ function salvarPainel(empresa, b = {}) {
   return paraPainel(empresa);
 }
 
-module.exports = { minutosDe, janelaEnvio, configIa, dentro, proximaAbertura, somarNoHorario, vencimento, iaNoHorario, descreverIa, esperarHorario, verificar, iniciar, paraPainel, salvarPainel };
+module.exports = { vaiEsperar, esperarIa, verificarCota, minutosDe, janelaEnvio, configIa, dentro, proximaAbertura, somarNoHorario, vencimento, iaNoHorario, descreverIa, esperarHorario, verificar, iniciar, paraPainel, salvarPainel };
