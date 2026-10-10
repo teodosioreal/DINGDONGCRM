@@ -1447,6 +1447,7 @@ function lidaNoCelular(empresa, wid, jid) {
   return false;
 }
 
+const ERRO_ENTREGA_ESPERA_MS = Number(process.env.ERRO_ENTREGA_ESPERA_MS) || 2 * 60 * 1000;
 function receberStatusEntrega(empresa, dados) {
   let mudou = false;
   if (!empresa.whatsappConfig.statusEntregaEm) {
@@ -1473,8 +1474,14 @@ function receberStatusEntrega(empresa, dados) {
     if (!leads.subirEntrega(m, entrega)) continue;
     mudou = true;
     if (entrega === 'erro') {
-      const oque = m.anexo || m.midiaId ? 'Uma mídia' : 'Uma mensagem';
-      require('./alertas').registrar(empresa, 'whatsapp-envio', `${oque} não foi entregue: o WhatsApp devolveu erro no envio. Tente mandar de novo.`, { leadId: lead.id });
+      // o WhatsApp às vezes devolve erro e aceita a mesma mensagem segundos depois (comum com
+      // contato de id escondido @lid): só avisa se continuar com erro depois de 2 minutos
+      const t = setTimeout(() => {
+        if (m.entrega !== 'erro') return;
+        const oque = m.anexo || m.midiaId ? 'Uma mídia' : 'Uma mensagem';
+        require('./alertas').registrar(empresa, 'whatsapp-envio', `${oque} não foi entregue: o WhatsApp devolveu erro no envio. Tente mandar de novo.`, { leadId: lead.id });
+      }, ERRO_ENTREGA_ESPERA_MS);
+      t.unref?.();
     }
   }
   if (mudou) salvar();
