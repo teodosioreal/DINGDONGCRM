@@ -3035,8 +3035,15 @@ function nomeDoLead(l) {
 }
 
 // 📍 de onde o cliente é (DDD do WhatsApp, o que ele disse na conversa ou a equipe)
-function chipLocal(l, classe = '') {
-  if (!l?.local?.texto) return '';
+// a cidade lida na conversa já está como etiqueta do cliente (ex.: etiqueta "Vassouras")? mostra só a etiqueta
+const simplesLocal = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function localJaEtiqueta(l, etiquetas) {
+  if (!l?.local?.texto || !l.etiquetas?.length || !etiquetas?.length) return false;
+  const partes = l.local.texto.split(' - ')[0].split(',').map(simplesLocal).filter(Boolean);
+  return (l.etiquetas || []).some((tid) => { const t = etiquetas.find((x) => x.id === tid); return t && partes.includes(simplesLocal(t.nome)); });
+}
+function chipLocal(l, classe = '', etiquetas = null) {
+  if (!l?.local?.texto || localJaEtiqueta(l, etiquetas)) return '';
   return `<span class="etiqueta chip-local ${classe}" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>`;
 }
 
@@ -3049,7 +3056,7 @@ function cartaoLead(l, etiquetas) {
   return `
     <a class="cartao-lead" href="#/leads/${esc(l.id)}" draggable="true" data-lead="${esc(l.id)}">
       <span class="cartao-topo"><span class="cartao-quem">${avatarLead(l, 'mini')}<strong>${esc(nomeDoLead(l))}</strong></span>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
-      ${l.etiquetas?.length || l.local?.texto ? `<span class="chips">${chipLocal(l)}${chipsDoLead(l, etiquetas)}</span>` : ''}
+      ${l.etiquetas?.length || l.local?.texto ? `<span class="chips">${chipLocal(l, '', etiquetas)}${chipsDoLead(l, etiquetas)}</span>` : ''}
       <span class="rotulo cartao-texto">${esc(ultima)}</span>
       <span class="cartao-rodape">
         ${l.canais.map((c) => `<span class="etiqueta">${ROTULO_CANAL[c] || c}</span>`).join(' ')}
@@ -3213,7 +3220,7 @@ async function paginaLeads(id, params) {
               <tr>
                 <td><input type="checkbox" class="sel" value="${esc(l.id)}" aria-label="Selecionar"></td>
                 <td><div class="celula-lead">${avatarLead(l, 'mini')}<div><a href="#/leads/${esc(l.id)}"><strong>${esc(nomeDoLead(l))}</strong></a>${l.telefone && l.nome ? `<br><span class="rotulo">${esc(telefoneBonito(l.telefone))}</span>` : ''}${l.precisaHumano ? ' <span class="etiqueta off">chamou a equipe</span>' : ''}</div></div></td>
-                <td class="esconde-mobile"><span class="chips">${chipLocal(l)}${chipsDoLead(l, etiquetas) || (l.local?.texto ? '' : '<span class="rotulo">—</span>')}</span></td>
+                <td class="esconde-mobile"><span class="chips">${chipLocal(l, '', etiquetas)}${chipsDoLead(l, etiquetas) || (l.local?.texto && !localJaEtiqueta(l, etiquetas) ? '' : '<span class="rotulo">—</span>')}</span></td>
                 <td>${esc(l.etapa)}</td>
                 <td class="esconde-mobile">${l.canais.map((c) => ROTULO_CANAL[c] || c).join(' ')}</td>
                 <td class="esconde-mobile rotulo">${data(l.atualizadoEm)}</td>
@@ -3321,7 +3328,7 @@ async function paginaLead(leadId) {
   const etiquetasLead = new Set(l.etiquetas);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho"><div class="lead-quem">${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l, 'grande')}</a>` : avatarLead(l, 'grande')}<div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)}${l.local?.texto ? ` · <span title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''} · desde ${data(l.criadoEm)}${l.noWhatsapp ? ` · <button type="button" class="link-botao" id="atualizar-foto" title="Buscar a foto de perfil do WhatsApp de novo">🔄 ${l.fotoUrl ? 'atualizar foto' : 'buscar foto'}</button>` : ''}</p></div></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
+    <div class="cabecalho"><div class="lead-quem">${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l, 'grande')}</a>` : avatarLead(l, 'grande')}<div><h1>${esc(nomeDoLead(l))}</h1><p class="sub">${esc(l.etapa)}${l.local?.texto && !localJaEtiqueta(l, l.etiquetasEmpresa) ? ` · <span title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''} · desde ${data(l.criadoEm)}${l.noWhatsapp ? ` · <button type="button" class="link-botao" id="atualizar-foto" title="Buscar a foto de perfil do WhatsApp de novo">🔄 ${l.fotoUrl ? 'atualizar foto' : 'buscar foto'}</button>` : ''}</p></div></div><div class="barra"><button type="button" id="registrar-venda">💰 Registrar venda</button><button type="button" id="marcar-agendamento">📅 Agendamento</button>${l.podeReceber ? `<a class="botao primario" href="${rotaEmpresa(l.empresaId, 'conversas')}?lead=${esc(l.id)}">💬 Abrir conversa</a>` : ''}<a class="botao" href="${rotaEmpresa(l.empresaId, 'leads')}">← Leads</a></div></div>
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
@@ -4539,7 +4546,7 @@ async function paginaConversas(id, params) {
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
         ${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l)}</a>` : avatarLead(l)}
-        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
+        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto && !localJaEtiqueta(l, emp.etiquetas) ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
         ${l.noWhatsapp ? `<span title="Follow-up automático deste cliente (mensagens prontas, sem IA)">${interruptor('chat-fup', !l.followupDesligado, '🔁 Follow-up')}</span>` : ''}
