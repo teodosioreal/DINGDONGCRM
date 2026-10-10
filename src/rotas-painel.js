@@ -2144,6 +2144,16 @@ router.post('/empresas/:id/meta-ads/testar', async (req, res) => {
   }
 });
 
+router.post('/empresas/:id/meta-ads/compra-teste', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(await require('./meta-ads').enviarCompraTeste(empresa, req));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 // Horários da empresa: envios automáticos (follow-up/automações) e horário da IA responder
 router.get('/empresas/:id/horarios', (req, res) => {
   const empresa = acharEmpresa(req, res);

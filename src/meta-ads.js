@@ -119,6 +119,16 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   return null;
 }
 
+// erro da Meta em português, com o que fazer
+function traduzirErro(e = {}, status = 0) {
+  const msg = String(e.error_user_msg || e.message || `HTTP ${status}`).replace(/access_token=[^&\s]+/g, 'access_token=[escondido]');
+  if (e.code === 190 || /access token|OAuth/i.test(msg)) return 'token inválido ou vencido — gere outro token no Gerenciador de Eventos e cole de novo';
+  if (e.code === 100 || e.code === 803 || /Unsupported (get|post) request|does not exist|cannot be loaded/i.test(msg)) return 'a Meta não achou esse Pixel com esse token — confira o ID do Pixel e se o token foi gerado nesse mesmo Pixel';
+  if (e.code === 10 || e.code === 200 || /permission/i.test(msg)) return 'o token não tem permissão nesse Pixel — gere o token dentro do próprio Pixel (Configurações → API de Conversões)';
+  if (/test_event_code|test event/i.test(msg)) return 'código de teste inválido — copie de novo na aba Eventos de teste do Pixel';
+  return msg.slice(0, 240);
+}
+
 async function enviarEventos(c, eventos) {
   const corpo = { data: eventos, ...(c.codigoTeste ? { test_event_code: c.codigoTeste } : {}) };
   const r = await fetch(`${URL_GRAPH}/${encodeURIComponent(c.pixelId)}/events?access_token=${encodeURIComponent(c.token)}`, {
@@ -129,8 +139,7 @@ async function enviarEventos(c, eventos) {
   });
   const dados = await r.json().catch(() => ({}));
   if (!r.ok || dados.error) {
-    const e = dados.error || {};
-    const err = new Error(String(e.error_user_msg || e.message || `HTTP ${r.status}`).replace(/access_token=[^&\s]+/g, 'access_token=[escondido]').slice(0, 240));
+    const err = new Error(traduzirErro(dados.error || {}, r.status));
     err.status = r.status;
     throw err;
   }
@@ -233,6 +242,7 @@ function paraPainel(empresa) {
     .sort((a, b) => (a.clicouEm < b.clicouEm ? 1 : -1))
     .slice(0, 50);
   return {
+    testes: empresa.metaAdsTeste || {},
     clientes,
     ativo: c.ativo,
     pixelId: c.pixelId,
@@ -263,22 +273,67 @@ function salvarPainel(empresa, b = {}) {
     ativadoEm: ativo && !atual.ativo ? agora() : atual.ativadoEm || null
   };
   if (b.apagarToken === true) empresa.metaAds = { ...empresa.metaAds, token: '', ativo: false };
+  // trocou o Pixel ou o token: os testes feitos antes não valem mais
+  if (empresa.metaAds.pixelId !== (atual.pixelId || '') || empresa.metaAds.token !== (atual.token || '')) delete empresa.metaAdsTeste;
   salvar();
   if (empresa.metaAds.ativo) setTimeout(() => verificar().catch(() => {}), 2000).unref?.();
   return paraPainel(empresa);
 }
 
 // testa o Pixel e o token sem mandar venda nenhuma (só lê o conjunto de dados)
+const marcarTeste = (empresa, chave, dados) => {
+  empresa.metaAdsTeste = { ...(empresa.metaAdsTeste || {}), [chave]: { ...dados, em: agora() } };
+  salvar();
+};
+
 async function testarConexao(empresa) {
   const c = configDa(empresa);
   if (!c.pixelId || !c.token) throw Object.assign(new Error('Salve o ID do Pixel e o token primeiro.'), { status: 400 });
-  const r = await fetch(`${URL_GRAPH}/${encodeURIComponent(c.pixelId)}?fields=name&access_token=${encodeURIComponent(c.token)}`, { signal: AbortSignal.timeout(15000) });
+  let r;
+  try {
+    r = await fetch(`${URL_GRAPH}/${encodeURIComponent(c.pixelId)}?fields=name&access_token=${encodeURIComponent(c.token)}`, { signal: AbortSignal.timeout(15000) });
+  } catch {
+    throw Object.assign(new Error('Não consegui falar com a Meta agora (sem conexão). Tente de novo em instantes.'), { status: 502 });
+  }
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d.error) {
-    const msg = String(d.error?.message || `HTTP ${r.status}`).replace(/access_token=[^&\s]+/g, '').slice(0, 200);
-    throw Object.assign(new Error(`A Meta recusou: ${msg}`), { status: 400 });
+    const erro = traduzirErro(d.error || {}, r.status);
+    marcarTeste(empresa, 'conexao', { ok: false, erro });
+    throw Object.assign(new Error(`A Meta recusou: ${erro}.`), { status: 400 });
   }
+  marcarTeste(empresa, 'conexao', { ok: true, nome: d.name || '' });
   return { ok: true, nome: d.name || '' };
 }
 
-module.exports = { configDa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, telefoneDe };
+// compra de TESTE (R$ 1,00) só para "Eventos de teste" do Pixel: confere o caminho inteiro
+// sem venda de verdade e sem contar na campanha (exige o código de teste)
+async function enviarCompraTeste(empresa, req) {
+  const c = configDa(empresa);
+  if (!c.pixelId || !c.token) throw Object.assign(new Error('Salve o ID do Pixel e o token primeiro.'), { status: 400 });
+  if (!c.codigoTeste) throw Object.assign(new Error('Cole o código de teste (aba "Eventos de teste" do Pixel) e salve antes — sem ele a compra de teste contaria na campanha.'), { status: 400 });
+  const id = `teste-${Date.now()}`;
+  const evento = {
+    event_name: 'Purchase',
+    event_time: Math.floor(Date.now() / 1000),
+    event_id: id,
+    action_source: 'website',
+    event_source_url: 'https://crm-teste.invalid/compra-de-teste',
+    user_data: {
+      country: [sha('br')],
+      external_id: [sha(id)],
+      client_ip_address: String(req?.ip || '').replace(/^::ffff:/, '') || '127.0.0.1',
+      client_user_agent: String(req?.get?.('user-agent') || 'DingDong CRM').slice(0, 400)
+    },
+    custom_data: { currency: 'BRL', value: 1 }
+  };
+  try {
+    const r = await enviarEventos(c, [evento]);
+    marcarTeste(empresa, 'evento', { ok: true, codigo: c.codigoTeste });
+    return { ok: true, recebidos: r.events_received ?? 1, codigo: c.codigoTeste };
+  } catch (err) {
+    marcarTeste(empresa, 'evento', { ok: false, erro: err.message });
+    throw Object.assign(new Error(err.status ? `A Meta recusou: ${err.message}.` : 'Não consegui falar com a Meta agora (sem conexão). Tente de novo em instantes.'), { status: 400 });
+  }
+}
+
+module.exports = { configDa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };
