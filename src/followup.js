@@ -305,9 +305,12 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   if ((manual || seq.inicio.tipo !== 'sem_resposta') && seq.pararAoResponder !== false && ultima?.papel === 'visitante' && ultima.em > (manual ? manual.desde : desdeIso)) return { motivo: 'cliente respondeu' };
   let quandoMs = new Date(desdeIso).getTime() + passo.horas * HORA;
   if (agoraMs - quandoMs > JANELA_HORAS * HORA) return { motivo: 'antigo demais' };
-  const auto = require('./automacoes');
-  if (auto.horarioAutomatico(empresa)) quandoMs = auto.noHorarioComercial(quandoMs);
-  return { motivo: null, seq, passo, indice: atual.feitos, quando: new Date(quandoMs).toISOString(), ciclo, pronto: quandoMs <= agoraMs };
+  // horário dos envios: a contagem pausa quando fecha (passos curtos) e nada sai fora dele
+  const comHorario = require('./automacoes').horarioAutomatico(empresa);
+  const ex = require('./expediente');
+  if (comHorario) quandoMs = ex.vencimento(empresa, new Date(desdeIso).getTime(), passo.horas);
+  const aberto = !comHorario || ex.dentro(ex.janelaEnvio(empresa), agoraMs);
+  return { motivo: null, seq, passo, indice: atual.feitos, quando: new Date(quandoMs).toISOString(), ciclo, pronto: quandoMs <= agoraMs && aberto };
 }
 
 // A próxima mensagem de follow-up deste cliente (a sequência que vence primeiro)

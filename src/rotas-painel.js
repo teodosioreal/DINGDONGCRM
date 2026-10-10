@@ -2118,6 +2118,25 @@ router.put('/empresas/:id/followup', (req, res) => {
   }
 });
 
+// Horários da empresa: envios automáticos (follow-up/automações) e horário da IA responder
+router.get('/empresas/:id/horarios', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ ...require('./expediente').paraPainel(empresa), envioLigado: automacoes.horarioAutomatico(empresa) });
+});
+
+router.put('/empresas/:id/horarios', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const b = req.body || {};
+    if (b.envioLigado !== undefined) empresa.horarioAutomatico = b.envioLigado === true;
+    res.json({ ...require('./expediente').salvarPainel(empresa, b), envioLigado: automacoes.horarioAutomatico(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 // ---------------------------------------------------------------- modo clone
 router.get('/empresas/:id/clone', (req, res) => {
   const empresa = acharEmpresa(req, res);

@@ -1722,6 +1722,7 @@ async function paginaWhatsapp(id) {
         ? '<b>Ligado:</b> quem agendou continua sendo atendido pela IA e recebe as sequências feitas para quem agendou.'
         : '<b>Desligado (padrão):</b> quem agendou fica com a IA desligada e sem follow-up, até você ligar na conversa.'}</p>
     </div>
+    <div class="card" id="card-horario-ia"><p class="rotulo">Carregando horário da IA…</p></div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
     <div class="card" id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
@@ -1905,6 +1906,7 @@ async function paginaWhatsapp(id) {
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
   if (w.configurado) { cartaoAvisoAgendamento(id); cartaoEtiquetasZap(id); cartaoListaNegra(id); }
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
+  cartaoHorarioIa(id);
   cartaoEventosIa(id);
   cartaoLogIa(id);
   // 📎 Inserir mídia no prompt: escolhe na lista e o código certo entra onde está o cursor
@@ -4501,7 +4503,7 @@ async function paginaConversas(id, params) {
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
       ${l.iaDesligadaPor ? `<div class="chat-aviso">${{ venda: '💰', agenda: '📅', empresa: '🏢' }[l.iaDesligadaPor] || '🤖'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')}${l.iaDesligadaPor === 'empresa' ? '' : ' <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button>'}</div>` : ''}
       ${l.precisaHumano ? `<div class="chat-aviso">👤 A IA chamou você para este cliente. Responda e depois devolva para a IA se quiser.</div>` : ''}
-      ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">🤖 <b>A IA não respondeu:</b> ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
+      ${l.iaStatus && !l.iaDesligadaPor && l.iaStatus.tipo !== 'respondeu' && l.mensagens[l.mensagens.length - 1]?.papel === 'visitante' ? `<div class="chat-ia-status ${l.iaStatus.tipo}">${l.iaStatus.tipo === 'aguardando' ? '🕗 <b>A IA responde quando abrir o horário:</b>' : '🤖 <b>A IA não respondeu:</b>'} ${esc(l.iaStatus.motivo)}${l.iaPausada ? ' <button type="button" class="pequeno" id="devolver-ia">Devolver para a IA</button>' : emp.ativa === false && ehAdmin() ? ` <button type="button" class="pequeno" data-reativar="${esc(id)}">Reativar a empresa</button>` : ''}</div>` : ''}
       <div class="conversa chat-mensagens" id="chat-mensagens">${htmlConversa(l.mensagens, l.id, l.tickets) || '<p class="rotulo">Sem mensagens.</p>'}</div>
       ${htmlProximos(l)}
       ${l.podeReceber ? `
@@ -5304,17 +5306,62 @@ async function paginaFollowup(id) {
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Follow-up</h1><p class="sub">Mensagens prontas que recuperam quem parou de responder — sem IA, não gastam tokens</p></div></div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `O follow-up sai pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
-    <div class="card horario-auto">
-      <label class="linha-check" style="margin:0"><input type="checkbox" id="horario-auto" ${d.horarioComercial ? 'checked' : ''}> <b>Só enviar das 8h às 20h</b> (horário de Brasília) <span class="rotulo">— vale para o follow-up e as automações da Máquina de vendas</span></label>
-    </div>
+    <div class="card horario-auto" id="card-horario-envio"><p class="rotulo">Carregando horário…</p></div>
     <div id="secao-followup"><div class="card"><p class="rotulo">Carregando follow-up…</p></div></div>
     <p class="rotulo">🖼️ Mídias para os passos: em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a>, aba <b>🔁 Só follow-up</b> (a IA nunca manda essas na conversa).</p>`;
   secaoFollowup(id, emp, $('#secao-followup'));
-  $('#horario-auto').onchange = async (e) => {
+  cartaoHorarioEnvio(id);
+}
+
+// 🕗 Horário dos envios automáticos (follow-up e automações): liga/desliga e de que hora a que hora
+async function cartaoHorarioEnvio(id) {
+  const el = $('#card-horario-envio');
+  if (!el) return;
+  let h;
+  try { h = await api(`empresas/${id}/horarios`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <form id="f-horario-envio" class="horario-form">
+      <label class="linha-check" style="margin:0"><input type="checkbox" name="envioLigado" ${h.envioLigado ? 'checked' : ''}> <b>Só enviar no horário</b> (Brasília) <span class="rotulo">— vale para o follow-up e todas as automações</span></label>
+      <div class="horario-linha">das <input type="time" name="inicio" value="${esc(h.envio.inicio)}" required> às <input type="time" name="fim" value="${esc(h.envio.fim)}" required> <button type="submit" class="pequeno primario">Salvar</button></div>
+      <p class="rotulo" style="margin:6px 0 0">Fora do horário nada sai. No follow-up a contagem <b>pausa quando fecha e continua quando abre</b> (ex.: passo de 3 h, cliente parou 19h → 1 h hoje + 2 h amanhã → sai 10h). Passos de 1 dia ou mais contam dias corridos e, se caírem fora do horário, saem quando abrir.</p>
+    </form>`;
+  const f = $('#f-horario-envio');
+  const salvar = async () => {
     try {
-      await api(`empresas/${id}/followup`, { method: 'PUT', body: { horarioComercial: e.target.checked } });
-      aviso(e.target.checked ? 'Envios automáticos só das 8h às 20h.' : 'Envios automáticos a qualquer hora.');
-    } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
+      await api(`empresas/${id}/horarios`, { method: 'PUT', body: { envioLigado: f.elements.envioLigado.checked, envio: { inicio: f.elements.inicio.value, fim: f.elements.fim.value } } });
+      aviso(f.elements.envioLigado.checked ? `Envios automáticos só das ${f.elements.inicio.value} às ${f.elements.fim.value}.` : 'Envios automáticos a qualquer hora.');
+    } catch (err) { aviso(err.message, true); }
+  };
+  f.onsubmit = (e) => { e.preventDefault(); salvar(); };
+  f.elements.envioLigado.onchange = salvar;
+}
+
+// 🕗 Horário da IA responder (aba IA do WhatsApp)
+async function cartaoHorarioIa(id) {
+  const el = $('#card-horario-ia');
+  if (!el) return;
+  let h;
+  try { h = await api(`empresas/${id}/horarios`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.dataset.cfg = 'horario-ia';
+  el.innerHTML = `
+    <h2 style="margin:0 0 6px">🕗 Horário da IA responder</h2>
+    <p class="rotulo" style="margin:0 0 10px">Mensagem que chega fora do horário <b>fica esperando</b>: a IA responde quando o horário abrir (alguns clientes por minuto, quem esperou mais primeiro). Se a equipe responder antes, a IA não responde. Desligado = a IA responde a qualquer hora.</p>
+    <form id="f-horario-ia" class="horario-form">
+      <label class="linha-check" style="margin:0"><input type="checkbox" name="ativo" ${h.ia.ativo ? 'checked' : ''}> <b>A IA só responde no horário</b> (Brasília)</label>
+      <div class="horario-linha">das <input type="time" name="inicio" value="${esc(h.ia.inicio)}" required> às <input type="time" name="fim" value="${esc(h.ia.fim)}" required> <button type="submit" class="pequeno primario">Salvar</button></div>
+      ${h.ia.esperando ? `<p class="rotulo" style="margin:6px 0 0">⏳ ${h.ia.esperando} cliente(s) esperando o horário abrir.</p>` : ''}
+    </form>`;
+  marcarPronto(el, h.ia.ativo ? 'ok' : 'off', h.ia.ativo ? `${h.ia.inicio}–${h.ia.fim}` : 'Responde a qualquer hora');
+  $('#f-horario-ia').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/horarios`, { method: 'PUT', body: { ia: { ativo: f.elements.ativo.checked, inicio: f.elements.inicio.value, fim: f.elements.fim.value } } }));
+      aviso(f.elements.ativo.checked ? `A IA responde das ${f.elements.inicio.value} às ${f.elements.fim.value}.` : 'A IA responde a qualquer hora.');
+      cartaoHorarioIa(id);
+    } catch (err) { aviso(err.message, true); }
   };
 }
 
@@ -5330,9 +5377,7 @@ async function paginaAutomacoes(id) {
     ${d.whatsappConectado ? '' : balao('Conecte o WhatsApp primeiro', `As automações saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar</a>`, 'aviso')}
     ${balao('Como funciona', 'Tudo que sai sozinho para o cliente fica aqui. <b>Follow-up</b> retoma quem parou de responder; as <b>automações</b> abaixo cuidam do resto (avaliação no Google, pós-venda, reativar quem desistiu…). O CRM confere seus leads a cada minuto, <b>ninguém recebe duas vezes</b>, quem pediu SAIR ou está na lista negra fica de fora, e quando o cliente responde a IA continua a conversa.')}
 
-    <div class="card horario-auto">
-      <label class="linha-check" style="margin:0"><input type="checkbox" id="horario-auto" ${d.horarioAutomatico ? 'checked' : ''}> <b>Só enviar das 8h às 20h</b> (horário de Brasília) <span class="rotulo">— vale para o follow-up e todas as automações</span></label>
-    </div>
+    <div class="card horario-auto" id="card-horario-envio"><p class="rotulo">Carregando horário…</p></div>
 
     <div class="card"><div class="cabecalho" style="margin:0;padding-right:0"><div><h2 style="margin:0">🔁 Follow-up</h2><p class="rotulo" style="margin:2px 0 0">Agora tem aba própria, logo abaixo de Conversas: sequências, mensagens e mídias, tudo sem IA.</p></div><a class="botao primario pequeno" href="${rotaEmpresa(id, 'followup')}">Abrir Follow-up</a></div></div>
 
@@ -5434,12 +5479,7 @@ async function paginaAutomacoes(id) {
     };
   });
   $('#nova-regra').onclick = () => modalAutomacao(emp, null, () => paginaAutomacoes(id));
-  $('#horario-auto').onchange = async (e) => {
-    try {
-      await api(`empresas/${id}/followup`, { method: 'PUT', body: { horarioComercial: e.target.checked } });
-      aviso(e.target.checked ? 'Envios automáticos só das 8h às 20h.' : 'Envios automáticos a qualquer hora.');
-    } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
-  };
+  cartaoHorarioEnvio(id);
 }
 
 async function modalAutomacao(emp, r, depois) {
@@ -5469,7 +5509,7 @@ async function modalAutomacao(emp, r, depois) {
         <div class="campo"><label>Mandar junto (opcional)</label><select name="midiaId"><option value="">Nada</option>${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}" ${m.id === r?.acao.midiaId ? 'selected' : ''}>${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</select></div>
         <div class="campo"><label>Vezes por lead ${ajuda('Quantas vezes, no máximo, o mesmo cliente recebe esta automação.')}</label><input type="number" name="maxPorLead" min="1" max="5" value="${r?.maxPorLead || 1}"></div>
       </div>
-      <p class="rotulo" style="margin:12px 0 0">Quem parou de responder é com o 🔁 Follow-up, no topo da página. O horário (8h–20h) é o mesmo para tudo.</p>
+      <p class="rotulo" style="margin:12px 0 0">Quem parou de responder é com o 🔁 Follow-up, no topo da página. O horário dos envios (no topo da página) é o mesmo para tudo.</p>
       <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="incluirPausados" ${r?.incluirPausados ? 'checked' : ''}> Mandar também para leads que a equipe está atendendo</label>
       <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {

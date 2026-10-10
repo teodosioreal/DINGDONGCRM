@@ -314,13 +314,10 @@ function inicioDaRegra(regra, lead, empresa) {
   return entrouNaEtapaEm(lead, regra.gatilho.etapa);
 }
 
-// Horário comercial (8h–20h de Brasília): fora dele, o envio fica para as 8h
-function noHorarioComercial(ms) {
-  const sp = new Date(ms - 3 * HORA); // Brasília = UTC-3
-  const h = sp.getUTCHours();
-  if (h >= 8 && h < 20) return ms;
-  const base = Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate() + (h >= 20 ? 1 : 0), 8 + 3, 0, 0);
-  return base;
+// Horário dos envios (padrão 8h–20h de Brasília, a empresa escolhe): fora dele, o envio fica para quando abrir
+function noHorarioComercial(ms, empresa) {
+  const ex = require('./expediente');
+  return ex.proximaAbertura(ex.janelaEnvio(empresa), ms);
 }
 
 // O que ainda vai sair para este cliente, com a hora: follow-ups automáticos e agendados
@@ -344,7 +341,7 @@ function proximosEnvios(lead, empresa) {
         // nada mais impede quando chegar a hora?
         if (motivoInelegivel(regra, lead, empresa, quandoMs + 60 * 1000) !== null) continue;
       } else continue;
-      if (horarioAutomatico(empresa)) quandoMs = noHorarioComercial(quandoMs);
+      if (horarioAutomatico(empresa)) quandoMs = noHorarioComercial(quandoMs, empresa);
       lista.push({ tipo: 'automacao', id: regra.id, receita: regra.receita || '', quando: new Date(Math.max(quandoMs, agoraMs)).toISOString(), titulo: regra.nome, detalhe: regra.acao.modo === 'ia' ? 'a IA escreve na hora' : regra.acao.texto.slice(0, 120), porIa: regra.acao.modo === 'ia' });
     }
     // quem já comprou: avaliação no Google e comentário no anúncio sempre aparecem (com "Enviar agora"),
@@ -441,9 +438,9 @@ async function executar(regra, lead, empresa) {
   salvar();
 }
 
-function dentroDoHorario() {
-  const h = disparos.horaEmSaoPaulo();
-  return h >= disparos.HORA_INICIO && h < disparos.HORA_FIM;
+function dentroDoHorario(empresa) {
+  const ex = require('./expediente');
+  return ex.dentro(ex.janelaEnvio(empresa));
 }
 
 // Mensagens agendadas pela equipe num lead
@@ -513,7 +510,7 @@ async function cicloDaEmpresa(empresa) {
     await enviarAgendadas(empresa);
     await require('./followup').processar(empresa); // follow-up em passos (seção Follow-up)
     const ativas = automacoesDa(empresa).filter((r) => r.ativa);
-    if (!ativas.length || (horarioAutomatico(empresa) && !dentroDoHorario())) return;
+    if (!ativas.length || (horarioAutomatico(empresa) && !dentroDoHorario(empresa))) return;
     let enviadas = 0;
     const doEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
     for (const regra of ativas) {

@@ -1341,10 +1341,19 @@ function agendarResposta(empresa, lead) {
     return registrarIa(empresa, lead, 'ignorou', numero ? `Modo teste ligado: o número +${numero} não está na lista de teste.` : 'Modo teste ligado e o WhatsApp não mostrou o número deste contato.');
   }
   cancelarResposta(lead.id);
+  // fora do horário da IA responder: guarda e responde quando abrir
+  const expediente = require('./expediente');
+  const foraDoHorario = () => {
+    expediente.esperarHorario(lead);
+    registrarIa(empresa, lead, 'aguardando', `Fora do horário da IA (${expediente.descreverIa(empresa)}): responde quando abrir.`);
+  };
+  if (!expediente.iaNoHorario(empresa)) return foraDoHorario();
+  delete lead.iaEsperaHorario;
   const disparar = () => {
     // ainda chegando mensagem do cliente (ex.: foto sendo lida): espera mais um pouco
     if (clienteMandando(lead.id)) return agendadas.set(lead.id, setTimeout(disparar, ESPERA_CHEGANDO_MS));
     agendadas.delete(lead.id);
+    if (!expediente.iaNoHorario(empresa)) return foraDoHorario(); // fechou enquanto esperava
     responderLead(empresa.id, lead.id).catch((err) => console.error(`[whatsapp ${lead.id}]`, err.message));
   };
   agendadas.set(lead.id, setTimeout(disparar, esperaParaResponder(empresa, lead)));
