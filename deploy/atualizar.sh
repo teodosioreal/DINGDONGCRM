@@ -87,6 +87,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-alertas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 70 || true
   echo "    Erros de entrega do WhatsApp (48 h, sem texto):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-entrega.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
+  echo "    Vendas criadas sozinhas (7 dias, sem texto):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-vendas-auto.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 50 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"
