@@ -83,11 +83,13 @@ diagnostico() {
   # a simulação usa a IA de verdade (gasta tokens): só roda quando o arquivo deploy/simular.pedido existe
   [ -f deploy/simular.pedido ] && SIMULAR_IA=sim || SIMULAR_IA=nao
   CRM_DB_PATH_ORIGINAL="$DB_CRM" SIMULAR_IA="$SIMULAR_IA" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 300 node deploy/simular-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 80 || true
+  echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-alertas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 70 || true
   echo "    Gasto de IA (hoje e ontem, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"
   pm2 logs "$NOME_PM2" --out --lines 1500 --nostream --raw 2>/dev/null \
-    | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex" \
+    | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex|fila-ia|horario-ia|\[ia " \
     | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 50 | sed 's/^/      /' || true
   echo "    Últimos erros do app (números escondidos):"
   pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
