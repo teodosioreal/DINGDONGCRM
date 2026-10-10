@@ -93,6 +93,7 @@ router.get('/empresas/:empresaId', (req, res) => {
 router.post('/chat', async (req, res) => {
   const { botId, visitanteId, conversaId, pagina } = req.body || {};
   const rastro = origem.normalizarRastro(req.body?.rastro);
+  if (rastro) rastro.navegador = origem.navegadorDe(req, req.body?.rastro?.navegador);
   const mensagem = texto(req.body?.mensagem, 1000);
   if (!mensagem) return res.status(400).json({ erro: 'Mensagem vazia.' });
 
@@ -200,6 +201,7 @@ router.post('/visita', (req, res) => {
   if (!achado) return;
   if (!limiteVisitas(req.ip)) return res.status(429).json({ erro: 'Muitas requisições.' });
   const rastro = origem.normalizarRastro(req.body?.rastro);
+  if (rastro) rastro.navegador = origem.navegadorDe(req, req.body?.rastro?.navegador);
   const conversa = conversaId && estado.conversas.find((c) => c.id === conversaId && c.botId === achado.bot.id);
   if (conversa) {
     origem.registrarNoLead(conversa, rastro);

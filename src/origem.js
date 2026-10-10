@@ -144,6 +144,20 @@ function classificar(c, hostDoSite = '') {
 
 // ---------------------------------------------------------------- guardar no lead
 
+// navegador do visitante (para a Meta Ads ligar a venda ao clique): IP, navegador e
+// os cookies do Pixel (_fbp/_fbc) que o widget leu no site, se o site tiver o Pixel
+function navegadorDe(req, n) {
+  const fbp = txt(n?.fbp, 120);
+  const fbc = txt(n?.fbc, 300);
+  return {
+    ip: txt(req.ip, 60).replace(/^::ffff:/, ''),
+    ua: txt(req.get?.('user-agent'), 400),
+    ...(/^fb\.\d\.\d+\.\d+$/.test(fbp) ? { fbp } : {}),
+    ...(/^fb\.\d\.\d+\.[\w-]+$/.test(fbc) ? { fbc } : {}),
+    em: agora()
+  };
+}
+
 function registrarNoLead(lead, rastro) {
   if (!lead || !rastro) return;
   const site = hostDe(rastro.atual?.url || rastro.chegada?.url || '');
@@ -163,6 +177,8 @@ function registrarNoLead(lead, rastro) {
   }
   o.paginas = vistas.slice(-MAX_PAGINAS);
   o.site = o.site || site;
+  // o navegador da visita que trouxe o clique do anúncio fica (não troca por uma visita sem anúncio)
+  if (rastro.navegador && (!o.navegador || /[?&]fbclid=/.test(rastro.chegada?.url || ''))) o.navegador = rastro.navegador;
   lead.origemSite = o;
   if (!lead.pagina && rastro.atual) lead.pagina = rastro.atual.url;
 }
@@ -371,6 +387,7 @@ function anuncioDoWhatsapp(msg) {
       url: urlLimpa(ad.sourceUrl),
       id: txt(ad.sourceId, 60),
       tipo: txt(ad.sourceType, 20),
+      ...(ad.ctwaClid ? { ctwaClid: txt(ad.ctwaClid, 200) } : {}),
       em: agora()
     };
     if (dados.titulo || dados.texto || dados.url || dados.id) return dados;
@@ -498,6 +515,7 @@ function resumoOrigem(lead, empresa = null) {
 }
 
 module.exports = {
+  navegadorDe,
   normalizarRastro,
   classificar,
   registrarNoLead,

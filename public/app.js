@@ -193,7 +193,8 @@ const ICONES = {
   followup: I('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
   livro: I('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h5"/>'),
   dinheiro: I('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>'),
-  catalogo: I('<path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>')
+  catalogo: I('<path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'),
+  meta: I('<path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/>')
 };
 
 // ---------------------------------------------------------------- tema e menu
@@ -258,7 +259,8 @@ function montarMenu(ativo) {
       ]],
       ['Vender no automático', [
         ['automacoes', 'maquina', 'Máquina de vendas', 'automacoes avaliacao google comentario anuncio pos-venda reativar'],
-        ['disparos', 'disparos', 'Disparos em massa', 'campanha lista enviar para todos promocao']
+        ['disparos', 'disparos', 'Disparos em massa', 'campanha lista enviar para todos promocao'],
+        ['meta-ads', 'meta', 'Meta Ads', 'facebook instagram pixel api de conversoes anuncio vendas campanha fbclid']
       ]],
       ['Sua IA', [
         ['ia', 'cerebro', 'Sobre a empresa', 'treinar instrucoes conhecimento prompt nome atendente'],
@@ -5617,6 +5619,59 @@ function gradeEmpresas(lista) {
 
 // ---------------------------------------------------------------- empresa: faturamento
 
+// 📈 Aba Meta Ads: tudo de Meta Ads fica aqui
+async function paginaMetaAds(id) {
+  const hashDaPagina = location.hash;
+  await definirEmpresaAtual(id);
+  if (location.hash !== hashDaPagina) return;
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Meta Ads</h1><p class="sub">Vendas de quem veio de anúncio do Facebook/Instagram vão para o seu Pixel — sem IA, sem gastar token</p></div></div>
+    <div class="card" id="card-meta-ads"><p class="rotulo">Carregando Meta Ads…</p></div>
+    <div class="card tabela-wrap" id="card-meta-clientes"><p class="rotulo" style="padding:16px">Carregando clientes…</p></div>`;
+  cartaoMetaAds(id);
+}
+
+// 📈 Meta Ads: vendas de quem veio de anúncio do Facebook/Instagram vão para o Pixel (API de Conversões)
+async function cartaoMetaAds(id) {
+  const el = $('#card-meta-ads');
+  if (!el) return;
+  let m;
+  try { m = await api(`empresas/${id}/meta-ads`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
+  if (!el.isConnected) return;
+  el.innerHTML = `
+    <h2 style="margin:0 0 6px">📈 Vendas na Meta Ads ${m.pronto ? `<span class="etiqueta ok">${m.codigoTeste ? 'ligado · modo teste' : 'ligado'}</span>` : '<span class="etiqueta off">desligado</span>'}</h2>
+    <p class="rotulo" style="margin:0 0 10px">Cliente que clicou num anúncio do Facebook/Instagram, foi para o site e chamou no WhatsApp fica marcado por <b>30 dias</b>. Se ele comprar nesse prazo (venda confirmada, com valor), o CRM manda a compra para o seu Pixel — a Meta mostra as vendas na campanha e aprende quem compra. Telefone e nome vão criptografados; nada da conversa vai.</p>
+    <p class="rotulo" style="margin:0 0 10px">👥 <b>${m.clientesComClique}</b> cliente(s) com clique de anúncio nos últimos 30 dias · ✅ <b>${m.enviadas}</b> venda(s) enviadas${m.enviadasTeste ? ` · 🧪 ${m.enviadasTeste} de teste` : ''}</p>
+    <form id="f-meta-ads">
+      <label class="linha-check"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a Meta Ads</b></label>
+      <div class="campo" style="margin-top:8px"><label>ID do Pixel (conjunto de dados) ${ajuda('Gerenciador de Eventos → Fontes de dados → seu Pixel → o número que aparece embaixo do nome.')}</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" placeholder="ex.: 123456789012345"></div>
+      <div class="campo"><label>Token da API de Conversões ${ajuda('Gerenciador de Eventos → seu Pixel → Configurações → API de Conversões → Gerar token de acesso. Copie e cole aqui (o CRM nunca mostra o token de novo).')}</label><input name="token" type="password" autocomplete="off" placeholder="${m.tokenSalvo ? `salvo (termina em …${esc(m.tokenFim)}) — cole outro só para trocar` : 'cole o token aqui'}"></div>
+      <div class="campo"><label>Código de teste (opcional) ${ajuda('Para testar: Gerenciador de Eventos → seu Pixel → Eventos de teste → copie o código (ex.: TEST1234). Com ele, as vendas aparecem só em "Eventos de teste" e não contam na campanha. Apague o código quando estiver tudo certo.')}</label><input name="codigoTeste" value="${esc(m.codigoTeste)}" placeholder="ex.: TEST12345"></div>
+      <div class="acoes"><button type="submit" class="primario">Salvar</button><button type="button" id="testar-meta" ${m.pixelId && m.tokenSalvo ? '' : 'disabled'}>Testar conexão</button></div>
+    </form>
+    ${m.recentes.length ? `<div class="tabela-wrap" style="margin-top:12px"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta Ads</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(new Date(v.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  const lc = $('#card-meta-clientes');
+  if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
+    ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(new Date(c.clicouEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
+  const f = $('#f-meta-ads');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const corpo = { ativo: f.elements.ativo.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
+    if (f.elements.token.value.trim()) corpo.token = f.elements.token.value.trim();
+    try {
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/meta-ads`, { method: 'PUT', body: corpo }));
+      aviso(corpo.ativo ? 'Meta Ads ligado: as vendas de quem veio de anúncio vão para o Pixel.' : 'Meta Ads salvo (desligado).');
+      cartaoMetaAds(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#testar-meta').onclick = async (e) => {
+    try {
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/meta-ads/testar`, { method: 'POST' }));
+      aviso(`Conexão ok com o Pixel${r.nome ? ` "${r.nome}"` : ''}.`);
+    } catch (err) { aviso(err.message, true); }
+  };
+}
+
 async function paginaFaturamento(id, params) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -5683,6 +5738,7 @@ async function paginaFaturamento(id, params) {
 
     ${gd ? htmlGastos(gd) : ''}
 
+    <p class="rotulo">📈 Vendas de quem veio de anúncio do Facebook/Instagram vão para a Meta pela aba <a href="${rotaEmpresa(id, 'meta-ads')}">Meta Ads</a>.</p>
     <div class="card tabela-wrap">
       <div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Vendas</h2>
         <select id="filtro-mes" style="width:auto"><option value="">Todas</option>${meses.map((m) => `<option value="${m.id}" ${m.id === mes ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>
@@ -6692,7 +6748,8 @@ async function rotear() {
         whatsapp: () => paginaWhatsapp(id),
         midias: () => paginaMidias(id),
         organizar: () => paginaOrganizar(id),
-        chave: () => paginaChave(id)
+        chave: () => paginaChave(id),
+        'meta-ads': () => paginaMetaAds(id)
       };
       if (!paginas[sub]) return void (location.hash = rotaEmpresa(id));
       await paginas[sub]();

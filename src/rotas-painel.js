@@ -286,7 +286,7 @@ function principalDa(e) {
 function empresaComExtras(e, req) {
   const bots = estado.bots.filter((b) => b.empresaId === e.id);
   const principal = principalDa(e);
-  const { chavesIa, whatsappConfig, conversoes, midias: _m, motoresIa, usoIa, ...resto } = e;
+  const { chavesIa, whatsappConfig, conversoes, midias: _m, motoresIa, usoIa, metaAds: _meta, ...resto } = e;
   const idsEmpresa = new Set([e.id]);
   return {
     ...resto,
@@ -2113,6 +2113,32 @@ router.put('/empresas/:id/followup', (req, res) => {
   try {
     require('./followup').salvarConfig(empresa, req.body || {});
     res.json({ ...require('./followup').paraPainel(empresa), etapas: leads.etapasDa(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+// Meta Ads: vendas de quem veio de anúncio → Pixel (API de Conversões). O token nunca volta para a tela.
+router.get('/empresas/:id/meta-ads', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (empresa) res.json(require('./meta-ads').paraPainel(empresa));
+});
+
+router.put('/empresas/:id/meta-ads', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(require('./meta-ads').salvarPainel(empresa, req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
+router.post('/empresas/:id/meta-ads/testar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(await require('./meta-ads').testarConexao(empresa));
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }

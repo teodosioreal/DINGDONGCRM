@@ -122,10 +122,23 @@
     }, 1500);
   }
 
+  // cookies do Pixel da Meta no site (se o site tiver o Pixel): ajudam a Meta a ligar a venda ao clique
+  function cookiesMeta() {
+    var n = {};
+    try {
+      String(document.cookie || '').split(';').forEach(function (p) {
+        var kv = p.trim().split('=');
+        if (kv[0] === '_fbp' || kv[0] === '_fbc') n[kv[0].slice(1)] = decodeURIComponent(kv.slice(1).join('=')).slice(0, 300);
+      });
+    } catch (e) { /* sem cookies */ }
+    return n;
+  }
+
   function montarRastro() {
     var r = memoria.rastro || {};
     if (r.paginas && r.paginas.length) anotarPagina();
     return {
+      navegador: cookiesMeta(),
       atual: { url: location.href.split('#')[0].slice(0, 500), titulo: (document.title || '').slice(0, 160) },
       chegada: r.chegada || null,
       primeira: r.primeira || null,

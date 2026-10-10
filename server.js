@@ -129,7 +129,8 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/ia-desligada').iniciar();
   require('./src/whatsapp').iniciarConferenciaEntregas(); // tiques de entrega: confere na Evolution o que ficou "aguardando" // quem já comprou (e quem agendou, por padrão): IA desligada até ligar à mão
   require('./src/eventos-ia').iniciar();
-  require('./src/expediente').iniciar(); // horário da IA responder: quem escreveu fora do horário é respondido quando abrir // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
+  require('./src/expediente').iniciar();
+  require('./src/meta-ads').iniciar(); // vendas de quem veio de anúncio do Facebook/Instagram → Meta Ads (API de Conversões) // horário da IA responder: quem escreveu fora do horário é respondido quando abrir // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
   // mesmo cliente em duas conversas (número com/sem 9, id escondido): junta ao ligar e a cada 20 min
   const revisarDuplicadas = () => {
     for (const e of require('./src/db').estado.empresas) {
