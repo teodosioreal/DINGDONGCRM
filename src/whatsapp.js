@@ -801,7 +801,9 @@ async function receberWebhook(empresa, corpo) {
       empresa.whatsappConfig.perfil = { ...(empresa.whatsappConfig.perfil || {}), estado: st, conferidoEm: agora(), motivoFechou: st === 'close' ? motivo : undefined };
       salvar();
       // caiu (o WhatsApp encerrou a sessão do aparelho): avisa no sininho na hora
-      if (st === 'close' && antes !== 'close') {
+      // reinício pedido no painel (botão "Reiniciar sem QR"): a queda de segundos não é problema
+      const reiniciando = Date.now() < (empresa.whatsappConfig.reiniciandoAte || 0);
+      if (st === 'close' && antes !== 'close' && !reiniciando) {
         const rotulo = MOTIVOS_DESCONEXAO[Number(motivo)] || (motivo !== undefined ? `código ${motivo}` : 'motivo não informado pela Evolution');
         console.log(`[whatsapp ${empresa.id}] desconectou: ${rotulo}`);
         require('./alertas').registrar(empresa, 'whatsapp-desconectado', `O WhatsApp da empresa desconectou (${rotulo}). A IA não recebe nem responde mensagens até conectar de novo em IA do WhatsApp.`);

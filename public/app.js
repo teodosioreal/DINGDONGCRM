@@ -3953,7 +3953,7 @@ async function cartaoEtiquetasZap(id) {
     <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ${l.provisoria && !l.nomeDadoNoCrm ? '⚠️' : '✓'}</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
     ${r.noZap.filter((l) => l.provisoria).map((l) => `<form class="etq-nomear balao balao-aviso" data-etq-nomear="${esc(l.id)}" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div style="flex:1"><strong>${l.nomeDadoNoCrm ? `Etiqueta “${esc(l.nome)}”` : 'Etiqueta nova sem nome'}</strong><div class="balao-texto">O celular avisou que um cliente foi marcado com uma etiqueta nova (nº ${esc(l.id)}), mas não mandou o nome dela. Escreva o nome <b>igual ao do celular</b> — se o nome certo chegar depois, o CRM troca sozinho.</div><div class="linha-form" style="margin-top:8px"><input name="nome" value="${l.nomeDadoNoCrm ? esc(l.nome) : ''}" placeholder="ex.: Orçamento enviado" maxlength="40"><button type="submit" class="primario">Salvar nome</button></div></div></form>`).join('')}
     ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
-    ${parado ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">⚠️</span><div><strong>O celular parou de mandar as etiquetas${r.ultimoEventoEm ? ` (a última chegou em ${esc(data(r.ultimoEventoEm))})` : ''}</strong><div class="balao-texto">Isso acontece às vezes depois que o WhatsApp desconecta e conecta de novo: o celular deixa de avisar quando você cria uma etiqueta ou marca um cliente. Para voltar: clique em <b>Reconectar para trazer as etiquetas</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas de novo. Leva 1 minuto; nenhuma conversa se perde (o CRM busca as mensagens desse intervalo). Faça num horário calmo: enquanto não escanear, a IA não responde.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar3">🔄 Reconectar para trazer as etiquetas</button></div></div></div>` : ''}
+    ${parado ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">⚠️</span><div><strong>O celular parou de mandar as etiquetas${r.ultimoEventoEm ? ` (a última chegou em ${esc(data(r.ultimoEventoEm))})` : ''}</strong><div class="balao-texto">Isso acontece às vezes depois que o WhatsApp desconecta e conecta de novo: o celular deixa de avisar quando você cria uma etiqueta ou marca um cliente. Para voltar: clique em <b>Reconectar para trazer as etiquetas</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas de novo. Leva 1 minuto; nenhuma conversa se perde (o CRM busca as mensagens desse intervalo). Faça num horário calmo: enquanto não escanear, a IA não responde.</div><div class="balao-texto" style="margin-top:6px"><b>Tente primeiro sem QR code:</b> o botão <b>Reiniciar sem QR</b> reconecta o mesmo aparelho em segundos (a IA para só uns segundos). Depois, marque um cliente com uma etiqueta no celular: se a "última etiqueta recebida" mudar, destravou. Se não mudar em 5 minutos, use <b>Reconectar com QR code</b>.</div><div class="acoes" style="margin:8px 0 0"><button type="button" id="etq-zap-reiniciar">⚡ Reiniciar sem QR</button><button type="button" class="primario" id="etq-zap-reconectar3">🔄 Reconectar com QR code</button></div>${r.reiniciadoEm ? `<p class="rotulo" style="margin:6px 0 0">Último reinício sem QR: ${esc(data(r.reiniciadoEm))}</p>` : ''}</div></div>` : ''}
     ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
     <p class="rotulo" style="margin:0 0 10px">📱 Celular ligado a esta empresa: <b>${r.numero ? `${esc(telefoneBonito(r.numero))} (final ${esc(r.numero.slice(-4))})` : 'número não lido ainda'}</b> · última etiqueta recebida do celular: <b>${r.ultimoEventoEm ? esc(data(r.ultimoEventoEm)) : 'nenhuma até agora'}</b>.<br>Para testar: neste celular, abra uma conversa e coloque uma etiqueta — ela aparece aqui em segundos. Se você coloca as etiquetas em <b>outro celular</b>, é ele que precisa estar conectado aqui.</p>
     <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>
@@ -3989,6 +3989,13 @@ async function cartaoEtiquetasZap(id) {
   };
   $('#etq-zap-reconectar2')?.addEventListener('click', reconectar);
   $('#etq-zap-reconectar3')?.addEventListener('click', reconectar);
+  $('#etq-zap-reiniciar')?.addEventListener('click', async (e) => {
+    try {
+      await comEspera(e.currentTarget, () => api(`empresas/${id}/etiquetas-zap/reiniciar`, { method: 'POST' }), 'Reiniciando…');
+      aviso('Conexão reiniciada. Agora marque um cliente com uma etiqueta no celular e veja se "última etiqueta recebida" muda (o CRM também relê as etiquetas em 1 e em 3 minutos).');
+      cartaoEtiquetasZap(id);
+    } catch (err) { aviso(err.message, true); }
+  });
   $('#etq-zap-reconectar')?.addEventListener('click', async (e) => {
     if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
     try {
@@ -4454,7 +4461,7 @@ async function paginaConversas(id, params) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? `<div class="barra"><span class="interruptor-topo" title="Quando você manda uma mensagem manual (painel ou celular), a IA para de responder aquele cliente">${interruptor('conv-ia-para-manual', !emp.whatsapp?.iaAposManual, 'IA para quando eu respondo')}</span><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button></div>` : ''}</div>
+    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? `<div class="barra"><span class="interruptor-topo" title="Quando você manda uma mensagem manual (painel ou celular), a IA para de responder aquele cliente">${interruptor('conv-ia-para-manual', !emp.whatsapp?.iaAposManual, 'IA para quando eu respondo')}</span><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button><button type="button" id="atualizar-etq-conv" title="Lê de novo as etiquetas do WhatsApp Business e as marcações dos clientes">🏷️ Atualizar etiquetas</button></div>` : ''}</div>
     ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <button type="button" class="link-botao" data-desligar-teste="${esc(id)}">desligar</button></p>` : ''}
@@ -4912,6 +4919,21 @@ async function paginaConversas(id, params) {
     if (emp.whatsapp) emp.whatsapp.iaAposManual = !e.target.checked;
   }));
   $('#buscar-mensagens')?.addEventListener('click', () => modalSincronizar(id, () => { assinaturaAberta = ''; carregarLista(); recarregarAberto().catch(() => {}); }));
+  // 🏷️ Atualizar etiquetas: lê de novo do WhatsApp e redesenha a lista
+  $('#atualizar-etq-conv')?.addEventListener('click', async (e) => {
+    try {
+      const antes = await api(`empresas/${id}/etiquetas-zap`).catch(() => null);
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Atualizando…');
+      const novas = antes ? r.noZap.filter((l) => !antes.noZap.some((x) => x.id === l.id)).length : 0;
+      assinaturaAberta = '';
+      carregarLista();
+      recarregarAberto().catch(() => {});
+      const parado = r.noZap.length && (!r.ultimoEventoEm || Date.now() - new Date(r.ultimoEventoEm).getTime() > 3 * 86400000);
+      if (r.erro) aviso(r.erro, true);
+      else if (parado) aviso(`Etiquetas lidas (${r.noZap.length}${novas ? `, ${novas} nova(s)` : ''}). ⚠️ O celular não manda etiquetas desde ${r.ultimoEventoEm ? data(r.ultimoEventoEm) : 'a conexão'} — veja em IA do WhatsApp → Etiquetas do WhatsApp Business.`, true);
+      else aviso(`Etiquetas atualizadas: ${r.noZap.length} do WhatsApp${novas ? ` · ${novas} nova(s)` : ' · nenhuma nova'}.`);
+    } catch (err) { aviso(err.message, true); }
+  });
   // mensagem apagada no chat aberto: redesenha a conversa e a prévia da lista
   $('#inbox-chat').addEventListener('mensagem-apagada', () => {
     assinaturaAberta = '';

@@ -2041,6 +2041,21 @@ router.post('/empresas/:id/etiquetas-zap/carregar', async (req, res) => {
   res.json(await require('./etiquetas-zap').carregar(empresa));
 });
 
+// Tenta destravar as etiquetas sem QR: reinicia a conexão do mesmo aparelho e lê de novo depois
+router.post('/empresas/:id/etiquetas-zap/reiniciar', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
+  const ez = require('./etiquetas-zap');
+  ez.configDa(empresa).reiniciadoEm = agora();
+  empresa.whatsappConfig.reiniciandoAte = Date.now() + 2 * 60 * 1000; // sem alarme de "desconectou" nesse intervalo
+  await whatsapp.reiniciarSocket(empresa);
+  // o celular manda as etiquetas aos poucos depois de reconectar: lê em 1 e em 3 minutos
+  for (const ms of [60 * 1000, 3 * 60 * 1000]) setTimeout(() => ez.carregar(empresa).catch(() => {}), ms).unref?.();
+  salvar();
+  res.json({ ok: true });
+});
+
 router.put('/empresas/:id/etiquetas-zap/:labelId/nome', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

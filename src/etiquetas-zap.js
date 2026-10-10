@@ -392,6 +392,7 @@ function resumo(empresa) {
     ativo: cfg.ativo !== false,
     carregadoEm: cfg.carregadoEm || null,
     ultimoEventoEm: cfg.ultimoEventoEm || null,
+    reiniciadoEm: cfg.reiniciadoEm || null,
     numero: String(empresa.whatsappConfig?.perfil?.numero || ''),
     erro: cfg.erro || '',
     noZap: Object.values(cfg.labels).map((l) => ({ ...l, cor: corDoZap(l.cor) }))
