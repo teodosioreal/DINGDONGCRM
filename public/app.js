@@ -820,6 +820,15 @@ function cartaoEsperandoIa(emp, id) {
   return `<div class="balao balao-aviso" style="margin:0 0 14px"><span class="balao-icone">⏳</span><div><strong>Esperando token da IA: ${n} cliente${n === 1 ? '' : 's'}</strong><div class="balao-texto">A IA ficou sem cota (limite grátis ou crédito) e vai responder ${n === 1 ? 'esse cliente' : `esses ${n} clientes`} sozinha, na ordem de chegada, assim que os tokens voltarem.${emp.chaves?.geminiReserva?.propria || emp.chaves?.geminiReserva2?.propria || emp.chaves?.geminiReserva3?.propria ? '' : ` Para não parar mais: cadastre uma <a href="${rotaEmpresa(id, 'chave')}">chave reserva do Gemini</a>.`}</div></div></div>`;
 }
 
+// ⏱️ Tempo de resposta da IA (WhatsApp): opções e o resumo do cartão fechado
+const TEMPOS_PRIMEIRA = [[0, 'na hora (só a velocidade acima)'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']];
+function resumoTempoIa(w) {
+  const vel = { rapido: 'Rápido', humanizado: 'Humanizado', lento: 'Mais lento' }[w.velocidade || 'humanizado'] || 'Humanizado';
+  const prim = Number(w.esperaPrimeiraSeg || 0);
+  const txtPrim = prim ? (TEMPOS_PRIMEIRA.find(([v]) => v === prim)?.[1] || `${prim} s`) : 'na hora';
+  return `${vel} · 1ª mensagem: ${txtPrim} · pausas ${w.esperaAntesMidiaSeg ?? 3}/${w.esperaDepoisMidiaSeg ?? 10}/${w.esperaEntreTextosSeg ?? 5} s`;
+}
+
 // Painel ao lado das instruções: última mudança, se a IA está usando, última
 // conferência, alterações não salvas, regras conferidas sozinhas e histórico
 function painelInstrucoes(form, botId, canal) {
@@ -1712,18 +1721,32 @@ async function paginaWhatsapp(id) {
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">📥 Mensagens do WhatsApp no painel</h2><button type="button" id="zap-sincronizar">🔄 Buscar mensagens</button></div>
       <p class="rotulo" style="margin:0">Todas as mensagens do WhatsApp aparecem aqui. Se alguma não chegou (o número ficou desconectado, você reconectou, o servidor reiniciou), o CRM busca sozinho a cada 20 minutos e sempre que o WhatsApp volta a conectar — sem a IA responder mensagens antigas.${w.sincronia ? ` <br>Última busca: <b>${esc(data(w.sincronia.em))}</b> · ${w.sincronia.erro ? `<span class="aviso-texto">erro: ${esc(w.sincronia.erro)}</span>` : `${w.sincronia.importadas} mensagem(ns) recuperada(s)${w.sincronia.importadas ? ` em ${w.sincronia.conversas} conversa(s)` : ''}`}.` : ''}</p>
     </div>` : ''}
-    <form class="card" id="f-ritmo" data-pronto="ok" data-resumo="${esc({ rapido: 'Rápido', humanizado: 'Humanizado', lento: 'Mais lento' }[w.velocidade || 'humanizado'] || 'Humanizado')}${w.whatsappAvisos ? ' · avisos de erro no WhatsApp' : ''}">
-      <h2 style="margin:0 0 6px">⏱️ Ritmo das respostas</h2>
-      <p class="rotulo" style="margin:0 0 12px">Quanto a IA espera e quanto tempo fica "digitando…" antes de responder. Mais lento parece mais humano.</p>
+    <form class="card" id="f-ritmo" data-pronto="ok" data-resumo="${esc(resumoTempoIa(w))}">
+      <h2 style="margin:0 0 6px">⏱️ Tempo de resposta da IA</h2>
+      <p class="rotulo" style="margin:0 0 12px">Tudo o que define quanto tempo a IA leva para responder fica aqui.</p>
+      <h3 class="titulo-bloco">1. Velocidade das respostas</h3>
+      <p class="rotulo" style="margin:0 0 8px">Quanto a IA espera e quanto tempo fica "digitando…" antes de cada resposta. Mais lento parece mais humano.</p>
       <div class="opcoes-ritmo">
         ${[['rapido', '⚡ Rápido', 'responde em ~3 s'], ['humanizado', '🙂 Humanizado', 'espera ~8 s e digita no ritmo de uma pessoa'], ['lento', '🐢 Mais lento', 'espera ~25 s, bem calmo']].map(([v, n, d]) => `<label class="opcao-ritmo"><input type="radio" name="velocidade" value="${v}" ${(w.velocidade || 'humanizado') === v ? 'checked' : ''}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}
       </div>
-      <div class="campos" style="margin-top:12px">
-        <div class="campo"><label>Responder a 1ª mensagem de um cliente novo depois de ${ajuda('Só para quem chama pela primeira vez. Ex.: 2 minutos, para não parecer robô. As próximas seguem o ritmo acima.')}</label>
-          <select name="esperaPrimeiraSeg">${[[0, 'na hora (só o ritmo acima)'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']].map(([v, n]) => `<option value="${v}" ${Number(w.esperaPrimeiraSeg || 0) === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-        <div class="campo"><label>WhatsApp para avisos de erro ${ajuda('Se algo der errado (IA sem crédito, WhatsApp desconectado, mídia que não saiu), o CRM manda um aviso para este número. No máximo 1 aviso do mesmo tipo a cada 30 minutos.')}</label><input name="whatsappAvisos" value="${esc(telefoneBonito(w.whatsappAvisos || ''))}" placeholder="Seu número pessoal com DDD (opcional)"></div>
+      <h3 class="titulo-bloco">2. Primeira mensagem de um cliente novo</h3>
+      <div class="campos">
+        <div class="campo"><label>Responder a 1ª mensagem de quem chama pela primeira vez depois de ${ajuda('Só para quem chama pela primeira vez. Ex.: 2 minutos, para não parecer robô. As próximas mensagens seguem a velocidade acima.')}</label>
+          <select name="esperaPrimeiraSeg">${TEMPOS_PRIMEIRA.map(([v, n]) => `<option value="${v}" ${Number(w.esperaPrimeiraSeg || 0) === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
       </div>
-      <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
+      <h3 class="titulo-bloco">3. Pausas entre as partes da resposta</h3>
+      <p class="rotulo" style="margin:0 0 8px">Cada linha da resposta sai como uma mensagem separada e cada mídia sai no lugar em que a IA escreveu o código. Entre um envio e outro o cliente vê "digitando…" por estes segundos:</p>
+      <div class="campos">
+        <div class="campo"><label>Antes de uma mídia (s)</label><input type="number" min="0" max="120" name="esperaAntesMidiaSeg" value="${w.esperaAntesMidiaSeg ?? 3}"></div>
+        <div class="campo"><label>Depois da mídia, antes do texto (s)</label><input type="number" min="0" max="120" name="esperaDepoisMidiaSeg" value="${w.esperaDepoisMidiaSeg ?? 10}"></div>
+        <div class="campo"><label>Entre um texto e outro (s)</label><input type="number" min="0" max="120" name="esperaEntreTextosSeg" value="${w.esperaEntreTextosSeg ?? 5}"></div>
+      </div>
+      <div class="acoes"><button class="primario" type="submit">Salvar tempos</button></div>
+    </form>
+    <form class="card" id="f-avisos-erro" data-pronto="${w.whatsappAvisos ? 'ok' : 'off'}" data-resumo="${w.whatsappAvisos ? `Avisos para ${esc(telefoneBonito(w.whatsappAvisos))}` : 'Nenhum número cadastrado (opcional)'}">
+      <h2 style="margin:0 0 6px">🔔 Avisos de erro no seu WhatsApp</h2>
+      <p class="rotulo" style="margin:0 0 10px">Se algo der errado (IA sem crédito, WhatsApp desconectado, mídia que não saiu), o CRM manda um aviso para este número. No máximo 1 aviso do mesmo tipo a cada 30 minutos.</p>
+      <div class="linha-form"><input name="whatsappAvisos" value="${esc(telefoneBonito(w.whatsappAvisos || ''))}" placeholder="Seu número pessoal com DDD (opcional)"><button type="submit">Salvar</button></div>
     </form>
     <div class="card" data-cfg="ia-manual" data-pronto="ok" data-resumo="${!w.iaAposManual ? 'Ligado: a IA para quando você responde' : 'Desligado: a IA continua atendendo'}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ IA para de responder depois da minha mensagem manual</h2>${interruptor('ia-para-manual', !w.iaAposManual, !w.iaAposManual ? 'Ligado' : 'Desligado')}</div>
@@ -1743,16 +1766,6 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0">${emp.iaEconomica !== false
         ? '<b>Ligado (padrão):</b> a conversa do dia a dia usa um modelo mais em conta da mesma IA (ex.: Claude Sonnet no lugar do Opus — cerca de metade do preço). O modelo escolhido em <i>IAs e chaves</i> entra sozinho nos casos difíceis: objeção de preço, reclamação, negociação, mensagem longa ou quando o modelo econômico avisa que a conversa está difícil.'
         : '<b>Desligado:</b> todas as respostas usam o modelo escolhido em <i>IAs e chaves</i> (mais caro).'} Veja quanto cada tarefa gasta em <a href="${rotaEmpresa(id, 'chave')}">IAs e chaves</a>.</p>
-    </div>
-    <div class="card" data-cfg="ritmo-partes" data-pronto="ok" data-resumo="${w.esperaAntesMidiaSeg ?? 3} s antes da mídia · ${w.esperaDepoisMidiaSeg ?? 10} s depois · ${w.esperaEntreTextosSeg ?? 5} s entre textos">
-      <h2 style="margin:0 0 6px">⏱️ Ritmo das mensagens da IA</h2>
-      <p class="rotulo" style="margin:0 0 10px">Cada linha da resposta da IA sai como uma mensagem separada e cada mídia sai no lugar em que a IA escreveu o código. Entre um envio e outro o cliente vê "digitando…" por estes segundos:</p>
-      <div class="hia-form">
-        <div class="campo"><label>Antes de uma mídia</label><input type="number" min="0" max="120" id="ritmo-antes" value="${w.esperaAntesMidiaSeg ?? 3}"></div>
-        <div class="campo"><label>Depois da mídia, antes do texto</label><input type="number" min="0" max="120" id="ritmo-depois" value="${w.esperaDepoisMidiaSeg ?? 10}"></div>
-        <div class="campo"><label>Entre um texto e outro</label><input type="number" min="0" max="120" id="ritmo-entre" value="${w.esperaEntreTextosSeg ?? 5}"></div>
-        <button type="button" id="ritmo-salvar">Salvar</button>
-      </div>
     </div>
     <div class="card" data-cfg="ia-agendados" data-pronto="ok" data-resumo="${emp.iaComCompradores ? 'IA atende quem comprou' : 'Quem comprou: IA desligada'} · ${emp.iaComAgendados ? 'IA atende quem agendou' : 'quem agendou: IA desligada'}">
       <h2 style="margin:0 0 8px">🛍️ Quem já comprou e quem agendou</h2>
@@ -1942,8 +1955,18 @@ async function paginaWhatsapp(id) {
     e.preventDefault();
     const f = e.target;
     try {
-      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { velocidade: f.elements.velocidade.value, esperaPrimeiraSeg: Number(f.elements.esperaPrimeiraSeg.value), whatsappAvisos: f.elements.whatsappAvisos.value } }));
-      aviso('Ritmo salvo.');
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { velocidade: f.elements.velocidade.value, esperaPrimeiraSeg: Number(f.elements.esperaPrimeiraSeg.value), esperaAntesMidiaSeg: Number(f.elements.esperaAntesMidiaSeg.value), esperaDepoisMidiaSeg: Number(f.elements.esperaDepoisMidiaSeg.value), esperaEntreTextosSeg: Number(f.elements.esperaEntreTextosSeg.value) } }));
+      aviso('Tempos de resposta salvos.');
+      recarregar();
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#f-avisos-erro').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { whatsappAvisos: f.elements.whatsappAvisos.value } }));
+      aviso('Número dos avisos salvo.');
+      recarregar();
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
@@ -1975,13 +1998,6 @@ async function paginaWhatsapp(id) {
     d.innerHTML = `Mídias citadas neste prompt: <b>${citados.length}</b> — ${citados.map((c) => `<span class="codigo-chip">${esc(c.codigo)}</span> ${c.existe ? '✓' : '✕ não existe no cadastro'}`).join(' · ')}${faltam.length ? ` <a href="${rotaEmpresa(id, 'midias')}">Ver em Mídias →</a>` : ''}`;
     area.closest('.campo').after(d);
   }).catch(() => {});
-  $('#ritmo-salvar').onclick = async (e) => {
-    try {
-      await comEspera(e.currentTarget, () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { esperaAntesMidiaSeg: Number($('#ritmo-antes').value), esperaDepoisMidiaSeg: Number($('#ritmo-depois').value), esperaEntreTextosSeg: Number($('#ritmo-entre').value) } }));
-      aviso('Ritmo das mensagens salvo.');
-      recarregar();
-    } catch (err) { aviso(err.message, true); }
-  };
   $('#ia-compradores').onchange = async (e) => {
     const ligar = e.target.checked;
     try {

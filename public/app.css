@@ -1590,3 +1590,4 @@ html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
 .periodo-vendas { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 12px 0 4px; }
 .periodo-vendas > div { display: flex; flex-direction: column; }
 .periodo-vendas b { font-size: 1.15rem; }
+.titulo-bloco { font-size: 14px; margin: 16px 0 6px; }
