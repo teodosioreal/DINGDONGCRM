@@ -168,7 +168,7 @@ router.post('/chat', async (req, res) => {
     // O código no fim da mensagem liga este atendimento ao WhatsApp: lá a IA
     // do WhatsApp continua de onde a do site parou.
     const whatsappUrl = resposta.mensagemWhatsapp
-      ? linkWhatsapp(numeroWhatsapp(bot, empresa), `${resposta.mensagemWhatsapp} (atendimento #${conversa.codigo})`)
+      ? linkWhatsapp(numeroWhatsapp(bot, empresa), `${resposta.mensagemWhatsapp}\n\nProtocolo: #${conversa.codigo}`)
       : null;
     leads.adicionarMensagem(conversa, {
       papel: 'assistente',
