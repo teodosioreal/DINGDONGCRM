@@ -303,6 +303,11 @@ function apagarMidia(empresa, midiaId) {
   } catch {
     /* já não existia */
   }
+  try {
+    fs.unlinkSync(path.join(config.midiasDir, `${midia.id}.capa.jpg`)); // miniatura do vídeo
+  } catch {
+    /* não tinha */
+  }
   salvar();
   return true;
 }

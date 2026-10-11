@@ -49,6 +49,18 @@ base.get('/chat.js', (req, res) => {
   res.sendFile(path.join(pastaPublica, 'chat.js'));
 });
 
+// Miniatura de um vídeo da biblioteca (o painel mostra; feita uma vez pelo ffmpeg)
+base.get('/capa/:id', async (req, res) => {
+  const midia = midias.acharPorId(req.params.id);
+  if (!midia || midia.tipo !== 'video') return res.sendStatus(404);
+  const arq = await require('./src/video').capa(midia).catch(() => null);
+  if (!arq) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('jpg').sendFile(arq, (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
 // Mídias da empresa num endereço público (o WhatsApp baixa daqui para enviar)
 base.get('/midia/:id/:arquivo', (req, res) => {
   const midia = midias.acharPorId(req.params.id);

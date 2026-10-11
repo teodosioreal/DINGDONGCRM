@@ -1606,3 +1606,6 @@ html.dark .meta-status.aviso { background: #3a2e12; color: #fcd34d; }
 .meta-ajuda { border: 1px solid var(--borda); border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
 .meta-ajuda > summary { cursor: pointer; font-weight: 600; }
 .meta-ajuda ol { margin: 8px 0 0 18px; padding: 0; }
+.mini-video { position: relative; display: block; width: 100%; height: 90px; border-radius: 4px; background: #111; overflow: hidden; pointer-events: none; }
+.mini-video img { width: 100%; height: 100%; object-fit: cover; }
+.mini-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 26px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }

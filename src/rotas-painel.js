@@ -728,7 +728,7 @@ router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
 router.get('/empresas/:id/midias', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m) })));
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m), ...(m.tipo === 'video' ? { capa: `${config.urlPublica}/capa/${m.id}` } : {}) })));
 });
 
 // Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)

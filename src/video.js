@@ -266,7 +266,33 @@ function situacao() {
   return { ffmpeg: disponivel(), naFila: fila.length, convertendo: rodando };
 }
 
+// Miniatura (foto) de um vídeo da biblioteca, para o painel mostrar em qualquer celular
+// (o navegador do celular não desenha o quadro de um <video>). Feita uma vez e guardada.
+const fazendoCapa = new Map();
+async function capa(midia) {
+  const fs = require('fs');
+  const path = require('path');
+  const midias = require('./midias');
+  const destino = path.join(require('./config').midiasDir, `${midia.id}.capa.jpg`);
+  if (fs.existsSync(destino)) return destino;
+  if (!disponivel()) return null;
+  if (!fazendoCapa.has(midia.id)) {
+    const origem = midias.caminhoDoArquivo(midia);
+    const tarefa = (async () => {
+      if (!fs.existsSync(origem)) return null;
+      for (const pos of ['1', '0']) {
+        await rodar(['-y', '-ss', pos, '-i', origem, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '5', destino], { tempo: 30000 }).catch(() => null);
+        if (fs.existsSync(destino) && fs.statSync(destino).size > 0) return destino;
+      }
+      return null;
+    })().finally(() => fazendoCapa.delete(midia.id));
+    fazendoCapa.set(midia.id, tarefa);
+  }
+  return fazendoCapa.get(midia.id);
+}
+
 module.exports = {
+  capa,
   argsConversao,
   examinar,
   leveDeTocar, disponivel, enfileirar, revisarPendentes, preparar, situacao, examinar, LIMITE_WHATSAPP };
