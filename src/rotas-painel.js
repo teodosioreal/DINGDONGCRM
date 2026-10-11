@@ -183,6 +183,10 @@ function situacaoChavesEmpresa(e) {
   const saida = {};
   const kv = ia.chaveVerificacoes(e);
   saida.geminiVerificacoes = { propria: Boolean(kv), final: mascarar(kv), usaPadrao: false, funciona: Boolean(kv) };
+  ia.CAMPOS_RESERVA.forEach((campo, i) => {
+    const kr = ia.formatoDeChave('gemini', (e.chavesIa || {})[campo]) ? e.chavesIa[campo] : '';
+    saida[i ? `geminiReserva${i + 1}` : 'geminiReserva'] = { propria: Boolean(kr), final: mascarar(kr), usaPadrao: false, funciona: Boolean(kr) };
+  });
   for (const provedor of Object.keys(ia.PROVEDORES)) {
     const propria = ia.chaveDaEmpresa(provedor, e);
     const padrao = ia.podeUsarChavePadrao(e) ? ia.chavePadrao(provedor) : '';
@@ -296,6 +300,7 @@ function empresaComExtras(e, req) {
     uso30d: ia.usoDoPeriodo(e, 30),
     ...situacaoConfig(e, principal),
     midiasAConfigurar: midias.midiasDa(e).filter((m) => m.pronta === false).length,
+    esperandoIaCredito: require('./expediente').paraPainel(e).ia.esperandoCredito,
     alertasNaoLidos: alertas.naoLidos(idsEmpresa),
     etapas: leads.etapasDa(e),
     etiquetas: leads.etiquetasDa(e),
@@ -367,6 +372,17 @@ router.put('/empresas/:id/chaves', async (req, res) => {
     empresa.chavesIa.geminiApiKeyVerificacoes = verif;
   }
   if ((req.body?.remover || []).includes('gemini-verificacoes')) delete empresa.chavesIa.geminiApiKeyVerificacoes;
+  // chaves RESERVA do Gemini (opcionais): respondem quando a principal bate no limite
+  for (const [i, campo] of ia.CAMPOS_RESERVA.entries()) {
+    const reserva = limparChave(req.body?.[campo]);
+    if (reserva) {
+      try { conferirFormatoChave('gemini', reserva); } catch (err) { return res.status(400).json({ erro: err.message }); }
+      const outras = [empresa.chavesIa.geminiApiKey, ...ia.CAMPOS_RESERVA.filter((c) => c !== campo).map((c) => empresa.chavesIa[c])];
+      if (outras.includes(reserva)) return res.status(400).json({ erro: 'Essa chave já está cadastrada (principal ou a outra reserva). Cada reserva precisa ser de OUTRA conta Google (outro projeto), senão o limite é o mesmo.' });
+      empresa.chavesIa[campo] = reserva;
+    }
+    if ((req.body?.remover || []).includes(i ? `gemini-reserva${i + 1}` : 'gemini-reserva')) delete empresa.chavesIa[campo];
+  }
   // Uma chave só por empresa (Gemini): salvou a chave → o Gemini vira a IA da empresa, com o
   // modelo que ESTA chave tem (conta nova do Google não tem os modelos antigos)
   const novaGemini = empresa.chavesIa.geminiApiKey && limparChave(req.body?.geminiApiKey);
@@ -428,6 +444,13 @@ router.post('/empresas/:id/chaves/testar', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
+    if (/^reserva2?$/.test(req.body?.qual || '')) {
+      const campo = req.body.qual === 'reserva2' ? 'geminiApiKeyReserva2' : 'geminiApiKeyReserva';
+      const kr = ia.formatoDeChave('gemini', (empresa.chavesIa || {})[campo]) ? empresa.chavesIa[campo] : '';
+      if (!kr) return res.status(400).json({ erro: 'Cole a chave reserva primeiro.' });
+      const msg = await ia.testarChave('gemini', empresa, kr);
+      return res.json({ ok: true, mensagem: msg.replace('Chave do Gemini funcionando', 'Chave reserva funcionando').replace(' A IA já pode atender.', '') });
+    }
     if (req.body?.qual === 'verificacoes') {
       const kv = ia.chaveVerificacoes(empresa);
       if (!kv) return res.status(400).json({ erro: 'Cole a chave das verificações primeiro.' });

@@ -904,7 +904,48 @@ function limiteDeSaida(m, maxTokens) {
 // A chave guardada numa IA da ordem foi recusada (apagada/trocada no site da IA) e a
 // empresa tem outra chave dessa IA em "IAs e chaves": usa a da empresa e esquece a velha.
 const chaveRecusada = (err) => err instanceof Anthropic.AuthenticationError || [401, 403].includes(err?.status) || /API_KEY_INVALID|API key not valid|invalid.{0,10}api.?key|incorrect api key/i.test(String(err?.message || ''));
+// Chaves RESERVA do Gemini (opcionais, de outras contas Google): quando a chave em uso bate no
+// limite ou fica sem crédito, a mesma IA responde com a 1ª reserva e, se também acabar, com a
+// 2ª. A conversa continua igual: o histórico e o prompt ficam no CRM, não na chave.
+// Uma chave que acabou fica de fora por 5 min (não gasta uma tentativa a cada mensagem).
+const CAMPOS_RESERVA = ['geminiApiKeyReserva', 'geminiApiKeyReserva2'];
+function chavesReserva(empresa) {
+  return CAMPOS_RESERVA.map((c) => (empresa?.chavesIa || {})[c]).filter((k) => k && formatoDeChave('gemini', k));
+}
+const chaveReserva = (empresa) => chavesReserva(empresa)[0] || '';
+const ACABOU = (err) => Number(err?.status) === 429 || chaveRecusada(err) || /quota|exhausted|credit|billing|limite/i.test(String(err?.message || ''));
+const semCotaAte = new Map(); // "empresa|final da chave" → até quando fica de fora
+const marca = (empresa, k) => `${empresa.id}|${String(k).slice(-8)}`;
 async function chamarMotor(empresa, m, opcoes) {
+  const usada = chaveDoMotor(m, empresa);
+  // a chave das verificações não se mistura: ela segue com o próprio caminho (cai na principal)
+  const ehVerificacao = usada && usada === chaveVerificacoes(empresa);
+  const reservas = m.provedor === 'gemini' && empresa?.id && !ehVerificacao ? chavesReserva(empresa).filter((k) => k !== usada) : [];
+  if (!reservas.length) return chamarMotorChaves(empresa, m, opcoes);
+  const tentativas = [{ k: usada, principal: true }, ...reservas.map((k, i) => ({ k, nome: `${i + 1}ª chave reserva` }))];
+  // as que acabaram há pouco ficam por último (se todas acabaram, tenta mesmo assim)
+  const agoraMs = Date.now();
+  const ordem = [...tentativas.filter((t) => (semCotaAte.get(marca(empresa, t.k)) || 0) <= agoraMs), ...tentativas.filter((t) => (semCotaAte.get(marca(empresa, t.k)) || 0) > agoraMs)];
+  const falhas = [];
+  for (const t of ordem) {
+    try {
+      const r = t.principal ? await chamarMotorChaves(empresa, m, opcoes) : await chamarMotorConferindo(empresa, { ...m, chave: t.k }, opcoes);
+      if (falhas.length) {
+        empresa.iaReserva = { em: new Date().toISOString(), tarefa: tarefaAtual.getStore() || 'outros', usou: `Gemini (${t.nome || 'chave principal'})`, falhas };
+        require('./alertas').registrar(empresa, 'ia-reserva', `Chave do Gemini no limite: a ${t.nome || 'chave principal'} respondeu. ${falhas.join('; ')}`, { nivel: 'aviso' });
+      }
+      return r;
+    } catch (err) {
+      if (!ACABOU(err)) throw err;
+      semCotaAte.set(marca(empresa, t.k), Date.now() + 5 * 60 * 1000);
+      falhas.push(`${t.nome || 'chave principal'}: ${descreverErroIa(err)}`);
+      console.error(`[ia ${empresa.id}] Gemini (${t.nome || 'chave principal'}) no limite/sem crédito: ${descreverErroIa(err)}`);
+      if (t === ordem[ordem.length - 1]) throw err;
+    }
+  }
+}
+
+async function chamarMotorChaves(empresa, m, opcoes) {
   try {
     return await chamarMotorConferindo(empresa, m, opcoes);
   } catch (err) {
@@ -1438,6 +1479,9 @@ function descreverErroIa(err) {
 }
 
 module.exports = {
+  chaveReserva,
+  chavesReserva,
+  CAMPOS_RESERVA,
   chaveVerificacoes,
   modeloGeminiDaChave,
   variarAbertura,
