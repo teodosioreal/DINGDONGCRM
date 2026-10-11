@@ -2163,7 +2163,7 @@ router.post('/empresas/:id/meta-ads/testar', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
-    res.json(await require('./meta-ads').testarConexao(empresa));
+    res.json(await require('./meta-ads').testarConexao(empresa, req));
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }

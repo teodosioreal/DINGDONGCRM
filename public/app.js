@@ -5718,7 +5718,7 @@ async function cartaoMetaAds(id) {
   // conferência: o que já está certo e o que falta
   const itens = [
     [m.pixelId && m.tokenSalvo, 'ID do Pixel e token salvos', m.pixelId && m.tokenSalvo ? `Pixel ${esc(m.pixelId)} · token termina em …${esc(m.tokenFim)}` : 'Passos 1 a 3 abaixo'],
-    [t.conexao?.ok, 'Conexão com a Meta testada', t.conexao ? (t.conexao.ok ? `ok${t.conexao.nome ? ` — Pixel "${esc(t.conexao.nome)}"` : ''} · ${quando(t.conexao.em)}` : `<span class="texto-erro">${esc(t.conexao.erro)}</span>`) : 'Clique em "Testar conexão" (passo 5)'],
+    [t.conexao?.ok, 'Conexão com a Meta testada', t.conexao ? (t.conexao.ok ? `ok — a Meta aceitou um evento de teste · ${quando(t.conexao.em)}` : `<span class="texto-erro">${esc(t.conexao.erro)}</span>`) : 'Clique em "Testar conexão" (passo 5)'],
     [t.evento?.ok, 'Compra de teste recebida pela Meta', t.evento ? (t.evento.ok ? `enviada ${quando(t.evento.em)} — confira em "Eventos de teste" no Pixel` : `<span class="texto-erro">${esc(t.evento.erro)}</span>`) : 'Clique em "Enviar compra de teste" (passo 6)'],
     [m.clientesComClique > 0, 'Clientes chegando pelo anúncio', m.clientesComClique ? `${m.clientesComClique} nos últimos 30 dias` : 'Aparecem quando alguém clica no anúncio, vai para o site e chama no WhatsApp pelo botão do site'],
     [m.pronto && !m.codigoTeste, 'Valendo de verdade', m.pronto ? (m.codigoTeste ? 'Ainda em modo teste: apague o código de teste quando o passo 6 der certo (passo 7)' : 'Ligado — as vendas contam na campanha') : 'Marque "Enviar vendas para a Meta Ads" e salve']
@@ -5741,7 +5741,7 @@ async function cartaoMetaAds(id) {
         `<b>Copie o ID do Pixel.</b> Com o Pixel aberto, o número aparece embaixo do nome dele (ex.: <code>123456789012345</code>) — também está na aba <b>Configurações</b>, em "ID do conjunto de dados". Cole no campo <b>ID do Pixel</b> aqui embaixo.`,
         `<b>Gere o token.</b> Ainda no Pixel, vá na aba <b>Configurações</b>, desça até <b>API de Conversões</b> e clique em <b>Gerar token de acesso</b> (fica em "Configurar integração direta"). Copie o token inteiro — é um texto bem grande que começa com <code>EAA</code> — e cole no campo <b>Token</b>. <br><small class="rotulo">⚠️ Guarde o token só aqui: ele dá acesso ao seu Pixel. O CRM nunca mostra o token de novo.</small>`,
         `<b>Pegue o código de teste.</b> No Pixel, abra a aba <b>Eventos de teste</b>. Na parte "Confirmar eventos do servidor" (ou "API de Conversões") aparece um código como <code>TEST12345</code>. Copie e cole em <b>Código de teste</b>. Deixe essa aba da Meta <b>aberta</b> — é nela que você vai ver o teste chegar.`,
-        `<b>Salve e teste a conexão.</b> Marque <b>Enviar vendas para a Meta Ads</b>, clique em <b>Salvar</b> e depois em <b>Testar conexão</b>. Tem que aparecer "Conexão ok com o Pixel …". Se der erro, a mensagem diz o que corrigir (token vencido, ID errado…).`,
+        `<b>Salve e teste a conexão.</b> Marque <b>Enviar vendas para a Meta Ads</b>, clique em <b>Salvar</b> e depois em <b>Testar conexão</b>. Tem que aparecer "Conexão ok" (o CRM manda um evento de teste que não conta na campanha). Se der erro, a mensagem diz o que corrigir (token vencido, ID errado…).`,
         `<b>Envie uma compra de teste.</b> Clique em <b>Enviar compra de teste</b>. O CRM manda uma compra falsa de R$ 1,00 só para "Eventos de teste". Volte na aba <b>Eventos de teste</b> da Meta: em até 1 minuto deve aparecer um evento <b>Purchase</b> (Compra) com valor <b>1 BRL</b> e origem "Servidor". Apareceu? Está tudo ligado certo. <br><small class="rotulo">Não apareceu em 2 minutos? Confira se o código de teste é o mesmo da tela da Meta (ele muda às vezes) e clique de novo.</small>`,
         `<b>Ligue para valer.</b> Deu certo o teste? <b>Apague o código de teste</b> aqui, clique em <b>Salvar</b> e pronto: daqui pra frente as vendas de quem veio do anúncio contam na campanha. Vendas que já foram só como teste são mandadas de verdade uma vez.`,
         `<b>Confira o botão do WhatsApp no site.</b> O cliente só fica ligado ao anúncio se chamar pelo <b>botão do WhatsApp do site</b> (o do CRM, que coloca "atendimento #código" na mensagem). Quem copia o número e chama direto não é reconhecido. Faça uma prova: abra o site por um link com <code>?fbclid=teste</code> no final, clique no botão do WhatsApp e mande a mensagem — o contato aparece em "Clientes que vieram de anúncio" aqui embaixo.`
@@ -5790,7 +5790,7 @@ async function cartaoMetaAds(id) {
   $('#testar-meta').onclick = async (e) => {
     try {
       const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/meta-ads/testar`, { method: 'POST' }));
-      aviso(`Conexão ok com o Pixel${r.nome ? ` "${r.nome}"` : ''}.`);
+      aviso('Conexão ok: a Meta aceitou um evento de teste neste Pixel (não conta na campanha).');
     } catch (err) { aviso(err.message, true); }
     cartaoMetaAds(id);
   };

@@ -18,6 +18,7 @@ const DIAS_EVENTO = 7; // a Meta só aceita eventos de até 7 dias atrás
 const CICLO_MS = Number(process.env.META_ADS_CICLO_MS) || 5 * 60 * 1000;
 const MAX_TENTATIVAS = 5;
 const URL_GRAPH = process.env.META_GRAPH_URL || 'https://graph.facebook.com';
+const VERSAO_GRAPH = process.env.META_GRAPH_VERSAO || 'v23.0';
 
 const sha = (v) => crypto.createHash('sha256').update(String(v).trim().toLowerCase()).digest('hex');
 const sem = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -121,23 +122,33 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
 
 // erro da Meta em português, com o que fazer
 function traduzirErro(e = {}, status = 0) {
-  const msg = String(e.error_user_msg || e.message || `HTTP ${status}`).replace(/access_token=[^&\s]+/g, 'access_token=[escondido]');
-  if (e.code === 190 || /access token|OAuth/i.test(msg)) return 'token inválido ou vencido — gere outro token no Gerenciador de Eventos e cole de novo';
-  if (e.code === 100 || e.code === 803 || /Unsupported (get|post) request|does not exist|cannot be loaded/i.test(msg)) return 'a Meta não achou esse Pixel com esse token — confira o ID do Pixel e se o token foi gerado nesse mesmo Pixel';
-  if (e.code === 10 || e.code === 200 || /permission/i.test(msg)) return 'o token não tem permissão nesse Pixel — gere o token dentro do próprio Pixel (Configurações → API de Conversões)';
-  if (/test_event_code|test event/i.test(msg)) return 'código de teste inválido — copie de novo na aba Eventos de teste do Pixel';
-  return msg.slice(0, 240);
+  const original = String(e.error_user_msg || e.message || `HTTP ${status}`).replace(/access_token=[^&\s]+/g, 'access_token=[escondido]').replace(/\s+/g, ' ').trim();
+  const codigo = e.code ? ` · código ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ''}` : '';
+  const meta = ` (Meta${codigo}: ${original.slice(0, 220)})`;
+  if (e.code === 190 || /access token|OAuth/i.test(original)) return `token inválido ou vencido — gere outro token no Pixel (Configurações → API de Conversões) e cole de novo${meta}`;
+  if ((e.code === 100 && e.error_subcode === 33) || /does not exist|cannot be loaded due to missing permissions/i.test(original)) return `a Meta não achou esse Pixel com esse token — confira se o ID é do mesmo Pixel em que o token foi gerado${meta}`;
+  if (e.code === 10 || e.code === 200 || /permission/i.test(original)) return `o token não tem permissão para enviar eventos nesse Pixel — gere o token dentro do próprio Pixel${meta}`;
+  if (/test_event_code|test event/i.test(original)) return `código de teste inválido — copie de novo na aba Eventos de teste do Pixel${meta}`;
+  return `o evento foi recusado${meta}`;
 }
+
+const versaoRecusada = (e = {}) => e.code === 2635 || /version|Unknown path components/i.test(String(e.message || ''));
 
 async function enviarEventos(c, eventos) {
   const corpo = { data: eventos, ...(c.codigoTeste ? { test_event_code: c.codigoTeste } : {}) };
-  const r = await fetch(`${URL_GRAPH}/${encodeURIComponent(c.pixelId)}/events?access_token=${encodeURIComponent(c.token)}`, {
+  const chamar = (versao) => fetch(`${URL_GRAPH}/${versao ? `${versao}/` : ''}${encodeURIComponent(c.pixelId)}/events?access_token=${encodeURIComponent(c.token)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(corpo),
     signal: AbortSignal.timeout(20000)
   });
-  const dados = await r.json().catch(() => ({}));
+  let r = await chamar(VERSAO_GRAPH);
+  let dados = await r.json().catch(() => ({}));
+  // versão da API que a Meta não aceita mais: tenta na versão padrão da conta
+  if (dados.error && versaoRecusada(dados.error)) {
+    r = await chamar('');
+    dados = await r.json().catch(() => ({}));
+  }
   if (!r.ok || dados.error) {
     const err = new Error(traduzirErro(dados.error || {}, r.status));
     err.status = r.status;
@@ -286,23 +297,40 @@ const marcarTeste = (empresa, chave, dados) => {
   salvar();
 };
 
-async function testarConexao(empresa) {
+// evento de teste que nunca conta na campanha (vai só para "Eventos de teste" do Pixel)
+function eventoDeTeste(req, nome, valor) {
+  const id = `teste-${Date.now()}`;
+  return {
+    event_name: nome,
+    event_time: Math.floor(Date.now() / 1000),
+    event_id: id,
+    action_source: 'website',
+    event_source_url: `${require('./config').urlPublica || 'https://odingdong.tech/crm'}/`,
+    user_data: {
+      country: [sha('br')],
+      external_id: [sha(id)],
+      client_ip_address: String(req?.ip || '').replace(/^::ffff:/, '') || '127.0.0.1',
+      client_user_agent: String(req?.get?.('user-agent') || 'DingDong CRM').slice(0, 400)
+    },
+    ...(valor ? { custom_data: { currency: 'BRL', value: valor } } : {})
+  };
+}
+
+// Testa o Pixel e o token do jeito que o CRM usa de verdade: ENVIANDO um evento de teste.
+// (Ler os dados do Pixel não serve: o token da API de Conversões costuma só ter permissão de enviar.)
+// Sem código de teste, usa um código próprio — o evento não conta na campanha de jeito nenhum.
+async function testarConexao(empresa, req) {
   const c = configDa(empresa);
   if (!c.pixelId || !c.token) throw Object.assign(new Error('Salve o ID do Pixel e o token primeiro.'), { status: 400 });
-  let r;
   try {
-    r = await fetch(`${URL_GRAPH}/${encodeURIComponent(c.pixelId)}?fields=name&access_token=${encodeURIComponent(c.token)}`, { signal: AbortSignal.timeout(15000) });
-  } catch {
-    throw Object.assign(new Error('Não consegui falar com a Meta agora (sem conexão). Tente de novo em instantes.'), { status: 502 });
-  }
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || d.error) {
-    const erro = traduzirErro(d.error || {}, r.status);
+    const r = await enviarEventos({ ...c, codigoTeste: c.codigoTeste || 'TESTCRM' }, [eventoDeTeste(req, 'PageView')]);
+    marcarTeste(empresa, 'conexao', { ok: true, nome: '' });
+    return { ok: true, recebidos: r.events_received ?? 1 };
+  } catch (err) {
+    const erro = err.status ? err.message : 'sem conexão com a Meta agora — tente de novo em instantes';
     marcarTeste(empresa, 'conexao', { ok: false, erro });
     throw Object.assign(new Error(`A Meta recusou: ${erro}.`), { status: 400 });
   }
-  marcarTeste(empresa, 'conexao', { ok: true, nome: d.name || '' });
-  return { ok: true, nome: d.name || '' };
 }
 
 // compra de TESTE (R$ 1,00) só para "Eventos de teste" do Pixel: confere o caminho inteiro
@@ -311,21 +339,7 @@ async function enviarCompraTeste(empresa, req) {
   const c = configDa(empresa);
   if (!c.pixelId || !c.token) throw Object.assign(new Error('Salve o ID do Pixel e o token primeiro.'), { status: 400 });
   if (!c.codigoTeste) throw Object.assign(new Error('Cole o código de teste (aba "Eventos de teste" do Pixel) e salve antes — sem ele a compra de teste contaria na campanha.'), { status: 400 });
-  const id = `teste-${Date.now()}`;
-  const evento = {
-    event_name: 'Purchase',
-    event_time: Math.floor(Date.now() / 1000),
-    event_id: id,
-    action_source: 'website',
-    event_source_url: 'https://crm-teste.invalid/compra-de-teste',
-    user_data: {
-      country: [sha('br')],
-      external_id: [sha(id)],
-      client_ip_address: String(req?.ip || '').replace(/^::ffff:/, '') || '127.0.0.1',
-      client_user_agent: String(req?.get?.('user-agent') || 'DingDong CRM').slice(0, 400)
-    },
-    custom_data: { currency: 'BRL', value: 1 }
-  };
+  const evento = eventoDeTeste(req, 'Purchase', 1);
   try {
     const r = await enviarEventos(c, [evento]);
     marcarTeste(empresa, 'evento', { ok: true, codigo: c.codigoTeste });
