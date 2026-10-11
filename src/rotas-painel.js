@@ -1028,11 +1028,11 @@ const CAMPOS_SO_ADMIN = ['limiteDiario', 'limiteConversa', 'empresaId'];
 // Tamanho máximo das instruções (prompt) que o dono escreve. Passou disso, o CRM
 // recusa e avisa — nunca corta calado (um corte no meio some com o fim do prompt).
 const MAX_PROMPT = 30000;
-const ROTULO_PROMPT = { promptWhatsapp: 'As instruções do WhatsApp', regras: 'As instruções do site' };
+const ROTULO_PROMPT = { promptWhatsapp: 'As instruções do WhatsApp', regras: 'As instruções do site', conhecimento: 'O "Sobre a empresa"' };
 function promptGrandeDemais(body) {
-  for (const campo of ['promptWhatsapp', 'regras']) {
+  for (const campo of ['promptWhatsapp', 'regras', 'conhecimento']) {
     const n = String(body?.[campo] ?? '').trim().length;
-    if (n > MAX_PROMPT) return `${ROTULO_PROMPT[campo]} têm ${n.toLocaleString('pt-BR')} caracteres — o máximo é ${MAX_PROMPT.toLocaleString('pt-BR')}. Nada foi salvo: encurte o texto e salve de novo.`;
+    if (n > MAX_PROMPT) return `${ROTULO_PROMPT[campo]} ${campo === 'conhecimento' ? 'tem' : 'têm'} ${n.toLocaleString('pt-BR')} caracteres — o máximo é ${MAX_PROMPT.toLocaleString('pt-BR')}. Nada foi salvo: encurte o texto e salve de novo.`;
   }
   return '';
 }
@@ -1050,7 +1050,7 @@ function dadosBot(body, req, base = null) {
     boasVindas: texto(body.boasVindas, 500),
     chamada: texto(body.chamada, 120),
     tom: texto(body.tom, 200),
-    conhecimento: texto(body.conhecimento, 30000),
+    conhecimento: texto(body.conhecimento, MAX_PROMPT),
     regras: texto(body.regras, MAX_PROMPT),
     promptWhatsapp: texto(body.promptWhatsapp, MAX_PROMPT),
     objetivo: texto(body.objetivo, 300),
@@ -1314,13 +1314,15 @@ router.get('/empresas/:id/logs-ia', (req, res) => {
 router.get('/empresas/:id/eventos-ia', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(require('./eventos-ia').configDa(empresa));
+  const ev = require('./eventos-ia');
+  res.json({ ...ev.configDa(empresa), dispararComFollowup: ev.dispararComFollowup(empresa) });
 });
 router.put('/empresas/:id/eventos-ia', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
-    res.json(require('./eventos-ia').salvarConfig(empresa, req.body || {}));
+    const ev = require('./eventos-ia');
+    res.json({ ...ev.salvarConfig(empresa, req.body || {}), dispararComFollowup: ev.dispararComFollowup(empresa) });
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }

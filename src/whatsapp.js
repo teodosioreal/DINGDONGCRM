@@ -2005,18 +2005,8 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
   const jaNestaResposta = new Set();
   for (const nome of nomes || []) {
     let pedido = midias.resolverPedido(empresa, nome);
-    // a IA escreveu um código que não existe (inventou ou cortou): se as palavras do código
-    // apontam com clareza para uma mídia que ela pode mandar, manda essa
-    if (!pedido.alvo && papel === 'assistente') {
-      const palavras = String(nome).replace(/^#?\s*M[IÍ]DIA[_:\s-]*/i, '').replace(/[_-]+/g, ' ');
-      const pode = new Set(midias.paraIa(empresa, { followup }).map((x) => x.codigo));
-      const porConexao = midias.conexaoCerta(empresa, palavras);
-      const certa = porConexao && pode.has(porConexao.codigo) ? porConexao : midias.midiaPorPalavraRara(empresa, palavras, pode);
-      if (certa && pode.has(certa.codigo)) {
-        pedido = midias.resolverPedido(empresa, certa.codigo);
-        resultado.trocas = [...(resultado.trocas || []), { pedido: String(nome), enviado: certa.codigoVisivel }];
-      }
-    }
+    // código que não existe no cadastro desta empresa: NUNCA é trocado por outra mídia — não
+    // vai nada e fica como erro no log (e aviso no sininho), logo abaixo
     // revezamento: a IA pediu uma mídia que reveza com outra → vai a da vez deste cliente
     if (papel === 'assistente' && pedido.alvo && pedido.itens.length === 1 && pedido.itens[0] === pedido.alvo && pedido.alvo.revezar) {
       const daVez = midias.escolherRevezando(empresa, pedido.alvo, (m) => jaEnviouMidia(lead, m.codigo));

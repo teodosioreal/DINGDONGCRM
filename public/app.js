@@ -3962,12 +3962,15 @@ async function cartaoEventosIa(id) {
     fotoCliente: 'Quando o cliente manda uma imagem, a IA recebe [CLIENTE_ENVIOU_FOTO] junto com a descrição da foto. Não gasta nada a mais.',
     semResposta: 'O cliente parou de responder depois da última mensagem da IA: ela recebe [SEM_RESPOSTA] e decide se retoma (uma vez por silêncio).',
     checarVideo: 'Depois que a IA manda um vídeo e o cliente não responde: ela recebe [CHECAR_VIDEO] e pergunta se ele conseguiu ver.',
+    semResposta3h: '2º aviso de silêncio (ex.: 3 h). Se o 1º também estiver ligado, conta de novo a partir da resposta da IA ao 1º.',
     followup1: 'Primeira retomada feita pela IA, com o contexto da conversa. Se você usa o Follow-up sem IA, deixe este desligado para não mandar dois.'
   };
+  const comFollowup = c.dispararComFollowup === true;
+  c = Object.fromEntries(Object.entries(c).filter(([, e]) => e && typeof e === 'object' && e.tag));
   const ligados = Object.values(c).filter((e) => e.ativo).length;
   el.dataset.cfg = 'eventos-ia';
   el.dataset.pronto = ligados ? 'ok' : 'off';
-  el.dataset.resumo = `${ligados} de 4 ligados`;
+  el.dataset.resumo = `${ligados} de ${Object.keys(c).length} ligados`;
   el.innerHTML = `
     <h2 style="margin:0 0 6px">⏰ Avisos internos para a IA</h2>
     <p class="rotulo" style="margin:0 0 10px">O sistema manda para a IA uma mensagem entre colchetes que o cliente <b>nunca vê</b>, e ela responde de acordo. Só dispara se a IA não estiver pausada no contato e só para conversas depois de ligar. Os avisos com tempo usam a IA (gastam crédito).</p>
@@ -3978,6 +3981,7 @@ async function cartaoEventosIa(id) {
           ${e.semTempo ? '<span class="rotulo">na hora</span>' : `<span class="tempo-evento">depois de <input type="number" name="${k}-minutos" min="1" max="20160" value="${Number(e.minutos) || 1}"> min</span>`}
           <small class="rotulo">${DICA[k] || ''}</small>
         </div>`).join('')}
+      <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="dispararComFollowup" ${comFollowup ? 'checked' : ''}> Disparar [SEM_RESPOSTA], [SEM_RESPOSTA_3H] e [FOLLOWUP_1] mesmo quando o <b>Follow-up sem IA</b> já vai cuidar do cliente <span class="rotulo">(desmarcado = o Follow-up tem prioridade e não manda em dobro)</span></label>
       <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
     </form>`;
   marcarPronto(el, el.dataset.pronto, el.dataset.resumo);
@@ -3986,6 +3990,7 @@ async function cartaoEventosIa(id) {
     const f = e.target;
     const corpo = {};
     for (const k of Object.keys(c)) corpo[k] = { ativo: f.elements[`${k}-ativo`].checked, ...(f.elements[`${k}-minutos`] ? { minutos: Number(f.elements[`${k}-minutos`].value) } : {}) };
+    corpo.dispararComFollowup = f.elements.dispararComFollowup.checked;
     try {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/eventos-ia`, { method: 'PUT', body: corpo }));
       aviso('Avisos internos salvos.');

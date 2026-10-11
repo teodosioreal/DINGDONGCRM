@@ -58,6 +58,11 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
       { nome: '11 completo · pede foto no carro (fora da tabela)', msgs: [[SITE_C('Gol', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['tem foto de um gol que vcs fizeram?', { semMidia: true }]] },
       { nome: '12 completo · pede foto no carro (na tabela)', msgs: [[SITE_C('Renegade', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['tem foto de um renegade?', { midias: ['#MIDIA_13'] }]] }
     ];
+    // conversa pedida no deploy/simular.pedido (linhas começando com "> "): roda só ela, sem regras fixas
+    try {
+      const pedidas = fs.readFileSync(path.join(__dirname, 'simular.pedido'), 'utf8').split('\n').filter((l) => l.startsWith('> ')).map((l) => l.slice(2).trim()).filter(Boolean);
+      if (pedidas.length) clientes.splice(0, clientes.length, { nome: 'pedida no deploy (uma conversa)', msgs: pedidas.map((t) => [t, {}]) });
+    } catch { /* sem pedido: os cenários padrão */ }
     const SEM_CODIGO = (l) => !/^#\s*(MIDIA|PAUSAR|ETAPA|ETIQUETA|NADA|HUMANO)/i.test(l.trim());
     let totalOk = 0;
     let totalAtencao = 0;
@@ -102,6 +107,7 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
         if (/[\u{1F300}-\u{1FAFF}]/u.test(textoIa)) falhas.push('usou emoji');
         if (falhas.length) totalAtencao++; else totalOk++;
         linhas.push(`${falhas.length ? '⚠️ ATENÇÃO' : '✓ ok'} · msg ${historico.filter((h) => h.papel === 'visitante').length} → ${linhasTexto.length} linha(s) · pediu ${pedidas.join(' ') || 'nenhuma mídia'} · iria: ${iriam.join(' ') || '-'}${r.humano ? ' · #PAUSAR' : ''}${falhas.length ? ` · ${falhas.join('; ')}` : ''}`);
+        linhas.push(`   códigos detectados: ${(r.codigos || []).map((c) => `${c.codigo}(${c.tipo})`).join(' ') || 'nenhum'} · sobrou código no texto enviado: ${/#[A-Z]{3,}|\[\[|\[[A-Z]+_[A-Z_0-9]+\]/.test(textoIa) ? 'SIM ⚠️' : 'não'}`);
         historico.push({ papel: 'assistente', canal: 'whatsapp', texto: textoIa, em: new Date().toISOString() });
       }
     }

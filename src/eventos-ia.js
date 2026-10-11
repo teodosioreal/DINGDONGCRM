@@ -5,6 +5,7 @@
 //   [CLIENTE_ENVIOU_FOTO]  na hora em que o cliente manda uma imagem
 //   [SEM_RESPOSTA]         X minutos depois da última mensagem da IA sem o cliente responder
 //   [CHECAR_VIDEO]         X minutos depois da IA mandar um vídeo, se o cliente não respondeu
+//   [SEM_RESPOSTA_3H]      2º aviso de silêncio (padrão 3 h depois da última mensagem da IA)
 //   [FOLLOWUP_1]           X minutos (ex.: 24 h) depois da última mensagem da IA — 1ª retomada
 // Os tempos são por empresa (painel → IA do WhatsApp). Cada evento só dispara se a
 // IA não estiver pausada no contato, uma vez por "silêncio" do cliente (quando ele
@@ -17,6 +18,7 @@ const EVENTOS = {
   fotoCliente: { tag: 'CLIENTE_ENVIOU_FOTO', nome: 'Cliente enviou foto', padrao: { ativo: true }, semTempo: true },
   semResposta: { tag: 'SEM_RESPOSTA', nome: 'Cliente sem responder', padrao: { ativo: false, minutos: 30 } },
   checarVideo: { tag: 'CHECAR_VIDEO', nome: 'Conferir se viu o vídeo', padrao: { ativo: false, minutos: 10 } },
+  semResposta3h: { tag: 'SEM_RESPOSTA_3H', nome: 'Cliente sem responder — 2º aviso', padrao: { ativo: false, minutos: 180 } },
   followup1: { tag: 'FOLLOWUP_1', nome: '1º follow-up (com IA)', padrao: { ativo: false, minutos: 1440 } }
 };
 const CICLO_MS = Number(process.env.EVENTOS_IA_CICLO_MS) || 60 * 1000;
@@ -43,15 +45,19 @@ function salvarConfig(empresa, corpo = {}) {
       atual.ativo = ligar;
     }
     if (b.minutos !== undefined && !EVENTOS[k].semTempo) {
+      // (SEM_RESPOSTA_3H é o 2º aviso: depois do 1º, conta de novo a partir da resposta da IA)
       const n = Math.round(Number(b.minutos));
       if (!Number.isFinite(n) || n < 1 || n > 14 * 24 * 60) throw Object.assign(new Error(`Tempo inválido em "${EVENTOS[k].nome}" (de 1 minuto a 14 dias).`), { status: 400 });
       atual.minutos = n;
     }
     empresa.eventosIa[k] = atual;
   }
+  // com o Follow-up sem IA ligado para o cliente: quem fala? (padrão: o follow-up, como sempre foi)
+  if (corpo.dispararComFollowup !== undefined) empresa.eventosIa.dispararComFollowup = corpo.dispararComFollowup === true;
   salvar();
   return configDa(empresa);
 }
+const dispararComFollowup = (empresa) => empresa.eventosIa?.dispararComFollowup === true;
 
 // Histórico que vai para a IA: fotos do cliente marcadas com [CLIENTE_ENVIOU_FOTO]
 // e, se for o caso, o evento desta vez no fim (nada disso é gravado na conversa)
@@ -84,6 +90,7 @@ function eventoVencido(empresa, lead, cfg, agoraMs = Date.now()) {
   // vídeo: a última coisa que a IA mandou foi um vídeo
   if (cfg.checarVideo.ativo && ehVideo(ultima)) candidatos.push(['checarVideo', ultima.id]);
   if (cfg.semResposta.ativo) candidatos.push(['semResposta', ciclo]);
+  if (cfg.semResposta3h.ativo) candidatos.push(['semResposta3h', ciclo]);
   if (cfg.followup1.ativo) candidatos.push(['followup1', ciclo]);
   for (const [chave, ref] of candidatos) {
     const c = cfg[chave];
@@ -112,7 +119,7 @@ async function verificar() {
     for (const empresa of estado.empresas) {
       if (empresa.ativa === false || !whatsapp.configurado(empresa) || !whatsapp.configDa(empresa).iaAtiva) continue;
       const cfg = configDa(empresa);
-      if (!cfg.semResposta.ativo && !cfg.checarVideo.ativo && !cfg.followup1.ativo) continue;
+      if (!cfg.semResposta.ativo && !cfg.semResposta3h.ativo && !cfg.checarVideo.ativo && !cfg.followup1.ativo) continue;
       // fora do horário dos envios automáticos (padrão 8h–20h, se ligado): espera abrir — ninguém
       // recebe cobrança de madrugada e a IA não gasta enquanto o cliente dorme
       const auto = require('./automacoes');
@@ -127,7 +134,8 @@ async function verificar() {
         const ev = eventoVencido(empresa, lead, cfg);
         if (!ev) continue;
         // "sem resposta" / "1º follow-up" com IA: se o follow-up sem IA já vai cuidar deste cliente, não gasta IA (nem manda em dobro)
-        if ((ev.tag === 'SEM_RESPOSTA' || ev.tag === 'FOLLOWUP_1') && !require('./followup').situacao(empresa, lead).motivo) continue;
+        // (a empresa pode escolher que os avisos com IA falem mesmo assim)
+        if (['SEM_RESPOSTA', 'SEM_RESPOSTA_3H', 'FOLLOWUP_1'].includes(ev.tag) && !dispararComFollowup(empresa) && !require('./followup').situacao(empresa, lead).motivo) continue;
         lead.eventosIa = { ...(lead.eventosIa || {}), [ev.chave]: { ref: ev.ref, em: agora() } };
         salvar();
         n++;
@@ -147,4 +155,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { EVENTOS, configDa, salvarConfig, historicoParaIa, eventoVencido, verificar, iniciar };
+module.exports = { EVENTOS, dispararComFollowup, configDa, salvarConfig, historicoParaIa, eventoVencido, verificar, iniciar };

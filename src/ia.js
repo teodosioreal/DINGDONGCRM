@@ -445,7 +445,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Quando o cliente pedir para falar com uma pessoa, quando for fechar negócio/agendar e as instruções mandarem passar para a equipe, ou quando você não souber resolver, avise que vai chamar alguém da equipe e escreva na última linha, sozinho: #PAUSAR. Depois disso você para de responder e a equipe assume.',
       '',
       'Avisos internos da plataforma:',
-      '- Mensagens que chegam só com um código entre colchetes, como [CLIENTE_ENVIOU_FOTO], [SEM_RESPOSTA], [CHECAR_VIDEO] ou [FOLLOWUP_1], são avisos internos do sistema: o cliente NÃO escreveu isso e nunca vê. Responda ao cliente de acordo com a situação (ex.: [SEM_RESPOSTA] = ele parou de responder; [CHECAR_VIDEO] = pergunte com naturalidade se conseguiu ver o vídeo; [FOLLOWUP_1] = primeira retomada da conversa; [RESPOSTA_ATRASADA] = o cliente ficou um tempo sem resposta porque o atendimento estava fora do ar: peça desculpas pela demora em poucas palavras e responda o que ele perguntou). Nunca cite o aviso.',
+      '- Mensagens que chegam só com um código entre colchetes, como [CLIENTE_ENVIOU_FOTO], [SEM_RESPOSTA], [SEM_RESPOSTA_3H], [CHECAR_VIDEO] ou [FOLLOWUP_1], são avisos internos do sistema: o cliente NÃO escreveu isso e nunca vê. Responda ao cliente de acordo com a situação (ex.: [SEM_RESPOSTA] = ele parou de responder; [SEM_RESPOSTA_3H] = continua sem responder há mais tempo (2º aviso); [CHECAR_VIDEO] = pergunte com naturalidade se conseguiu ver o vídeo; [FOLLOWUP_1] = primeira retomada da conversa; [RESPOSTA_ATRASADA] = o cliente ficou um tempo sem resposta porque o atendimento estava fora do ar: peça desculpas pela demora em poucas palavras e responda o que ele perguntou). Nunca cite o aviso.',
       '- Se não houver nada útil para dizer ao cliente, responda só: #NADA'
     );
   } else {
@@ -1203,6 +1203,11 @@ function extrairAcoes(bruto) {
         return '';
       })
       .replace(/\[\[[^\]\n]*$/g, '') // código cortado no fim da resposta
+      // aviso interno que a IA repetiu ([SEM_RESPOSTA], [CLIENTE_ENVIOU_FOTO], [FOLLOWUP_1]…): some
+      .replace(/\[(?:[A-Z]{2,}(?:_[A-Z0-9]+)+|DIFICIL|NADA)\]/g, (x) => {
+        codigos.push({ codigo: x, tipo: 'desconhecido' });
+        return '';
+      })
       .replace(/(^|[^\w#])[*"'`“”]*#[A-Z][A-Z0-9_]{2,}\b[*"'`“”]*/g, (x, antes) => {
         codigos.push({ codigo: x.slice(antes.length).replace(/[*"'`“”]/g, ''), tipo: 'desconhecido' });
         return antes;
