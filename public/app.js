@@ -5815,7 +5815,7 @@ async function paginaMetaAds(id) {
   await definirEmpresaAtual(id);
   if (location.hash !== hashDaPagina) return;
   conteudo.innerHTML = `
-    <div class="cabecalho"><div><h1>Meta Ads</h1><p class="sub">Vendas de quem veio de anúncio do Facebook/Instagram vão para o seu Pixel — sem IA, sem gastar token</p></div></div>
+    <div class="cabecalho"><div><h1>Meta Ads</h1><p class="sub">As vendas do CRM vão para a sua campanha do Facebook/Instagram</p></div></div>
     <div class="card" id="card-meta-ads"><p class="rotulo">Carregando Meta Ads…</p></div>
     <div class="card tabela-wrap" id="card-meta-clientes"><p class="rotulo" style="padding:16px">Carregando clientes…</p></div>`;
   cartaoMetaAds(id);
@@ -5830,75 +5830,55 @@ async function cartaoMetaAds(id) {
   if (!el.isConnected) return;
   const t = m.testes || {};
   const quando = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
-  // conferência: o que já está certo e o que falta
-  const itens = [
-    [m.pixelId && m.tokenSalvo, 'ID do Pixel e token salvos', m.pixelId && m.tokenSalvo ? `Pixel ${esc(m.pixelId)} · token termina em …${esc(m.tokenFim)}` : 'Passos 1 a 3 abaixo'],
-    [t.conexao?.ok, 'Conexão com a Meta testada', t.conexao ? (t.conexao.ok ? `ok — a Meta aceitou um evento de teste · ${quando(t.conexao.em)}` : `<span class="texto-erro">${esc(t.conexao.erro)}</span>`) : 'Clique em "Testar conexão" (passo 5)'],
-    [t.evento?.ok, 'Compra de teste recebida pela Meta', t.evento ? (t.evento.ok ? `enviada ${quando(t.evento.em)} — confira em "Eventos de teste" no Pixel` : `<span class="texto-erro">${esc(t.evento.erro)}</span>`) : 'Clique em "Enviar compra de teste" (passo 6)'],
-    [m.clientesComClique > 0, 'Clientes chegando pelo anúncio', m.clientesComClique ? `${m.clientesComClique} nos últimos 30 dias` : 'Aparecem quando alguém clica no anúncio, vai para o site e chama no WhatsApp pelo botão do site'],
-    [m.pronto && !m.codigoTeste, 'Valendo de verdade', m.pronto ? (m.codigoTeste ? 'Ainda em modo teste: apague o código de teste quando o passo 6 der certo (passo 7)' : 'Ligado — as vendas contam na campanha') : 'Marque "Enviar vendas para a Meta Ads" e salve']
-  ];
-  const tudoPronto = itens.every((x) => x[0]);
+  const enviadas = m.enviadas || 0;
+  const status = !m.pixelId || !m.tokenSalvo ? ['off', '⚪ Falta configurar', 'Cole o ID do Pixel e o token abaixo.']
+    : !m.ativo ? ['erro', '⛔ Desligado', 'Nenhuma venda está indo para a Meta. Marque "Enviar vendas para a campanha" e salve.']
+    : m.codigoTeste ? ['aviso', '🧪 Em modo teste', 'As vendas vão só para "Eventos de teste" e NÃO contam na campanha. Apague o código de teste e salve.']
+    : t.conexao && !t.conexao.ok ? ['erro', '⚠️ A Meta recusou', t.conexao.erro || 'Teste a conexão.']
+    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) já enviada(s). Cada venda confirmada vai em até 5 minutos.`];
+  const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
   el.innerHTML = `
-    <h2 style="margin:0 0 6px">📈 Vendas na Meta Ads ${m.pronto ? `<span class="etiqueta ${m.codigoTeste ? 'aviso' : 'ok'}">${m.codigoTeste ? 'ligado · modo teste' : 'ligado'}</span>` : '<span class="etiqueta off">desligado</span>'}</h2>
-    <p class="rotulo" style="margin:0 0 10px">Quem clica num anúncio do Facebook/Instagram, vai para o site e chama no WhatsApp pelo botão do site fica marcado por <b>30 dias</b>. Se comprar nesse prazo (venda confirmada, com valor), o CRM avisa a Meta da compra e do valor — a campanha mostra as vendas e aprende quem compra. Telefone e nome vão criptografados; nada da conversa vai. Não usa IA nem gasta token.</p>
+    <div class="meta-status ${status[0]}"><b>${status[1]}</b><span>${status[2]}</span></div>
 
-    <div class="meta-conferencia">
-      <b>${tudoPronto ? '✅ Tudo certo' : 'Conferência'}</b>
-      <ul>${itens.map(([okk, titulo, det]) => `<li class="${okk ? 'ok' : ''}"><span>${okk ? '✅' : '⬜'}</span><div><b>${titulo}</b><br><small class="rotulo">${det}</small></div></li>`).join('')}</ul>
-    </div>
-
-    <details class="meta-guia" ${m.pronto && !m.codigoTeste ? '' : 'open'}>
-      <summary><b>📘 Passo a passo para configurar (uns 10 minutos)</b></summary>
-      <p class="rotulo">Você vai precisar entrar no <b>Gerenciador de Eventos</b> da Meta com uma conta que seja <b>administradora</b> do negócio (Business) onde está o Pixel do site. Use o computador — no celular as telas da Meta escondem algumas opções. Os nomes dos botões podem mudar um pouco com as atualizações da Meta.</p>
-      ${passos([
-        `<b>Abra o Gerenciador de Eventos.</b> Entre em <a href="https://business.facebook.com/events_manager2" target="_blank" rel="noopener">business.facebook.com/events_manager2</a>. No menu da esquerda, clique em <b>Fontes de dados</b> e escolha o <b>Pixel do seu site</b> (o mesmo que suas campanhas usam). <br><small class="rotulo">Não tem Pixel? Clique em <b>Conectar dados → Web</b>, dê um nome e crie. Você não precisa instalar nada no site para isto funcionar, mas se instalar o Pixel no site a Meta reconhece mais vendas.</small>`,
-        `<b>Copie o ID do Pixel.</b> Com o Pixel aberto, o número aparece embaixo do nome dele (ex.: <code>123456789012345</code>) — também está na aba <b>Configurações</b>, em "ID do conjunto de dados". Cole no campo <b>ID do Pixel</b> aqui embaixo.`,
-        `<b>Gere o token.</b> Ainda no Pixel, vá na aba <b>Configurações</b>, desça até <b>API de Conversões</b> e clique em <b>Gerar token de acesso</b> (fica em "Configurar integração direta"). Copie o token inteiro — é um texto bem grande que começa com <code>EAA</code> — e cole no campo <b>Token</b>. <br><small class="rotulo">⚠️ Guarde o token só aqui: ele dá acesso ao seu Pixel. O CRM nunca mostra o token de novo.</small>`,
-        `<b>Pegue o código de teste.</b> No Pixel, abra a aba <b>Eventos de teste</b>. Na parte "Confirmar eventos do servidor" (ou "API de Conversões") aparece um código como <code>TEST12345</code>. Copie e cole em <b>Código de teste</b>. Deixe essa aba da Meta <b>aberta</b> — é nela que você vai ver o teste chegar.`,
-        `<b>Salve e teste a conexão.</b> Marque <b>Enviar vendas para a Meta Ads</b>, clique em <b>Salvar</b> e depois em <b>Testar conexão</b>. Tem que aparecer "Conexão ok" (o CRM manda um evento de teste que não conta na campanha). Se der erro, a mensagem diz o que corrigir (token vencido, ID errado…).`,
-        `<b>Envie uma compra de teste.</b> Clique em <b>Enviar compra de teste</b>. O CRM manda uma compra falsa de R$ 1,00 só para "Eventos de teste". Volte na aba <b>Eventos de teste</b> da Meta: em até 1 minuto deve aparecer um evento <b>Purchase</b> (Compra) com valor <b>1 BRL</b> e origem "Servidor". Apareceu? Está tudo ligado certo. <br><small class="rotulo">Não apareceu em 2 minutos? Confira se o código de teste é o mesmo da tela da Meta (ele muda às vezes) e clique de novo.</small>`,
-        `<b>Ligue para valer.</b> Deu certo o teste? <b>Apague o código de teste</b> aqui, clique em <b>Salvar</b> e pronto: daqui pra frente as vendas de quem veio do anúncio contam na campanha. Vendas que já foram só como teste são mandadas de verdade uma vez.`,
-        `<b>Confira o botão do WhatsApp no site.</b> O cliente só fica ligado ao anúncio se chamar pelo <b>botão do WhatsApp do site</b> (o do CRM, que coloca "atendimento #código" na mensagem). Quem copia o número e chama direto não é reconhecido. Faça uma prova: abra o site por um link com <code>?fbclid=teste</code> no final, clique no botão do WhatsApp e mande a mensagem — o contato aparece em "Clientes que vieram de anúncio" aqui embaixo.`
-      ])}
-    </details>
-
-    <form id="f-meta-ads" style="margin-top:12px">
-      <label class="linha-check"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a Meta Ads</b></label>
-      <div class="campo" style="margin-top:8px"><label>ID do Pixel (passo 2) ${ajuda('Gerenciador de Eventos → Fontes de dados → seu Pixel → o número embaixo do nome.')}</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" autocomplete="off" placeholder="ex.: 123456789012345"></div>
-      <div class="campo"><label>Token da API de Conversões (passo 3) ${ajuda('Pixel → Configurações → API de Conversões → Gerar token de acesso. O CRM nunca mostra o token de novo.')}</label><input name="token" type="password" autocomplete="off" placeholder="${m.tokenSalvo ? `salvo (termina em …${esc(m.tokenFim)}) — cole outro só para trocar` : 'cole o token aqui (começa com EAA…)'}"></div>
-      <div class="campo"><label>Código de teste (passo 4 — apague no passo 7) ${ajuda('Pixel → Eventos de teste → código tipo TEST12345. Com ele, as vendas vão só para "Eventos de teste" e não contam na campanha.')}</label><input name="codigoTeste" value="${esc(m.codigoTeste)}" autocomplete="off" placeholder="ex.: TEST12345"></div>
+    <form id="f-meta-ads" style="margin-top:14px">
+      <label class="linha-check meta-ligar"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a campanha</b></label>
+      <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="todasVendas" ${m.todasVendas !== false ? 'checked' : ''}> Todas as vendas confirmadas <span class="rotulo">(recomendado — a Meta reconhece pelo telefone quem veio do anúncio)</span></label>
+      <div class="campos" style="margin-top:10px">
+        <div class="campo"><label>ID do Pixel</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" placeholder="só números"></div>
+        <div class="campo"><label>Token da API de Conversões</label><input name="token" type="password" autocomplete="new-password" placeholder="${m.tokenSalvo ? `salvo — termina em …${esc(m.tokenFim)} (cole outro para trocar)` : 'cole o token'}"></div>
+      </div>
       <div class="acoes">
         <button type="submit" class="primario">Salvar</button>
         <button type="button" id="testar-meta" ${m.pixelId && m.tokenSalvo ? '' : 'disabled'}>Testar conexão</button>
-        <button type="button" id="compra-teste-meta" ${m.pixelId && m.tokenSalvo && m.codigoTeste ? '' : 'disabled'} title="${m.codigoTeste ? '' : 'Cole e salve o código de teste primeiro'}">Enviar compra de teste</button>
       </div>
+      ${t.conexao ? `<p class="rotulo" style="margin:4px 0 0">Último teste: ${t.conexao.ok ? `✅ a Meta aceitou (${quando(t.conexao.em)})` : `<span class="texto-erro">${esc(t.conexao.erro)}</span>`}</p>` : ''}
+      <details class="meta-ajuda" ${m.codigoTeste ? 'open' : ''}><summary>🧪 Testar antes com "Eventos de teste" (opcional)</summary>
+        <div class="campo" style="margin-top:8px"><label>Código de teste ${ajuda('Pixel → Eventos de teste → código tipo TEST12345. Com ele, as vendas vão só para Eventos de teste e NÃO contam na campanha — apague depois de testar.')}</label><input name="codigoTeste" value="${esc(m.codigoTeste)}" placeholder="TEST12345 (apague depois de testar)"></div>
+        <div class="acoes"><button type="button" id="compra-teste-meta" ${m.pixelId && m.tokenSalvo && m.codigoTeste ? '' : 'disabled'}>Enviar compra de teste</button></div>
+        ${t.evento ? `<p class="rotulo" style="margin:0">${t.evento.ok ? `✅ compra de teste enviada ${quando(t.evento.em)} — confira em "Eventos de teste" no Pixel` : `<span class="texto-erro">${esc(t.evento.erro)}</span>`}</p>` : ''}
+      </details>
     </form>
 
-    <details class="meta-guia" style="margin-top:12px">
-      <summary><b>❓ Dúvidas comuns</b></summary>
-      <ul class="rotulo">
-        <li><b>Quais vendas vão?</b> Só as <b>confirmadas e com valor</b> de quem clicou num anúncio do Facebook/Instagram até 30 dias antes. Venda "a conferir" espera a equipe confirmar. Cada venda vai uma vez só.</li>
-        <li><b>Em quanto tempo?</b> Até 5 minutos depois da venda ser confirmada. A Meta só aceita vendas dos últimos 7 dias.</li>
-        <li><b>Onde vejo os resultados?</b> No Gerenciador de Anúncios, adicione a coluna <b>Compras</b> e <b>Valor de conversão de compras</b>. Pode levar algumas horas para aparecer.</li>
-        <li><b>E se o cliente chamou direto no WhatsApp, sem passar pelo site?</b> Não dá para ligar ao clique — só quem usa o botão do site.</li>
-        <li><b>Troquei o token ou o Pixel.</b> Salve e faça os passos 5 e 6 de novo (a conferência volta a ficar pendente).</li>
-        <li><b>Apareceu erro numa venda?</b> A coluna "Meta Ads" da tabela abaixo diz o motivo. Token vencido também avisa no sininho 🔔.</li>
-      </ul>
-    </details>
+    <h3 class="titulo-bloco" style="margin-top:18px">Como fazer</h3>
+    ${ajudaMeta('Onde acho o ID do Pixel', 'Entre em <a href="https://business.facebook.com/events_manager2" target="_blank" rel="noopener">Gerenciador de Eventos</a> → <b>Fontes de dados</b> → clique no Pixel do seu site → o <b>número</b> embaixo do nome. Tem que ser o <b>mesmo Pixel que está no seu site</b>.')}
+    ${ajudaMeta('Como gerar o token', 'No Gerenciador de Eventos, abra o Pixel → <b>Configurações</b> → desça até <b>API de Conversões</b> → <b>Gerar token de acesso</b>. Copie o token inteiro e cole aqui. Use uma conta que seja <b>administradora</b> do negócio.')}
+    ${ajudaMeta('Como ligar à campanha', '<ol><li>No <a href="https://adsmanager.facebook.com" target="_blank" rel="noopener">Gerenciador de Anúncios</a>, abra a campanha → o <b>conjunto de anúncios</b>.</li><li>Em <b>Conversão</b> / <b>Conjunto de dados</b>, escolha <b>este mesmo Pixel</b>.</li><li>Para a campanha aprender a vender, use o objetivo <b>Vendas</b> com o evento <b>Compra</b>. Campanha de <b>Leads/Tráfego</b> também recebe as compras — elas aparecem nas colunas, mas a Meta não otimiza para elas.</li><li>Nada mais: o CRM manda a <b>Compra</b> com o valor para esse Pixel, e a Meta liga a venda ao anúncio que a pessoa viu ou clicou.</li></ol>')}
+    ${ajudaMeta('Onde vejo as vendas na campanha', 'No Gerenciador de Anúncios → <b>Colunas</b> → <b>Personalizar colunas</b> → marque <b>Compras</b> e <b>Valor de conversão de compras</b>. Pode levar algumas horas. No Gerenciador de Eventos → seu Pixel → <b>Visão geral</b>, o evento <b>Purchase</b> aparece com a origem <b>Servidor</b>.')}
+    ${ajudaMeta('Quais vendas vão e quando', 'As vendas <b>confirmadas e com valor</b>, em até 5 minutos. Cada venda vai uma vez só. A Meta só aceita vendas dos <b>últimos 7 dias</b> — ao ligar, as dos últimos 7 dias vão na hora. O telefone e o nome vão <b>criptografados</b>. Venda de cliente sem telefone (contato escondido do WhatsApp) não vai, porque a Meta não teria como reconhecer.')}
 
-    ${m.recentes.length ? `<div class="tabela-wrap" style="margin-top:12px"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta Ads</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(quando(v.em))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    ${m.recentes.length ? `<h3 class="titulo-bloco" style="margin-top:18px">Últimas vendas</h3><div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(quando(v.em))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const lc = $('#card-meta-clientes');
-  if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
+  if (lc && !m.clientes.length) lc.remove();
+  else if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
     ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(quando(c.clicouEm))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
   const f = $('#f-meta-ads');
   f.onsubmit = async (e) => {
     e.preventDefault();
-    const corpo = { ativo: f.elements.ativo.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
+    const corpo = { ativo: f.elements.ativo.checked, todasVendas: f.elements.todasVendas.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
     if (f.elements.token.value.trim()) corpo.token = f.elements.token.value.trim();
     try {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/meta-ads`, { method: 'PUT', body: corpo }));
-      aviso(corpo.ativo ? (corpo.codigoTeste ? 'Salvo em modo teste. Agora: Testar conexão e Enviar compra de teste.' : 'Meta Ads ligado: as vendas de quem veio de anúncio vão para o Pixel.') : 'Meta Ads salvo (desligado).');
+      aviso(corpo.ativo ? (corpo.codigoTeste ? 'Salvo em MODO TESTE: as vendas não contam na campanha até você apagar o código de teste.' : 'Ligado: as vendas confirmadas vão para a campanha em até 5 minutos.') : 'Salvo (desligado): nenhuma venda vai para a Meta.');
       cartaoMetaAds(id);
     } catch (err) { aviso(err.message, true); }
   };

@@ -9,6 +9,10 @@
 // Por empresa: Pixel (conjunto de dados), token da API de Conversões e, para testar,
 // o código de teste (os eventos aparecem em "Eventos de teste" e não contam na campanha).
 // Cada venda vai uma vez só (event_id = id da venda). Telefone e nome vão criptografados.
+//
+// "Todas as vendas" (padrão): toda venda confirmada vai, mesmo sem o clique do site — a Meta
+// reconhece pelo telefone (criptografado) quem viu/clicou no anúncio e liga a venda à campanha.
+// É o caminho que funciona quando o site manda para o WhatsApp sem passar pelo nosso chat.js.
 
 const crypto = require('crypto');
 const { estado, salvar, agora } = require('./db');
@@ -30,6 +34,9 @@ function configDa(empresa) {
     pixelId: String(c.pixelId || ''),
     token: String(c.token || ''),
     codigoTeste: String(c.codigoTeste || ''),
+    // todas as vendas confirmadas vão (a Meta reconhece pelo telefone quem veio do anúncio);
+    // desligado: só as de quem chegou pelo site com o clique do anúncio (fbclid)
+    todasVendas: c.todasVendas !== false,
     ativadoEm: c.ativadoEm || null
   };
 }
@@ -76,7 +83,8 @@ const telefoneDe = (lead) => {
 };
 
 // o evento que vai para a Meta (sem nada de texto de conversa)
-function montarEvento(venda, lead, clique) {
+function montarEvento(venda, lead, clique = null) {
+  clique = clique || {};
   const quando = Math.min(Date.now(), new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime() || Date.now());
   const fone = telefoneDe(lead);
   const nomes = sem(lead.nome || '').toLowerCase().replace(/[^a-z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -86,7 +94,7 @@ function montarEvento(venda, lead, clique) {
     ...(nomes.length > 1 ? { ln: [sha(nomes[nomes.length - 1])] } : {}),
     country: [sha('br')],
     external_id: [sha(lead.id)],
-    fbc: clique.fbc,
+    ...(clique.fbc ? { fbc: clique.fbc } : {}),
     ...(clique.fbp ? { fbp: clique.fbp } : {}),
     ...(clique.ip ? { client_ip_address: clique.ip } : {}),
     ...(clique.ua ? { client_user_agent: clique.ua } : {})
@@ -113,9 +121,11 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   const lead = venda.leadId && estado.conversas.find((l) => l.id === venda.leadId && l.empresaId === empresa.id);
   if (!lead) return 'venda sem conversa ligada';
   const clique = cliqueDo(lead);
-  if (!clique) return 'cliente não veio de anúncio do Facebook/Instagram';
   const vendaMs = new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime();
-  if (vendaMs - new Date(clique.em).getTime() > DIAS_CLIQUE * 86400000) return 'venda mais de 30 dias depois do clique';
+  if (!clique) {
+    if (!c.todasVendas) return 'cliente não veio de anúncio pelo site (fbclid)';
+    if (!telefoneDe(lead)) return 'sem o telefone do cliente (a Meta precisa dele para reconhecer)';
+  } else if (vendaMs - new Date(clique.em).getTime() > DIAS_CLIQUE * 86400000 && !c.todasVendas) return 'venda mais de 30 dias depois do clique';
   if (Date.now() - vendaMs > DIAS_EVENTO * 86400000) return 'venda de mais de 7 dias (a Meta não aceita)';
   return null;
 }
@@ -165,7 +175,9 @@ async function enviarVenda(empresa, venda) {
   const lead = estado.conversas.find((l) => l.id === venda.leadId);
   enviando.add(venda.id);
   try {
-    const r = await enviarEventos(c, [montarEvento(venda, lead, cliqueDo(lead))]);
+    const k = cliqueDo(lead);
+    const valeClique = k && new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime() - new Date(k.em).getTime() <= DIAS_CLIQUE * 86400000;
+    const r = await enviarEventos(c, [montarEvento(venda, lead, valeClique ? k : null)]);
     venda.metaAds = { enviadoEm: agora(), teste: Boolean(c.codigoTeste), recebidos: r.events_received ?? null, tentativas: (venda.metaAds?.tentativas || 0) + 1 };
     console.log(`[meta-ads ${empresa.id}] venda enviada${c.codigoTeste ? ' (teste)' : ''}`);
     return true;
@@ -227,7 +239,8 @@ function paraPainel(empresa) {
   });
   const vendas = (estado.vendas || []).filter((v) => v.empresaId === empresa.id).sort((a, b) => ((b.confirmadaEm || b.criadoEm) > (a.confirmadaEm || a.criadoEm) ? 1 : -1));
   const recentes = vendas
-    .filter((v) => v.metaAds || (v.leadId && comClique.some((l) => l.id === v.leadId)))
+    .filter((v) => v.metaAds || c.todasVendas || (v.leadId && comClique.some((l) => l.id === v.leadId)))
+    .filter((v) => v.status === 'confirmada' || v.metaAds)
     .slice(0, 15)
     .map((v) => {
       const lead = daEmpresa.find((l) => l.id === v.leadId);
@@ -260,6 +273,7 @@ function paraPainel(empresa) {
     tokenSalvo: Boolean(c.token),
     tokenFim: c.token ? c.token.slice(-4) : '',
     codigoTeste: c.codigoTeste,
+    todasVendas: c.todasVendas,
     pronto: pronto(c),
     clientesComClique: comClique.length,
     enviadas: vendas.filter((v) => v.metaAds?.enviadoEm && !v.metaAds.teste).length,
@@ -281,6 +295,7 @@ function salvarPainel(empresa, b = {}) {
     pixelId,
     token,
     codigoTeste: b.codigoTeste !== undefined ? String(b.codigoTeste).trim().slice(0, 40) : atual.codigoTeste || '',
+    todasVendas: b.todasVendas !== undefined ? b.todasVendas !== false : atual.todasVendas !== false,
     ativadoEm: ativo && !atual.ativo ? agora() : atual.ativadoEm || null
   };
   if (b.apagarToken === true) empresa.metaAds = { ...empresa.metaAds, token: '', ativo: false };

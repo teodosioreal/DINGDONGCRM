@@ -1595,3 +1595,14 @@ html.dark .codigo-num { background: #1e1b4b; color: #c7d2fe; }
 .periodo-vendas > div { display: flex; flex-direction: column; }
 .periodo-vendas b { font-size: 1.15rem; }
 .titulo-bloco { font-size: 14px; margin: 16px 0 6px; }
+.meta-status { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 10px; background: var(--hover); }
+.meta-status b { font-size: 16px; }
+.meta-status.ok { background: var(--ok-fundo); color: var(--ok-texto); }
+.meta-status.erro { background: #fde8e8; color: #9b1c1c; }
+.meta-status.aviso { background: #fef3c7; color: #92400e; }
+html.dark .meta-status.erro { background: #3b1a1a; color: #fca5a5; }
+html.dark .meta-status.aviso { background: #3a2e12; color: #fcd34d; }
+.meta-ligar b { font-size: 15px; }
+.meta-ajuda { border: 1px solid var(--borda); border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+.meta-ajuda > summary { cursor: pointer; font-weight: 600; }
+.meta-ajuda ol { margin: 8px 0 0 18px; padding: 0; }
