@@ -278,10 +278,12 @@ function siteVisto(empresaId, host, bloqueado, motivo) {
   vistoNoSite.set(empresaId, v);
 }
 function situacaoDoSite(empresa) {
-  const bots = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const ativos = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const bots = ativos.length ? ativos : estado.bots.filter((b) => b.empresaId === empresa.id);
   const principal = bots.find((b) => b.principal) || bots[0];
   return {
     assistente: Boolean(principal),
+    chatLigado: ativos.length > 0,
     whatsapp: Boolean(principal && numeroDoAtendimento(principal, empresa)),
     dominios: [...new Set(bots.flatMap((b) => b.dominios || []))],
     visto: vistoNoSite.get(empresa.id) || null
@@ -389,7 +391,8 @@ async function testarSite(empresa, endereco) {
   const { hostDe, dominioPermitido } = require('./util');
   const host = hostDe(url);
   if (!host || (!host.includes('.') && host !== 'localhost')) throw Object.assign(new Error('Endereço inválido. Ex.: www.minhaloja.com.br'), { status: 400 });
-  const bots = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const ativos = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const bots = ativos.length ? ativos : estado.bots.filter((b) => b.empresaId === empresa.id);
   const principal = bots.find((b) => b.principal) || bots[0];
   const res = { url, host, em: agora(), itens: [] };
   const item = (ok, texto) => res.itens.push({ ok, texto });
@@ -418,7 +421,8 @@ async function testarSite(empresa, endereco) {
   } else {
     item(false, 'O código do CRM NÃO está nesta página. Cole a linha antes de </body> e publique o site (se usa cache/CDN, limpe o cache).');
   }
-  if (!principal) item(false, 'A empresa não tem assistente do site ativo — crie em IA do site (pode ser só para rastrear).');
+  if (!principal) item(false, 'A empresa não tem assistente — crie em IA do site (pode ser só para rastrear).');
+  else if (!ativos.length && daEmpresa.length && !/data-chat\s*=\s*["']nao["']/i.test(daEmpresa[0])) item(null, 'O chat da IA do site está desligado: o código rastreia o anúncio, mas a janelinha do chat não aparece.');
   else if (!dominioPermitido(principal, url) && !bots.some((b) => (b.dominios || []).length && dominioPermitido(b, url))) item(false, `O site ${host} não está na lista de domínios do assistente do site (${(principal.dominios || []).join(', ')}). Adicione ${host} em IA do site.`);
   // botões de WhatsApp da página: precisam ser do mesmo número do assistente para levar o código
   const numero = principal && numeroDoAtendimento(principal, empresa);

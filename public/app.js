@@ -5882,7 +5882,7 @@ function blocoCodigoSiteMeta(id, site, chegadas) {
   const v = site.visto || {};
   const item = (ok, html) => `<li>${ok === true ? '✅' : ok === false ? '❌' : '⚠️'} ${html}</li>`;
   const checagens = [
-    item(site.assistente, site.assistente ? 'Assistente do site ativo (o código usa o WhatsApp dele)' : `Falta um assistente do site ativo — crie em <a href="${rotaEmpresa(id, 'site')}">IA do site</a> (pode deixar só para rastrear)`),
+    item(site.assistente, site.assistente ? `Rastreio pronto (usa o WhatsApp do assistente)${site.chatLigado ? '' : ' — o chat da IA do site está desligado, então só rastreia, sem janelinha'}` : `Falta um assistente — crie em <a href="${rotaEmpresa(id, 'site')}">IA do site</a> (pode deixar só para rastrear)`),
     site.assistente ? item(site.whatsapp, site.whatsapp ? 'Número do WhatsApp configurado' : `Falta o número do WhatsApp no assistente do site — em <a href="${rotaEmpresa(id, 'site')}">IA do site</a>`) : '',
     item(true, site.dominios?.length ? `Funciona nos sites: <b>${esc(site.dominios.join(', '))}</b>` : 'Funciona em qualquer site (nenhum domínio restrito)'),
     v.bloqueado && (!v.ok || v.bloqueado.em > v.ok.em) ? item(false, `O site <b>${esc(v.bloqueado.host || '?')}</b> carregou o código em ${esc(quando(v.bloqueado.em))}, mas foi recusado: ${v.bloqueado.motivo === 'sem-assistente' ? 'a empresa não tem assistente do site ativo' : 'esse site não está na lista de domínios do assistente (IA do site)'}`) : '',

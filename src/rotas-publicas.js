@@ -31,10 +31,11 @@ function cors(req, res, next) {
 
 router.use(cors);
 
-function carregarBot(req, res, botId) {
+// rastreio: só registrar o clique do site (vale mesmo com o chat da IA do site desligado)
+function carregarBot(req, res, botId, rastreio) {
   const bot = estado.bots.find((b) => b.id === botId);
   const empresa = bot && estado.empresas.find((e) => e.id === bot.empresaId);
-  if (!bot || !empresa || bot.ativo === false || empresa.ativa === false) {
+  if (!bot || !empresa || (bot.ativo === false && !rastreio) || empresa.ativa === false) {
     res.status(404).json({ erro: 'Assistente não encontrado ou desativado.' });
     return null;
   }
@@ -51,10 +52,11 @@ function numeroWhatsapp(bot, empresa) {
 }
 
 // Configuração visual que o widget precisa para se desenhar
-function enviarConfig(res, bot, empresa) {
+function enviarConfig(res, bot, empresa, soRastrear) {
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.json({
     id: bot.id,
+    soRastrear: Boolean(soRastrear),
     nomeAssistente: bot.nomeAssistente || empresa.nome,
     avatarUrl: bot.avatarUrl || (empresa.logo ? `${config.urlPublica}/logo/${empresa.id}?v=${encodeURIComponent(empresa.logo.v)}` : ''),
     cor: bot.cor || '#008069',
@@ -82,14 +84,24 @@ router.get('/empresas/:empresaId', (req, res) => {
   const ativos = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
   const doDominio = host && ativos.find((b) => (b.dominios || []).length > 0 && dominioPermitido(b, origem));
   const principal = ativos.find((b) => b.principal) || ativos[0];
-  const bot = doDominio || (principal && dominioPermitido(principal, origem) ? principal : null);
-  require('./meta-ads').siteVisto(empresa.id, host, !bot, ativos.length ? 'dominio' : 'sem-assistente');
+  let bot = doDominio || (principal && dominioPermitido(principal, origem) ? principal : null);
+  // chat da IA do site desligado: o código novo ainda rastreia o anúncio (sem mostrar o chat)
+  let soRastrear = false;
+  if (!bot && !ativos.length && req.query.rastreio === '1') {
+    const todos = estado.bots.filter((b) => b.empresaId === empresa.id);
+    const p = todos.find((b) => b.principal) || todos[0];
+    if (p && dominioPermitido(p, origem)) {
+      bot = p;
+      soRastrear = true;
+    }
+  }
+  require('./meta-ads').siteVisto(empresa.id, host, !bot, ativos.length || soRastrear ? 'dominio' : 'sem-assistente');
   if (!bot) {
     return res.status(ativos.length ? 403 : 404).json({
       erro: ativos.length ? 'Este site não está autorizado para esta empresa.' : 'Esta empresa não tem assistente ativo.'
     });
   }
-  enviarConfig(res, bot, empresa);
+  enviarConfig(res, bot, empresa, soRastrear);
 });
 
 router.post('/chat', async (req, res) => {
@@ -199,7 +211,7 @@ router.post('/lead', (req, res) => {
 // mensagem chegar no WhatsApp, a IA de lá já sabe o contexto.
 router.post('/visita', (req, res) => {
   const { botId, conversaId } = req.body || {};
-  const achado = carregarBot(req, res, String(botId || ''));
+  const achado = carregarBot(req, res, String(botId || ''), true);
   if (!achado) return;
   if (!limiteVisitas(req.ip)) return res.status(429).json({ erro: 'Muitas requisições.' });
   const rastro = origem.normalizarRastro(req.body?.rastro);

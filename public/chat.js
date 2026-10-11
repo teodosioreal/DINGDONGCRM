@@ -314,7 +314,7 @@
 
   var rotaConfig = botFixo
     ? '/api/public/bots/' + encodeURIComponent(botFixo)
-    : '/api/public/empresas/' + encodeURIComponent(empresaId);
+    : '/api/public/empresas/' + encodeURIComponent(empresaId) + '?rastreio=1';
 
   pedir(rotaConfig)
     .then(function (r) {
@@ -332,7 +332,8 @@
       }
       quandoPronto(function () {
         // data-chat="nao": só rastreia o anúncio e os botões de WhatsApp, sem a janelinha do chat
-        if (script.getAttribute('data-chat') !== 'nao') montar(r.dados);
+        // soRastrear: o chat da IA do site está desligado no CRM (só o rastreio funciona)
+        if (script.getAttribute('data-chat') !== 'nao' && !r.dados.soRastrear) montar(r.dados);
         if (script.getAttribute('data-rastrear-whatsapp') !== 'nao') vigiarBotoesWhatsapp(r.dados);
       });
     })
