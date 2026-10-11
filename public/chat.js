@@ -156,13 +156,13 @@
     return c;
   }
 
-  // Coloca "Protocolo: #CODIGO" no fim do texto de um link de WhatsApp (o CRM liga a conversa por ele)
+  // Coloca "#CODIGO" no início do texto de um link de WhatsApp (o CRM liga a conversa por ele)
   function comCodigo(url, codigo, padrao) {
     if (!codigo || !url) return url;
     try {
       var u = new URL(url);
       var texto = u.searchParams.get('text') || padrao || 'Olá! Vim pelo site.';
-      if (texto.indexOf('#' + codigo) === -1) u.searchParams.set('text', texto + '\n\nProtocolo: #' + codigo);
+      if (texto.indexOf('#' + codigo) === -1) u.searchParams.set('text', '#' + codigo + ' ' + texto);
       return u.toString();
     } catch (e) {
       return url;
