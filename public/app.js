@@ -823,7 +823,7 @@ function cartaoEsperandoIa(emp, id) {
 // ⏱️ Tempo de resposta da IA (WhatsApp): opções e o resumo do cartão fechado
 const TEMPOS_PRIMEIRA = [[0, 'na hora (só a velocidade acima)'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']];
 function resumoTempoIa(w) {
-  const vel = { rapido: 'Rápido', humanizado: 'Humanizado', lento: 'Mais lento' }[w.velocidade || 'humanizado'] || 'Humanizado';
+  const vel = { rapido: 'Rápido', humanizado: 'Humanizado', lento: 'Mais lento', humano: 'Bem humano' }[w.velocidade || 'humanizado'] || 'Humanizado';
   const prim = Number(w.esperaPrimeiraSeg || 0);
   const txtPrim = prim ? (TEMPOS_PRIMEIRA.find(([v]) => v === prim)?.[1] || `${prim} s`) : 'na hora';
   return `${vel} · 1ª mensagem: ${txtPrim} · pausas ${w.esperaAntesMidiaSeg ?? 3}/${w.esperaDepoisMidiaSeg ?? 10}/${w.esperaEntreTextosSeg ?? 5} s`;
@@ -1728,7 +1728,7 @@ async function paginaWhatsapp(id) {
       <h3 class="titulo-bloco">1. Velocidade das respostas</h3>
       <p class="rotulo" style="margin:0 0 8px">Quanto a IA espera e quanto tempo fica "digitando…" antes de cada resposta. Mais lento parece mais humano.</p>
       <div class="opcoes-ritmo">
-        ${[['rapido', '⚡ Rápido', 'responde em ~3 s'], ['humanizado', '🙂 Humanizado', 'espera ~8 s e digita no ritmo de uma pessoa'], ['lento', '🐢 Mais lento', 'espera ~25 s, bem calmo']].map(([v, n, d]) => `<label class="opcao-ritmo"><input type="radio" name="velocidade" value="${v}" ${(w.velocidade || 'humanizado') === v ? 'checked' : ''}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}
+        ${[['rapido', '⚡ Rápido', 'responde em ~3 s'], ['humanizado', '🙂 Humanizado', 'espera ~8 s e digita no ritmo de uma pessoa'], ['lento', '🐢 Mais lento', 'espera ~25 s, bem calmo'], ['humano', '🧑 Bem humano', 'espera 20–45 s, marca como lida, digita cada frase no ritmo dela e “procura” a foto antes de mandar']].map(([v, n, d]) => `<label class="opcao-ritmo"><input type="radio" name="velocidade" value="${v}" ${(w.velocidade || 'humanizado') === v ? 'checked' : ''}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}
       </div>
       <h3 class="titulo-bloco">2. Primeira mensagem de um cliente novo</h3>
       <div class="campos">

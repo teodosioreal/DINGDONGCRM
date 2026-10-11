@@ -582,8 +582,13 @@ const iaOcupadaCom = (leadId) => agendadas.has(leadId) || emResposta.has(leadId)
 const VELOCIDADES = {
   rapido: { nome: 'Rápido', espera: 3000, base: 600, porLetra: 12, max: 3000 },
   humanizado: { nome: 'Humanizado', espera: 8000, base: 1500, porLetra: 35, max: 10000 },
-  lento: { nome: 'Mais lento', espera: 25000, base: 4000, porLetra: 60, max: 20000 }
+  lento: { nome: 'Mais lento', espera: 25000, base: 4000, porLetra: 60, max: 20000 },
+  // 🧑 Bem humano: espera variada (20–45 s), marca como lida, "digita" cada frase no ritmo
+  // do tamanho dela, e antes de foto/vídeo fica um tempo sem digitar ("procurando na galeria")
+  humano: { nome: 'Bem humano', espera: 20000, esperaAte: 45000, base: 2500, porLetra: 75, max: 25000, natural: true }
 };
+const sortear = (min, max) => Math.round(min + Math.random() * (max - min));
+const variar = (ms, pct = 0.25) => Math.max(0, Math.round(ms * (1 - pct + Math.random() * pct * 2)));
 
 function ritmoDa(empresa) {
   return VELOCIDADES[empresa?.whatsappConfig?.velocidade] || VELOCIDADES.humanizado;
@@ -591,12 +596,14 @@ function ritmoDa(empresa) {
 
 function tempoDigitando(texto, empresa) {
   const v = ritmoDa(empresa);
-  return Math.min(v.max, v.base + String(texto || '').length * v.porLetra);
+  const ms = Math.min(v.max, v.base + String(texto || '').length * v.porLetra);
+  return v.natural ? variar(ms) : ms;
 }
 
 // Quanto esperar antes de responder (a 1ª mensagem de um lead novo pode esperar mais)
 function esperaParaResponder(empresa, lead) {
-  const base = process.env.WHATSAPP_ESPERA_MS ? config.whatsappEsperaMs : ritmoDa(empresa).espera;
+  const v = ritmoDa(empresa);
+  const base = process.env.WHATSAPP_ESPERA_MS ? config.whatsappEsperaMs : v.esperaAte ? sortear(v.espera, v.esperaAte) : v.espera;
   const jaRespondido = (lead.mensagens || []).some((m) => m.papel === 'assistente' || m.papel === 'equipe');
   const primeira = Math.max(0, Math.min(3600, Number(empresa?.whatsappConfig?.esperaPrimeiraSeg) || 0)) * 1000;
   return base + (jaRespondido ? 0 : primeira);
@@ -1647,6 +1654,8 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   const logs = require('./log-respostas');
   const origemLog = opcoes.evento ? `evento:${opcoes.evento}` : 'resposta';
   // avisos internos: [CLIENTE_ENVIOU_FOTO] nas fotos do cliente e o evento desta vez no fim
+  // Bem humano: marca como lida (tiques azuis) e só então "pensa" e digita
+  if (ritmoDa(empresa).natural && !opcoes.evento) await marcarComoLidas(empresa, lead).catch(() => 0);
   const historico = eventos.historicoParaIa(empresa, leads.historicoParaIa(lead), opcoes.evento);
   let r;
   const horarios = require('./horarios-ia');
@@ -1794,6 +1803,22 @@ function partesDaResposta(r) {
   return partes;
 }
 
+// Quanto esperar antes de cada parte e se mostra "digitando…". No modo Bem humano: cada frase
+// digita no ritmo do tamanho dela; antes de foto/vídeo, uma pausa SEM digitar (procurando a
+// mídia); depois da mídia, um respiro e digita a próxima. As pausas do painel valem como mínimo.
+function esperaDaParte(empresa, p, anterior, i, vaiPular) {
+  const tempos = temposDeEnvio(empresa);
+  if (!ritmoDa(empresa).natural) {
+    if (i === 0) return { ms: p.tipo === 'texto' ? tempoDigitando(p.texto, empresa) : vaiPular ? 0 : tempos.antesMidia, digitando: true };
+    return { ms: p.tipo === 'midia' ? (vaiPular ? 0 : tempos.antesMidia) : anterior === 'midia' ? tempos.depoisMidia : tempos.entreTextos, digitando: true };
+  }
+  if (p.tipo === 'midia') return vaiPular ? { ms: 0, digitando: false } : { ms: Math.max(tempos.antesMidia, sortear(10000, 25000)), digitando: false };
+  const digitar = tempoDigitando(p.texto, empresa);
+  if (i === 0) return { ms: digitar, digitando: true };
+  const minimo = anterior === 'midia' ? tempos.depoisMidia : tempos.entreTextos;
+  return { ms: Math.max(minimo, digitar + (anterior === 'midia' ? sortear(3000, 6000) : sortear(800, 2500))), digitando: true };
+}
+
 function digitandoPor(empresa, lead, ms) {
   if (ms <= 0) return Promise.resolve();
   evolution(empresa, 'POST', '/chat/sendPresence/{instancia}', { number: destinoDe(lead.whatsappJid), presence: 'composing', delay: ms }, { tempo: ms + 10000 }).catch(() => {});
@@ -1817,7 +1842,8 @@ async function enviarRespostaEmPartes(empresa, lead, r, { log, opcoes = {}, vez 
     })();
     if (i === 0) {
       // 1º envio: "digitando…" e, se o cliente escrever nesse meio tempo, a IA responde tudo junto
-      await digitandoPor(empresa, lead, p.tipo === 'texto' ? tempoDigitando(p.texto, empresa) : vaiPular ? 0 : tempos.antesMidia);
+      const e0 = esperaDaParte(empresa, p, anterior, i, vaiPular);
+      await (e0.digitando ? digitandoPor(empresa, lead, e0.ms) : new Promise((ok) => setTimeout(ok, e0.ms)));
       if (lead.iaPausada) {
         logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: [...log.avisos, 'A equipe assumiu enquanto a IA digitava: nada foi enviado.'] });
         registrarIa(empresa, lead, 'ignorou', 'A equipe assumiu enquanto a IA digitava.');
@@ -1829,8 +1855,8 @@ async function enviarRespostaEmPartes(empresa, lead, r, { log, opcoes = {}, vez 
         return 'refazer';
       }
     } else {
-      const espera = p.tipo === 'midia' ? (vaiPular ? 0 : tempos.antesMidia) : anterior === 'midia' ? tempos.depoisMidia : tempos.entreTextos;
-      await digitandoPor(empresa, lead, espera);
+      const e = esperaDaParte(empresa, p, anterior, i, vaiPular);
+      await (e.digitando ? digitandoPor(empresa, lead, e.ms) : new Promise((ok) => setTimeout(ok, e.ms)));
       if (lead.iaPausada) {
         log.avisos.push('A equipe assumiu no meio do envio: o resto da resposta não foi enviado.');
         break;
@@ -2144,6 +2170,8 @@ module.exports = {
   conferirEntregasPendentes,
   iniciarConferenciaEntregas,
   temposDeEnvio,
+  esperaDaParte,
+  esperaParaResponder,
   partesDaResposta,
   iaVaiResponder,
   marcarComoLidas,
