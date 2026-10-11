@@ -5954,12 +5954,12 @@ function cartaoVendasMeta(id, m) {
   if (!el) return;
   const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
   const env = m.envio || {};
-  const STATUS = { enviada: ['ok', '✅ Enviada'], pronta: ['aviso', '🕐 Pronta — vai no próximo envio'], erro: ['erro', '⚠️ Erro ao enviar'], 'nao-vai': ['off', '⛔ Não vai'], desligado: ['off', '⚪ Envio desligado'] };
+  const STATUS = { enviada: ['ok', '✅ Enviada'], pronta: ['aviso', '🕐 Pronta — vai no próximo envio'], esperando: ['aviso', '⏳ Esperando'], erro: ['erro', '⚠️ Erro ao enviar'], 'nao-vai': ['off', '⛔ Não vai'], desligado: ['off', '⚪ Envio desligado'] };
   const lista = (itens) => itens.map(([n, ok]) => `<span class="${ok ? 'crit-ok' : 'crit-falta'}">${ok ? '✓' : '✗'} ${esc(n)}</span>`).join(' ');
   const linhas = (m.criterios || []).map((v) => {
     const [cls, rotulo] = STATUS[v.status] || ['off', v.status];
     return `<tr>
-      <td style="white-space:nowrap">${esc(hora(v.em))}<br>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || 'Cliente')}</a>` : esc(v.cliente || '—')}<br><b>${brl(v.valor)}</b></td>
+      <td style="white-space:nowrap">${esc(hora(v.em))}<br>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || 'Cliente')}</a>` : esc(v.cliente || '—')}<br><b>${brl(v.valor)}</b><div class="rotulo">${esc(v.origemValor || '')}</div>${v.valorEnviado != null && Number(v.valorEnviado) !== Number(v.valor) ? `<div class="rotulo">foi para a Meta: <b>${brl(v.valorEnviado)}</b></div>` : ''}</td>
       <td class="crit">${lista(v.obrigatorios)}<div class="rotulo" style="margin-top:3px">extras: ${lista(v.extras)}</div></td>
       <td><span class="etiqueta-status ${cls}">${rotulo}</span><div class="rotulo" style="margin-top:3px">${esc(v.situacao)}</div></td>
     </tr>`;
@@ -5968,6 +5968,7 @@ function cartaoVendasMeta(id, m) {
     <div class="cabecalho" style="margin-bottom:6px"><div><h2 style="margin:0">Vendas para a Meta</h2><p class="sub" style="margin:2px 0 0">${m.todasVendas ? 'Vendas dos últimos 30 dias' : 'Vendas de clientes que vieram do anúncio (30 dias)'}, o que cada uma tem e se foi enviada.</p></div>
       <button type="button" id="meta-enviar-agora" ${m.pronto ? '' : 'disabled'}>Enviar agora</button></div>
     <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
+    <p class="rotulo" style="margin:0 0 8px">⏳ Venda com comprovante espera 3 h e venda sem comprovante (IA, frase, à mão) espera 6 h antes de ir: dá tempo de o comprovante chegar e corrigir o valor, e os pagamentos do mesmo cliente no mesmo dia (sinal + restante) vão juntos como <b>uma</b> compra com o valor somado.</p>
     <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;

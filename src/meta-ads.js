@@ -97,7 +97,7 @@ const telefoneDe = (lead) => {
 };
 
 // o evento que vai para a Meta (sem nada de texto de conversa)
-function montarEvento(venda, lead, clique = null) {
+function montarEvento(venda, lead, clique = null, valor = venda.valor) {
   clique = clique || {};
   const quando = Math.min(Date.now(), new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime() || Date.now());
   const fone = telefoneDe(lead);
@@ -121,7 +121,7 @@ function montarEvento(venda, lead, clique = null) {
     action_source: clique.ua ? 'website' : 'system_generated',
     ...(clique.ua ? { event_source_url: clique.pagina } : {}),
     user_data: user,
-    custom_data: { currency: 'BRL', value: Math.round(Number(venda.valor) * 100) / 100 }
+    custom_data: { currency: 'BRL', value: Math.round(Number(valor) * 100) / 100 }
   };
 }
 
@@ -185,25 +185,32 @@ async function enviarVenda(empresa, venda) {
   const c = configDa(empresa);
   if (!pronto(c) || enviando.has(venda.id)) return false;
   if (motivoNaoEnviar(empresa, venda, c)) return false;
+  // pagamentos do mesmo cliente no mesmo dia (sinal + restante) vão juntos, como UMA compra;
+  // quem envia é a primeira venda do grupo, depois da espera (dá tempo do comprovante chegar)
+  const grupo = grupoDaVenda(empresa, venda, c);
+  if (grupo[0].id !== venda.id || Date.now() < esperaDoGrupo(grupo)) return false;
   const lead = estado.conversas.find((l) => l.id === venda.leadId);
-  enviando.add(venda.id);
+  for (const v of grupo) enviando.add(v.id);
   try {
     // com o clique do anúncio quando tem; sem ele, o que o site guardou do navegador (cookie do Pixel, IP)
     const k = cliqueDo(lead) || dadosDoNavegador(lead);
-    const evento = montarEvento(venda, lead, k);
+    const total = Math.round(grupo.reduce((t, v) => t + (Number(v.valor) || 0), 0) * 100) / 100;
+    const evento = montarEvento(venda, lead, k, total);
     const r = await enviarEventos(c, [evento]);
     const u = evento.user_data;
     // a prova: o que a Meta respondeu e quais dados foram (para conferir no painel)
-    venda.metaAds = {
+    const prova = {
       enviadoEm: agora(),
       teste: Boolean(c.codigoTeste),
       recebidos: r.events_received ?? null,
       fbtrace: String(r.fbtrace_id || '').slice(0, 40),
       comClique: Boolean(cliqueDo(lead)), // false = foi pelo telefone (modo todas as vendas)
       dados: { clique: Boolean(u.fbc), telefone: Boolean(u.ph), nome: Boolean(u.fn), ip: Boolean(u.client_ip_address), navegador: Boolean(u.client_user_agent), pixelDoSite: Boolean(u.fbp) },
-      tentativas: (venda.metaAds?.tentativas || 0) + 1
+      valorEnviado: total,
+      ...(grupo.length > 1 ? { grupo: grupo.map((v) => v.id) } : {})
     };
-    console.log(`[meta-ads ${empresa.id}] venda enviada${c.codigoTeste ? ' (teste)' : ''}`);
+    for (const v of grupo) v.metaAds = { ...prova, ...(v.id !== venda.id ? { juntoCom: venda.id } : {}), tentativas: (v.metaAds?.tentativas || 0) + 1 };
+    console.log(`[meta-ads ${empresa.id}] venda enviada${grupo.length > 1 ? ` (${grupo.length} pagamentos juntos)` : ''}${c.codigoTeste ? ' (teste)' : ''}`);
     return true;
   } catch (err) {
     // sem internet / Meta fora do ar: tenta de novo no próximo ciclo, sem gastar tentativa
@@ -219,9 +226,44 @@ async function enviarVenda(empresa, venda) {
     }
     return false;
   } finally {
-    enviando.delete(venda.id);
+    for (const v of grupo) enviando.delete(v.id);
     salvar();
   }
+}
+
+// ---------------------------------------------------------------- espera e grupo
+// venda com comprovante espera 3 h (junta sinal + restante do mesmo dia); sem comprovante
+// (IA, frase, à mão) espera 6 h: dá tempo do comprovante chegar e corrigir o valor
+const ESPERA_COM_COMPROVANTE_MS = Number(process.env.META_ADS_ESPERA_COM_MS) || 3 * 3600 * 1000;
+const ESPERA_SEM_COMPROVANTE_MS = Number(process.env.META_ADS_ESPERA_SEM_MS) || 6 * 3600 * 1000;
+const temComprovante = (v) => v.origem === 'comprovante' || Boolean(v.idTransacao || v.anexo);
+const quandoDa = (v) => new Date(v.confirmadaEm || v.data || v.criadoEm).getTime() || Date.now();
+const diaSP = (ms) => new Date(ms).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+// de onde veio o valor da venda (para conferir no painel)
+function origemDoValor(v) {
+  if (temComprovante(v)) return { tipo: 'comprovante', texto: `📄 comprovante${v.lidoPor === 'ocr' ? ' (foto)' : v.lidoPor === 'ia' ? ' (lido pela IA)' : v.lidoPor === 'texto' ? ' (PDF)' : ''}` };
+  if (v.origem === 'ia' || v.lidoPor === 'ia-conversa') return { tipo: 'ia', texto: '🤖 IA na conversa (sem comprovante)' };
+  if (v.origem === 'frase' || v.lidoPor === 'frase') return { tipo: 'frase', texto: '💬 frase de venda da equipe (sem comprovante)' };
+  return { tipo: 'manual', texto: '✍️ lançada à mão' };
+}
+// as vendas ainda não enviadas do mesmo cliente no mesmo dia que podem ir (em ordem)
+function grupoDaVenda(empresa, venda, c = configDa(empresa)) {
+  if (!venda.leadId) return [venda];
+  const dia = diaSP(quandoDa(venda));
+  return (estado.vendas || [])
+    .filter((v) => v.empresaId === empresa.id && v.leadId === venda.leadId && diaSP(quandoDa(v)) === dia && (v.id === venda.id || motivoNaoEnviar(empresa, v, c) === null))
+    .sort((a, b) => quandoDa(a) - quandoDa(b) || (a.id < b.id ? -1 : 1));
+}
+const esperaDoGrupo = (grupo) => Math.max(...grupo.map((v) => quandoDa(v) + (temComprovante(v) ? ESPERA_COM_COMPROVANTE_MS : ESPERA_SEM_COMPROVANTE_MS)));
+const horaSP = (ms) => new Date(ms).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+// venda que vai, mas ainda está na espera: até quando e por quê (ou null)
+function esperaDaVenda(empresa, v, c = configDa(empresa)) {
+  if (v.metaAds?.enviadoEm || motivoNaoEnviar(empresa, v, c) !== null) return null;
+  const grupo = grupoDaVenda(empresa, v, c);
+  const ate = esperaDoGrupo(grupo);
+  if (Date.now() >= ate) return null;
+  const sem = grupo.some((x) => !temComprovante(x));
+  return { ate: new Date(ate).toISOString(), texto: `esperando até ${horaSP(ate)} ${sem ? '(sem comprovante: dá tempo do comprovante chegar e corrigir o valor)' : '(junta outro pagamento do mesmo dia, se vier)'}${grupo.length > 1 ? ` · vai junto com ${grupo.length - 1} outro(s) pagamento(s) do dia` : ''}` };
 }
 
 let rodando = false;
@@ -263,14 +305,20 @@ function iniciar() {
 // ---------------------------------------------------------------- painel
 
 // texto da situação de uma venda na Meta (com a confirmação da Meta quando foi)
-function situacaoDaVenda(v, motivo, c) {
+function situacaoDaVenda(v, motivo, c, empresa = null) {
   const m = v.metaAds;
+  if (m?.enviadoEm && m.juntoCom && (!m.teste || c.codigoTeste)) {
+    return `enviada junto com outro pagamento do mesmo dia (uma compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) ${horaSP(new Date(m.enviadoEm).getTime())}`;
+  }
   if (m?.enviadoEm && (!m.teste || c.codigoTeste)) {
     const conf = m.recebidos === 1 || m.recebidos > 0 ? ` · a Meta confirmou: ${m.recebidos} evento recebido` : ' · a Meta não confirmou o recebimento';
     const como = m.comClique === false ? ' pelo telefone (sem o clique)' : m.comClique ? ' com o clique do anúncio' : '';
-    return `${m.teste ? 'enviada (teste)' : 'enviada'}${como} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}`;
+    const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
+    return `${m.teste ? 'enviada (teste)' : 'enviada'}${como}${soma} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}`;
   }
   if (m?.erro && motivo === null) return `erro: ${m.erro}`;
+  const espera = motivo === null && empresa ? esperaDaVenda(empresa, v, c) : null;
+  if (espera) return espera.texto;
   return motivo || (pronto(c) ? 'pronta: vai no próximo envio (de hora em hora)' : 'vai quando ligar o envio');
 }
 
@@ -293,7 +341,7 @@ function paraConversa(empresa, lead) {
   const nav = o.navegador || {};
   const vendas = (estado.vendas || [])
     .filter((v) => v.empresaId === empresa.id && v.leadId === lead.id && v.status !== 'cancelada')
-    .map((v) => ({ valor: v.valor, em: v.confirmadaEm || v.data || v.criadoEm, situacao: situacaoDaVenda(v, motivoNaoEnviar(empresa, v, c), c) }));
+    .map((v) => ({ valor: v.valor, em: v.confirmadaEm || v.data || v.criadoEm, situacao: situacaoDaVenda(v, motivoNaoEnviar(empresa, v, c), c, empresa) }));
   // se este cliente comprar hoje, a venda vai para a Meta?
   const ate = k ? new Date(new Date(k.em).getTime() + DIAS_CLIQUE * 86400000).toISOString() : null;
   const peloTelefone = !k && c.todasVendas && Boolean(telefoneDe(lead));
@@ -385,7 +433,7 @@ function paraPainel(empresa) {
         cliente: lead?.nome || v.cliente || '',
         valor: v.valor,
         em: v.confirmadaEm || v.data || v.criadoEm,
-        situacao: situacaoDaVenda(v, motivo, c),
+        situacao: situacaoDaVenda(v, motivo, c, empresa),
         recebidos: v.metaAds?.recebidos ?? null,
         dados: v.metaAds?.dados || null,
         enviadoEm: v.metaAds?.enviadoEm || null
@@ -409,8 +457,10 @@ function paraPainel(empresa) {
         em: v.confirmadaEm || v.data || v.criadoEm,
         ...criteriosDaVenda(empresa, v, lead, c.todasVendas),
         comClique: comCliqueIds.has(v.leadId),
-        status: enviada ? 'enviada' : motivo === null ? (pronto(c) ? 'pronta' : 'desligado') : v.metaAds?.erro ? 'erro' : 'nao-vai',
-        situacao: situacaoDaVenda(v, motivo, c),
+        status: enviada ? 'enviada' : motivo === null ? (!pronto(c) ? 'desligado' : esperaDaVenda(empresa, v, c) ? 'esperando' : 'pronta') : v.metaAds?.erro ? 'erro' : 'nao-vai',
+        origemValor: origemDoValor(v).texto,
+        valorEnviado: v.metaAds?.enviadoEm ? v.metaAds.valorEnviado ?? null : null,
+        situacao: situacaoDaVenda(v, motivo, c, empresa),
         recebidos: v.metaAds?.recebidos ?? null
       };
     });
