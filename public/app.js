@@ -372,6 +372,7 @@ function linhaMeta(m) {
   ].join(' · ');
   const envio = !m.ligado ? '<span class="aviso-texto">⚪ envio de vendas para a Meta desligado</span>'
     : m.naoVai ? `<span class="aviso-texto">⚠️ se comprar, a venda NÃO vai para a Meta: ${esc(m.naoVai)}</span>`
+    : m.peloTelefone ? '✅ se comprar, a venda vai para a Meta pelo telefone (sem o clique: a Meta reconhece o cliente)'
     : `✅ se comprar até <b>${esc(data(m.vaiAte, false))}</b>, a venda vai para a Meta`;
   const vendas = (m.vendas || []).map((v) => `<div>💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
   return `<div class="chat-meta"><div>📣 <b>Meta Ads</b> · ${esc(via)}${info ? ` · ${info}` : ''}</div><div class="chat-meta-dados">${dados}</div><div>${envio}</div>${vendas}</div>`;
@@ -5964,10 +5965,10 @@ function cartaoVendasMeta(id, m) {
     </tr>`;
   }).join('');
   el.innerHTML = `
-    <div class="cabecalho" style="margin-bottom:6px"><div><h2 style="margin:0">Vendas para a Meta</h2><p class="sub" style="margin:2px 0 0">Vendas de clientes que vieram do anúncio (30 dias), o que cada uma tem e se foi enviada.</p></div>
+    <div class="cabecalho" style="margin-bottom:6px"><div><h2 style="margin:0">Vendas para a Meta</h2><p class="sub" style="margin:2px 0 0">${m.todasVendas ? 'Vendas dos últimos 30 dias' : 'Vendas de clientes que vieram do anúncio (30 dias)'}, o que cada uma tem e se foi enviada.</p></div>
       <button type="button" id="meta-enviar-agora" ${m.pronto ? '' : 'disabled'}>Enviar agora</button></div>
     <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
-    <p class="rotulo" style="margin:0 0 8px">Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.</p>
+    <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
   $('#meta-enviar-agora').onclick = async (e) => {
@@ -6004,7 +6005,8 @@ async function cartaoMetaAds(id) {
 
     <form id="f-meta-ads" style="margin-top:14px">
       <label class="linha-check meta-ligar"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a campanha</b></label>
-      <p class="rotulo" style="margin:6px 0 0">Vai para a Meta só a venda <b>confirmada, com valor</b>, de cliente que <b>clicou no anúncio</b> (o CRM guardou o fbclid) e com <b>telefone</b>. Sem esses dados não vai.</p>
+      <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="todasVendas" ${m.todasVendas ? 'checked' : ''}> <b>Enviar todas as vendas válidas</b> (também as sem o clique do anúncio)</label>
+      <p class="rotulo" style="margin:6px 0 0">${m.todasVendas ? 'Vai toda venda <b>confirmada, com valor e com telefone</b>. Com o clique do anúncio (fbclid) a Meta liga a venda ao clique exato; sem ele, reconhece o cliente pelo <b>telefone</b> e só conta para a campanha se ele viu ou clicou num anúncio seu. Mais vendas = mais inteligência para a campanha.' : 'Vai só a venda <b>confirmada, com valor</b>, de cliente que <b>clicou no anúncio</b> (o CRM guardou o fbclid) e com <b>telefone</b>. Marque a opção acima para mandar também as vendas sem o clique (a Meta reconhece pelo telefone).'}</p>
       <div class="campos" style="margin-top:10px">
         <div class="campo"><label>ID do Pixel</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" placeholder="só números"></div>
         <div class="campo"><label>Token da API de Conversões</label><input name="token" type="password" autocomplete="new-password" placeholder="${m.tokenSalvo ? `salvo — termina em …${esc(m.tokenFim)} (cole outro para trocar)` : 'cole o token'}"></div>
@@ -6038,7 +6040,7 @@ async function cartaoMetaAds(id) {
   const f = $('#f-meta-ads');
   f.onsubmit = async (e) => {
     e.preventDefault();
-    const corpo = { ativo: f.elements.ativo.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
+    const corpo = { ativo: f.elements.ativo.checked, todasVendas: f.elements.todasVendas.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
     if (f.elements.token.value.trim()) corpo.token = f.elements.token.value.trim();
     try {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/meta-ads`, { method: 'PUT', body: corpo }));
