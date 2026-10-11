@@ -1722,6 +1722,7 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0">Todas as mensagens do WhatsApp aparecem aqui. Se alguma não chegou (o número ficou desconectado, você reconectou, o servidor reiniciou), o CRM busca sozinho a cada 20 minutos e sempre que o WhatsApp volta a conectar — sem a IA responder mensagens antigas.${w.sincronia ? ` <br>Última busca: <b>${esc(data(w.sincronia.em))}</b> · ${w.sincronia.erro ? `<span class="aviso-texto">erro: ${esc(w.sincronia.erro)}</span>` : `${w.sincronia.importadas} mensagem(ns) recuperada(s)${w.sincronia.importadas ? ` em ${w.sincronia.conversas} conversa(s)` : ''}`}.` : ''}</p>
     </div>` : ''}
     <form class="card" id="f-ritmo" data-pronto="ok" data-resumo="${esc(resumoTempoIa(w))}">
+      <div class="cfg-rapido"><label for="rapido-primeira">⏱️ Responder a 1ª mensagem de cliente novo:</label><select id="rapido-primeira">${TEMPOS_PRIMEIRA.map(([v, n]) => `<option value="${v}" ${Number(w.esperaPrimeiraSeg || 0) === v ? 'selected' : ''}>${v ? n : 'na hora'}</option>`).join('')}</select></div>
       <h2 style="margin:0 0 6px">⏱️ Tempo de resposta da IA</h2>
       <p class="rotulo" style="margin:0 0 12px">Tudo o que define quanto tempo a IA leva para responder fica aqui.</p>
       <h3 class="titulo-bloco">1. Velocidade das respostas</h3>
@@ -1780,7 +1781,7 @@ async function paginaWhatsapp(id) {
     </div>
     <div class="card" id="card-horario-ia"><p class="rotulo">Carregando horário da IA…</p></div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
-    <div class="card" id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div>
+    <div class="card" id="card-log-ia-caixa" data-pronto="ok" data-abrir="Ver" data-titulo="Log das respostas da IA" data-resumo="o que a IA escreveu, as mídias e os erros de cada resposta"><div id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div></div>
     ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}" data-cfg="modo-teste" ${w.modoTeste ? '' : 'data-pronto="off" data-resumo="Desligado: a IA responde todos os clientes"'}>
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
@@ -1958,6 +1959,17 @@ async function paginaWhatsapp(id) {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { velocidade: f.elements.velocidade.value, esperaPrimeiraSeg: Number(f.elements.esperaPrimeiraSeg.value), esperaAntesMidiaSeg: Number(f.elements.esperaAntesMidiaSeg.value), esperaDepoisMidiaSeg: Number(f.elements.esperaDepoisMidiaSeg.value), esperaEntreTextosSeg: Number(f.elements.esperaEntreTextosSeg.value) } }));
       aviso('Tempos de resposta salvos.');
       recarregar();
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#rapido-primeira').onchange = async (e) => {
+    const sel = e.target;
+    try {
+      await api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { esperaPrimeiraSeg: Number(sel.value) } });
+      $('#f-ritmo select[name=esperaPrimeiraSeg]').value = sel.value;
+      const card = $('#f-ritmo');
+      card.dataset.resumo = resumoTempoIa({ ...w, esperaPrimeiraSeg: Number(sel.value), velocidade: card.elements.velocidade.value });
+      marcarPronto(card, 'ok', card.dataset.resumo);
+      aviso(`1ª mensagem de cliente novo: ${sel.options[sel.selectedIndex].text}.`);
     } catch (err) { aviso(err.message, true); }
   };
   $('#f-avisos-erro').onsubmit = async (e) => {
@@ -3974,6 +3986,8 @@ async function cartaoLogIa(id, soErros = false) {
   try { lista = await api(`empresas/${id}/logs-ia?limite=40${soErros ? '&soErros=1' : ''}`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
   if (!el.isConnected) return;
   const comErro = lista.filter((l) => l.erros.length).length;
+  const caixa = $('#card-log-ia-caixa');
+  if (caixa && !soErros) marcarPronto(caixa, 'ok', `${lista.length} resposta(s) recente(s) · ${comErro ? `⚠️ ${comErro} com problema` : 'nenhuma com problema'}`);
   const SIT = { enviada: '✓ enviada', descartada: '↩ descartada', pausada: '⏸ enviada e pausou', erro: '✕ erro', nada: '🤐 nada a dizer' };
   el.innerHTML = `
     <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">📜 Log das respostas da IA</h2>
@@ -6945,7 +6959,7 @@ function marcarPronto(card, estado, resumo = '') {
   const titulo = card.dataset.titulo || (card.querySelector('h2')?.textContent || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
   const desenhar = () => {
     const rec = card.classList.contains('recolhido');
-    barra.innerHTML = `<span class="cfg-ok ${estado === 'off' ? 'off' : ''}">${estado === 'off' ? '○' : '✓'}</span><span class="cfg-titulo">${esc(titulo)}</span><span class="cfg-resumo">${rec ? esc(resumo || (estado === 'off' ? 'Desligado' : 'Configurado')) : ''}</span><span class="cfg-abrir">${rec ? (estado === 'off' ? 'Configurar' : 'Editar') : 'Recolher'}</span>`;
+    barra.innerHTML = `<span class="cfg-ok ${estado === 'off' ? 'off' : ''}">${estado === 'off' ? '○' : '✓'}</span><span class="cfg-titulo">${esc(titulo)}</span><span class="cfg-resumo">${rec ? esc(resumo || (estado === 'off' ? 'Desligado' : 'Configurado')) : ''}</span><span class="cfg-abrir">${rec ? card.dataset.abrir || (estado === 'off' ? 'Configurar' : 'Editar') : 'Recolher'}</span>`;
   };
   card.classList.toggle('recolhido', !aberto);
   desenhar();
