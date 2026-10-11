@@ -82,7 +82,7 @@ diagnostico() {
   echo "    Mídias e simulação de conversas (cópia do banco, nada é enviado):"
   # a simulação usa a IA de verdade (gasta tokens): só roda quando o arquivo deploy/simular.pedido existe
   [ -f deploy/simular.pedido ] && SIMULAR_IA=sim || SIMULAR_IA=nao
-  CRM_DB_PATH_ORIGINAL="$DB_CRM" SIMULAR_IA="$SIMULAR_IA" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 420 node deploy/simular-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
+  CRM_DB_PATH_ORIGINAL="$DB_CRM" SIMULAR_IA="$SIMULAR_IA" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 420 node deploy/simular-midias.js 2>&1 | sed -u -E 's/[0-9]{10,}/[núm]/g' | head -n 120 || true
   EVO_C="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk '/evolution-api|evolution_api/ {print $1; exit}')"
   if [ -n "$EVO_C" ]; then
     echo "    Etiquetas na Evolution por dia (10 dias, instâncias do CRM; só contagens):"

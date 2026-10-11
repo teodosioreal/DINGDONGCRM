@@ -4855,14 +4855,34 @@ async function paginaConversas(id, params) {
       const lista = await api(`empresas/${id}/midias`);
       const avulsas = lista.filter((m) => !m.pastaId);
       const albuns = (emp.drivePastas || []).filter((p) => p.total);
+      // busca sem IA: nome, código, "quando enviar", assuntos e legenda (sem acento e sem maiúscula)
+      const chave = (...t) => t.flat().filter(Boolean).join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const miniatura = (m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">`
+        : m.tipo === 'video' ? `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted playsinline></video>`
+        : `<span class="escolha-icone">${ICONE_TIPO[m.tipo] || '📎'}</span>`);
       abrirModal(`
         <h2>Enviar da biblioteca</h2>
-        ${!avulsas.length && !albuns.length ? `<p class="rotulo">Nenhuma mídia cadastrada. <a href="${rotaEmpresa(id, 'midias')}">Cadastrar mídias</a></p>` : ''}
-        <div class="grade-escolha">
-          ${albuns.map((p) => `<button type="button" class="escolha" data-nome="${esc(p.nome)}"><span class="escolha-icone">📁</span><b>${esc(p.nome)}</b><span class="rotulo">álbum · ${p.total} arquivos</span></button>`).join('')}
-          ${avulsas.map((m) => `<button type="button" class="escolha" data-nome="${esc(m.nome)}">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `<span class="escolha-icone">${ICONE_TIPO[m.tipo] || '📎'}</span>`}<b>${esc(m.nome)}</b></button>`).join('')}
+        ${!avulsas.length && !albuns.length ? `<p class="rotulo">Nenhuma mídia cadastrada. <a href="${rotaEmpresa(id, 'midias')}">Cadastrar mídias</a></p>` : `<input type="search" id="busca-midia-chat" placeholder="Buscar mídia: nome, código ou carro (ex.: corolla, couro, 20)" autocomplete="off" style="width:100%;margin-bottom:10px">`}
+        <div class="grade-escolha" id="grade-midia-chat">
+          ${albuns.map((p) => `<button type="button" class="escolha" data-nome="${esc(p.nome)}" data-busca="${esc(chave(p.nome, 'album'))}"><span class="escolha-icone">📁</span><b>${esc(p.nome)}</b><span class="rotulo">álbum · ${p.total} arquivos</span></button>`).join('')}
+          ${avulsas.map((m) => `<button type="button" class="escolha" data-nome="${esc(m.nome)}" data-busca="${esc(chave(m.nome, m.codigoVisivel, m.codigo, m.descricao, m.assuntos || [], m.legenda))}">${miniatura(m)}<b>${esc(m.nome)}</b><span class="rotulo">${esc(m.codigoVisivel || codNum(m))}</span></button>`).join('')}
         </div>
+        <p class="rotulo" id="busca-midia-vazia" hidden>Nenhuma mídia com esse nome.</p>
         <div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
+        const busca = $('#busca-midia-chat', m);
+        if (busca) {
+          busca.focus();
+          busca.oninput = () => {
+            const termos = chave(busca.value).split(/\s+/).filter(Boolean);
+            let visiveis = 0;
+            $$('[data-busca]', m).forEach((b) => {
+              const ok = termos.every((t) => b.dataset.busca.includes(t) || b.dataset.busca.includes(`#midia_${t}`));
+              b.hidden = !ok;
+              if (ok) visiveis++;
+            });
+            $('#busca-midia-vazia', m).hidden = visiveis > 0;
+          };
+        }
         $$('[data-nome]', m).forEach((b) => {
           b.onclick = async () => {
             try {

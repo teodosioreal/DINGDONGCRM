@@ -567,7 +567,9 @@ html.dark .chat-local { color: #93c5fd; }
 /* biblioteca e respostas prontas */
 .grade-escolha { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; max-height: 60vh; overflow-y: auto; }
 .escolha { flex-direction: column; align-items: flex-start; padding: 8px; gap: 4px; text-align: left; }
-.escolha img { width: 100%; height: 90px; object-fit: cover; border-radius: 4px; }
+.escolha img, .escolha video { width: 100%; height: 90px; object-fit: cover; border-radius: 4px; pointer-events: none; }
+.escolha video { background: #000; }
+.grade-escolha [hidden] { display: none !important; }
 .escolha-icone { font-size: 32px; }
 .rapida { border: 1px solid var(--borda); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .rapida textarea { min-height: 60px; }

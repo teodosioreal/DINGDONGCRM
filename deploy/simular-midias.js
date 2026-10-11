@@ -64,11 +64,12 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
     for (const c of clientes) {
       const recebidas = new Set();
       const historico = [];
-      const linhas = [];
+      const linhas = { push: (l) => console.log(`      ${l}`) }; // mostra na hora (a conexão do deploy não fica parada)
+      console.log(`    Cenário ${c.nome}:`);
       for (const [texto, espera] of c.msgs) {
         historico.push({ papel: 'visitante', canal: 'whatsapp', texto, em: new Date().toISOString() });
         let r;
-        await new Promise((ok) => setTimeout(ok, 8000)); // chave grátis tem limite por minuto: espaça as chamadas
+        await new Promise((ok) => setTimeout(ok, 6000)); // chave grátis tem limite por minuto: espaça as chamadas
         try { r = await ia.responder(bot, e, historico, contexto()); } catch (err) { linhas.push(`ERRO da IA: ${curto(ia.descreverErroIa(err), 100)}`); totalAtencao++; break; }
         const pedidas = (r.midias || []).map((x) => (String(x).startsWith('#') ? x : `#MIDIA_${x}`));
         const iriam = [];
@@ -103,8 +104,6 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
         linhas.push(`${falhas.length ? '⚠️ ATENÇÃO' : '✓ ok'} · msg ${historico.filter((h) => h.papel === 'visitante').length} → ${linhasTexto.length} linha(s) · pediu ${pedidas.join(' ') || 'nenhuma mídia'} · iria: ${iriam.join(' ') || '-'}${r.humano ? ' · #PAUSAR' : ''}${falhas.length ? ` · ${falhas.join('; ')}` : ''}`);
         historico.push({ papel: 'assistente', canal: 'whatsapp', texto: textoIa, em: new Date().toISOString() });
       }
-      console.log(`    Cenário ${c.nome}:`);
-      for (const l of linhas) console.log(`      ${l}`);
     }
     console.log(`    RESULTADO: ${totalOk} resposta(s) ok · ${totalAtencao} com atenção`);
   }

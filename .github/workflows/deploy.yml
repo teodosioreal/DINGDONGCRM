@@ -93,6 +93,6 @@ jobs:
           # O script vai por um arquivo temporário privado (chmod 600) que é apagado
           # no fim — assim o token não aparece na linha de comando da VPS.
           { printf 'GITHUB_TOKEN=%q\n' "$TOKEN_LEITURA"; cat deploy/atualizar.sh; } \
-            | ssh -i ~/.ssh/id_deploy -p "$PORTA" -o BatchMode=yes -o ConnectTimeout=20 \
+            | ssh -i ~/.ssh/id_deploy -p "$PORTA" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
                 "$VPS_USER@$VPS_HOST" \
                 'f=$(mktemp); trap "rm -f $f" EXIT; cat > "$f"; bash "$f" </dev/null'
