@@ -401,11 +401,16 @@ function revezamentoDe(empresa, midia) {
   return midiasDa(empresa).filter((m) => m.revezar === midia.revezar && !m.pastaId).sort((a, b) => (a.numero || 0) - (b.numero || 0));
 }
 
+// A pedida está pausada ("a configurar") e outra do revezamento está ativa: vai a ativa — o
+// revezamento nunca trava numa mídia pausada (mesmo citada no prompt).
 function escolherRevezando(empresa, midia, jaRecebeu = () => false) {
-  const grupo = revezamentoDe(empresa, midia).filter((m) => m === midia || prontaParaIa(m));
-  if (grupo.length < 2) return midia;
-  const recebida = grupo.find((m) => jaRecebeu(m));
+  const todas = revezamentoDe(empresa, midia);
+  const ativas = todas.filter((m) => prontaParaIa(m));
+  // este cliente já recebeu uma do grupo: é ela (não manda outra versão do mesmo conteúdo)
+  const recebida = todas.find((m) => (m === midia || prontaParaIa(m)) && jaRecebeu(m));
   if (recebida) return recebida;
+  const grupo = prontaParaIa(midia) ? ativas : ativas.length ? ativas : [midia];
+  if (grupo.length < 2) return grupo[0] || midia;
   empresa.revezamento = empresa.revezamento || {};
   const i = (Number(empresa.revezamento[midia.revezar]) || 0) % grupo.length;
   empresa.revezamento[midia.revezar] = i + 1;
