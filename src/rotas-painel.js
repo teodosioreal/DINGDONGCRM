@@ -214,6 +214,8 @@ function situacaoWhatsapp(e, req) {
     numerosTeste: e.whatsappConfig?.numerosTeste || '',
     velocidade: whatsapp.VELOCIDADES[e.whatsappConfig?.velocidade] ? e.whatsappConfig.velocidade : 'humanizado',
     esperaPrimeiraSeg: Number(e.whatsappConfig?.esperaPrimeiraSeg) || 0,
+    fotosObservar: e.whatsappConfig?.fotosObservar || '',
+    etiquetaFoto: e.whatsappConfig?.etiquetaFoto || '',
     ...Object.fromEntries(Object.entries(whatsapp.temposDeEnvio(e)).map(([k, ms]) => [`espera${k[0].toUpperCase()}${k.slice(1)}Seg`, ms / 1000])),
     iaAposManual: e.whatsappConfig?.iaAposManual === true,
     naoAtropelar: e.whatsappConfig?.naoAtropelar !== false,
@@ -522,6 +524,13 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   }
   if (b.velocidade !== undefined && whatsapp.VELOCIDADES[b.velocidade]) empresa.whatsappConfig.velocidade = b.velocidade;
   if (b.esperaPrimeiraSeg !== undefined) empresa.whatsappConfig.esperaPrimeiraSeg = inteiro(b.esperaPrimeiraSeg, 0, 0, 3600);
+  // fotos dos clientes: em que a IA repara (qualquer ramo) e a etiqueta de "mandou foto"
+  if (b.fotosObservar !== undefined) empresa.whatsappConfig.fotosObservar = texto(b.fotosObservar, 300);
+  if (b.etiquetaFoto !== undefined) {
+    const id = String(b.etiquetaFoto || '');
+    if (id && !leads.etiquetasDa(empresa).some((t) => t.id === id)) return res.status(400).json({ erro: 'Escolha uma etiqueta que exista.' });
+    empresa.whatsappConfig.etiquetaFoto = id;
+  }
   // ritmo da resposta em partes (segundos de "digitando…" entre os envios)
   if (b.esperaAntesMidiaSeg !== undefined) empresa.whatsappConfig.esperaAntesMidiaSeg = inteiro(b.esperaAntesMidiaSeg, 3, 0, 120);
   if (b.esperaDepoisMidiaSeg !== undefined) empresa.whatsappConfig.esperaDepoisMidiaSeg = inteiro(b.esperaDepoisMidiaSeg, 10, 0, 120);

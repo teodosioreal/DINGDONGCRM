@@ -1391,7 +1391,13 @@ async function transcreverAudioNa(empresa, base64, mimetype) {
   return null;
 }
 
-const PEDIDO_FOTO = 'Descreva em 1 ou 2 frases, em português, o que aparece nesta foto que um cliente mandou pelo WhatsApp para uma empresa (objeto, estado, detalhes úteis para um orçamento e qualquer texto visível). Responda só com a descrição.';
+// Uma linha curta, sempre no mesmo formato (serve para qualquer ramo). A empresa pode dizer
+// em que reparar (ex.: oficina: "estado do volante, material"; clínica: "região do corpo").
+const PEDIDO_FOTO = 'Descreva esta foto que um cliente mandou pelo WhatsApp para uma empresa, em português, numa linha curta, nesta ordem e separando com " · ": 1) o que é; 2) estado e detalhes úteis para um orçamento; 3) origem: "foto real tirada pelo cliente", "print de tela", "imagem da internet/catálogo" ou "documento"; 4) texto visível, se houver.';
+const pedidoFoto = (empresa) => {
+  const extra = String(empresa?.whatsappConfig?.fotosObservar || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  return `${PEDIDO_FOTO}${extra ? ` Repare também em: ${extra}.` : ''} Responda só a linha.`;
+};
 
 // Descreve a foto do cliente (qualquer uma das IAs vê imagens), no modelo mais barato
 async function descreverImagem(bot, empresa, base64, mimetype) {
@@ -1404,7 +1410,7 @@ async function descreverImagemNa(bot, empresa, base64, mimetype) {
   const r = await comReserva(
     empresa,
     bot,
-    (m) => chamarMotor(empresa, { ...m, modelo: MODELO_BARATO[m.provedor] }, { turnos: [{ role: 'user', content: PEDIDO_FOTO }], anexo: { base64, mime }, maxTokens: 400, temperatura: 0.2, esforcoBaixo: false }),
+    (m) => chamarMotor(empresa, { ...m, modelo: MODELO_BARATO[m.provedor] }, { turnos: [{ role: 'user', content: pedidoFoto(empresa) }], anexo: { base64, mime }, maxTokens: 400, temperatura: 0.2, esforcoBaixo: false }),
     { tarefa: 'foto' }
   );
   return r.recusado ? null : r.texto.trim() || null;

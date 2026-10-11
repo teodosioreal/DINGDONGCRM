@@ -1749,6 +1749,13 @@ async function paginaWhatsapp(id) {
       <p class="rotulo" style="margin:0 0 10px">Se algo der errado (IA sem crédito, WhatsApp desconectado, mídia que não saiu), o CRM manda um aviso para este número. No máximo 1 aviso do mesmo tipo a cada 30 minutos.</p>
       <div class="linha-form"><input name="whatsappAvisos" value="${esc(telefoneBonito(w.whatsappAvisos || ''))}" placeholder="Seu número pessoal com DDD (opcional)"><button type="submit">Salvar</button></div>
     </form>
+    <form class="card" id="f-fotos-clientes" data-pronto="${w.fotosObservar || w.etiquetaFoto ? 'ok' : 'off'}" data-resumo="${esc([w.fotosObservar ? 'repara em: ' + w.fotosObservar : 'descrição padrão', w.etiquetaFoto ? 'etiqueta: ' + ((emp.etiquetas || []).find((t) => t.id === w.etiquetaFoto)?.nome || '') : ''].filter(Boolean).join(' · ').slice(0, 90))}">
+      <h2 style="margin:0 0 6px">📷 Fotos dos clientes</h2>
+      <p class="rotulo" style="margin:0 0 10px">Quando o cliente manda uma foto, uma IA barata descreve numa linha (o que é, estado, se é foto real, print ou da internet) e a IA do WhatsApp responde com base nisso. Várias fotos seguidas: só a 1ª é descrita; a mesma foto de novo não gasta IA; foto encaminhada ou print de tela são avisados sem IA.</p>
+      <div class="campo"><label>Nas fotos, repare também em (opcional) ${ajuda('O que importa no seu ramo. Ex.: oficina — "estado do volante, material, se tem comandos"; estética — "região e tipo de pele"; reforma — "tamanho do ambiente e material".')}</label><input name="fotosObservar" maxlength="300" value="${esc(w.fotosObservar || '')}" placeholder="Ex.: estado de conservação, material, marca e modelo"></div>
+      <div class="campo"><label>Etiqueta quando o cliente manda foto (opcional) ${ajuda('Marca o cliente no CRM e no WhatsApp na 1ª foto que ele mandar. Se a equipe tirar a etiqueta, ela não volta.')}</label><select name="etiquetaFoto"><option value="">— nenhuma —</option>${(emp.etiquetas || []).map((t) => `<option value="${esc(t.id)}" ${t.id === w.etiquetaFoto ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
+    </form>
     <div class="card" data-cfg="ia-manual" data-pronto="ok" data-resumo="${!w.iaAposManual ? 'Ligado: a IA para quando você responde' : 'Desligado: a IA continua atendendo'}">
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">✋ IA para de responder depois da minha mensagem manual</h2>${interruptor('ia-para-manual', !w.iaAposManual, !w.iaAposManual ? 'Ligado' : 'Desligado')}</div>
       <p class="rotulo" style="margin:0">${!w.iaAposManual
@@ -1970,6 +1977,15 @@ async function paginaWhatsapp(id) {
       card.dataset.resumo = resumoTempoIa({ ...w, esperaPrimeiraSeg: Number(sel.value), velocidade: card.elements.velocidade.value });
       marcarPronto(card, 'ok', card.dataset.resumo);
       aviso(`1ª mensagem de cliente novo: ${sel.options[sel.selectedIndex].text}.`);
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#f-fotos-clientes').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/whatsapp`, { method: 'PUT', body: { fotosObservar: f.elements.fotosObservar.value, etiquetaFoto: f.elements.etiquetaFoto.value } }));
+      aviso('Fotos dos clientes: salvo.');
+      recarregar();
     } catch (err) { aviso(err.message, true); }
   };
   $('#f-avisos-erro').onsubmit = async (e) => {

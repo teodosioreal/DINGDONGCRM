@@ -1165,20 +1165,49 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
   // descrição serve para tudo (resposta, sugestão de mídia e decidir se é comprovante).
   // A leitura do comprovante pela IA só acontece se a foto parece pagamento.
   let descricao = null;
-  if (entender && tipo === 'image') {
-    try {
-      descricao = await ia.descreverImagem(botDoWhatsapp(empresa), empresa, r.base64, mimetype);
-    } catch (err) {
-      console.error(`[whatsapp ${lead.id}] entender image:`, ia.descreverErroIa(err));
-    }
+  let notaFoto = '';
+  let pareciaPagamento = false;
+  if (tipo === 'image' && !msg.key?.fromMe) {
+    // sinais SEM IA: encaminhada (quase nunca é do cliente) e print de tela (formato da tela do celular)
+    const ctx = info?.contextInfo || {};
+    const larg = Number(info?.width) || 0;
+    const alt = Number(info?.height) || 0;
+    const sinais = [ctx.isForwarded || Number(ctx.forwardingScore) > 0 ? 'foto encaminhada' : '', larg && alt && alt / larg >= 1.95 ? 'parece print de tela' : ''].filter(Boolean);
+    if (sinais.length) notaFoto = ` (${sinais.join(', ')})`;
   }
+  if (entender && tipo === 'image') {
+    // uma foto por vez: a mesma foto de novo reaproveita a descrição; várias seguidas (em até
+    // 60 s) só a 1ª é descrita — as outras entram como "mais uma foto" (sem gastar IA)
+    const hash = crypto.createHash('sha1').update(buffer).digest('hex').slice(0, 16);
+    const vistas = (lead.fotosVistas = Array.isArray(lead.fotosVistas) ? lead.fotosVistas : []);
+    const repetida = vistas.find((v) => v.h === hash && v.d);
+    const ultima = vistas[vistas.length - 1];
+    if (repetida) {
+      descricao = repetida.d;
+      notaFoto += ' (a mesma foto de antes)';
+    } else if (ultima?.d && Date.now() - new Date(ultima.em).getTime() < 60000) {
+      notaFoto += ' (mais uma foto, junto com a anterior)';
+      pareciaPagamento = PARECE_PAGAMENTO.test(ultima.d);
+      vistas.push({ h: hash, em: agora(), d: '' });
+    } else {
+      try {
+        descricao = await ia.descreverImagem(botDoWhatsapp(empresa), empresa, r.base64, mimetype);
+      } catch (err) {
+        console.error(`[whatsapp ${lead.id}] entender image:`, ia.descreverErroIa(err));
+      }
+      if (descricao) vistas.push({ h: hash, em: agora(), d: descricao.slice(0, 400) });
+    }
+    if (vistas.length > 10) lead.fotosVistas = vistas.slice(-10);
+  }
+  if (tipo === 'image' && !msg.key?.fromMe) etiquetaDaFoto(empresa, lead); // só foto do CLIENTE
   if (comprovante) {
     // comprovante de Pix (foto ou PDF) → venda no Faturamento (lê sem IA primeiro)
     if (tipo === 'image' || /pdf/i.test(mimetype)) {
       // comprovante chega → venda sobe NA HORA: foto que a leitura simples não entendeu
       // passa pela IA (modelo barato), MESMO se a IA não responde este cliente — a não ser
       // que a descrição já mostre que não é pagamento (ex.: foto do volante)
-      const forcarIa = tipo === 'image' && (!descricao || PARECE_PAGAMENTO.test(descricao));
+      const semDescricao = !descricao && !/mais uma foto/.test(notaFoto);
+      const forcarIa = tipo === 'image' && (semDescricao || pareciaPagamento || PARECE_PAGAMENTO.test(descricao || ''));
       if (tipo === 'image') anexo.comprovanteRevisto = true; // a varredura de hora em hora não repete a IA nesta foto
       const comp = await comprovantes
         .processarArquivo(empresa, lead, {
@@ -1201,7 +1230,9 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
   }
   if (descricao) {
     anexo.descricao = descricao;
-    entendido = `[foto do cliente]: ${descricao}${legenda}`;
+    entendido = `[foto do cliente]: ${descricao}${notaFoto}${legenda}`;
+  } else if (tipo === 'image' && notaFoto) {
+    entendido = `[foto do cliente]:${notaFoto}${legenda}`;
   }
   if (entender && tipo === 'audio') {
     try {
@@ -1215,6 +1246,18 @@ async function baixarAnexo(empresa, lead, msg, { entender = false, comprovante =
     }
   }
   return { anexo, entendido };
+}
+
+// Etiqueta que a empresa escolheu para "cliente mandou foto" (no CRM e no WhatsApp). Põe uma
+// vez por cliente: se a equipe tirar, não volta.
+function etiquetaDaFoto(empresa, lead) {
+  const id = empresa.whatsappConfig?.etiquetaFoto;
+  if (!id || lead.etiquetaFotoPosta || !leads.etiquetasDa(empresa).some((t) => t.id === id)) return;
+  lead.etiquetaFotoPosta = agora();
+  if ((lead.etiquetas || []).includes(id)) return;
+  lead.etiquetas = [...(lead.etiquetas || []), id];
+  salvar();
+  require('./etiquetas-zap').espelharLead(empresa, lead).catch(() => {});
 }
 
 // a descrição da foto parece pagamento? (aí vale ler o comprovante com a IA)
