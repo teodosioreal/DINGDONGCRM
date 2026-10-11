@@ -121,6 +121,19 @@ async function comEspera(botao, acao, texto = 'Aguarde…') {
   }
 }
 
+// 🔄 quantas vezes cada chave do Gemini respondeu/falhou hoje (a rotação funcionando)
+function rotacaoDeHoje(emp) {
+  const dia = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const hoje = emp.iaChavesUso?.[dia];
+  if (!hoje) return '<p class="rotulo" style="margin:0 0 10px">🔄 Rotação de hoje: nenhuma chave reserva precisou entrar (ou ainda não houve conversa hoje).</p>';
+  const hora = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+  const linhas = ['principal', '1ª reserva', '2ª reserva', '3ª reserva'].filter((n) => hoje[n]).map((n) => {
+    const c = hoje[n];
+    return `<li><b>${esc(n === 'principal' ? 'Chave principal' : n[0].toUpperCase() + n.slice(1))}</b>: respondeu ${c.ok}x${c.falhas ? ` · <span class="aviso-texto">falhou ${c.falhas}x</span>${c.ultimaFalha ? ` (última às ${esc(hora(c.ultimaFalha.em))}: ${esc(c.ultimaFalha.motivo)})` : ''}` : ''}</li>`;
+  });
+  return `<div class="balao" style="margin:0 0 12px"><span class="balao-icone">🔄</span><div><strong>Rotação de hoje</strong><ul class="lista-checagem" style="margin:4px 0 0;padding-left:0;list-style:none">${linhas.join('')}</ul><div class="balao-texto" style="margin-top:4px">A ordem é: principal → 1ª → 2ª → 3ª reserva. Chave que bateu no limite vai para o fim da fila (1 min se foi o limite por minuto; até o Google liberar se foi o limite do dia) — a conversa continua igual com qualquer chave.</div></div></div>`;
+}
+
 function codigoEmpresa(empresaId) {
   return `<script src="${sessao.urlPublica}/chat.js" data-empresa="${empresaId}" async></script>`;
 }
@@ -2996,6 +3009,7 @@ async function paginaChave(id) {
       <h2 style="margin:0 0 6px">🛟 Chaves reserva <span class="rotulo" style="font-weight:400">(opcionais)</span></h2>
       <p class="rotulo" style="margin:0 0 6px">Quando a chave principal <b>bater no limite grátis ou ficar sem crédito</b>, a IA continua respondendo com a 1ª reserva — e, se ela também acabar, com a 2ª e depois a 3ª. <b>A conversa continua igual</b>: o histórico e o prompt ficam no CRM, então qualquer chave que responder sabe tudo o que já foi falado. Quando a principal voltar, o CRM volta a usar ela sozinho.</p>
       <p class="rotulo" style="margin:0 0 10px">⚠️ Cada uma tem que ser de <b>outra conta Google</b> (ou outro projeto no AI Studio). O limite grátis do Google é por projeto: chaves do mesmo projeto dividem o mesmo limite e não adiantam. A chave das verificações (abaixo) continua separada e não entra aqui.</p>
+      ${rotacaoDeHoje(emp)}
       ${[['geminiApiKeyReserva', 'reserva', gr, '1ª reserva'], ['geminiApiKeyReserva2', 'reserva2', gr2, '2ª reserva'], ['geminiApiKeyReserva3', 'reserva3', gr3, '3ª reserva']].map(([campo, qual, g2, nome]) => `
       <form class="f-chave-reserva" data-qual="${qual}" style="margin-top:10px">
         <div class="campo"><label>${nome} ${g2.propria ? `<span class="etiqueta ok">✓ salva</span> <span class="rotulo">termina em ${esc(g2.final)}</span>` : '<span class="rotulo">— não cadastrada</span>'}</label><input name="${campo}" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="${g2.propria ? 'cole outra para trocar' : 'AIza… ou AQ.…'}"></div>

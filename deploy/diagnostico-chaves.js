@@ -66,6 +66,35 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
       const formato = `${k.length} caracteres${p === 'gemini' ? (k.startsWith('AIza') ? ', começa com AIza' : ', NÃO começa com AIza') : ''}${/[\s"'`\u200B-\u200D\uFEFF]/.test(k) ? ', TEM espaço/aspas/caractere invisível' : ''}`;
       console.log(`  Empresa ${n + 1} · ${p} chave ${apelido(k)} (${formato}): ${r}`);
     }
+    // 🔑 teste AO VIVO de cada chave do Gemini (principal, verificações, reservas): uma
+    // pergunta minúscula no modelo da empresa — mostra se responde AGORA ou por que não.
+    // Gasta 1 pedido do limite de cada chave: só roda quando existe deploy/testar-chaves.pedido
+    if (process.env.TESTAR_CHAVES === 'sim') {
+      const modelo = ((Array.isArray(e.motoresIa) ? e.motoresIa : []).find((m) => m?.provedor === 'gemini') || {}).modelo || 'gemini-2.5-flash';
+      const papeis = [['principal', 'geminiApiKey'], ['verificações', 'geminiApiKeyVerificacoes'], ['1ª reserva', 'geminiApiKeyReserva'], ['2ª reserva', 'geminiApiKeyReserva2'], ['3ª reserva', 'geminiApiKeyReserva3']];
+      const vistas = new Map();
+      for (const [papel, campo] of papeis) {
+        const k = (e.chavesIa || {})[campo];
+        if (!k) { console.log(`  Empresa ${n + 1} · 🔑 ${papel}: não cadastrada`); continue; }
+        if (vistas.has(k)) { console.log(`  Empresa ${n + 1} · 🔑 ${papel}: É A MESMA CHAVE da ${vistas.get(k)} (não soma limite)`); continue; }
+        vistas.set(k, papel);
+        const t0 = Date.now();
+        let r;
+        try {
+          const x = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': k }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Responda só: OK' }] }], generationConfig: { maxOutputTokens: 32 } }), signal: AbortSignal.timeout(30000) });
+          const j = await x.json().catch(() => ({}));
+          const msg = String(j.error?.message || '');
+          const tipo = x.ok ? '✅ RESPONDEU' : x.status === 429 ? (/per.?day|PerDay/i.test(msg) ? '⛔ LIMITE DO DIA esgotado' : /per.?minute|PerMinute/i.test(msg) ? '⏱️ limite por minuto (volta em 1 min)' : '⛔ limite/cota') : [400, 401, 403].includes(x.status) && /API_KEY|key not valid|permission/i.test(msg) ? '❌ CHAVE RECUSADA' : x.status === 404 ? '❓ esta chave não tem o modelo' : `⚠️ HTTP ${x.status}`;
+          r = `${tipo} em ${((Date.now() - t0) / 1000).toFixed(1)}s${x.ok ? '' : ` · ${limpo(msg).slice(0, 110)}`}`;
+        } catch (err) { r = `⚠️ sem resposta (${limpo(err.message)})`; }
+        console.log(`  Empresa ${n + 1} · 🔑 ${papel} (chave ${apelido(k)}, modelo ${modelo}): ${r}`);
+      }
+    }
+    // quantas vezes cada chave respondeu/falhou (hoje e ontem)
+    for (const dia of Object.keys(e.iaChavesUso || {}).sort().slice(-2)) {
+      const d = e.iaChavesUso[dia];
+      console.log(`  Empresa ${n + 1} · rotação ${dia}: ${Object.entries(d).map(([nome, c]) => `${nome} ${c.ok} ok/${c.falhas} falha${c.ultimaFalha ? ` (última: ${limpo(c.ultimaFalha.motivo)})` : ''}`).join(' · ')}`);
+    }
     const res = e.iaReserva;
     if (res) console.log(`  Empresa ${n + 1} · última vez que uma IA falhou e outra entrou: ${res.em} · ${res.tarefa} · usou ${res.usou} · falhas: ${(res.falhas || []).map(limpo).join(' | ')}`);
     for (const a of (db.alertas || []).filter((x) => x.empresaId === e.id && /ia|chave/i.test(x.tipo)).slice(-5)) console.log(`  Empresa ${n + 1} · alerta ${a.tipo} (${a.ultimoEm || a.em}${a.resolvido ? ', resolvido' : ''}): ${limpo(String(a.mensagem || '').replace(/^Cliente [^:]{0,60}:\s*/, ''))}`);

@@ -234,8 +234,9 @@ async function enviarVenda(empresa, venda) {
 // ---------------------------------------------------------------- espera e grupo
 // venda com comprovante espera 3 h (junta sinal + restante do mesmo dia); sem comprovante
 // (IA, frase, à mão) espera 6 h: dá tempo do comprovante chegar e corrigir o valor
-const ESPERA_COM_COMPROVANTE_MS = Number(process.env.META_ADS_ESPERA_COM_MS) || 3 * 3600 * 1000;
-const ESPERA_SEM_COMPROVANTE_MS = Number(process.env.META_ADS_ESPERA_SEM_MS) || 6 * 3600 * 1000;
+const msDoAmbiente = (nome, padrao) => (/^\d+$/.test(process.env[nome] || '') ? Number(process.env[nome]) : padrao);
+const ESPERA_COM_COMPROVANTE_MS = msDoAmbiente('META_ADS_ESPERA_COM_MS', 3 * 3600 * 1000);
+const ESPERA_SEM_COMPROVANTE_MS = msDoAmbiente('META_ADS_ESPERA_SEM_MS', 6 * 3600 * 1000);
 const temComprovante = (v) => v.origem === 'comprovante' || Boolean(v.idTransacao || v.anexo);
 const quandoDa = (v) => new Date(v.confirmadaEm || v.data || v.criadoEm).getTime() || Date.now();
 const diaSP = (ms) => new Date(ms).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });

@@ -74,7 +74,9 @@ diagnostico() {
   echo "    Mídias citadas no prompt e fila do follow-up (cópia do banco, só contagens):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-prompt-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
   echo "    Chaves de IA por empresa (só a origem; nunca a chave):"
-  CRM_DB_PATH="$DB_CRM" ANTHROPIC_API_KEY="$(ler_env ANTHROPIC_API_KEY .env)" GEMINI_API_KEY="$(ler_env GEMINI_API_KEY .env)" OPENAI_API_KEY="$(ler_env OPENAI_API_KEY .env)" timeout 30 node deploy/diagnostico-chaves.js 2>&1 | head -n 60 || true
+  # teste ao vivo de cada chave (gasta 1 pedido de cada): só quando deploy/testar-chaves.pedido existe
+  [ -f deploy/testar-chaves.pedido ] && TESTAR_CHAVES=sim || TESTAR_CHAVES=nao
+  CRM_DB_PATH="$DB_CRM" TESTAR_CHAVES="$TESTAR_CHAVES" ANTHROPIC_API_KEY="$(ler_env ANTHROPIC_API_KEY .env)" GEMINI_API_KEY="$(ler_env GEMINI_API_KEY .env)" OPENAI_API_KEY="$(ler_env OPENAI_API_KEY .env)" timeout 120 node deploy/diagnostico-chaves.js 2>&1 | head -n 80 || true
   echo "    Configuração do WhatsApp na Evolution (só os interruptores):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 40 node deploy/diagnostico-config-zap.js 2>&1 | head -n 10 || true
   echo "    Vídeos da biblioteca (formato e se toca liso no WhatsApp):"

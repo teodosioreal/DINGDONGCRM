@@ -918,11 +918,42 @@ function chavesReserva(empresa) {
 const chaveReserva = (empresa) => chavesReserva(empresa)[0] || '';
 const ACABOU = (err) => Number(err?.status) === 429 || chaveRecusada(err) || /quota|exhausted|credit|billing|limite/i.test(String(err?.message || ''));
 const LIMITE_DO_DIA = (err) => /per.?day|daily|PerDay|por dia/i.test(String(err?.message || ''));
+const LIMITE_DO_MINUTO = (err) => /per.?minute|PerMinute|por minuto/i.test(String(err?.message || ''));
+// o limite grátis do DIA do Google volta à meia-noite do horário do Pacífico
+function viradaDoLimite() {
+  const agora = new Date();
+  const pacifico = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const meiaNoite = new Date(pacifico);
+  meiaNoite.setHours(24, 5, 0, 0); // 5 min de folga
+  return agora.getTime() + (meiaNoite.getTime() - pacifico.getTime());
+}
 const TAREFAS_DO_CLIENTE = new Set(['foto', 'audio']); // verificações que o atendimento precisa
 const semCotaAte = new Map(); // "empresa|final da chave" → até quando fica por último
 const marca = (empresa, k) => `${empresa.id}|${String(k).slice(-10)}`;
+// quanto tempo a chave fica no fim da fila: limite do minuto = 1 min; do dia = até o Google
+// liberar de novo; chave recusada = 6 h; outros limites = 5 min. Fim da fila não é bloqueio:
+// se todas as outras falharem, ela é tentada do mesmo jeito.
 function deixarPorUltimo(empresa, k, err) {
-  semCotaAte.set(marca(empresa, k), Date.now() + (LIMITE_DO_DIA(err) ? 60 : 5) * 60 * 1000);
+  const ms = LIMITE_DO_DIA(err) ? Math.max(viradaDoLimite() - Date.now(), 10 * 60 * 1000)
+    : chaveRecusada(err) ? 6 * 3600 * 1000
+    : LIMITE_DO_MINUTO(err) ? 60 * 1000
+    : 5 * 60 * 1000;
+  semCotaAte.set(marca(empresa, k), Date.now() + ms);
+}
+// quantas vezes cada chave respondeu/falhou por dia (para ver a rotação funcionando no painel)
+function contarChave(empresa, nome, ok, err) {
+  const dia = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const u = (empresa.iaChavesUso = empresa.iaChavesUso || {});
+  const d = (u[dia] = u[dia] || {});
+  const c = (d[nome] = d[nome] || { ok: 0, falhas: 0 });
+  if (ok) {
+    c.ok++;
+    c.ultimaOk = new Date().toISOString();
+  } else {
+    c.falhas++;
+    c.ultimaFalha = { em: new Date().toISOString(), motivo: LIMITE_DO_DIA(err) ? 'limite do dia' : LIMITE_DO_MINUTO(err) ? 'limite por minuto' : chaveRecusada(err) ? 'chave recusada' : Number(err?.status) === 429 ? 'limite (429)' : `${err?.status ? `HTTP ${err.status}` : 'erro'}: ${String(err?.message || '').replace(/AIza[\w-]{10,}|AQ\.[\w-]{10,}/g, '[chave]').slice(0, 80)}` };
+  }
+  for (const k of Object.keys(u).sort().slice(0, -7)) delete u[k]; // guarda só 7 dias
 }
 function reservasPara(empresa, usada) {
   if (!empresa?.id) return [];
@@ -944,6 +975,7 @@ async function chamarMotor(empresa, m, opcoes) {
   for (const t of ordem) {
     try {
       const r = t.principal ? await chamarMotorChaves(empresa, m, opcoes) : await chamarMotorConferindo(empresa, { ...m, chave: t.k }, opcoes);
+      contarChave(empresa, t.principal ? 'principal' : t.nome.replace(' chave', ''), true);
       if (falhas.length) {
         empresa.iaReserva = { em: new Date().toISOString(), tarefa: tarefaAtual.getStore() || 'outros', usou: `Gemini (${t.nome})`, falhas };
         require('./alertas').registrar(empresa, 'ia-reserva', `Gemini: a ${t.nome} respondeu (as outras falharam). ${falhas.join('; ')}`, { nivel: 'aviso' });
@@ -952,6 +984,7 @@ async function chamarMotor(empresa, m, opcoes) {
     } catch (err) {
       if (err.naoTentarOutra) throw err;
       ultimoErro = err;
+      contarChave(empresa, t.principal ? 'principal' : t.nome.replace(' chave', ''), false, err);
       if (ACABOU(err)) deixarPorUltimo(empresa, t.k, err);
       falhas.push(`${t.nome}: ${descreverErroIa(err)}`);
       console.error(`[ia ${empresa.id}] Gemini (${t.nome}) falhou: ${descreverErroIa(err)}${t === ordem[ordem.length - 1] ? '' : ' — tentando a próxima chave'}`);
