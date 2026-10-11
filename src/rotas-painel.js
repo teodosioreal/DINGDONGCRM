@@ -2227,6 +2227,18 @@ router.post('/empresas/:id/meta-ads/testar', async (req, res) => {
   }
 });
 
+router.post('/empresas/:id/meta-ads/enviar-agora', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const m = require('./meta-ads');
+    const n = await m.verificar({ empresaId: empresa.id });
+    res.json({ enviadas: n, painel: m.paraPainel(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 const limiteTesteSite = criarLimitador(10, 60 * 1000);
 router.post('/empresas/:id/meta-ads/testar-site', async (req, res) => {
   const empresa = acharEmpresa(req, res);

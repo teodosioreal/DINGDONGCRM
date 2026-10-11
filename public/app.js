@@ -5887,6 +5887,7 @@ async function paginaMetaAds(id) {
   if (location.hash !== hashDaPagina) return;
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Meta Ads</h1><p class="sub">As vendas do CRM vão para a sua campanha do Facebook/Instagram</p></div></div>
+    <div class="card" id="card-meta-vendas"><p class="rotulo">Carregando vendas…</p></div>
     <div class="card" id="card-meta-ads"><p class="rotulo">Carregando Meta Ads…</p></div>
     <div class="card tabela-wrap" id="card-meta-clientes"><p class="rotulo" style="padding:16px">Carregando clientes…</p></div>`;
   cartaoMetaAds(id);
@@ -5946,6 +5947,38 @@ function ligarCodigoSiteMeta(id) {
   $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }); }; });
 }
 
+// 📋 Vendas para a Meta: cada venda de cliente do anúncio, os critérios (✓/✗) e se foi enviada
+function cartaoVendasMeta(id, m) {
+  const el = $('#card-meta-vendas');
+  if (!el) return;
+  const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+  const env = m.envio || {};
+  const STATUS = { enviada: ['ok', '✅ Enviada'], pronta: ['aviso', '🕐 Pronta — vai no próximo envio'], erro: ['erro', '⚠️ Erro ao enviar'], 'nao-vai': ['off', '⛔ Não vai'], desligado: ['off', '⚪ Envio desligado'] };
+  const lista = (itens) => itens.map(([n, ok]) => `<span class="${ok ? 'crit-ok' : 'crit-falta'}">${ok ? '✓' : '✗'} ${esc(n)}</span>`).join(' ');
+  const linhas = (m.criterios || []).map((v) => {
+    const [cls, rotulo] = STATUS[v.status] || ['off', v.status];
+    return `<tr>
+      <td style="white-space:nowrap">${esc(hora(v.em))}<br>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || 'Cliente')}</a>` : esc(v.cliente || '—')}<br><b>${brl(v.valor)}</b></td>
+      <td class="crit">${lista(v.obrigatorios)}<div class="rotulo" style="margin-top:3px">extras: ${lista(v.extras)}</div></td>
+      <td><span class="etiqueta-status ${cls}">${rotulo}</span><div class="rotulo" style="margin-top:3px">${esc(v.situacao)}</div></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="cabecalho" style="margin-bottom:6px"><div><h2 style="margin:0">Vendas para a Meta</h2><p class="sub" style="margin:2px 0 0">Vendas de clientes que vieram do anúncio (30 dias), o que cada uma tem e se foi enviada.</p></div>
+      <button type="button" id="meta-enviar-agora" ${m.pronto ? '' : 'disabled'}>Enviar agora</button></div>
+    <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
+    <p class="rotulo" style="margin:0 0 8px">Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.</p>
+    ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
+    ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
+  $('#meta-enviar-agora').onclick = async (e) => {
+    try {
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/meta-ads/enviar-agora`, { method: 'POST' }));
+      aviso(r.enviadas ? `${r.enviadas} venda(s) enviada(s) para a Meta agora.` : 'Nenhuma venda pronta para enviar agora.');
+      cartaoMetaAds(id);
+    } catch (err) { aviso(err.message, true); }
+  };
+}
+
 // 📈 Meta Ads: vendas de quem veio de anúncio do Facebook/Instagram vão para o Pixel (API de Conversões)
 async function cartaoMetaAds(id) {
   const el = $('#card-meta-ads');
@@ -5960,7 +5993,7 @@ async function cartaoMetaAds(id) {
     : !m.ativo ? ['erro', '⛔ Desligado', 'Nenhuma venda está indo para a Meta. Marque "Enviar vendas para a campanha" e salve.']
     : m.codigoTeste ? ['aviso', '🧪 Em modo teste', 'As vendas vão só para "Eventos de teste" e NÃO contam na campanha. Apague o código de teste e salve.']
     : t.conexao && !t.conexao.ok ? ['erro', '⚠️ A Meta recusou', t.conexao.erro || 'Teste a conexão.']
-    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) já enviada(s). Cada venda confirmada vai em até 5 minutos.`];
+    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) já enviada(s). As vendas prontas vão de hora em hora.`];
   const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
   const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
   el.innerHTML = `
@@ -5993,14 +6026,15 @@ async function cartaoMetaAds(id) {
     ${ajudaMeta('Como gerar o token', 'No Gerenciador de Eventos, abra o Pixel → <b>Configurações</b> → desça até <b>API de Conversões</b> → <b>Gerar token de acesso</b>. Copie o token inteiro e cole aqui. Use uma conta que seja <b>administradora</b> do negócio.')}
     ${ajudaMeta('Como ligar à campanha', '<ol><li>No <a href="https://adsmanager.facebook.com" target="_blank" rel="noopener">Gerenciador de Anúncios</a>, abra a campanha → o <b>conjunto de anúncios</b>.</li><li>Em <b>Conversão</b> / <b>Conjunto de dados</b>, escolha <b>este mesmo Pixel</b>.</li><li>Para a campanha aprender a vender, use o objetivo <b>Vendas</b> com o evento <b>Compra</b>. Campanha de <b>Leads/Tráfego</b> também recebe as compras — elas aparecem nas colunas, mas a Meta não otimiza para elas.</li><li>Nada mais: o CRM manda a <b>Compra</b> com o valor para esse Pixel, e a Meta liga a venda ao anúncio que a pessoa viu ou clicou.</li></ol>')}
     ${ajudaMeta('Onde vejo as vendas na campanha', 'No Gerenciador de Anúncios → <b>Colunas</b> → <b>Personalizar colunas</b> → marque <b>Compras</b> e <b>Valor de conversão de compras</b>. Pode levar algumas horas. No Gerenciador de Eventos → seu Pixel → <b>Visão geral</b>, o evento <b>Purchase</b> aparece com a origem <b>Servidor</b>.')}
-    ${ajudaMeta('Quais vendas vão e quando', 'As vendas <b>confirmadas e com valor</b>, em até 5 minutos. Cada venda vai uma vez só. A Meta só aceita vendas dos <b>últimos 7 dias</b> — ao ligar, as dos últimos 7 dias vão na hora. O telefone e o nome vão <b>criptografados</b>. Venda de cliente sem telefone (contato escondido do WhatsApp) não vai, porque a Meta não teria como reconhecer.')}
+    ${ajudaMeta('Quais vendas vão e quando', 'As vendas <b>confirmadas, com valor, de cliente que clicou no anúncio e com telefone</b>, de hora em hora (ou na hora, no botão Enviar agora). Cada venda vai uma vez só. A Meta só aceita vendas dos <b>últimos 7 dias</b> — ao ligar, as dos últimos 7 dias vão na hora. O telefone e o nome vão <b>criptografados</b>. Venda de cliente sem telefone (contato escondido do WhatsApp) não vai, porque a Meta não teria como reconhecer.')}
 
-    ${m.recentes.length ? `<h3 class="titulo-bloco" style="margin-top:18px">Últimas vendas</h3><div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(quando(v.em))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span>${v.dados ? `<br><span class="rotulo">foi com: ${[['clique', 'clique do anúncio'], ['telefone', 'telefone'], ['nome', 'nome'], ['ip', 'IP'], ['navegador', 'navegador'], ['pixelDoSite', 'cookie do Pixel']].filter(([k]) => v.dados[k]).map(([, n]) => `✓ ${n}`).join(' · ')}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    `;
   const lc = $('#card-meta-clientes');
   if (lc && !m.clientes.length) lc.remove();
   else if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
     ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(quando(c.clicouEm))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a><br><code class="rotulo" title="${esc(c.fbclid || '')}">fbclid ${esc(String(c.fbclid || '').slice(0, 10))}…</code></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
   ligarCodigoSiteMeta(id);
+  cartaoVendasMeta(id, m);
   const f = $('#f-meta-ads');
   f.onsubmit = async (e) => {
     e.preventDefault();
@@ -6008,7 +6042,7 @@ async function cartaoMetaAds(id) {
     if (f.elements.token.value.trim()) corpo.token = f.elements.token.value.trim();
     try {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/meta-ads`, { method: 'PUT', body: corpo }));
-      aviso(corpo.ativo ? (corpo.codigoTeste ? 'Salvo em MODO TESTE: as vendas não contam na campanha até você apagar o código de teste.' : 'Ligado: as vendas confirmadas vão para a campanha em até 5 minutos.') : 'Salvo (desligado): nenhuma venda vai para a Meta.');
+      aviso(corpo.ativo ? (corpo.codigoTeste ? 'Salvo em MODO TESTE: as vendas não contam na campanha até você apagar o código de teste.' : 'Ligado: as vendas prontas vão para a campanha de hora em hora.') : 'Salvo (desligado): nenhuma venda vai para a Meta.');
       cartaoMetaAds(id);
     } catch (err) { aviso(err.message, true); }
   };
