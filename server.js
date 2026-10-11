@@ -128,9 +128,32 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/gastos').iniciar(); // grupo de gastos do WhatsApp: busca o que não chegou pelo webhook
   require('./src/ia-desligada').iniciar();
   require('./src/whatsapp').iniciarConferenciaEntregas(); // tiques de entrega: confere na Evolution o que ficou "aguardando" // quem já comprou (e quem agendou, por padrão): IA desligada até ligar à mão
-  require('./src/eventos-ia').iniciar();
-  require('./src/expediente').iniciar();
-  require('./src/meta-ads').iniciar(); // vendas de quem veio de anúncio do Facebook/Instagram → Meta Ads (API de Conversões) // horário da IA responder: quem escreveu fora do horário é respondido quando abrir // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
+  require('./src/eventos-ia').iniciar(); // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
+  require('./src/expediente').iniciar(); // horário da IA responder e fila de quem esperou a IA (fora do horário / sem crédito)
+  require('./src/meta-ads').iniciar(); // vendas de quem veio de anúncio do Facebook/Instagram → Meta Ads (API de Conversões)
+  // uma vez (pedido do dono): imagens "a configurar" da Madara Volantes sem texto de quando enviar
+  // ganham o texto-modelo — ele só troca o nome do carro e o revestimento. Continuam "a configurar".
+  try {
+    const { estado: est, salvar: gravar } = require('./src/db');
+    est.config = est.config || {};
+    if (!est.config.modeloMidiasMadara1) {
+      const MODELO = 'Quando o carro do cliente for o INSIRA AQUI. Seguir o script do prompt principal, mas enviar essa imagem na conversa num momento propício. O revestimento da foto é um INSIRA AQUI.';
+      let n = 0;
+      for (const e of est.empresas.filter((x) => /madara/i.test(x.nome || ''))) {
+        for (const m of require('./src/midias').midiasDa(e)) {
+          if (m.tipo === 'image' && m.pronta === false && !String(m.descricao || '').trim()) {
+            m.descricao = MODELO;
+            n++;
+          }
+        }
+      }
+      est.config.modeloMidiasMadara1 = new Date().toISOString();
+      gravar();
+      console.log(`[midias] texto-modelo colocado em ${n} imagem(ns) "a configurar" da Madara`);
+    }
+  } catch (err) {
+    console.error('[midias] texto-modelo:', err.message);
+  }
   // mesmo cliente em duas conversas (número com/sem 9, id escondido): junta ao ligar e a cada 20 min
   const revisarDuplicadas = () => {
     for (const e of require('./src/db').estado.empresas) {
