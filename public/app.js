@@ -5896,7 +5896,17 @@ function blocoCodigoSiteMeta(id, site, chegadas) {
     <div class="utm-valor" style="margin-top:6px"><code id="meta-codigo-texto" style="word-break:break-all">${esc(codigoSiteMeta(id, false))}</code><button type="button" class="pequeno" id="meta-codigo-copiar">Copiar</button></div>
     <p class="rotulo" style="margin:6px 0 0">Se o site já tem o código da IA do site (com <code>data-empresa="${esc(id)}"</code>), não precisa colar de novo.</p>
     <ul class="lista-checagem" style="margin:8px 0 0;padding-left:4px;list-style:none">${checagens}</ul>
+    <h4 style="margin:14px 0 6px">🔎 Testar meu site</h4>
+    <p class="rotulo" style="margin:0 0 6px">Depois de colar o código e publicar o site, digite o endereço da página do anúncio e teste: o CRM abre a página e confere se o código está lá, se o site está liberado e se o botão do WhatsApp é do mesmo número.</p>
+    <form id="f-testar-site" class="utm-valor"><input name="url" style="flex:1;min-width:0" placeholder="www.seusite.com.br/pagina-do-anuncio" value="${esc(site.teste?.url || (site.dominios?.[0] ? `https://${site.dominios[0]}` : v.ok?.host && v.ok.host !== 'localhost' ? `https://${v.ok.host}` : ''))}"><button type="submit" class="primario">Testar</button></form>
+    <div id="resultado-teste-site">${resultadoTesteSite(site.teste)}</div>
   </div>`;
+}
+function resultadoTesteSite(t) {
+  if (!t) return '';
+  const quando = new Date(t.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return `<div class="meta-status ${t.ok ? 'ok' : 'erro'}" style="margin-top:8px"><b>${t.ok ? '✅ Código instalado no site' : '⚠️ Falta acertar no site'}</b><span>${esc(t.host)} · testado ${esc(quando)}</span></div>
+    <ul class="lista-checagem" style="margin:6px 0 0;padding-left:4px;list-style:none">${(t.itens || []).map((i) => `<li>${i.ok === true ? '✅' : i.ok === false ? '❌' : '⚠️'} ${esc(i.texto)}</li>`).join('')}</ul>`;
 }
 function ligarCodigoSiteMeta(id) {
   const chk = $('#meta-codigo-chat');
@@ -5905,6 +5915,14 @@ function ligarCodigoSiteMeta(id) {
   chk.onchange = () => { txt.textContent = codigoSiteMeta(id, chk.checked); };
   $('#meta-codigo-copiar').onclick = () => {
     navigator.clipboard?.writeText(txt.textContent).then(() => aviso('Código do site copiado. Cole antes de </body> no seu site.')).catch(() => aviso(txt.textContent));
+  };
+  const ft = $('#f-testar-site');
+  if (ft) ft.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await comEspera(ft.querySelector('button'), () => api(`empresas/${id}/meta-ads/testar-site`, { method: 'POST', body: { url: ft.elements.url.value } }));
+      $('#resultado-teste-site').innerHTML = resultadoTesteSite(r);
+    } catch (err) { aviso(err.message, true); }
   };
   $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }); }; });
 }

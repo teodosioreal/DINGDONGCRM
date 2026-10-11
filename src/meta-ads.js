@@ -339,7 +339,7 @@ function paraPainel(empresa) {
     clientesComClique: comClique.length,
     // o código do CRM está no site? (sem ele o CRM nunca recebe o fbclid)
     chegadasDoSite30d: daEmpresa.filter((l) => l.origemSite?.chegada && new Date(l.origemSite.chegada.em || l.criadoEm).getTime() > trinta).length,
-    site: situacaoDoSite(empresa),
+    site: { ...situacaoDoSite(empresa), teste: empresa.metaAdsSite || null },
     enviadas: vendas.filter((v) => v.metaAds?.enviadoEm && !v.metaAds.teste).length,
     enviadasTeste: vendas.filter((v) => v.metaAds?.enviadoEm && v.metaAds.teste).length,
     recentes
@@ -375,6 +375,66 @@ const marcarTeste = (empresa, chave, dados) => {
   empresa.metaAdsTeste = { ...(empresa.metaAdsTeste || {}), [chave]: { ...dados, em: agora() } };
   salvar();
 };
+
+// 🔎 Testar o site: abre a página (como um visitante) e procura o código do CRM desta empresa
+const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+const mesmoNumero = (a, b) => {
+  a = soDigitos(a); b = soDigitos(b);
+  return Boolean(a && b) && (a === b || a.slice(-8) === b.slice(-8));
+};
+async function testarSite(empresa, endereco) {
+  let url = String(endereco || '').trim().slice(0, 500);
+  if (!url) throw Object.assign(new Error('Digite o endereço do seu site (ex.: www.minhaloja.com.br).'), { status: 400 });
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  const { hostDe, dominioPermitido } = require('./util');
+  const host = hostDe(url);
+  if (!host || (!host.includes('.') && host !== 'localhost')) throw Object.assign(new Error('Endereço inválido. Ex.: www.minhaloja.com.br'), { status: 400 });
+  const bots = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const principal = bots.find((b) => b.principal) || bots[0];
+  const res = { url, host, em: agora(), itens: [] };
+  const item = (ok, texto) => res.itens.push({ ok, texto });
+  let html;
+  try {
+    html = await require('./origem').baixarHtml(url);
+  } catch (err) {
+    res.ok = false;
+    item(false, `Não consegui abrir o site (${String(err.message || err).slice(0, 80)}). Confira o endereço e se o site está no ar.`);
+    empresa.metaAdsSite = res;
+    salvar();
+    return res;
+  }
+  const tags = html.match(/<script\b[^>]*chat\.js[^>]*>/gi) || [];
+  const attr = (tag, nome) => (tag.match(new RegExp(`${nome}\\s*=\\s*["']([^"']+)["']`, 'i')) || [])[1] || '';
+  const daEmpresa = tags.filter((t) => attr(t, 'data-empresa') === empresa.id || bots.some((b) => b.id === attr(t, 'data-bot')) || estado.bots.some((b) => b.id === attr(t, 'data-bot') && b.empresaId === empresa.id));
+  const deOutra = tags.filter((t) => !daEmpresa.includes(t) && (attr(t, 'data-empresa') || attr(t, 'data-bot')));
+  if (daEmpresa.length) {
+    const t = daEmpresa[0];
+    item(true, `Código do CRM encontrado na página${/data-chat\s*=\s*["']nao["']/i.test(t) ? ' (só rastrear, sem chat)' : ' (com o chat da IA)'}${daEmpresa.length > 1 ? ` — está colado ${daEmpresa.length} vezes, deixe só um` : ''}.`);
+    if (!/odingdong\.tech|\/crm\/chat\.js/i.test(attr(t, 'src'))) item(null, 'O endereço do script parece diferente do código do CRM — copie de novo daqui.');
+  } else if (deOutra.length) {
+    item(false, 'Achei um código do CRM, mas de OUTRA empresa (o ID não é desta). Copie o código desta aba e troque no site.');
+  } else if (/googletagmanager\.com\/gtm\.js|GTM-[A-Z0-9]+/i.test(html)) {
+    item(null, 'Não achei o código no HTML da página. O site usa o Gerenciador de Tags do Google: se você colocou o código por lá, abra o site no navegador e recarregue esta aba — deve aparecer "Código instalado: o site carregou…".');
+  } else {
+    item(false, 'O código do CRM NÃO está nesta página. Cole a linha antes de </body> e publique o site (se usa cache/CDN, limpe o cache).');
+  }
+  if (!principal) item(false, 'A empresa não tem assistente do site ativo — crie em IA do site (pode ser só para rastrear).');
+  else if (!dominioPermitido(principal, url) && !bots.some((b) => (b.dominios || []).length && dominioPermitido(b, url))) item(false, `O site ${host} não está na lista de domínios do assistente do site (${(principal.dominios || []).join(', ')}). Adicione ${host} em IA do site.`);
+  // botões de WhatsApp da página: precisam ser do mesmo número do assistente para levar o código
+  const numero = principal && numeroDoAtendimento(principal, empresa);
+  const links = [...new Set((html.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\/?\?phone=|whatsapp\.com\/send\?phone=)\+?\d{8,15}/gi) || []).map((l) => soDigitos(l.split(/wa\.me\/|phone=/i)[1])))];
+  if (links.length && numero) {
+    const iguais = links.filter((n) => mesmoNumero(n, numero));
+    if (iguais.length === links.length) item(true, `Botão de WhatsApp da página é do mesmo número do CRM (…${soDigitos(numero).slice(-4)}): ele vai levar o código do atendimento.`);
+    else item(false, `Achei botão de WhatsApp com número diferente do CRM (site: …${links.filter((n) => !mesmoNumero(n, numero)).map((n) => n.slice(-4)).join(', …')}; CRM: …${soDigitos(numero).slice(-4)}). Esse botão não leva o código — use o mesmo número.`);
+  } else if (!links.length) {
+    item(null, 'Não achei link de WhatsApp no HTML (pode ser montado por script ou estar em outra página). Tudo bem se o botão abre o WhatsApp do mesmo número do CRM.');
+  }
+  res.ok = res.itens.every((i) => i.ok !== false) && res.itens.some((i) => i.ok === true);
+  empresa.metaAdsSite = res;
+  salvar();
+  return res;
+}
 
 // evento de teste que nunca conta na campanha (vai só para "Eventos de teste" do Pixel)
 function eventoDeTeste(req, nome, valor) {
@@ -429,4 +489,4 @@ async function enviarCompraTeste(empresa, req) {
   }
 }
 
-module.exports = { siteVisto, configDa, paraConversa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };
+module.exports = { testarSite, siteVisto, configDa, paraConversa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };

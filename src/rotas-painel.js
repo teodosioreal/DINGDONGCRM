@@ -2227,6 +2227,18 @@ router.post('/empresas/:id/meta-ads/testar', async (req, res) => {
   }
 });
 
+const limiteTesteSite = criarLimitador(10, 60 * 1000);
+router.post('/empresas/:id/meta-ads/testar-site', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!limiteTesteSite(`${empresa.id}`)) return res.status(429).json({ erro: 'Muitos testes seguidos. Espere um minuto.' });
+  try {
+    res.json(await require('./meta-ads').testarSite(empresa, req.body?.url));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 router.post('/empresas/:id/meta-ads/compra-teste', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
