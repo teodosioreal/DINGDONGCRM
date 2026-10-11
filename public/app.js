@@ -352,10 +352,29 @@ function linhaOrigem(o) {
 // 📣 Meta Ads na conversa: o cliente veio de anúncio (o CRM pegou o fbclid do clique)
 function linhaMeta(m) {
   if (!m) return '';
-  const quando = new Date(m.clicouEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const data = (iso, hora = true) => (iso ? new Date(iso).toLocaleString('pt-BR', hora ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit' }) : '');
+  const via = { site: 'clicou no anúncio e passou pelo site', whatsapp: 'anúncio direto para o WhatsApp', utm: 'link marcado como Facebook/Instagram' }[m.via] || '';
+  const info = [
+    m.clicouEm ? `em <b>${esc(data(m.clicouEm))}</b>` : '',
+    m.campanha ? `campanha <b>${esc(m.campanha)}</b>` : '',
+    m.conjunto ? `conjunto <b>${esc(m.conjunto)}</b>` : '',
+    m.anuncio ? `anúncio <b>${esc(m.anuncio)}</b>` : '',
+    m.anuncioZap?.titulo && !m.anuncio ? `anúncio <b>${esc(m.anuncioZap.titulo)}</b>` : '',
+    m.origem ? `origem ${esc(m.origem)}` : '',
+    m.pagina && m.via === 'site' ? `página ${esc(m.pagina)}` : ''
+  ].filter(Boolean).join(' · ');
   const curto = m.fbclid.length > 18 ? `${m.fbclid.slice(0, 10)}…${m.fbclid.slice(-6)}` : m.fbclid;
-  const vendas = (m.vendas || []).map((v) => `<div class="rotulo">💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
-  return `<div class="chat-meta"><div>📣 <b>Meta Ads</b> · clicou no anúncio em <b>${esc(quando)}</b>${m.campanha ? ` · campanha <b>${esc(m.campanha)}</b>` : ''} · fbclid <code title="${esc(m.fbclid)}">${esc(curto)}</code> <button type="button" class="link-botao" data-copiar-fbclid="${esc(m.fbclid)}">copiar</button>${m.ligado ? '' : ' · <span class="aviso-texto">envio para a Meta desligado</span>'}</div>${vendas}</div>`;
+  const d = m.dados || {};
+  const marca = (ok, nome) => `${ok ? '✓' : '✗'} ${nome}`;
+  const dados = [
+    m.fbclid ? `✓ fbclid <code title="${esc(m.fbclid)}">${esc(curto)}</code> <button type="button" class="link-botao" data-copiar-fbclid="${esc(m.fbclid)}">copiar</button>` : '✗ fbclid',
+    marca(d.telefone, 'telefone'), marca(d.nome, 'nome'), marca(d.pixelDoSite, 'cookie do Pixel'), marca(d.ipNavegador, 'IP/navegador')
+  ].join(' · ');
+  const envio = !m.ligado ? '<span class="aviso-texto">⚪ envio de vendas para a Meta desligado</span>'
+    : m.naoVai ? `<span class="aviso-texto">⚠️ se comprar, a venda NÃO vai para a Meta: ${esc(m.naoVai)}</span>`
+    : `✅ se comprar até <b>${esc(data(m.vaiAte, false))}</b>, a venda vai para a Meta`;
+  const vendas = (m.vendas || []).map((v) => `<div>💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
+  return `<div class="chat-meta"><div>📣 <b>Meta Ads</b> · ${esc(via)}${info ? ` · ${info}` : ''}</div><div class="chat-meta-dados">${dados}</div><div>${envio}</div>${vendas}</div>`;
 }
 
 function cardOrigem(o, l) {

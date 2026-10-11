@@ -248,24 +248,46 @@ function situacaoDaVenda(v, motivo, c) {
 
 // Bloco "📣 Meta Ads" da conversa: o clique do anúncio deste cliente e as vendas dele na Meta
 function paraConversa(empresa, lead) {
+  const o = lead?.origemSite || {};
   const k = cliqueDo(lead);
-  if (!k) return null;
-  const c = configDa(empresa);
-  let campanha = '';
+  const zap = o.anuncioMeta || null; // anúncio de clique para o WhatsApp (sem passar pelo site)
+  // UTMs da página de chegada (campanha, conjunto, anúncio)
+  let utm = {};
+  let pagina = '';
   try {
-    const u = new URL(lead.origemSite?.chegada?.url || lead.origemSite?.primeira?.url || '');
-    campanha = u.searchParams.get('utm_campaign') || u.searchParams.get('utm_content') || '';
-  } catch { /* sem campanha */ }
+    const u = new URL(o.chegada?.url || o.primeira?.url || '');
+    for (const c of ['source', 'medium', 'campaign', 'content', 'term']) utm[c] = (u.searchParams.get(`utm_${c}`) || '').slice(0, 80);
+    pagina = (u.pathname || '/').slice(0, 80);
+  } catch { /* sem página de chegada */ }
+  const daMeta = /^(fb|facebook|ig|insta|instagram|meta)/i.test(utm.source || '') || /facebook|instagram|meta/i.test(o.classificacao?.fonte || '');
+  if (!k && !zap && !daMeta) return null;
+  const c = configDa(empresa);
+  const nav = o.navegador || {};
   const vendas = (estado.vendas || [])
     .filter((v) => v.empresaId === empresa.id && v.leadId === lead.id && v.status !== 'cancelada')
     .map((v) => ({ valor: v.valor, em: v.confirmadaEm || v.data || v.criadoEm, situacao: situacaoDaVenda(v, motivoNaoEnviar(empresa, v, c), c) }));
+  // se este cliente comprar hoje, a venda vai para a Meta?
+  const ate = k ? new Date(new Date(k.em).getTime() + DIAS_CLIQUE * 86400000).toISOString() : null;
+  const naoVai = !k
+    ? (zap ? 'veio de anúncio direto para o WhatsApp (sem passar pelo site), não tem o fbclid' : 'não tem o fbclid do clique (chegou sem passar pelo código do site)')
+    : !telefoneDe(lead) ? 'sem o telefone do cliente'
+    : Date.now() > new Date(ate).getTime() ? 'o clique tem mais de 30 dias'
+    : null;
   return {
-    fbclid: k.fbclid,
-    clicouEm: k.em,
-    campanha: campanha.slice(0, 80),
-    pagina: k.pagina,
-    temPixelDoSite: Boolean(k.fbp),
+    via: k ? 'site' : zap ? 'whatsapp' : 'utm',
+    fbclid: k?.fbclid || '',
+    clicouEm: k?.em || zap?.em || o.chegada?.em || null,
+    campanha: utm.campaign || '',
+    conjunto: utm.term || '',
+    anuncio: utm.content || '',
+    origem: [utm.source, utm.medium].filter(Boolean).join(' / '),
+    pagina,
+    anuncioZap: zap ? { titulo: zap.titulo || '', id: zap.id || '' } : null,
+    dados: { clique: Boolean(k), telefone: Boolean(telefoneDe(lead)), nome: Boolean(lead.nome && !/^\d/.test(lead.nome)), pixelDoSite: Boolean(nav.fbp || nav.fbc), ipNavegador: Boolean(nav.ip && nav.ua) },
+    temPixelDoSite: Boolean(k?.fbp),
     ligado: pronto(c),
+    vaiAte: naoVai ? null : ate,
+    naoVai,
     vendas
   };
 }
