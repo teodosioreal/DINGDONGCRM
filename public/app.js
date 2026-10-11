@@ -127,11 +127,12 @@ function rotacaoDeHoje(emp) {
   const hoje = emp.iaChavesUso?.[dia];
   if (!hoje) return '<p class="rotulo" style="margin:0 0 10px">🔄 Rotação de hoje: nenhuma chave reserva precisou entrar (ou ainda não houve conversa hoje).</p>';
   const hora = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
-  const linhas = ['principal', '1ª reserva', '2ª reserva', '3ª reserva'].filter((n) => hoje[n]).map((n) => {
+  const ordem = ['principal', '1ª reserva', '2ª reserva', '3ª reserva'];
+  const linhas = [...ordem, ...Object.keys(hoje).filter((n) => !ordem.includes(n))].filter((n) => hoje[n]).map((n) => {
     const c = hoje[n];
     return `<li><b>${esc(n === 'principal' ? 'Chave principal' : n[0].toUpperCase() + n.slice(1))}</b>: respondeu ${c.ok}x${c.falhas ? ` · <span class="aviso-texto">falhou ${c.falhas}x</span>${c.ultimaFalha ? ` (última às ${esc(hora(c.ultimaFalha.em))}: ${esc(c.ultimaFalha.motivo)})` : ''}` : ''}</li>`;
   });
-  return `<div class="balao" style="margin:0 0 12px"><span class="balao-icone">🔄</span><div><strong>Rotação de hoje</strong><ul class="lista-checagem" style="margin:4px 0 0;padding-left:0;list-style:none">${linhas.join('')}</ul><div class="balao-texto" style="margin-top:4px">A ordem é: principal → 1ª → 2ª → 3ª reserva. Chave que bateu no limite vai para o fim da fila (1 min se foi o limite por minuto; até o Google liberar se foi o limite do dia) — a conversa continua igual com qualquer chave.</div></div></div>`;
+  return `<div class="balao" style="margin:0 0 12px"><span class="balao-icone">🔄</span><div><strong>Rotação de hoje</strong><ul class="lista-checagem" style="margin:4px 0 0;padding-left:0;list-style:none">${linhas.join('')}</ul><div class="balao-texto" style="margin-top:4px">A ordem é: principal → 1ª → 2ª → 3ª reserva. Chave que bateu no limite vai para o fim da fila (1 min se foi o limite por minuto; até o Google liberar se foi o limite do dia). Se TODAS acabarem no modelo escolhido, as mesmas chaves respondem em outro modelo do Gemini (o limite grátis é por modelo) — a conversa continua igual.</div></div></div>`;
 }
 
 function codigoEmpresa(empresaId) {

@@ -929,16 +929,17 @@ function viradaDoLimite() {
 }
 const TAREFAS_DO_CLIENTE = new Set(['foto', 'audio']); // verificações que o atendimento precisa
 const semCotaAte = new Map(); // "empresa|final da chave" → até quando fica por último
-const marca = (empresa, k) => `${empresa.id}|${String(k).slice(-10)}`;
+// o limite grátis do Google é por chave E por modelo: a chave que acabou num modelo continua na vez nos outros
+const marca = (empresa, k, modelo = '') => `${empresa.id}|${modelo}|${String(k).slice(-10)}`;
 // quanto tempo a chave fica no fim da fila: limite do minuto = 1 min; do dia = até o Google
 // liberar de novo; chave recusada = 6 h; outros limites = 5 min. Fim da fila não é bloqueio:
 // se todas as outras falharem, ela é tentada do mesmo jeito.
-function deixarPorUltimo(empresa, k, err) {
+function deixarPorUltimo(empresa, k, err, modelo = '') {
   const ms = LIMITE_DO_DIA(err) ? Math.max(viradaDoLimite() - Date.now(), 10 * 60 * 1000)
     : chaveRecusada(err) ? 6 * 3600 * 1000
     : LIMITE_DO_MINUTO(err) ? 60 * 1000
     : 5 * 60 * 1000;
-  semCotaAte.set(marca(empresa, k), Date.now() + ms);
+  semCotaAte.set(marca(empresa, k, modelo), Date.now() + ms);
 }
 // quantas vezes cada chave respondeu/falhou por dia (para ver a rotação funcionando no painel)
 function contarChave(empresa, nome, ok, err) {
@@ -961,13 +962,47 @@ function reservasPara(empresa, usada) {
   if (ehVerificacao && !TAREFAS_DO_CLIENTE.has(tarefaAtual.getStore())) return [];
   return chavesReserva(empresa).filter((k) => k !== usada && k !== chaveDaEmpresa('gemini', empresa));
 }
+// Todas as chaves acabaram (ou o modelo está sobrecarregado)? Tenta as MESMAS chaves em outro
+// modelo do Gemini antes de deixar o cliente esperando: o limite grátis é por modelo, então a chave
+// que acabou no modelo principal normalmente ainda responde nos outros. Modelos tentados: os que a
+// empresa já usou com sucesso nos últimos dias e os "mais novos" do Google (flash antes do lite).
+const VALE_OUTRO_MODELO = (err) => (ACABOU(err) && !chaveRecusada(err)) || [500, 503, 504].includes(Number(err?.status)) || /overloaded|unavailable|sobrecarreg/i.test(String(err?.message || ''));
+function modelosReserva(empresa, atual) {
+  const dias = Object.keys(empresa?.usoIa?.dias || {}).sort().slice(-7);
+  const usados = dias.flatMap((d) => Object.keys(empresa.usoIa.dias[d].porModelo || {}));
+  const lista = [...new Set([...usados, 'gemini-flash-latest', 'gemini-flash-lite-latest'])].filter((x) => /^gemini-/.test(x) && x !== atual && !/embedding|tts|image|audio|live/i.test(x));
+  // primeiro os que a empresa já usou (existem na chave dela), depois os nomes genéricos do Google; flash antes do lite
+  const peso = (x) => (usados.includes(x) ? 0 : 2) + (/lite/.test(x) ? 1 : 0);
+  return lista.sort((a, b) => peso(a) - peso(b)).slice(0, 4);
+}
 async function chamarMotor(empresa, m, opcoes) {
+  try {
+    return await chamarMotorRotacao(empresa, m, opcoes);
+  } catch (err) {
+    if (m.provedor !== 'gemini' || !empresa?.id || opcoes?.semOutroModelo || err.naoTentarOutra || !VALE_OUTRO_MODELO(err)) throw err;
+    for (const modelo of modelosReserva(empresa, m.modelo)) {
+      try {
+        const r = await chamarMotorRotacao(empresa, { ...m, modelo }, opcoes);
+        contarChave(empresa, `outro modelo (${modelo})`, true);
+        empresa.iaReserva = { em: new Date().toISOString(), tarefa: tarefaAtual.getStore() || 'outros', usou: `Gemini ${modelo} (outro modelo)`, falhas: [`${m.modelo}: ${descreverErroIa(err)}`] };
+        require('./alertas').registrar(empresa, 'ia-reserva', `Gemini: as chaves acabaram no modelo ${m.modelo}; o modelo ${modelo} respondeu (o limite grátis é por modelo). A conversa continua igual.`, { nivel: 'aviso' });
+        console.error(`[ia ${empresa.id}] ${m.modelo} sem cota em todas as chaves: respondeu com ${modelo}`);
+        return { ...r, modeloReserva: modelo };
+      } catch (e2) {
+        if (e2.naoTentarOutra) throw e2;
+        console.error(`[ia ${empresa.id}] outro modelo ${modelo} também falhou: ${descreverErroIa(e2)}`);
+      }
+    }
+    throw err;
+  }
+}
+async function chamarMotorRotacao(empresa, m, opcoes) {
   const usada = chaveDoMotor(m, empresa);
   const reservas = m.provedor === 'gemini' ? reservasPara(empresa, usada) : [];
   if (!reservas.length) return chamarMotorChaves(empresa, m, opcoes);
   const tentativas = [{ k: usada, nome: 'chave principal', principal: true }, ...reservas.map((k) => ({ k, nome: `${CAMPOS_RESERVA.findIndex((c) => empresa.chavesIa[c] === k) + 1}ª chave reserva` }))];
   const agoraMs = Date.now();
-  const pronta = (t) => (semCotaAte.get(marca(empresa, t.k)) || 0) <= agoraMs;
+  const pronta = (t) => (semCotaAte.get(marca(empresa, t.k, m.modelo)) || 0) <= agoraMs;
   // as que acabaram há pouco vão por último (se todas acabaram, tenta todas mesmo assim)
   const ordem = [...tentativas.filter(pronta), ...tentativas.filter((t) => !pronta(t))];
   const falhas = [];
@@ -985,7 +1020,7 @@ async function chamarMotor(empresa, m, opcoes) {
       if (err.naoTentarOutra) throw err;
       ultimoErro = err;
       contarChave(empresa, t.principal ? 'principal' : t.nome.replace(' chave', ''), false, err);
-      if (ACABOU(err)) deixarPorUltimo(empresa, t.k, err);
+      if (ACABOU(err)) deixarPorUltimo(empresa, t.k, err, m.modelo);
       falhas.push(`${t.nome}: ${descreverErroIa(err)}`);
       console.error(`[ia ${empresa.id}] Gemini (${t.nome}) falhou: ${descreverErroIa(err)}${t === ordem[ordem.length - 1] ? '' : ' — tentando a próxima chave'}`);
     }
@@ -1333,7 +1368,7 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
       const barato = economico && MODELO_ECONOMICO[m.modelo];
       const motor = barato ? { ...m, modelo: barato } : m;
       const sis = barato ? { ...sistema, dinamico: `${sistema.dinamico || ''}${AVISO_ECONOMICO}` } : sistema;
-      return chamarMotor(empresa, motor, { sistema: sis, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500, semPensar: true }).then((r) => ({ ...r, modelo: motor.modelo, economico: Boolean(barato) }));
+      return chamarMotor(empresa, motor, { sistema: sis, turnos, esforco: 'low', temperatura: 0.3, maxTokens: 1500, semPensar: true }).then((r) => ({ ...r, modelo: r.modeloReserva || motor.modelo, economico: Boolean(barato) }));
     });
   const tentarEconomico = economicoLigado(empresa) && opcoes.semEconomia !== true && !casoDificil(historico);
   let bruto = await chamar(tentarEconomico);
