@@ -24,9 +24,21 @@ const fb = (u) => /[?&]fbclid=/.test(String(u || ''));
     const conf = vendas.filter((v) => v.status === 'confirmada' && (v.confirmadaEm || v.criadoEm || '') >= desde);
     const daCampanha = conf.filter((v) => comFb.some((l) => l.id === v.leadId));
     console.log(`      vendas confirmadas ${DIAS} dias: ${conf.length} · de clientes com clique de anúncio: ${daCampanha.length}`);
-    // o site: tem o nosso chat.js? como abre o WhatsApp?
+    // ✔ checklist da configuração (só sim/não, nada de token ou número inteiro)
     const bots = (db.bots || []).filter((b) => b.empresaId === e.id);
-    const dominios = [...new Set(bots.flatMap((b) => b.dominios || []))].slice(0, 2);
+    const principal = bots.find((b) => b.principal) || bots[0];
+    const dig = (v) => String(v || '').replace(/\D/g, '');
+    const numCrm = dig(principal?.whatsapp || e.whatsapp || e.whatsappConfig?.perfil?.numero);
+    const numZap = dig(e.whatsappConfig?.perfil?.numero);
+    const t = e.metaAdsTeste || {};
+    const ultSite = e.metaAdsSite;
+    console.log(`      CHECKLIST: Pixel com formato certo ${sn(/^\d{5,25}$/.test(String(m.pixelId || '')))} · token com tamanho de token ${sn(String(m.token || '').length > 20)} · último teste de conexão: ${t.conexao ? `${t.conexao.ok ? 'OK' : 'FALHOU'} em ${String(t.conexao.em || '').slice(0, 16)}` : 'nunca testou'} · assistente do site existe ${sn(principal)} (chat ligado ${sn(bots.some((b) => b.ativo !== false))}) · domínios liberados: ${[...new Set(bots.flatMap((b) => b.dominios || []))].length || 'qualquer site'} · número do assistente = número do WhatsApp conectado: ${numCrm && numZap ? sn(numCrm.slice(-8) === numZap.slice(-8)) : 'não dá para comparar'}`);
+    if (ultSite) console.log(`      último "Testar meu site": ${ultSite.ok ? 'OK' : 'COM PROBLEMA'} em ${String(ultSite.em || '').slice(0, 16)} · ${(ultSite.itens || []).map((i) => `${i.ok === true ? '✓' : i.ok === false ? '✗' : '?'} ${String(i.texto || '').replace(/\d/g, '#').slice(0, 70)}`).join(' | ')}`);
+    const dia = new Date(Date.now() - 864e5).toISOString();
+    const leads24 = (db.conversas || []).filter((l) => l.empresaId === e.id && (l.criadoEm || '') >= dia);
+    console.log(`      últimas 24h: leads ${leads24.length} · com protocolo/código do site: ${leads24.filter((l) => /#[A-Z2-9]{6}\b/.test(primeira(l))).length} · com origem do site gravada: ${leads24.filter((l) => l.origemSite?.chegada).length} · com fbclid: ${leads24.filter((l) => fb(l.origemSite?.chegada?.url) || fb(l.origemSite?.primeira?.url)).length} · cliques no site guardados 24h: ${vis.filter((v) => v.em >= Date.now() - 864e5).length}`);
+    // o site: tem o nosso chat.js? como abre o WhatsApp?
+    const dominios = [...new Set([...bots.flatMap((b) => b.dominios || []), ...(e.metaAdsSite?.host ? [e.metaAdsSite.host] : [])])].slice(0, 3);
     for (const [i, d] of dominios.entries()) {
       try {
         const r = await fetch(`https://${d}/`, { signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'Mozilla/5.0 (diagnostico CRM)' } });
@@ -37,7 +49,7 @@ const fb = (u) => /[?&]fbclid=/.test(String(u || ''));
           try { const u = new URL(s, `https://${d}/`); if (u.host !== d) continue; js += await (await fetch(u, { signal: AbortSignal.timeout(15000) })).text(); } catch { /* pula */ }
         }
         const tudo = html + js;
-        console.log(`      site ${i + 1}: HTTP ${r.status} · nosso chat.js no site: ${sn(/\/chat\.js/.test(html) && /data-bot|crm/i.test(html))} · Pixel da Meta (fbq): ${sn(/fbq\(|connect\.facebook\.net/.test(tudo))} · links wa.me no HTML: ${(html.match(/wa\.me\/|api\.whatsapp\.com\/send/g) || []).length} · WhatsApp montado no JavaScript: ${sn(/wa\.me|api\.whatsapp\.com/.test(js))} · abre com window.open: ${sn(/window\.open\(/.test(js))} · abre com location.href: ${sn(/location\.href\s*=|location\.assign\(/.test(js))} · site React/SPA: ${sn(/id=["']root["']|__next|vite/i.test(html))}`);
+        console.log(`      site ${i + 1}: HTTP ${r.status} · código desta empresa no site: ${sn(html.includes(e.id))} · só rastrear: ${sn(/data-chat=["']nao["']/.test(html))} · Pixel do site = Pixel do CRM: ${m.pixelId ? sn(tudo.includes(String(m.pixelId))) : '-'} · botão do site usa o número do CRM: ${numCrm ? sn(tudo.includes(numCrm.slice(-8))) : '-'} · nosso chat.js no site: ${sn(/\/chat\.js/.test(html) && /data-bot|crm/i.test(html))} · Pixel da Meta (fbq): ${sn(/fbq\(|connect\.facebook\.net/.test(tudo))} · links wa.me no HTML: ${(html.match(/wa\.me\/|api\.whatsapp\.com\/send/g) || []).length} · WhatsApp montado no JavaScript: ${sn(/wa\.me|api\.whatsapp\.com/.test(js))} · abre com window.open: ${sn(/window\.open\(/.test(js))} · abre com location.href: ${sn(/location\.href\s*=|location\.assign\(/.test(js))} · site React/SPA: ${sn(/id=["']root["']|__next|vite/i.test(html))}`);
       } catch (err) {
         console.log(`      site ${i + 1}: não consegui abrir (${String(err.message).slice(0, 60)})`);
       }
