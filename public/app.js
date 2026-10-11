@@ -700,6 +700,7 @@ function htmlDetalhesResposta(r) {
   return `<div class="detalhes-ia">
     ${cods.length ? `<div><span class="rotulo">Códigos detectados:</span> ${cods.map((c) => `<span class="cod-det ${esc(c.tipo)}" title="${esc({ midia: 'mídia', controle: 'controle', acao: 'ação', desconhecido: 'código desconhecido (apagado do texto)' }[c.tipo] || c.tipo)}">${esc(c.codigo)}</span>`).join(' ')}</div>` : '<div class="rotulo">Nenhum código na resposta.</div>'}
     ${mids.length ? `<div class="midias-det">${mids.map((m) => { const [cls, txt] = STATUS_MIDIA[m.status] || ['off', m.status]; return `<div class="midia-det ${cls}">${m.url && m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span class="ic">${ICONE_TIPO[m.tipo] || '📎'}</span>`}<span><b>${esc(m.codigo)}</b>${m.nome ? ` · ${esc(m.nome)}` : ''}${m.tipo ? ` · ${TIPO_MIDIA_TXT[m.tipo] || m.tipo}` : ''}<br><span class="rotulo">${txt}${m.motivo ? ` — ${esc(m.motivo)}` : ''}${m.endpoint ? ` · ${esc(m.endpoint)}` : ''}${m.evolution?.id ? ` · id ${esc(m.evolution.id)}` : ''}${m.legenda ? ` · legenda: “${esc(m.legenda)}”` : ''}</span></span></div>`; }).join('')}</div>` : ''}
+    ${r.prompt ? `<details><summary>Prompt que a IA recebeu: ${Number(r.prompt.enviado || 0).toLocaleString('pt-BR')} caracteres (salvo: ${Number(r.prompt.salvo || 0).toLocaleString('pt-BR')})${r.prompt.inteiro ? ' ✓ inteiro' : ' ⚠️ incompleto'}${r.prompt.historicoCortado ? ` · ${r.prompt.historicoCortado} mensagem(ns) antiga(s) do histórico fora` : ''}</summary><div class="rotulo">Fim do texto que a IA recebeu (últimos 200 caracteres):</div><pre class="bruto-ia">${esc(r.prompt.final || '')}</pre></details>` : ''}
     ${(r.avisos || []).map((a) => `<div class="det-aviso">⚠️ ${esc(a)}</div>`).join('')}
     ${erros.map((e) => `<div class="det-erro">✕ ${esc(e)}</div>`).join('')}
     ${r.bruto ? `<details><summary>Texto bruto da IA</summary><pre class="bruto-ia">${esc(r.bruto)}</pre></details>` : ''}
@@ -800,6 +801,17 @@ async function salvarBot(botId, form, mensagem = 'Salvo!') {
   form._atualizarPainel?.();
 }
 
+// Máximo das instruções (o servidor recusa acima disso, sem cortar)
+const MAX_PROMPT = 30000;
+function tamanhoPrompt(noCampo, salvo) {
+  const n = String(noCampo || '').trim().length;
+  const fmt = (x) => x.toLocaleString('pt-BR');
+  const campo = n > MAX_PROMPT
+    ? `<span class="pi-tag aviso">${fmt(n)} de ${fmt(MAX_PROMPT)} caracteres — passou do máximo; encurte antes de salvar</span>`
+    : `<b>${fmt(n)}</b> de ${fmt(MAX_PROMPT)} caracteres no campo`;
+  return `${campo} · <span class="rotulo">salvo: ${fmt(String(salvo || '').length)}</span>`;
+}
+
 // Painel ao lado das instruções: última mudança, se a IA está usando, última
 // conferência, alterações não salvas, regras conferidas sozinhas e histórico
 function painelInstrucoes(form, botId, canal) {
@@ -824,6 +836,7 @@ function painelInstrucoes(form, botId, canal) {
     painel.innerHTML = `
       <div class="pi-linhas">
         <div class="pi-linha"><span class="pi-rot">Última mudança</span><span>${ed ? `<b>${esc(data(ed.em))}</b>${ed.por ? ` · ${esc(ed.por)}` : ''} · ${ed.caracteres} caracteres` : salvo ? 'antes do histórico começar' : '<span class="rotulo">nenhuma instrução salva</span>'}</span></div>
+        <div class="pi-linha"><span class="pi-rot">Tamanho</span><span>${tamanhoPrompt(area.value, salvo)}</span></div>
         <div class="pi-linha"><span class="pi-rot">Situação</span><span>${mudou ? '<span class="pi-tag aviso">● Alterações não salvas — a IA ainda usa a versão anterior</span>' : salvo ? '<span class="pi-tag ok">● Em uso pela IA</span> <span class="rotulo">vale na próxima mensagem de qualquer conversa</span>' : '<span class="pi-tag">● Sem instruções — a IA segue só o padrão</span>'}</span></div>
         <div class="pi-linha"><span class="pi-rot">Última conferência</span><span>${conf ? `${conf.antiga ? '<span class="pi-tag aviso">desatualizada (o texto mudou depois)</span> ' : `<span class="pi-tag ${conf.nota === 'ok' ? 'ok' : 'aviso'}">${esc(conf.placar)}</span> `}<span class="rotulo">${esc(data(conf.em))}</span>` : '<span class="rotulo">nunca — clique em <b>Atualizar e conferir</b></span>'}</span></div>
         ${pn ? `<div class="pi-linha"><span class="pi-rot">Só o prompt novo</span><span><span class="pi-tag ok">● Desde ${esc(data(pn.em))}</span> <span class="rotulo">a IA não usa ${[pn.guardado?.cloneResponder ? 'o clone' : '', pn.guardado?.aprendizadosNoPrompt ? 'os aprendizados' : ''].filter(Boolean).join(' nem ') || 'clone nem aprendizados'} e não imita as respostas antigas das conversas.</span> <button type="button" class="pequeno" data-voltar-prompt>↩️ Voltar clone e aprendizados</button></span></div>` : ''}

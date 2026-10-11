@@ -577,7 +577,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     dinamico.push(
       '',
       'INSTRUÇÕES DA EMPRESA VALENDO AGORA (as mais recentes do dono):',
-      instrucoesAgora.length <= 2500 ? instrucoesAgora : `${instrucoesAgora.slice(0, 2500)}… (continua em <instrucoes_da_empresa>)`,
+      lembreteDasInstrucoes(instrucoesAgora),
       '- Se as suas mensagens anteriores nesta conversa seguiram outro jeito ou outra regra, é porque as instruções mudaram: siga as de AGORA a partir desta resposta, sem comentar a mudança com o cliente.',
       '- Elas valem mais do que o clone, os aprendizados, os exemplos e as dicas gerais.'
     );
@@ -638,6 +638,45 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
 
   // parte fixa (vai para o cache do prompt, fica bem mais barata a partir da 2ª mensagem) + o que muda
   return { fixo: partes.filter((l) => l !== null).join('\n'), dinamico: textoDinamico };
+}
+
+// Lembrete das instruções no fim do prompt (a IA dá mais peso ao fim). Curtas vão inteiras;
+// longas: o começo (como sempre foi) + o FIM — assim as últimas seções do prompt também
+// ficam perto do fim. O texto inteiro sempre vai em <instrucoes_da_empresa>.
+function lembreteDasInstrucoes(texto) {
+  if (texto.length <= 4000) return texto;
+  return `${texto.slice(0, 2500)}\n… (o meio está em <instrucoes_da_empresa>) …\n${texto.slice(-1500)}`;
+}
+
+// Teto de segurança do que vai para a IA (prompt + histórico), em caracteres. Muito acima
+// do normal (um prompt de 30 mil + histórico dá uns 60 mil). Se passar, saem as mensagens
+// MAIS ANTIGAS do histórico — nunca as instruções da empresa.
+const LIMITE_ENTRADA = Number(process.env.IA_LIMITE_ENTRADA) || 400000;
+function caberNaEntrada(sistema, turnos) {
+  const fixo = String(sistema.fixo || '').length + String(sistema.dinamico || '').length;
+  let total = fixo + turnos.reduce((n, t) => n + String(t.content || '').length, 0);
+  let cortadas = 0;
+  while (total > LIMITE_ENTRADA && turnos.length > 1) {
+    total -= String(turnos.shift().content || '').length;
+    cortadas++;
+    // a conversa precisa começar pelo cliente
+    while (turnos.length > 1 && turnos[0].role !== 'user') {
+      total -= String(turnos.shift().content || '').length;
+      cortadas++;
+    }
+  }
+  return { total, cortadas };
+}
+
+// Conferência do prompt de cada resposta: tamanho salvo, tamanho que foi para a IA e o fim
+// do texto que ela recebeu (fica só no log do painel; no log do servidor vão só números).
+function medirPrompt(bot, canal, sistema, entrada) {
+  const salvo = String((canal === 'whatsapp' ? bot.promptWhatsapp : bot.regras) || '').trim();
+  const fixo = String(sistema.fixo || '');
+  const abre = fixo.lastIndexOf('<instrucoes_da_empresa>\n');
+  const fecha = fixo.lastIndexOf('\n</instrucoes_da_empresa>');
+  const enviado = abre >= 0 && fecha > abre ? fixo.slice(abre + '<instrucoes_da_empresa>\n'.length, fecha) : '';
+  return { salvo: salvo.length, enviado: enviado.length, inteiro: Boolean(salvo) && enviado.length >= salvo.length, final: enviado.slice(-200), total: entrada.total, historicoCortado: entrada.cortadas };
 }
 
 // Converte o histórico salvo ({ papel: 'visitante'|'assistente'|'equipe', texto })
@@ -1190,6 +1229,9 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
   const turnos = paraTurnos(historicoEnxuto(historico));
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
+  const entrada = caberNaEntrada(sistema, turnos);
+  const prompt = medirPrompt(bot, canal, sistema, entrada);
+  console.log(`[prompt-ia ${empresa?.id || ''}] salvo=${prompt.salvo} enviado=${prompt.enviado} inteiro=${prompt.inteiro ? 'sim' : 'nao'} total=${prompt.total} historicoCortado=${prompt.historicoCortado}`);
   // atendimento: pensa um pouco mais (segue melhor as instruções) e com menos "criatividade" (inventa menos)
   // atendimento: pouca "criatividade" (inventa menos), pensamento curto e resposta curta (economiza tokens)
   const chamar = (economico) =>
@@ -1213,6 +1255,7 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
   r.bruto = bruto.texto;
   r.modelo = bruto.modelo || '';
   r.escalou = escalou;
+  r.prompt = prompt;
 
   // a IA repetiu o começo das mensagens anteriores ("Legal!", "Perfeito!"…): tira
   if (r.texto) r.texto = variarAbertura(r.texto, historico);

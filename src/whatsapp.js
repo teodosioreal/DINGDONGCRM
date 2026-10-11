@@ -1699,7 +1699,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     }
     return registrarIa(empresa, lead, 'erro', `A IA não conseguiu responder: ${ia.descreverErroIa(err)}`);
   }
-  const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, modelo: r.modelo, escalou: r.escalou, midias: [], avisos: [], erros: [] };
+  const log = { origem: origemLog, bruto: r.bruto, codigos: r.codigos, modelo: r.modelo, escalou: r.escalou, prompt: r.prompt, midias: [], avisos: [], erros: [] };
   // se a equipe assumiu enquanto a IA pensava, não responde
   if (lead.iaPausada) {
     logs.registrar(empresa, lead, { ...log, situacao: 'descartada', avisos: ['A equipe assumiu enquanto a IA pensava: nada foi enviado.'] });

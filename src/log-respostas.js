@@ -33,6 +33,8 @@ function registrar(empresa, lead, dados = {}) {
     pausou: Boolean(dados.pausou),
     modelo: dados.modelo || '',
     escalou: corta(dados.escalou || '', 120),
+    // tamanho das instruções salvas × enviadas à IA e o fim do texto que ela recebeu
+    prompt: dados.prompt ? { salvo: dados.prompt.salvo, enviado: dados.prompt.enviado, inteiro: Boolean(dados.prompt.inteiro), total: dados.prompt.total, historicoCortado: dados.prompt.historicoCortado || 0, final: corta(dados.prompt.final, 200) } : null,
     avisos: (dados.avisos || []).map((a) => corta(a, 300)),
     erros: erros.map((e) => corta(e, 400))
   };

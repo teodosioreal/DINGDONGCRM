@@ -993,6 +993,18 @@ router.delete('/empresas/:id', auth.exigirAdmin, (req, res) => {
 
 const CAMPOS_SO_ADMIN = ['limiteDiario', 'limiteConversa', 'empresaId'];
 
+// Tamanho máximo das instruções (prompt) que o dono escreve. Passou disso, o CRM
+// recusa e avisa — nunca corta calado (um corte no meio some com o fim do prompt).
+const MAX_PROMPT = 30000;
+const ROTULO_PROMPT = { promptWhatsapp: 'As instruções do WhatsApp', regras: 'As instruções do site' };
+function promptGrandeDemais(body) {
+  for (const campo of ['promptWhatsapp', 'regras']) {
+    const n = String(body?.[campo] ?? '').trim().length;
+    if (n > MAX_PROMPT) return `${ROTULO_PROMPT[campo]} têm ${n.toLocaleString('pt-BR')} caracteres — o máximo é ${MAX_PROMPT.toLocaleString('pt-BR')}. Nada foi salvo: encurte o texto e salve de novo.`;
+  }
+  return '';
+}
+
 // `base` = assistente atual: campos que não vieram no formulário ficam como estão
 // (cada tela do painel manda só os campos dela)
 function dadosBot(body, req, base = null) {
@@ -1007,8 +1019,8 @@ function dadosBot(body, req, base = null) {
     chamada: texto(body.chamada, 120),
     tom: texto(body.tom, 200),
     conhecimento: texto(body.conhecimento, 30000),
-    regras: texto(body.regras, 5000),
-    promptWhatsapp: texto(body.promptWhatsapp, 5000),
+    regras: texto(body.regras, MAX_PROMPT),
+    promptWhatsapp: texto(body.promptWhatsapp, MAX_PROMPT),
     objetivo: texto(body.objetivo, 300),
     oferta: texto(body.oferta, 1000),
     linkAvaliacao: /^https?:\/\//i.test(String(body.linkAvaliacao || '').trim()) ? texto(body.linkAvaliacao, 500) : '',
@@ -1062,7 +1074,7 @@ function registrarMudancaInstrucoes(bot, dados, req) {
     bot.instrucoesEditadas = bot.instrucoesEditadas || {};
     bot.instrucoesEditadas[canal] = { em: agora(), por: quem, caracteres: String(dados[campo] || '').length };
     const hist = (bot.historicoInstrucoes = bot.historicoInstrucoes || []);
-    if (bot[campo]) hist.unshift({ canal, texto: String(bot[campo]).slice(0, 20000), ate: agora(), por: quem }); // a versão que saiu
+    if (bot[campo]) hist.unshift({ canal, texto: String(bot[campo]).slice(0, MAX_PROMPT), ate: agora(), por: quem }); // a versão que saiu
     const doCanal = hist.filter((h) => h.canal === canal);
     if (doCanal.length > 10) bot.historicoInstrucoes = hist.filter((h) => h.canal !== canal || doCanal.indexOf(h) < 10);
     // conferência antiga não vale para o texto novo
@@ -1084,6 +1096,8 @@ router.get('/bots/:id', (req, res) => {
 });
 
 router.post('/bots', (req, res) => {
+  const grande = promptGrandeDemais(req.body);
+  if (grande) return res.status(400).json({ erro: grande });
   const dados = dadosBot(req.body || {}, req);
   if (!ehAdmin(req)) dados.empresaId = req.usuario.empresaId;
   if (!estado.empresas.some((e) => e.id === dados.empresaId)) return res.status(400).json({ erro: 'Escolha a empresa.' });
@@ -1108,6 +1122,8 @@ router.post('/bots', (req, res) => {
 router.put('/bots/:id', (req, res) => {
   const bot = acharBot(req, res);
   if (!bot) return;
+  const grande = promptGrandeDemais(req.body);
+  if (grande) return res.status(400).json({ erro: grande });
   const dados = dadosBot(req.body || {}, req, bot);
   if ('nome' in dados && !dados.nome) return res.status(400).json({ erro: 'Dê um nome para o assistente.' });
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) delete dados[c];
@@ -1131,11 +1147,15 @@ router.post('/bots/:id/atualizar-prompt', (req, res) => {
   if (!bot) return;
   const empresa = estado.empresas.find((e) => e.id === bot.empresaId);
   if (!empresa) return res.status(400).json({ erro: 'Este assistente não está ligado a uma empresa.' });
-  const textoNovo = 'promptWhatsapp' in (req.body || {}) ? texto(req.body.promptWhatsapp, 5000) : String(bot.promptWhatsapp || '');
+  const grande = promptGrandeDemais({ promptWhatsapp: req.body?.promptWhatsapp });
+  if (grande) return res.status(400).json({ erro: grande });
+  const textoNovo = 'promptWhatsapp' in (req.body || {}) ? texto(req.body.promptWhatsapp, MAX_PROMPT) : String(bot.promptWhatsapp || '');
   if (!textoNovo.trim()) return res.status(400).json({ erro: 'Escreva as instruções antes de atualizar.' });
   // mídias citadas sem código (ou com código errado): grava o código certo no texto
   const { texto: comMidias, conectadas } = midias.instrucoesComMidias(empresa, textoNovo, bot.id);
-  const dados = { promptWhatsapp: comMidias.slice(0, 5000) };
+  // os códigos das mídias aumentam o texto: se passar do máximo, avisa em vez de cortar o fim
+  if (comMidias.length > MAX_PROMPT) return res.status(400).json({ erro: `Com os códigos das mídias, as instruções ficam com ${comMidias.length.toLocaleString('pt-BR')} caracteres — o máximo é ${MAX_PROMPT.toLocaleString('pt-BR')}. Nada foi salvo: encurte um pouco o texto e atualize de novo.` });
+  const dados = { promptWhatsapp: comMidias };
   registrarMudancaInstrucoes(bot, dados, req);
   Object.assign(bot, dados, { atualizadoEm: agora() });
   const situacao = require('./prompt-novo').aplicar(empresa, req.usuario?.nome || req.usuario?.email || '');
@@ -1280,6 +1300,8 @@ router.post('/bots/:id/testar', async (req, res) => {
   const salvo = acharBot(req, res);
   if (!salvo) return;
   // usarSalvo: modo teste aberto fora da tela das instruções (ex.: Mídias) — usa o que está salvo
+  const grande = req.body?.usarSalvo ? '' : promptGrandeDemais(req.body?.bot);
+  if (grande) return res.status(400).json({ erro: grande });
   const rascunho = req.body?.usarSalvo ? { ...salvo } : { ...salvo, ...dadosBot(req.body?.bot || {}, req, salvo) };
   if (!ehAdmin(req)) for (const c of CAMPOS_SO_ADMIN) rascunho[c] = salvo[c];
   const empresa = estado.empresas.find((e) => e.id === rascunho.empresaId) || estado.empresas.find((e) => e.id === salvo.empresaId);
@@ -1312,6 +1334,7 @@ router.post('/bots/:id/testar', async (req, res) => {
       // detalhes do modo teste: o que a IA escreveu de verdade e o que o sistema faria
       bruto: r.bruto || '',
       codigos: r.codigos || [],
+      prompt: r.prompt || null,
       midiasPlanejadas: planejarMidias(empresa, r.midias, new Set(enviadasNoTeste)),
       avisos: require('./log-respostas').prometeuMidiaSemCodigo(r.texto, r.midias) ? ['A IA disse que ia mandar foto/vídeo/áudio, mas não escreveu nenhum código de mídia.'] : [],
       nada: Boolean(r.nada)
