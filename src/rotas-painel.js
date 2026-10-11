@@ -1563,6 +1563,7 @@ router.get('/leads/:id', (req, res) => {
     fotoUrl: fotosClientes.urlDaFoto(c),
     local: localizacao.paraPainel(c),
     origemSite: origem.resumoOrigem(c, empresa),
+    metaAds: require('./meta-ads').paraConversa(empresa, c),
     pedidos: automacoes.pedidosFeitos(c, empresa),
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
     temLinkAnuncio: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAnuncio),

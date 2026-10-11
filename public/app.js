@@ -349,6 +349,15 @@ function linhaOrigem(o) {
   return `<div class="chat-origem" title="${esc(partes.join(' · ').replace(/<[^>]+>/g, ''))}">${partes.join(' · ')}</div>`;
 }
 
+// 📣 Meta Ads na conversa: o cliente veio de anúncio (o CRM pegou o fbclid do clique)
+function linhaMeta(m) {
+  if (!m) return '';
+  const quando = new Date(m.clicouEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const curto = m.fbclid.length > 18 ? `${m.fbclid.slice(0, 10)}…${m.fbclid.slice(-6)}` : m.fbclid;
+  const vendas = (m.vendas || []).map((v) => `<div class="rotulo">💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
+  return `<div class="chat-meta"><div>📣 <b>Meta Ads</b> · clicou no anúncio em <b>${esc(quando)}</b>${m.campanha ? ` · campanha <b>${esc(m.campanha)}</b>` : ''} · fbclid <code title="${esc(m.fbclid)}">${esc(curto)}</code> <button type="button" class="link-botao" data-copiar-fbclid="${esc(m.fbclid)}">copiar</button>${m.ligado ? '' : ' · <span class="aviso-texto">envio para a Meta desligado</span>'}</div>${vendas}</div>`;
+}
+
 function cardOrigem(o, l) {
   o = o || {};
   const atual = o.atual || o.paginas?.[o.paginas.length - 1];
@@ -4241,6 +4250,13 @@ document.addEventListener('click', async (e) => {
   } catch (err) { aviso(err.message, true); }
 });
 
+// copiar o fbclid do bloco 📣 Meta Ads da conversa
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-copiar-fbclid]');
+  if (!b) return;
+  navigator.clipboard?.writeText(b.dataset.copiarFbclid).then(() => aviso('fbclid copiado.')).catch(() => aviso(b.dataset.copiarFbclid));
+});
+
 // ▶ Start: a IA lê a conversa e começa o atendimento agora (tira a pausa desta conversa)
 document.addEventListener('click', async (e) => {
   const botao = e.target.closest?.('[data-ia-start]');
@@ -4689,6 +4705,7 @@ async function paginaConversas(id, params) {
       ${l.listaNegra ? '<div class="chat-aviso perigo-aviso">🚫 <b>Na lista negra.</b> Nada é enviado para este cliente — nem pela IA, automações, follow-up, disparos ou por você. As mensagens dele continuam aparecendo aqui.</div>' : ''}
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
+      ${linhaMeta(l.metaAds)}
       ${htmlPedidos(l)}
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
       ${l.iaDesligadaPor ? `<div class="chat-aviso">${{ venda: '💰', agenda: '📅', empresa: '🏢' }[l.iaDesligadaPor] || '🤖'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')}${l.iaDesligadaPor === 'empresa' ? '' : ' <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button>'}</div>` : ''}
@@ -5872,12 +5889,14 @@ async function cartaoMetaAds(id) {
     : t.conexao && !t.conexao.ok ? ['erro', '⚠️ A Meta recusou', t.conexao.erro || 'Teste a conexão.']
     : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) já enviada(s). Cada venda confirmada vai em até 5 minutos.`];
   const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
+  const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
   el.innerHTML = `
     <div class="meta-status ${status[0]}"><b>${status[1]}</b><span>${status[2]}</span></div>
+    ${semSite ? `<div class="balao balao-aviso" style="margin:10px 0 0"><span class="balao-icone">⚠️</span><div><strong>O CRM ainda não recebe o clique do anúncio (fbclid)</strong><div class="balao-texto">Nos últimos 30 dias nenhum cliente chegou pelo seu site com o código do CRM. Sem ele, o CRM não sabe quem veio do anúncio e nenhuma venda vai para a Meta. Instale o código do CRM no site (uma linha, uma vez só): <a href="${rotaEmpresa(id, 'site')}">IA do site → Código para o seu site</a>. Ele pega o fbclid de quem chega pelo anúncio e liga à conversa quando o cliente toca no botão do WhatsApp do site.</div></div></div>` : ''}
 
     <form id="f-meta-ads" style="margin-top:14px">
       <label class="linha-check meta-ligar"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a campanha</b></label>
-      <label class="linha-check" style="margin-top:6px"><input type="checkbox" name="todasVendas" ${m.todasVendas !== false ? 'checked' : ''}> Todas as vendas confirmadas <span class="rotulo">(recomendado — a Meta reconhece pelo telefone quem veio do anúncio)</span></label>
+      <p class="rotulo" style="margin:6px 0 0">Vai para a Meta só a venda <b>confirmada, com valor</b>, de cliente que <b>clicou no anúncio</b> (o CRM guardou o fbclid) e com <b>telefone</b>. Sem esses dados não vai.</p>
       <div class="campos" style="margin-top:10px">
         <div class="campo"><label>ID do Pixel</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" placeholder="só números"></div>
         <div class="campo"><label>Token da API de Conversões</label><input name="token" type="password" autocomplete="new-password" placeholder="${m.tokenSalvo ? `salvo — termina em …${esc(m.tokenFim)} (cole outro para trocar)` : 'cole o token'}"></div>
@@ -5901,15 +5920,15 @@ async function cartaoMetaAds(id) {
     ${ajudaMeta('Onde vejo as vendas na campanha', 'No Gerenciador de Anúncios → <b>Colunas</b> → <b>Personalizar colunas</b> → marque <b>Compras</b> e <b>Valor de conversão de compras</b>. Pode levar algumas horas. No Gerenciador de Eventos → seu Pixel → <b>Visão geral</b>, o evento <b>Purchase</b> aparece com a origem <b>Servidor</b>.')}
     ${ajudaMeta('Quais vendas vão e quando', 'As vendas <b>confirmadas e com valor</b>, em até 5 minutos. Cada venda vai uma vez só. A Meta só aceita vendas dos <b>últimos 7 dias</b> — ao ligar, as dos últimos 7 dias vão na hora. O telefone e o nome vão <b>criptografados</b>. Venda de cliente sem telefone (contato escondido do WhatsApp) não vai, porque a Meta não teria como reconhecer.')}
 
-    ${m.recentes.length ? `<h3 class="titulo-bloco" style="margin-top:18px">Últimas vendas</h3><div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(quando(v.em))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    ${m.recentes.length ? `<h3 class="titulo-bloco" style="margin-top:18px">Últimas vendas</h3><div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Cliente</th><th>Valor · Meta</th></tr></thead><tbody>${m.recentes.map((v) => `<tr><td style="white-space:nowrap">${esc(quando(v.em))}</td><td>${esc(v.cliente || '—')}</td><td><b style="white-space:nowrap">${brl(v.valor)}</b><br><span class="rotulo">${esc(v.situacao)}</span>${v.dados ? `<br><span class="rotulo">foi com: ${[['clique', 'clique do anúncio'], ['telefone', 'telefone'], ['nome', 'nome'], ['ip', 'IP'], ['navegador', 'navegador'], ['pixelDoSite', 'cookie do Pixel']].filter(([k]) => v.dados[k]).map(([, n]) => `✓ ${n}`).join(' · ')}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const lc = $('#card-meta-clientes');
   if (lc && !m.clientes.length) lc.remove();
   else if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
-    ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(quando(c.clicouEm))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
+    ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(quando(c.clicouEm))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a><br><code class="rotulo" title="${esc(c.fbclid || '')}">fbclid ${esc(String(c.fbclid || '').slice(0, 10))}…</code></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
   const f = $('#f-meta-ads');
   f.onsubmit = async (e) => {
     e.preventDefault();
-    const corpo = { ativo: f.elements.ativo.checked, todasVendas: f.elements.todasVendas.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
+    const corpo = { ativo: f.elements.ativo.checked, pixelId: f.elements.pixelId.value, codigoTeste: f.elements.codigoTeste.value };
     if (f.elements.token.value.trim()) corpo.token = f.elements.token.value.trim();
     try {
       await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/meta-ads`, { method: 'PUT', body: corpo }));

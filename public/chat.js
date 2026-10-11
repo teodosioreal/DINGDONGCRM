@@ -345,22 +345,40 @@
     var numeroEmpresa = numeroDoLink(cfg.whatsappUrl);
     if (!numeroEmpresa) return;
     var avisado = {};
-    function aoClicar(e) {
-      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-      if (!a || !/wa\.me\/|whatsapp\.com\/send|^whatsapp:/i.test(a.href)) return;
-      if (!mesmoNumero(numeroDoLink(a.href), numeroEmpresa)) return;
+    var EH_ZAP = /wa\.me\/|whatsapp\.com\/send|^whatsapp:/i;
+    // link do WhatsApp da empresa → o mesmo link com o código do atendimento (e avisa o CRM)
+    function prepararLink(href) {
+      if (!href || !EH_ZAP.test(href) || !mesmoNumero(numeroDoLink(href), numeroEmpresa)) return href;
       if (!memoria.codigo && !memoria.codigoVisita) {
         memoria.codigoVisita = novoCodigo();
         gravar(memoria);
       }
       var codigo = memoria.codigo || memoria.codigoVisita;
-      a.href = comCodigo(a.href, codigo, cfg.mensagemWhatsappPadrao);
-      if (avisado[codigo]) return;
-      avisado[codigo] = true;
-      pedir('/api/public/visita', { botId: botId, codigo: codigo, conversaId: memoria.conversaId || null, rastro: montarRastro() }).catch(function () {});
+      if (!avisado[codigo]) {
+        avisado[codigo] = true;
+        pedir('/api/public/visita', { botId: botId, codigo: codigo, conversaId: memoria.conversaId || null, rastro: montarRastro() }).catch(function () {});
+      }
+      return comCodigo(href, codigo, cfg.mensagemWhatsappPadrao);
+    }
+    function aoClicar(e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a || !EH_ZAP.test(a.href)) return;
+      a.href = prepararLink(a.href);
     }
     document.addEventListener('click', aoClicar, true);
     document.addEventListener('auxclick', aoClicar, true);
+    // sites que abrem o WhatsApp por JavaScript (formulário → window.open) também levam o código
+    try {
+      var abrirOriginal = window.open;
+      window.open = function (url) {
+        var args = Array.prototype.slice.call(arguments);
+        try { if (typeof url === 'string') args[0] = prepararLink(url); } catch (e) { /* segue com o link original */ }
+        return abrirOriginal.apply(window, args);
+      };
+    } catch (e) { /* navegador não deixa: segue só com os links */ }
+    // para quem monta o link no próprio site: window.DingDongCRM.linkWhatsapp(url) devolve o link com o código
+    window.DingDongCRM = window.DingDongCRM || {};
+    window.DingDongCRM.linkWhatsapp = prepararLink;
   }
 
   function montar(cfg) {

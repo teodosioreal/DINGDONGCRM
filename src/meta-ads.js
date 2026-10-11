@@ -10,9 +10,8 @@
 // o código de teste (os eventos aparecem em "Eventos de teste" e não contam na campanha).
 // Cada venda vai uma vez só (event_id = id da venda). Telefone e nome vão criptografados.
 //
-// "Todas as vendas" (padrão): toda venda confirmada vai, mesmo sem o clique do site — a Meta
-// reconhece pelo telefone (criptografado) quem viu/clicou no anúncio e liga a venda à campanha.
-// É o caminho que funciona quando o site manda para o WhatsApp sem passar pelo nosso chat.js.
+// Só vai a venda com TODOS os dados para a Meta ligar ao anúncio: o clique (fbclid → fbc) e o
+// telefone do cliente. Sem o clique (o cliente não passou pelo site com o código do CRM) não vai.
 
 const crypto = require('crypto');
 const { estado, salvar, agora } = require('./db');
@@ -34,9 +33,7 @@ function configDa(empresa) {
     pixelId: String(c.pixelId || ''),
     token: String(c.token || ''),
     codigoTeste: String(c.codigoTeste || ''),
-    // todas as vendas confirmadas vão (a Meta reconhece pelo telefone quem veio do anúncio);
-    // desligado: só as de quem chegou pelo site com o clique do anúncio (fbclid)
-    todasVendas: c.todasVendas !== false,
+    todasVendas: false, // (opção antiga desligada: só vai venda com o clique do anúncio)
     ativadoEm: c.ativadoEm || null
   };
 }
@@ -122,10 +119,9 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   if (!lead) return 'venda sem conversa ligada';
   const clique = cliqueDo(lead);
   const vendaMs = new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime();
-  if (!clique) {
-    if (!c.todasVendas) return 'cliente não veio de anúncio pelo site (fbclid)';
-    if (!telefoneDe(lead)) return 'sem o telefone do cliente (a Meta precisa dele para reconhecer)';
-  } else if (vendaMs - new Date(clique.em).getTime() > DIAS_CLIQUE * 86400000 && !c.todasVendas) return 'venda mais de 30 dias depois do clique';
+  if (!clique) return 'sem o clique do anúncio (fbclid): o cliente não passou pelo site com o código do CRM';
+  if (!telefoneDe(lead)) return 'sem o telefone do cliente';
+  if (vendaMs - new Date(clique.em).getTime() > DIAS_CLIQUE * 86400000) return 'venda mais de 30 dias depois do clique';
   if (Date.now() - vendaMs > DIAS_EVENTO * 86400000) return 'venda de mais de 7 dias (a Meta não aceita)';
   return null;
 }
@@ -176,9 +172,18 @@ async function enviarVenda(empresa, venda) {
   enviando.add(venda.id);
   try {
     const k = cliqueDo(lead);
-    const valeClique = k && new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime() - new Date(k.em).getTime() <= DIAS_CLIQUE * 86400000;
-    const r = await enviarEventos(c, [montarEvento(venda, lead, valeClique ? k : null)]);
-    venda.metaAds = { enviadoEm: agora(), teste: Boolean(c.codigoTeste), recebidos: r.events_received ?? null, tentativas: (venda.metaAds?.tentativas || 0) + 1 };
+    const evento = montarEvento(venda, lead, k);
+    const r = await enviarEventos(c, [evento]);
+    const u = evento.user_data;
+    // a prova: o que a Meta respondeu e quais dados foram (para conferir no painel)
+    venda.metaAds = {
+      enviadoEm: agora(),
+      teste: Boolean(c.codigoTeste),
+      recebidos: r.events_received ?? null,
+      fbtrace: String(r.fbtrace_id || '').slice(0, 40),
+      dados: { clique: Boolean(u.fbc), telefone: Boolean(u.ph), nome: Boolean(u.fn), ip: Boolean(u.client_ip_address), navegador: Boolean(u.client_user_agent), pixelDoSite: Boolean(u.fbp) },
+      tentativas: (venda.metaAds?.tentativas || 0) + 1
+    };
     console.log(`[meta-ads ${empresa.id}] venda enviada${c.codigoTeste ? ' (teste)' : ''}`);
     return true;
   } catch (err) {
@@ -229,6 +234,41 @@ function iniciar() {
 
 // ---------------------------------------------------------------- painel
 
+// texto da situação de uma venda na Meta (com a confirmação da Meta quando foi)
+function situacaoDaVenda(v, motivo, c) {
+  const m = v.metaAds;
+  if (m?.enviadoEm && (!m.teste || c.codigoTeste)) {
+    const conf = m.recebidos === 1 || m.recebidos > 0 ? ` · a Meta confirmou: ${m.recebidos} evento recebido` : ' · a Meta não confirmou o recebimento';
+    return `${m.teste ? 'enviada (teste)' : 'enviada'} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}`;
+  }
+  if (m?.erro && motivo === null) return `erro: ${m.erro}`;
+  return motivo || (pronto(c) ? 'na fila (sai em até 5 min)' : 'vai quando ligar o envio');
+}
+
+// Bloco "📣 Meta Ads" da conversa: o clique do anúncio deste cliente e as vendas dele na Meta
+function paraConversa(empresa, lead) {
+  const k = cliqueDo(lead);
+  if (!k) return null;
+  const c = configDa(empresa);
+  let campanha = '';
+  try {
+    const u = new URL(lead.origemSite?.chegada?.url || lead.origemSite?.primeira?.url || '');
+    campanha = u.searchParams.get('utm_campaign') || u.searchParams.get('utm_content') || '';
+  } catch { /* sem campanha */ }
+  const vendas = (estado.vendas || [])
+    .filter((v) => v.empresaId === empresa.id && v.leadId === lead.id && v.status !== 'cancelada')
+    .map((v) => ({ valor: v.valor, em: v.confirmadaEm || v.data || v.criadoEm, situacao: situacaoDaVenda(v, motivoNaoEnviar(empresa, v, c), c) }));
+  return {
+    fbclid: k.fbclid,
+    clicouEm: k.em,
+    campanha: campanha.slice(0, 80),
+    pagina: k.pagina,
+    temPixelDoSite: Boolean(k.fbp),
+    ligado: pronto(c),
+    vendas
+  };
+}
+
 function paraPainel(empresa) {
   const c = configDa(empresa);
   const trinta = Date.now() - DIAS_CLIQUE * 86400000;
@@ -249,7 +289,9 @@ function paraPainel(empresa) {
         cliente: lead?.nome || v.cliente || '',
         valor: v.valor,
         em: v.confirmadaEm || v.data || v.criadoEm,
-        situacao: v.metaAds?.enviadoEm && (!v.metaAds.teste || c.codigoTeste) ? (v.metaAds.teste ? 'enviada (teste)' : 'enviada') : v.metaAds?.erro && motivo === null ? `erro: ${v.metaAds.erro}` : motivo || (pronto(c) ? 'na fila (sai em até 5 min)' : 'vai quando ligar'),
+        situacao: situacaoDaVenda(v, motivo, c),
+        recebidos: v.metaAds?.recebidos ?? null,
+        dados: v.metaAds?.dados || null,
         enviadoEm: v.metaAds?.enviadoEm || null
       };
     });
@@ -261,7 +303,7 @@ function paraPainel(empresa) {
       try {
         campanha = new URL(l.origemSite?.chegada?.url || '').searchParams.get('utm_campaign') || '';
       } catch { /* sem campanha */ }
-      return { id: l.id, nome: l.nome || '', clicouEm: k.em, campanha: campanha.slice(0, 80), comprou: compras.reduce((s, v) => s + (Number(v.valor) || 0), 0) };
+      return { id: l.id, nome: l.nome || '', clicouEm: k.em, fbclid: k.fbclid, campanha: campanha.slice(0, 80), comprou: compras.reduce((s, v) => s + (Number(v.valor) || 0), 0) };
     })
     .sort((a, b) => (a.clicouEm < b.clicouEm ? 1 : -1))
     .slice(0, 50);
@@ -276,6 +318,8 @@ function paraPainel(empresa) {
     todasVendas: c.todasVendas,
     pronto: pronto(c),
     clientesComClique: comClique.length,
+    // o código do CRM está no site? (sem ele o CRM nunca recebe o fbclid)
+    chegadasDoSite30d: daEmpresa.filter((l) => l.origemSite?.chegada && new Date(l.origemSite.chegada.em || l.criadoEm).getTime() > trinta).length,
     enviadas: vendas.filter((v) => v.metaAds?.enviadoEm && !v.metaAds.teste).length,
     enviadasTeste: vendas.filter((v) => v.metaAds?.enviadoEm && v.metaAds.teste).length,
     recentes
@@ -365,4 +409,4 @@ async function enviarCompraTeste(empresa, req) {
   }
 }
 
-module.exports = { configDa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };
+module.exports = { configDa, paraConversa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };
