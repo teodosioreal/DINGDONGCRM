@@ -8,8 +8,10 @@
 //     fica esperando e a IA responde quando o horário abrir (alguns por minuto).
 //   • IA sem crédito/limite (chave grátis acabou, limite por minuto, Google fora): o
 //     cliente fica esperando; a cada 5 min o CRM testa com UM cliente (recusa não gasta)
-//     e, quando volta, responde a fila aos poucos com [RESPOSTA_ATRASADA] (a IA pede
-//     desculpas pela demora). Mais de 24 h sem resposta: não responde sozinha, avisa a equipe.
+//     e, quando volta, responde a fila em ORDEM DE CHEGADA, 3 por minuto. Acabou de novo
+//     no meio: para e continua quando voltar. Quem chega com fila entra no fim (não fura e
+//     não gasta chamada). Esperou mais de 10 min: [RESPOSTA_ATRASADA] (a IA pede desculpas).
+//     Mais de 24 h sem resposta: não responde sozinha, avisa a equipe.
 
 const { estado, salvar, agora } = require('./db');
 
@@ -174,6 +176,23 @@ function esperarIa(empresa, lead, motivo) {
 
 const esperandoIa = (empresaId) => estado.conversas.filter((l) => l.empresaId === empresaId && l.iaEsperaCota);
 
+// quando o cliente começou a esperar: a 1ª mensagem dele ainda sem resposta (ordem de chegada)
+function chegouEm(lead) {
+  const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada && !m.eventoInterno);
+  let i = msgs.length;
+  while (i > 0 && msgs[i - 1].papel === 'visitante') i--;
+  return msgs[i]?.em || lead.iaEsperaCota || '';
+}
+
+// tem fila esperando a IA? quem chega depois entra no fim (não fura a fila)
+const temFila = (empresa) => estado.conversas.some((l) => l.empresaId === empresa.id && l.iaEsperaCota);
+
+// entra no fim da fila sem tentar a IA (já se sabe que ela está sem crédito ou atendendo a fila)
+function entrarNaFila(lead) {
+  if (!lead.iaEsperaCota) lead.iaEsperaCota = agora();
+  salvar();
+}
+
 let rodandoCota = false;
 async function verificarCota() {
   if (rodandoCota) return 0;
@@ -182,7 +201,8 @@ async function verificarCota() {
   try {
     const whatsapp = require('./whatsapp');
     for (const empresa of estado.empresas) {
-      const fila = esperandoIa(empresa.id).sort((a, b) => (a.iaEsperaCota < b.iaEsperaCota ? -1 : 1));
+      // ordem de chegada: quem mandou a 1ª mensagem sem resposta antes é respondido antes
+      const fila = esperandoIa(empresa.id).sort((a, b) => (chegouEm(a) < chegouEm(b) ? -1 : chegouEm(a) > chegouEm(b) ? 1 : 0));
       if (!fila.length || !iaNoHorario(empresa)) continue;
       if (Date.now() - (falhas.get(empresa.id) || 0) < TESTE_A_CADA_MS) continue; // testa de 5 em 5 min
       let feitos = 0;
@@ -202,7 +222,9 @@ async function verificarCota() {
           continue;
         }
         const antes = falhas.get(empresa.id);
-        await whatsapp.responderLead(empresa.id, lead.id, 0, { evento: 'RESPOSTA_ATRASADA' }).catch((err) => console.error(`[fila-ia ${lead.id}]`, err.message));
+        // esperou mais de 10 min: a IA pede desculpas pela demora; menos que isso, responde normal
+        const atrasou = Date.now() - new Date(chegouEm(lead)).getTime() > 10 * MIN;
+        await whatsapp.responderLead(empresa.id, lead.id, 0, atrasou ? { evento: 'RESPOSTA_ATRASADA' } : { daFila: true }).catch((err) => console.error(`[fila-ia ${lead.id}]`, err.message));
         if (falhas.get(empresa.id) !== antes) break; // ainda sem crédito: testa de novo daqui a 5 min
         delete lead.iaEsperaCota; // respondeu (ou não precisava mais)
         feitos++;
@@ -259,4 +281,4 @@ function salvarPainel(empresa, b = {}) {
   return paraPainel(empresa);
 }
 
-module.exports = { vaiEsperar, esperarIa, verificarCota, minutosDe, janelaEnvio, configIa, dentro, proximaAbertura, somarNoHorario, vencimento, iaNoHorario, descreverIa, esperarHorario, verificar, iniciar, paraPainel, salvarPainel };
+module.exports = { temFila, entrarNaFila, chegouEm, vaiEsperar, esperarIa, verificarCota, minutosDe, janelaEnvio, configIa, dentro, proximaAbertura, somarNoHorario, vencimento, iaNoHorario, descreverIa, esperarHorario, verificar, iniciar, paraPainel, salvarPainel };

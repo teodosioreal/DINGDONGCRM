@@ -1352,6 +1352,11 @@ function agendarResposta(empresa, lead) {
   };
   if (!expediente.iaNoHorario(empresa)) return foraDoHorario();
   delete lead.iaEsperaHorario;
+  // tem cliente esperando a IA voltar (sem crédito/limite): entra no fim da fila, em ordem de chegada
+  if (expediente.temFila(empresa)) {
+    expediente.entrarNaFila(lead);
+    return registrarIa(empresa, lead, 'aguardando-ia', 'Na fila: a IA responde em ordem de chegada (está voltando de uma falta de crédito/limite).');
+  }
   const disparar = () => {
     // ainda chegando mensagem do cliente (ex.: foto sendo lida): espera mais um pouco
     if (clienteMandando(lead.id)) return agendadas.set(lead.id, setTimeout(disparar, ESPERA_CHEGANDO_MS));
