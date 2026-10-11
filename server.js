@@ -205,6 +205,8 @@ const servidor = app.listen(config.port, config.host, () => {
       if (!whatsapp.configurado(e)) continue;
       await whatsapp.revisarWebhook(e).then((mudou) => mudou && console.log(`[webhook ${e.id}] eventos atualizados`)).catch((err) => console.error(`[webhook ${e.id}]`, err.message));
       await whatsapp.garantirSemLeituraAutomatica(e); // mensagem só fica lida quando alguém abre a conversa
+      // a IA ia responder alguém quando o CRM reiniciou (deploy): responde agora
+      try { require('./src/sincronizar').retomarRespostasPendentes(e); } catch (err) { console.error(`[whatsapp ${e.id}] retomar respostas:`, err.message); }
       // pedido do dono (09/10): a IA PARA quando a equipe manda mensagem manual. Corrige uma vez a
       // opção "IA continua depois da mensagem manual" que estava ligada; depois vale o que ele escolher na tela
       if (e.whatsappConfig.iaAposManual === true && !e.whatsappConfig.iaAposManualRevisadoEm) {

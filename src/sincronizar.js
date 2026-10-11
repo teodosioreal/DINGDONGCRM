@@ -213,18 +213,31 @@ function importarMensagem(empresa, msg) {
 
 // A busca trouxe a ÚLTIMA mensagem do cliente, de poucos minutos atrás, sem resposta? (o
 // webhook não entregou: deploy/reinício, oscilação) → a IA responde como se fosse ao vivo
-function responderSePerdida(empresa, lead) {
+// reinicio: true = a mensagem já estava no CRM, mas a resposta agendada se perdeu (o CRM reiniciou na espera)
+function responderSePerdida(empresa, lead, reinicio = false) {
   const w = whatsapp();
   const msgs = (lead.mensagens || []).filter((m) => !m.apagada && ['visitante', 'assistente', 'equipe'].includes(m.papel));
   const ultima = msgs[msgs.length - 1];
-  if (!ultima || ultima.papel !== 'visitante' || !ultima.importada) return false;
+  if (!ultima || ultima.papel !== 'visitante' || (!ultima.importada && !reinicio)) return false;
   if (Date.now() - new Date(ultima.em).getTime() > RECENTE_MS) return false;
+  // reinício: a IA já tratou esta mensagem (respondeu, ignorou, ficou na fila/horário) → não mexe
+  if (reinicio && lead.iaStatus?.em && lead.iaStatus.em >= ultima.em) return false;
   // conversa que a busca criou agora: se TUDO nela é recente, é um cliente novo de verdade
   if (lead.historicoImportado && msgs.every((m) => Date.now() - new Date(m.em).getTime() <= RECENTE_MS)) delete lead.historicoImportado;
   if (lead.historicoImportado || !w.iaVaiResponder(empresa, lead) || w.iaOcupadaCom(lead.id)) return false;
   w.agendarResposta(empresa, lead);
-  console.log(`[sincronizar ${empresa.id}] mensagem recente que o webhook não entregou: a IA vai responder`);
+  console.log(reinicio ? `[whatsapp ${empresa.id}] resposta que ficou pendente no reinício do CRM: a IA vai responder` : `[sincronizar ${empresa.id}] mensagem recente que o webhook não entregou: a IA vai responder`);
   return true;
+}
+// ao ligar o CRM: conversas cuja última mensagem é do cliente, de até 15 min, sem resposta
+// (a resposta estava agendada quando o CRM reiniciou) → a IA responde normalmente
+function retomarRespostasPendentes(empresa) {
+  let n = 0;
+  for (const lead of estado.conversas) {
+    if (lead.empresaId !== empresa.id || !lead.whatsappJid || lead.arquivado) continue;
+    if (responderSePerdida(empresa, lead, true)) n++;
+  }
+  return n;
 }
 const responderPerdidas = (empresa, tocadas) => {
   for (const lead of tocadas) responderSePerdida(empresa, lead);
@@ -368,4 +381,4 @@ function iniciar() {
   timer.unref?.();
 }
 
-module.exports = { descobrirNumeroDoLid, resolverLids, consertarConversasComLid, consertarLid, jidReal, sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };
+module.exports = { retomarRespostasPendentes, descobrirNumeroDoLid, resolverLids, consertarConversasComLid, consertarLid, jidReal, sincronizarEmpresa, importarMensagem, importarLote, aoReconectar, iniciar };
