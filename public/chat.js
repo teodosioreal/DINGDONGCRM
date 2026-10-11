@@ -4,6 +4,7 @@
  *   <script src="https://odingdong.tech/crm/chat.js" data-empresa="emp_xxx" async></script>
  * ou, para fixar um assistente específico:
  *   <script src="https://odingdong.tech/crm/chat.js" data-bot="bot_xxx" async></script>
+ * Só rastrear o anúncio (sem a janelinha do chat): acrescente data-chat="nao".
  */
 (function () {
   'use strict';
@@ -330,7 +331,8 @@
         /* sem rastro: o chat funciona do mesmo jeito */
       }
       quandoPronto(function () {
-        montar(r.dados);
+        // data-chat="nao": só rastreia o anúncio e os botões de WhatsApp, sem a janelinha do chat
+        if (script.getAttribute('data-chat') !== 'nao') montar(r.dados);
         if (script.getAttribute('data-rastrear-whatsapp') !== 'nao') vigiarBotoesWhatsapp(r.dados);
       });
     })

@@ -5873,6 +5873,42 @@ async function paginaMetaAds(id) {
   cartaoMetaAds(id);
 }
 
+// Código do site, desta empresa: pega o fbclid de quem chega pelo anúncio e liga à conversa do WhatsApp
+function codigoSiteMeta(empresaId, comChat) {
+  return `<script src="${sessao.urlPublica}/chat.js" data-empresa="${empresaId}"${comChat ? '' : ' data-chat="nao"'} async></script>`;
+}
+function blocoCodigoSiteMeta(id, site, chegadas) {
+  const quando = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const v = site.visto || {};
+  const item = (ok, html) => `<li>${ok === true ? '✅' : ok === false ? '❌' : '⚠️'} ${html}</li>`;
+  const checagens = [
+    item(site.assistente, site.assistente ? 'Assistente do site ativo (o código usa o WhatsApp dele)' : `Falta um assistente do site ativo — crie em <a href="${rotaEmpresa(id, 'site')}">IA do site</a> (pode deixar só para rastrear)`),
+    site.assistente ? item(site.whatsapp, site.whatsapp ? 'Número do WhatsApp configurado' : `Falta o número do WhatsApp no assistente do site — em <a href="${rotaEmpresa(id, 'site')}">IA do site</a>`) : '',
+    item(true, site.dominios?.length ? `Funciona nos sites: <b>${esc(site.dominios.join(', '))}</b>` : 'Funciona em qualquer site (nenhum domínio restrito)'),
+    v.bloqueado && (!v.ok || v.bloqueado.em > v.ok.em) ? item(false, `O site <b>${esc(v.bloqueado.host || '?')}</b> carregou o código em ${esc(quando(v.bloqueado.em))}, mas foi recusado: ${v.bloqueado.motivo === 'sem-assistente' ? 'a empresa não tem assistente do site ativo' : 'esse site não está na lista de domínios do assistente (IA do site)'}`) : '',
+    v.ok ? item(true, `Código instalado: o site <b>${esc(v.ok.host || '?')}</b> carregou em ${esc(quando(v.ok.em))}`) : item(null, 'Ainda não vi o código rodando no site (desde a última atualização do CRM). Depois de instalar, abra o site uma vez e recarregue esta página.'),
+    item(chegadas ? true : null, `${chegadas || 0} cliente(s) chegaram pelo site com o código nos últimos 30 dias`)
+  ].join('');
+  return `<div class="card-interno" id="codigo-site-meta" style="margin-top:14px">
+    <h3 class="titulo-bloco" style="margin:0 0 6px">📋 Código do site — desta empresa</h3>
+    <p class="rotulo" style="margin:0 0 8px">Cole esta linha no seu site, antes de <code>&lt;/body&gt;</code>, em todas as páginas que recebem o anúncio (uma vez só). Ela guarda o <b>fbclid</b> de quem chega pelo anúncio e, quando o cliente toca no botão do WhatsApp do site, a mensagem leva o código do atendimento e o CRM liga o clique à conversa.</p>
+    <label class="linha-check"><input type="checkbox" id="meta-codigo-chat"> Mostrar também a janelinha de chat da IA no site</label>
+    <div class="utm-valor" style="margin-top:6px"><code id="meta-codigo-texto" style="word-break:break-all">${esc(codigoSiteMeta(id, false))}</code><button type="button" class="pequeno" id="meta-codigo-copiar">Copiar</button></div>
+    <p class="rotulo" style="margin:6px 0 0">Se o site já tem o código da IA do site (com <code>data-empresa="${esc(id)}"</code>), não precisa colar de novo.</p>
+    <ul class="lista-checagem" style="margin:8px 0 0;padding-left:4px;list-style:none">${checagens}</ul>
+  </div>`;
+}
+function ligarCodigoSiteMeta(id) {
+  const chk = $('#meta-codigo-chat');
+  const txt = $('#meta-codigo-texto');
+  if (!chk || !txt) return;
+  chk.onchange = () => { txt.textContent = codigoSiteMeta(id, chk.checked); };
+  $('#meta-codigo-copiar').onclick = () => {
+    navigator.clipboard?.writeText(txt.textContent).then(() => aviso('Código do site copiado. Cole antes de </body> no seu site.')).catch(() => aviso(txt.textContent));
+  };
+  $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }); }; });
+}
+
 // 📈 Meta Ads: vendas de quem veio de anúncio do Facebook/Instagram vão para o Pixel (API de Conversões)
 async function cartaoMetaAds(id) {
   const el = $('#card-meta-ads');
@@ -5892,7 +5928,9 @@ async function cartaoMetaAds(id) {
   const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
   el.innerHTML = `
     <div class="meta-status ${status[0]}"><b>${status[1]}</b><span>${status[2]}</span></div>
-    ${semSite ? `<div class="balao balao-aviso" style="margin:10px 0 0"><span class="balao-icone">⚠️</span><div><strong>O CRM ainda não recebe o clique do anúncio (fbclid)</strong><div class="balao-texto">Nos últimos 30 dias nenhum cliente chegou pelo seu site com o código do CRM. Sem ele, o CRM não sabe quem veio do anúncio e nenhuma venda vai para a Meta. Instale o código do CRM no site (uma linha, uma vez só): <a href="${rotaEmpresa(id, 'site')}">IA do site → Código para o seu site</a>. Ele pega o fbclid de quem chega pelo anúncio e liga à conversa quando o cliente toca no botão do WhatsApp do site.</div></div></div>` : ''}
+    ${semSite ? `<div class="balao balao-aviso" style="margin:10px 0 0"><span class="balao-icone">⚠️</span><div><strong>O CRM ainda não recebe o clique do anúncio (fbclid)</strong><div class="balao-texto">Nos últimos 30 dias nenhum cliente chegou pelo seu site com o código do CRM. Sem ele, o CRM não sabe quem veio do anúncio e nenhuma venda vai para a Meta. Instale o código do CRM no site (uma linha, uma vez só): veja <a href="#" data-ir-codigo-meta>Código do site</a> logo abaixo. Ele pega o fbclid de quem chega pelo anúncio e liga à conversa quando o cliente toca no botão do WhatsApp do site.</div></div></div>` : ''}
+
+    ${blocoCodigoSiteMeta(id, m.site || {}, m.chegadasDoSite30d)}
 
     <form id="f-meta-ads" style="margin-top:14px">
       <label class="linha-check meta-ligar"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a campanha</b></label>
@@ -5925,6 +5963,7 @@ async function cartaoMetaAds(id) {
   if (lc && !m.clientes.length) lc.remove();
   else if (lc) lc.innerHTML = `<div class="cabecalho" style="padding:16px 16px 0;margin-bottom:8px"><h2 style="margin:0">Clientes que vieram de anúncio (30 dias)</h2></div>
     ${m.clientes.length ? `<table><thead><tr><th>Clicou</th><th>Cliente</th><th class="esconde-mobile">Campanha</th><th>Comprou?</th></tr></thead><tbody>${m.clientes.map((c) => `<tr><td style="white-space:nowrap">${esc(quando(c.clicouEm))}</td><td><a href="#/leads/${esc(c.id)}">${esc(c.nome || 'Cliente')}</a><br><code class="rotulo" title="${esc(c.fbclid || '')}">fbclid ${esc(String(c.fbclid || '').slice(0, 10))}…</code></td><td class="esconde-mobile rotulo">${esc(c.campanha || '—')}</td><td>${c.comprou ? `<span class="etiqueta ok">✓ ${brl(c.comprou)}</span>` : '<span class="rotulo">ainda não</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="rotulo" style="padding:0 16px 16px">Nenhum cliente com clique de anúncio do Facebook/Instagram nos últimos 30 dias. Eles aparecem aqui quando chegam no site pelo anúncio e chamam no WhatsApp pelo botão do site.</p>'}`;
+  ligarCodigoSiteMeta(id);
   const f = $('#f-meta-ads');
   f.onsubmit = async (e) => {
     e.preventDefault();

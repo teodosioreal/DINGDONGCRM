@@ -15,6 +15,7 @@
 
 const crypto = require('crypto');
 const { estado, salvar, agora } = require('./db');
+const { numeroDoAtendimento } = require('./util');
 
 const DIAS_CLIQUE = 30; // a venda vale até 30 dias depois do clique no anúncio
 const DIAS_EVENTO = 7; // a Meta só aceita eventos de até 7 dias atrás
@@ -269,6 +270,24 @@ function paraConversa(empresa, lead) {
   };
 }
 
+// o site carregou o código do CRM? (só na memória: mostra no painel se está instalado)
+const vistoNoSite = new Map(); // empresaId → { ok: {em, host}, bloqueado: {em, host, motivo} }
+function siteVisto(empresaId, host, bloqueado, motivo) {
+  const v = vistoNoSite.get(empresaId) || {};
+  v[bloqueado ? 'bloqueado' : 'ok'] = { em: agora(), host: String(host || '').slice(0, 80), motivo: bloqueado ? motivo : undefined };
+  vistoNoSite.set(empresaId, v);
+}
+function situacaoDoSite(empresa) {
+  const bots = estado.bots.filter((b) => b.empresaId === empresa.id && b.ativo !== false);
+  const principal = bots.find((b) => b.principal) || bots[0];
+  return {
+    assistente: Boolean(principal),
+    whatsapp: Boolean(principal && numeroDoAtendimento(principal, empresa)),
+    dominios: [...new Set(bots.flatMap((b) => b.dominios || []))],
+    visto: vistoNoSite.get(empresa.id) || null
+  };
+}
+
 function paraPainel(empresa) {
   const c = configDa(empresa);
   const trinta = Date.now() - DIAS_CLIQUE * 86400000;
@@ -320,6 +339,7 @@ function paraPainel(empresa) {
     clientesComClique: comClique.length,
     // o código do CRM está no site? (sem ele o CRM nunca recebe o fbclid)
     chegadasDoSite30d: daEmpresa.filter((l) => l.origemSite?.chegada && new Date(l.origemSite.chegada.em || l.criadoEm).getTime() > trinta).length,
+    site: situacaoDoSite(empresa),
     enviadas: vendas.filter((v) => v.metaAds?.enviadoEm && !v.metaAds.teste).length,
     enviadasTeste: vendas.filter((v) => v.metaAds?.enviadoEm && v.metaAds.teste).length,
     recentes
@@ -409,4 +429,4 @@ async function enviarCompraTeste(empresa, req) {
   }
 }
 
-module.exports = { configDa, paraConversa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };
+module.exports = { siteVisto, configDa, paraConversa, cliqueDo, montarEvento, motivoNaoEnviar, enviarVenda, verificar, iniciar, paraPainel, salvarPainel, testarConexao, enviarCompraTeste, telefoneDe };

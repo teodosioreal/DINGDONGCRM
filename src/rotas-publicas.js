@@ -67,6 +67,7 @@ function enviarConfig(res, bot, empresa) {
 
 router.get('/bots/:botId', (req, res) => {
   const achado = carregarBot(req, res, req.params.botId);
+  if (achado) require('./meta-ads').siteVisto(achado.empresa.id, hostDe(req.headers.origin || req.headers.referer || ''), false);
   if (achado) enviarConfig(res, achado.bot, achado.empresa);
 });
 
@@ -82,6 +83,7 @@ router.get('/empresas/:empresaId', (req, res) => {
   const doDominio = host && ativos.find((b) => (b.dominios || []).length > 0 && dominioPermitido(b, origem));
   const principal = ativos.find((b) => b.principal) || ativos[0];
   const bot = doDominio || (principal && dominioPermitido(principal, origem) ? principal : null);
+  require('./meta-ads').siteVisto(empresa.id, host, !bot, ativos.length ? 'dominio' : 'sem-assistente');
   if (!bot) {
     return res.status(ativos.length ? 403 : 404).json({
       erro: ativos.length ? 'Este site não está autorizado para esta empresa.' : 'Esta empresa não tem assistente ativo.'
