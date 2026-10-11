@@ -444,8 +444,8 @@ router.post('/empresas/:id/chaves/testar', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   try {
-    if (/^reserva2?$/.test(req.body?.qual || '')) {
-      const campo = req.body.qual === 'reserva2' ? 'geminiApiKeyReserva2' : 'geminiApiKeyReserva';
+    if (/^reserva[23]?$/.test(req.body?.qual || '')) {
+      const campo = `geminiApiKeyReserva${req.body.qual.slice(7)}`;
       const kr = ia.formatoDeChave('gemini', (empresa.chavesIa || {})[campo]) ? empresa.chavesIa[campo] : '';
       if (!kr) return res.status(400).json({ erro: 'Cole a chave reserva primeiro.' });
       const msg = await ia.testarChave('gemini', empresa, kr);

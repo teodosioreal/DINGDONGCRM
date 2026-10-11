@@ -817,7 +817,7 @@ function tamanhoPrompt(noCampo, salvo) {
 function cartaoEsperandoIa(emp, id) {
   const n = emp.esperandoIaCredito || 0;
   if (!n) return '';
-  return `<div class="balao balao-aviso" style="margin:0 0 14px"><span class="balao-icone">⏳</span><div><strong>Esperando token da IA: ${n} cliente${n === 1 ? '' : 's'}</strong><div class="balao-texto">A IA ficou sem cota (limite grátis ou crédito) e vai responder ${n === 1 ? 'esse cliente' : `esses ${n} clientes`} sozinha, na ordem de chegada, assim que os tokens voltarem.${emp.chaves?.geminiReserva?.propria || emp.chaves?.geminiReserva2?.propria ? '' : ` Para não parar mais: cadastre uma <a href="${rotaEmpresa(id, 'chave')}">chave reserva do Gemini</a>.`}</div></div></div>`;
+  return `<div class="balao balao-aviso" style="margin:0 0 14px"><span class="balao-icone">⏳</span><div><strong>Esperando token da IA: ${n} cliente${n === 1 ? '' : 's'}</strong><div class="balao-texto">A IA ficou sem cota (limite grátis ou crédito) e vai responder ${n === 1 ? 'esse cliente' : `esses ${n} clientes`} sozinha, na ordem de chegada, assim que os tokens voltarem.${emp.chaves?.geminiReserva?.propria || emp.chaves?.geminiReserva2?.propria || emp.chaves?.geminiReserva3?.propria ? '' : ` Para não parar mais: cadastre uma <a href="${rotaEmpresa(id, 'chave')}">chave reserva do Gemini</a>.`}</div></div></div>`;
 }
 
 // Painel ao lado das instruções: última mudança, se a IA está usando, última
@@ -2890,6 +2890,7 @@ async function paginaChave(id) {
   const gv = emp.chaves.geminiVerificacoes || {};
   const gr = emp.chaves.geminiReserva || {};
   const gr2 = emp.chaves.geminiReserva2 || {};
+  const gr3 = emp.chaves.geminiReserva3 || {};
   const modeloAtual = (emp.motores || []).find((m) => m.provedor === 'gemini')?.modelo || '';
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Chave da IA</h1><p class="sub">Chave do Gemini (Google) desta empresa — e, se quiser, uma 2ª só para as verificações. Os tokens saem da conta de cada chave.</p></div></div>
@@ -2920,9 +2921,9 @@ async function paginaChave(id) {
     ${cartaoEsperandoIa(emp, id) || '<p class="rotulo" style="margin:0 0 12px">⏳ Esperando token da IA: <b>0 clientes</b> — ninguém na fila.</p>'}
     <div class="card">
       <h2 style="margin:0 0 6px">🛟 Chaves reserva <span class="rotulo" style="font-weight:400">(opcionais)</span></h2>
-      <p class="rotulo" style="margin:0 0 6px">Quando a chave principal <b>bater no limite grátis ou ficar sem crédito</b>, a IA continua respondendo com a 1ª reserva — e, se ela também acabar, com a 2ª. <b>A conversa continua igual</b>: o histórico e o prompt ficam no CRM, então qualquer chave que responder sabe tudo o que já foi falado. Quando a principal voltar, o CRM volta a usar ela sozinho.</p>
+      <p class="rotulo" style="margin:0 0 6px">Quando a chave principal <b>bater no limite grátis ou ficar sem crédito</b>, a IA continua respondendo com a 1ª reserva — e, se ela também acabar, com a 2ª e depois a 3ª. <b>A conversa continua igual</b>: o histórico e o prompt ficam no CRM, então qualquer chave que responder sabe tudo o que já foi falado. Quando a principal voltar, o CRM volta a usar ela sozinho.</p>
       <p class="rotulo" style="margin:0 0 10px">⚠️ Cada uma tem que ser de <b>outra conta Google</b> (ou outro projeto no AI Studio). O limite grátis do Google é por projeto: chaves do mesmo projeto dividem o mesmo limite e não adiantam. A chave das verificações (abaixo) continua separada e não entra aqui.</p>
-      ${[['geminiApiKeyReserva', 'reserva', gr, '1ª reserva'], ['geminiApiKeyReserva2', 'reserva2', gr2, '2ª reserva']].map(([campo, qual, g2, nome]) => `
+      ${[['geminiApiKeyReserva', 'reserva', gr, '1ª reserva'], ['geminiApiKeyReserva2', 'reserva2', gr2, '2ª reserva'], ['geminiApiKeyReserva3', 'reserva3', gr3, '3ª reserva']].map(([campo, qual, g2, nome]) => `
       <form class="f-chave-reserva" data-qual="${qual}" style="margin-top:10px">
         <div class="campo"><label>${nome} ${g2.propria ? `<span class="etiqueta ok">✓ salva</span> <span class="rotulo">termina em ${esc(g2.final)}</span>` : '<span class="rotulo">— não cadastrada</span>'}</label><input name="${campo}" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="${g2.propria ? 'cole outra para trocar' : 'AIza… ou AQ.…'}"></div>
         <div class="acoes">
@@ -2976,7 +2977,7 @@ async function paginaChave(id) {
     f.querySelector('[data-testar-reserva]')?.addEventListener('click', testar);
     f.querySelector('[data-excluir-reserva]')?.addEventListener('click', async () => {
       if (!(await confirmar({ titulo: 'Excluir esta chave reserva?', texto: 'Ela deixa de responder quando a principal bater no limite.', botao: 'Excluir', perigo: true }))) return;
-      try { await api(`empresas/${id}/chaves`, { method: 'PUT', body: { remover: [qual === 'reserva2' ? 'gemini-reserva2' : 'gemini-reserva'] } }); paginaChave(id); } catch (err) { aviso(err.message, true); }
+      try { await api(`empresas/${id}/chaves`, { method: 'PUT', body: { remover: [`gemini-${qual}`] } }); paginaChave(id); } catch (err) { aviso(err.message, true); }
     });
   });
 
