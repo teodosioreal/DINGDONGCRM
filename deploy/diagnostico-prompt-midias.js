@@ -24,7 +24,11 @@ try {
     let conectadas = 0;
     for (const b of bots) {
       escritos += midias.codigosCitados(e, b.promptWhatsapp).filter((c) => c.existe).length;
-      conectadas += midias.instrucoesComMidias(e, b.promptWhatsapp, b.id).conectadas.length;
+      const conv = midias.instrucoesComMidias(e, b.promptWhatsapp, b.id).conectadas;
+      conectadas += conv.length;
+      // onde o CRM põe código sozinho: só o nº da linha do prompt e o código (nunca o texto)
+      const linhas = String(b.promptWhatsapp).split('\n');
+      for (const c of conv) console.log(`    Empresa ${n + 1}: linha ${linhas.findIndex((l) => l.includes(c.trecho)) + 1} do prompt ganha ${c.codigo}${c.trocou ? ' (no lugar de um código que não existe)' : ''} automaticamente`);
     }
     const pend = midias.pendenciasDoPrompt(e).filter((p) => p.campo === 'promptWhatsapp');
     const naIa = midias.paraIa(e).length;

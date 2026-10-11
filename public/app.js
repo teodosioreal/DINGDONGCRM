@@ -917,7 +917,7 @@ function ligarConferirPrompt(form, botId, canal) {
           ${r.resumo ? `<p style="margin:10px 0 0">${esc(r.resumo)}</p>` : ''}
           ${r.sugestao ? `<p class="cf-sugestao">💡 <b>Para a IA obedecer melhor:</b> ${esc(r.sugestao)}</p>` : ''}
           <details style="margin-top:10px"><summary>Ver as respostas do teste</summary>
-            ${r.conversas.map((c) => `<div class="cf-conversa"><p><span class="rotulo">Cliente:</span> ${esc(c.cliente)}</p><p><span class="rotulo">IA:</span> ${c.ia ? esc(c.ia) : `<span class="aviso-texto">${esc(c.erro || 'sem resposta')}</span>`}${c.acoes?.length ? ` <span class="rotulo">(${esc(c.acoes.join('; '))})</span>` : ''}</p></div>`).join('')}
+            ${r.conversas.map((c) => `<div class="cf-conversa"><p><span class="rotulo">Cliente:</span> ${esc(c.cliente)}</p><p><span class="rotulo">IA:</span> ${c.ia ? `<span style="white-space:pre-wrap;display:block">${esc(c.ia)}</span>` : `<span class="aviso-texto">${esc(c.erro || 'sem resposta')}</span>`}${c.acoes?.length ? ` <span class="rotulo">(${esc(c.acoes.join('; '))})</span>` : ''}</p></div>`).join('')}
           </details>
         </div>`;
       form._atualizarPainel?.();

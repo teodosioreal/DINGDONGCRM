@@ -58,7 +58,9 @@ async function conferirNa(bot, empresa, canal) {
 
   // 1. o prompt de verdade tem as instruções salvas?
   const prompt = ia.montarPromptSistema(bot, empresa, canal, contextoDoAtendimento(empresa, canal, 'oi'));
-  const lendo = prompt.fixo.includes(instrucoes) && prompt.dinamico.includes(instrucoes.slice(0, 200));
+  // compara com o texto que a IA recebe de fato (no WhatsApp, com os códigos das mídias conectados)
+  const recebido = canal === 'whatsapp' ? midias.instrucoesComMidias(empresa, instrucoes, bot.id).texto : instrucoes;
+  const lendo = prompt.fixo.includes(recebido) && prompt.dinamico.includes(recebido.slice(0, 200));
   const chave = assinatura(bot, empresa, canal, instrucoes);
   const guardado = ultimos.get(`${empresa.id}|${bot.id}|${canal}`);
   if (guardado && guardado.chave === chave && Date.now() - guardado.em < VALE_MS) {
@@ -89,7 +91,9 @@ async function conferirNa(bot, empresa, canal) {
       try {
         const r = await ia.responder(bot, empresa, [{ papel: 'visitante', texto: cliente }], contextoDoAtendimento(empresa, canal, cliente));
         const extras = [r.humano ? 'chamou a equipe' : '', r.etapa ? `moveu para "${r.etapa}"` : '', r.midias?.length ? `mandou mídia ${r.midias.join(', ')}` : ''].filter(Boolean);
-        return { cliente, ia: curto(r.texto, 1200), acoes: extras };
+        // o fiscal vê a resposta como a IA escreveu: com as quebras de linha e os códigos (#PAUSAR, #MIDIA_…)
+        const escrito = String(r.bruto || r.texto || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 1500);
+        return { cliente, ia: escrito, acoes: extras };
       } catch (err) {
         return { cliente, ia: '', erro: ia.descreverErroIa ? ia.descreverErroIa(err) : err.message };
       }
@@ -105,7 +109,7 @@ async function conferirNa(bot, empresa, canal) {
       bot,
       empresa,
       'Você é um fiscal rigoroso e justo. Confere se um atendente virtual obedeceu às instruções do dono. Responda SOMENTE com JSON.',
-      `Instruções do dono:\n<instrucoes>\n${instrucoes}\n</instrucoes>\n\nRegras a conferir:\n${regras.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nConversas de teste (primeira resposta do atendente):\n${transcricao}\n\n` +
+      `Instruções do dono:\n<instrucoes>\n${instrucoes}\n</instrucoes>\n\nRegras a conferir:\n${regras.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nConversas de teste (primeira resposta do atendente, exatamente como ele escreveu: cada quebra de linha é uma mensagem separada no WhatsApp e os códigos como #PAUSAR e #MIDIA_ aparecem no texto):\n${transcricao}\n\n` +
         'Para cada regra diga: "sim" (obedeceu em todos os testes em que a regra se aplicava), "nao" (desobedeceu em algum) ou "nao_testada" (nenhum teste deu chance de aplicar). Explique em uma frase curta, citando o teste. ' +
         'Depois, uma frase de resumo e, se houver desobediência, uma sugestão curta de como reescrever a instrução para ficar mais clara.\n' +
         'JSON: {"regras": [{"n": 1, "resultado": "sim|nao|nao_testada", "porque": "..."}], "resumo": "...", "sugestao": "..."}',
