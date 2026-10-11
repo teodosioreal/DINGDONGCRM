@@ -3919,7 +3919,7 @@ function htmlMensagem(m, leadId, anterior) {
     const quem = { cliente: 'O cliente apagou esta mensagem', celular: 'Apagada pelo celular da empresa', equipe: 'Você apagou esta mensagem' }[m.apagada.por] || 'Mensagem apagada';
     return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
   }
-  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? htmlEntrega(m) : ''}</span></div>`;
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}${!saida && m.papel === 'visitante' ? `<button type="button" class="msg-start" data-ia-start="${esc(leadId)}" title="A IA lê o que o cliente mandou e começa o atendimento agora">▶ Start</button>` : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? htmlEntrega(m) : ''}</span></div>`;
 }
 
 // O que o modo clone aprendeu (dá para apagar exemplos ruins)
@@ -4238,6 +4238,18 @@ document.addEventListener('click', async (e) => {
     nota.className = 'anexo-nota';
     nota.textContent = `📝 ${r.anexo.transcricao || r.anexo.descricao || ''}`;
     botao.replaceWith(nota);
+  } catch (err) { aviso(err.message, true); }
+});
+
+// ▶ Start: a IA lê a conversa e começa o atendimento agora (tira a pausa desta conversa)
+document.addEventListener('click', async (e) => {
+  const botao = e.target.closest?.('[data-ia-start]');
+  if (!botao) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try {
+    await comEspera(botao, () => api(`leads/${botao.dataset.iaStart}/ia-start`, { method: 'POST', body: {} }), '…');
+    aviso('▶ A IA está lendo a conversa e vai responder agora (com o ritmo configurado de "digitando…").');
   } catch (err) { aviso(err.message, true); }
 });
 

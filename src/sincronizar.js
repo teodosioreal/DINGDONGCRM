@@ -9,7 +9,9 @@
 //   - no botão "Buscar mensagens do WhatsApp": 1, 7 ou 30 dias;
 //   - o histórico que o WhatsApp manda ao reconectar (MESSAGES_SET) também entra.
 // Mensagens importadas NÃO fazem a IA responder nem disparam automações: só
-// aparecem na conversa, na ordem certa, sem duplicar.
+// aparecem na conversa, na ordem certa, sem duplicar. Exceção: a última mensagem do
+// cliente, RECENTE (até 15 min) e sem resposta — chegou enquanto o CRM reiniciava ou o
+// webhook falhou: a IA responde normalmente (com as mesmas regras de sempre).
 
 const { estado, salvar, agora } = require('./db');
 
@@ -17,6 +19,7 @@ const MAX_CONVERSAS = 400;
 const MAX_PAGINAS = 10; // 10 × 50 mensagens por conversa
 const A_CADA_MS = Number(process.env.SINCRONIA_MS) || 20 * 60 * 1000;
 const rodando = new Set(); // empresaId
+const RECENTE_MS = Number(process.env.SINCRONIA_RECENTE_MS) || 15 * 60 * 1000;
 
 const whatsapp = () => require('./whatsapp');
 const leads = () => require('./leads');
@@ -205,18 +208,43 @@ function importarMensagem(empresa, msg) {
   // mensagem do cliente das últimas 24h que ninguém viu: conta como não lida
   if (!saida && Date.now() - emMs < 24 * 3600 * 1000) lead.naoLidas = (lead.naoLidas || 0) + 1;
   if (lead.arquivado && !saida && lead.arquivadoPor === 'apagada no WhatsApp' && Date.now() - emMs < 24 * 3600 * 1000) lead.arquivado = false;
+  return lead; // (verdadeiro: entrou uma mensagem nova nesta conversa)
+}
+
+// A busca trouxe a ÚLTIMA mensagem do cliente, de poucos minutos atrás, sem resposta? (o
+// webhook não entregou: deploy/reinício, oscilação) → a IA responde como se fosse ao vivo
+function responderSePerdida(empresa, lead) {
+  const w = whatsapp();
+  const msgs = (lead.mensagens || []).filter((m) => !m.apagada && ['visitante', 'assistente', 'equipe'].includes(m.papel));
+  const ultima = msgs[msgs.length - 1];
+  if (!ultima || ultima.papel !== 'visitante' || !ultima.importada) return false;
+  if (Date.now() - new Date(ultima.em).getTime() > RECENTE_MS) return false;
+  // conversa que a busca criou agora: se TUDO nela é recente, é um cliente novo de verdade
+  if (lead.historicoImportado && msgs.every((m) => Date.now() - new Date(m.em).getTime() <= RECENTE_MS)) delete lead.historicoImportado;
+  if (lead.historicoImportado || !w.iaVaiResponder(empresa, lead) || w.iaOcupadaCom(lead.id)) return false;
+  w.agendarResposta(empresa, lead);
+  console.log(`[sincronizar ${empresa.id}] mensagem recente que o webhook não entregou: a IA vai responder`);
   return true;
 }
+const responderPerdidas = (empresa, tocadas) => {
+  for (const lead of tocadas) responderSePerdida(empresa, lead);
+};
 
 // Histórico que a Evolution manda pelo webhook ao reconectar (MESSAGES_SET)
 function importarLote(empresa, mensagens, { dias = 30 } = {}) {
   const limite = Date.now() / 1000 - dias * 86400;
   let novas = 0;
+  const tocadas = new Set();
   for (const m of mensagens || []) {
     if (segundos(m?.messageTimestamp) < limite) continue;
-    if (importarMensagem(empresa, m)) novas++;
+    const lead = importarMensagem(empresa, m);
+    if (lead) {
+      novas++;
+      tocadas.add(lead);
+    }
   }
   if (novas) salvar();
+  responderPerdidas(empresa, tocadas);
   return novas;
 }
 
@@ -272,11 +300,19 @@ async function sincronizarEmpresa(empresa, { dias = null, motivo = 'auto' } = {}
     for (const chat of chats) {
       const msgs = await mensagensDesde(empresa, chat.jid, Math.min(desdeSeg, chat.desde || desdeSeg)).catch(() => []);
       let novas = 0;
-      for (const m of msgs.sort((a, b) => segundos(a.messageTimestamp) - segundos(b.messageTimestamp))) if (importarMensagem(empresa, m)) novas++;
+      const tocadas = new Set();
+      for (const m of msgs.sort((a, b) => segundos(a.messageTimestamp) - segundos(b.messageTimestamp))) {
+        const lead = importarMensagem(empresa, m);
+        if (lead) {
+          novas++;
+          tocadas.add(lead);
+        }
+      }
       if (novas) {
         resumo.conversas++;
         resumo.importadas += novas;
         salvar();
+        responderPerdidas(empresa, tocadas);
       }
     }
   } catch (err) {

@@ -2430,6 +2430,30 @@ router.post('/leads/:id/reiniciar-aprendizado', (req, res) => {
 
 
 // Equipe manda uma mídia (ou álbum) da biblioteca
+// ▶ Start: a IA lê a conversa e começa (ou retoma) o atendimento AGORA — mesmo se estava
+// pausada, esperando o horário ou se a mensagem chegou sem a IA ser chamada
+router.post('/leads/:id/ia-start', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  if (!empresa || !whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'O WhatsApp desta empresa não está conectado.' });
+  if (!whatsapp.configDa(empresa).iaAtiva) return res.status(400).json({ erro: 'A IA do WhatsApp está desligada nesta empresa. Ligue em IA do WhatsApp.' });
+  if (empresa.ativa === false) return res.status(400).json({ erro: 'A empresa está pausada.' });
+  if (!(c.mensagens || []).some((m) => m.papel === 'visitante')) return res.status(400).json({ erro: 'O cliente ainda não mandou mensagem.' });
+  if (leads.naListaNegra(empresa, c)) return res.status(400).json({ erro: 'Este número está na lista negra: a IA não fala com ele.' });
+  if (!whatsapp.liberadoNoModoTeste(empresa, c)) return res.status(400).json({ erro: 'Modo teste ligado e este número não está na lista de teste.' });
+  if (c.iaDesligadaPor) require('./ia-desligada').ligadaAMao(c); // já comprou/agendou: vale como ligar à mão
+  c.iaPausada = false;
+  c.iaPausadaMotivo = '';
+  c.precisaHumano = false;
+  delete c.iaEsperaHorario;
+  delete c.historicoImportado;
+  salvar();
+  whatsapp.cancelarResposta(c.id);
+  whatsapp.responderLead(empresa.id, c.id, 0, {}).catch((err) => console.error(`[ia-start ${c.id}]`, err.message));
+  res.json({ ok: true });
+});
+
 router.post('/leads/:id/midia', async (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
