@@ -70,7 +70,10 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
     // pergunta minúscula no modelo da empresa — mostra se responde AGORA ou por que não.
     // Gasta 1 pedido do limite de cada chave: só roda quando existe deploy/testar-chaves.pedido
     if (process.env.TESTAR_CHAVES === 'sim') {
-      const modelo = ((Array.isArray(e.motoresIa) ? e.motoresIa : []).find((m) => m?.provedor === 'gemini') || {}).modelo || 'gemini-2.5-flash';
+      const modeloPrincipal = ((Array.isArray(e.motoresIa) ? e.motoresIa : []).find((m) => m?.provedor === 'gemini') || {}).modelo || 'gemini-2.5-flash';
+      // o limite grátis do Google é POR MODELO: testa também os outros modelos que a empresa já usou
+      const usados = Object.values(e.usoIa?.dias || {}).flatMap((d) => Object.keys(d.modelos || d.porModelo || {}));
+      const modelos = [...new Set([modeloPrincipal, ...usados.filter((x) => /^gemini-/.test(x))])].slice(0, 5);
       const papeis = [['principal', 'geminiApiKey'], ['verificações', 'geminiApiKeyVerificacoes'], ['1ª reserva', 'geminiApiKeyReserva'], ['2ª reserva', 'geminiApiKeyReserva2'], ['3ª reserva', 'geminiApiKeyReserva3']];
       const vistas = new Map();
       for (const [papel, campo] of papeis) {
@@ -78,6 +81,8 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
         if (!k) { console.log(`  Empresa ${n + 1} · 🔑 ${papel}: não cadastrada`); continue; }
         if (vistas.has(k)) { console.log(`  Empresa ${n + 1} · 🔑 ${papel}: É A MESMA CHAVE da ${vistas.get(k)} (não soma limite)`); continue; }
         vistas.set(k, papel);
+        const partes = [];
+        for (const modelo of modelos) {
         const t0 = Date.now();
         let r;
         try {
@@ -85,9 +90,11 @@ console.log(divididas.length ? `  ⚠️ Chaves usadas por mais de uma empresa: 
           const j = await x.json().catch(() => ({}));
           const msg = String(j.error?.message || '');
           const tipo = x.ok ? '✅ RESPONDEU' : x.status === 429 ? (/per.?day|PerDay/i.test(msg) ? '⛔ LIMITE DO DIA esgotado' : /per.?minute|PerMinute/i.test(msg) ? '⏱️ limite por minuto (volta em 1 min)' : '⛔ limite/cota') : [400, 401, 403].includes(x.status) && /API_KEY|key not valid|permission/i.test(msg) ? '❌ CHAVE RECUSADA' : x.status === 404 ? '❓ esta chave não tem o modelo' : `⚠️ HTTP ${x.status}`;
-          r = `${tipo} em ${((Date.now() - t0) / 1000).toFixed(1)}s${x.ok ? '' : ` · ${limpo(msg).slice(0, 110)}`}`;
+          r = `${tipo}${x.ok ? ` (${((Date.now() - t0) / 1000).toFixed(1)}s)` : modelo === modelos[0] ? ` · ${limpo(msg).slice(0, 90)}` : ''}`;
         } catch (err) { r = `⚠️ sem resposta (${limpo(err.message)})`; }
-        console.log(`  Empresa ${n + 1} · 🔑 ${papel} (chave ${apelido(k)}, modelo ${modelo}): ${r}`);
+        partes.push(`${modelo}: ${r}`);
+        }
+        console.log(`  Empresa ${n + 1} · 🔑 ${papel} (chave ${apelido(k)}): ${partes.join(' · ')}`);
       }
     }
     // quantas vezes cada chave respondeu/falhou (hoje e ontem)
