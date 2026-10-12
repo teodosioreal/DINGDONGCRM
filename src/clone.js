@@ -269,7 +269,9 @@ function limpar(empresa) {
 function configurar(empresa, b = {}) {
   const cfg = configDa(empresa);
   if (b.ativo !== undefined) cfg.ativo = b.ativo === true;
+  if (b.ativo === false) cfg.responder = false; // sem aprender não dá para atender igual
   if (b.responder !== undefined) cfg.responder = b.responder === true;
+  if (cfg.responder) cfg.ativo = true; // atender igual liga o aprender junto
   if (b.aprenderDaIa !== undefined) cfg.aprenderDaIa = b.aprenderDaIa === true;
   if (b.nome !== undefined) cfg.nome = String(b.nome || '').trim().slice(0, 40);
   salvar();

@@ -6546,29 +6546,44 @@ async function cartaoClone(id) {
   let c;
   try { c = await api(`empresas/${id}/clone`); } catch (err) { el.innerHTML = `<div class="card"><p class="erro-caixa">${esc(err.message)}</p></div>`; return; }
   if (!el.isConnected) return;
+  const nome = c.nome || 'o operador';
+  const aprende = c.ativo === true;
+  const atende = aprende && c.responder === true;
   const feito = Math.min(c.conversas, c.meta);
-  const nome = c.nome || 'o clone';
+  const linha = (ligado, titulo, sim, nao) => `<div class="clone-situacao ${ligado ? 'sim' : 'nao'}"><b>${titulo}</b><span>${ligado ? sim : nao}</span></div>`;
   el.innerHTML = `
-    <div class="card clone-card ${c.ativo ? 'ligado' : ''}">
-      <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🧬 Clone${c.nome ? `: ${esc(c.nome)}` : ''}</h2>${interruptor('clone-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0 0 10px">Aprende com as <b>respostas que você (ou a equipe) escreveu à mão</b>${c.aprenderDaIa ? ' e com as <b>respostas da IA</b>' : ''} nas conversas que <b>viraram venda</b> — tom, tamanho, preço, como fecha e as mídias que mandou. Com <b>${c.meta} vendas</b> o aprendizado fica completo e <b>continua aprendendo</b> com cada venda nova. Na hora de responder usa só os exemplos mais parecidos (o gasto por resposta não aumenta). Não gasta IA para aprender.</p>
-      <div class="clone-progresso"><div class="barra-clone"><span style="width:${Math.round((feito / c.meta) * 100)}%"></span></div><b>${c.completo ? c.conversas : `${feito}/${c.meta}`}</b> conversas vendidas${c.completo ? ' · <span class="etiqueta ok">✓ completo — continua aprendendo</span>' : ` · faltam ${c.meta - feito}`}</div>
-      <p class="rotulo" style="margin:6px 0 12px">${c.manuais ?? c.total} resposta(s) manual(is)${c.aprenderDaIa ? ` · ${c.daIa || 0} resposta(s) da IA` : ''} aprendida(s)${c.midiasAprendidas ? ` · ${c.midiasAprendidas} mídia(s) na biblioteca` : ''}.</p>
-      ${interruptor('clone-da-ia', c.aprenderDaIa, 'Aprender também com as vendas feitas pela IA (as respostas manuais continuam com preferência)')}
-      <div style="height:8px"></div>
-      <form id="f-clone" class="linha-form" style="flex-wrap:wrap;margin-bottom:10px"><input name="nome" maxlength="40" value="${esc(c.nome)}" placeholder="Nome do clone (ex.: Teodósio)"><button type="submit">Salvar nome</button></form>
-      ${interruptor('clone-responder', c.responder, `Responder igual ao operador${c.completo ? '' : ' (já usa o que aprendeu; fica 100% com ' + c.meta + ' vendas)'}`)}
-      <div class="acoes" style="margin-top:12px">
-        <a class="botao" href="api/empresas/${esc(id)}/clone/arquivo">⬇️ Baixar o arquivo do clone</a>
-        ${c.total ? '<button type="button" id="ver-clone">Ver o que aprendeu</button>' : ''}
+    <div class="card clone-card ${aprende ? 'ligado' : ''}">
+      <h2 style="margin:0 0 10px">🧬 Clone${c.nome ? `: ${esc(c.nome)}` : ''}</h2>
+      <div class="clone-situacoes">
+        ${linha(aprende, '📚 Aprendendo', `SIM · ${c.conversas} venda(s) · ${c.total} resposta(s) guardadas`, 'NÃO · não guarda nada novo')}
+        ${linha(atende, `🗣️ Atendendo igual ${c.nome ? `a ${esc(c.nome)}` : 'ao operador'}`, 'SIM · a IA responde no jeito das vendas', 'NÃO · a IA segue só o seu prompt')}
       </div>
+
+      <div class="clone-chave">
+        ${interruptor('clone-ativo', aprende, '<b>Aprender com as vendas</b>')}
+        <p class="rotulo">Lê as conversas que <b>viraram venda</b> e guarda como foi respondido (texto, fotos e vídeos). Continua aprendendo a cada venda. <b>Não gasta IA</b> e não muda o atendimento.</p>
+      </div>
+      <div class="clone-chave">
+        ${interruptor('clone-responder', atende, `<b>Atender igual ${c.nome ? `a ${esc(c.nome)}` : 'ao operador'}</b>`)}
+        <p class="rotulo"><b>Ligado:</b> a IA usa os exemplos das vendas parecidas para responder no mesmo jeito (tom, preço, como fecha). <b>Desligado:</b> a IA segue só o seu prompt.${c.completo ? '' : ` Funciona melhor a partir de ${c.meta} vendas (agora: ${feito}).`}</p>
+      </div>
+
+      <details class="clone-ajustes"><summary>⚙️ Ajustes</summary>
+        <form id="f-clone" class="linha-form" style="flex-wrap:wrap;margin:10px 0"><input name="nome" maxlength="40" value="${esc(c.nome)}" placeholder="Nome do operador (ex.: Teodósio)"><button type="submit">Salvar nome</button></form>
+        ${interruptor('clone-da-ia', c.aprenderDaIa, 'Aprender também com as vendas que a IA fez (as suas respostas continuam valendo mais)')}
+        <p class="rotulo" style="margin:8px 0 0">${c.manuais ?? c.total} resposta(s) suas · ${c.daIa || 0} da IA${c.midiasAprendidas ? ` · ${c.midiasAprendidas} mídia(s) guardadas na biblioteca` : ''}</p>
+        <div class="acoes" style="margin-top:10px">
+          <a class="botao" href="api/empresas/${esc(id)}/clone/arquivo">⬇️ Baixar o que aprendeu</a>
+          ${c.total ? '<button type="button" id="ver-clone">Ver / tirar exemplos</button>' : ''}
+        </div>
+      </details>
     </div>`;
   const salvarClone = async (corpo, msg) => {
     try { await api(`empresas/${id}/clone`, { method: 'PUT', body: corpo }); aviso(msg); cartaoClone(id); } catch (err) { aviso(err.message, true); cartaoClone(id); }
   };
-  $('#clone-ativo').onchange = (e) => salvarClone({ ativo: e.target.checked }, e.target.checked ? `Clone ligado: ${nome} está aprendendo com as suas vendas.` : 'Clone desligado.');
-  $('#clone-da-ia').onchange = (e) => salvarClone({ aprenderDaIa: e.target.checked }, e.target.checked ? 'O clone passa a aprender também com as vendas feitas pela IA.' : 'O clone aprende só com as respostas manuais.');
-  $('#clone-responder').onchange = (e) => salvarClone({ responder: e.target.checked, ...(e.target.checked ? { ativo: true } : {}) }, e.target.checked ? `A IA responde igual a ${nome}.` : 'A IA volta a responder no estilo normal.');
+  $('#clone-ativo').onchange = (e) => salvarClone(e.target.checked ? { ativo: true } : { ativo: false, responder: false }, e.target.checked ? 'Aprendendo com as vendas (sem mudar o atendimento).' : 'Parou de aprender. O atendimento segue só o seu prompt.');
+  $('#clone-responder').onchange = (e) => salvarClone(e.target.checked ? { responder: true, ativo: true } : { responder: false }, e.target.checked ? `A IA passa a atender igual ${c.nome ? `a ${c.nome}` : 'ao operador'}.` : 'A IA segue só o seu prompt (o clone continua aprendendo).');
+  $('#clone-da-ia').onchange = (e) => salvarClone({ aprenderDaIa: e.target.checked }, e.target.checked ? 'Aprende também com as vendas que a IA fez.' : 'Aprende só com as suas respostas.');
   $('#f-clone').onsubmit = (e) => { e.preventDefault(); salvarClone({ nome: e.target.elements.nome.value }, 'Nome salvo.'); };
   $('#ver-clone')?.addEventListener('click', () => modalClone(id, () => cartaoClone(id)));
 }
