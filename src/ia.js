@@ -538,6 +538,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       cl.completo
         ? `CLONE DE ${cl.nome.toUpperCase()} — APRENDIZADO COMPLETO. Escreva no jeito de ${cl.nome} (tamanho, tom), seguindo a mesma linha das conversas abaixo, que viraram venda. As <instrucoes_da_empresa> continuam valendo acima do clone: o clone muda o JEITO de escrever, não as regras.`
         : `CLONE DE ${cl.nome.toUpperCase()} — escreva como ${cl.nome}. Abaixo estão respostas reais dele(a), escritas à mão, em conversas parecidas que viraram venda. As <instrucoes_da_empresa> continuam valendo acima destes exemplos:`,
+      ...(/\nA IA respondeu:/.test(cl.texto) ? [`(Os exemplos marcados "A IA respondeu" são respostas da IA em conversas que também viraram venda: servem de referência do que funcionou; quando houver exemplo de ${cl.nome}, o jeito de ${cl.nome} vale mais.)`] : []),
       '<exemplos_do_dono>',
       cl.texto,
       '</exemplos_do_dono>',

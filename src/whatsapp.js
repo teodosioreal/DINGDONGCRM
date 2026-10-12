@@ -1004,7 +1004,7 @@ async function receberDoCliente(empresa, lead, jid, msg, texto) {
     const confirmacao = 'Pronto! Você não vai mais receber nossas mensagens automáticas. Se precisar, é só chamar aqui. 👍';
     enviarTexto(empresa, jid, confirmacao)
       .then(() => {
-        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: confirmacao });
+        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: confirmacao, sistema: true });
         salvar();
       })
       .catch((err) => console.error(`[whatsapp ${lead.id}] sair:`, err.message));
@@ -1055,7 +1055,7 @@ function resolverSemIa(empresa, lead, texto, jid) {
     salvar();
     enviarTexto(empresa, jid, aviso)
       .then(() => {
-        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: aviso });
+        leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: aviso, sistema: true });
         registrarIa(empresa, lead, 'respondeu', 'O cliente pediu uma pessoa: avisei e chamei a equipe (sem gastar IA).');
         salvar();
       })

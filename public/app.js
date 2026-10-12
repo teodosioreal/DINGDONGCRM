@@ -3971,11 +3971,11 @@ async function modalClone(empresaId, depois) {
   const r = await api(`empresas/${empresaId}/clone`);
   abrirModal(`
     <h2>🧬 O que o clone aprendeu</h2>
-    <p class="rotulo">Respostas manuais de conversas que viraram venda. Na hora de responder, a IA usa as mais parecidas com o que o cliente disse. Tire as que não representam o seu jeito.</p>
+    <p class="rotulo">Respostas (manuais e, se ligado, da IA 🤖) de conversas que viraram venda. Na hora de responder, a IA usa as mais parecidas com o que o cliente disse. Tire as que não representam o seu jeito.</p>
     <div class="lista-clone">${r.exemplos.map((ex) => `
       <div class="exemplo-clone" data-ex="${esc(ex.id)}">
         <div class="rotulo">Cliente: ${esc(ex.cliente)}</div>
-        <div><b>Você:</b> ${esc(ex.resposta || '(só mandou mídia)')}${(ex.midias || []).length ? ` <span class="etiqueta">🖼️ ${ex.midias.map(esc).join(', ')}</span>` : ''}</div>
+        <div><b>${ex.autor === 'ia' ? '🤖 IA' : 'Você'}:</b> ${esc(ex.resposta || '(só mandou mídia)')}${(ex.midias || []).length ? ` <span class="etiqueta">🖼️ ${ex.midias.map(esc).join(', ')}</span>` : ''}</div>
         <button type="button" class="pequeno perigo" data-apagar-ex="${esc(ex.id)}">Não usar esta</button>
       </div>`).join('') || '<p class="rotulo">Nada ainda.</p>'}</div>
     <div class="acoes">${r.exemplos.length ? '<button type="button" class="perigo" id="limpar-clone">Recomeçar do zero</button>' : ''}<button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => {
@@ -6551,9 +6551,11 @@ async function cartaoClone(id) {
   el.innerHTML = `
     <div class="card clone-card ${c.ativo ? 'ligado' : ''}">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">🧬 Clone${c.nome ? `: ${esc(c.nome)}` : ''}</h2>${interruptor('clone-ativo', c.ativo, c.ativo ? 'Ligado' : 'Desligado')}</div>
-      <p class="rotulo" style="margin:0 0 10px">Aprende com as <b>respostas que você (ou a equipe) escreveu à mão</b> nas conversas que <b>viraram venda</b> — tom, tamanho, preço, como fecha e as mídias que mandou. Com <b>${c.meta} vendas</b> o aprendizado fica completo e ele responde igual a você. Não gasta IA para aprender.</p>
-      <div class="clone-progresso"><div class="barra-clone"><span style="width:${Math.round((feito / c.meta) * 100)}%"></span></div><b>${feito}/${c.meta}</b> conversas vendidas${c.completo ? ' · <span class="etiqueta ok">✓ aprendizado completo</span>' : ` · faltam ${c.meta - feito}`}</div>
-      <p class="rotulo" style="margin:6px 0 12px">${c.total} resposta(s) manual(is) aprendida(s)${c.midiasAprendidas ? ` · ${c.midiasAprendidas} mídia(s) na biblioteca` : ''}.</p>
+      <p class="rotulo" style="margin:0 0 10px">Aprende com as <b>respostas que você (ou a equipe) escreveu à mão</b>${c.aprenderDaIa ? ' e com as <b>respostas da IA</b>' : ''} nas conversas que <b>viraram venda</b> — tom, tamanho, preço, como fecha e as mídias que mandou. Com <b>${c.meta} vendas</b> o aprendizado fica completo e <b>continua aprendendo</b> com cada venda nova. Na hora de responder usa só os exemplos mais parecidos (o gasto por resposta não aumenta). Não gasta IA para aprender.</p>
+      <div class="clone-progresso"><div class="barra-clone"><span style="width:${Math.round((feito / c.meta) * 100)}%"></span></div><b>${c.completo ? c.conversas : `${feito}/${c.meta}`}</b> conversas vendidas${c.completo ? ' · <span class="etiqueta ok">✓ completo — continua aprendendo</span>' : ` · faltam ${c.meta - feito}`}</div>
+      <p class="rotulo" style="margin:6px 0 12px">${c.manuais ?? c.total} resposta(s) manual(is)${c.aprenderDaIa ? ` · ${c.daIa || 0} resposta(s) da IA` : ''} aprendida(s)${c.midiasAprendidas ? ` · ${c.midiasAprendidas} mídia(s) na biblioteca` : ''}.</p>
+      ${interruptor('clone-da-ia', c.aprenderDaIa, 'Aprender também com as vendas feitas pela IA (as respostas manuais continuam com preferência)')}
+      <div style="height:8px"></div>
       <form id="f-clone" class="linha-form" style="flex-wrap:wrap;margin-bottom:10px"><input name="nome" maxlength="40" value="${esc(c.nome)}" placeholder="Nome do clone (ex.: Teodósio)"><button type="submit">Salvar nome</button></form>
       ${interruptor('clone-responder', c.responder, `Responder igual ao operador${c.completo ? '' : ' (já usa o que aprendeu; fica 100% com ' + c.meta + ' vendas)'}`)}
       <div class="acoes" style="margin-top:12px">
@@ -6565,6 +6567,7 @@ async function cartaoClone(id) {
     try { await api(`empresas/${id}/clone`, { method: 'PUT', body: corpo }); aviso(msg); cartaoClone(id); } catch (err) { aviso(err.message, true); cartaoClone(id); }
   };
   $('#clone-ativo').onchange = (e) => salvarClone({ ativo: e.target.checked }, e.target.checked ? `Clone ligado: ${nome} está aprendendo com as suas vendas.` : 'Clone desligado.');
+  $('#clone-da-ia').onchange = (e) => salvarClone({ aprenderDaIa: e.target.checked }, e.target.checked ? 'O clone passa a aprender também com as vendas feitas pela IA.' : 'O clone aprende só com as respostas manuais.');
   $('#clone-responder').onchange = (e) => salvarClone({ responder: e.target.checked, ...(e.target.checked ? { ativo: true } : {}) }, e.target.checked ? `A IA responde igual a ${nome}.` : 'A IA volta a responder no estilo normal.');
   $('#f-clone').onsubmit = (e) => { e.preventDefault(); salvarClone({ nome: e.target.elements.nome.value }, 'Nome salvo.'); };
   $('#ver-clone')?.addEventListener('click', () => modalClone(id, () => cartaoClone(id)));

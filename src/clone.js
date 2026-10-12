@@ -6,7 +6,11 @@
 //   mídia da biblioteca, arquivo) vira um EXEMPLO "o cliente disse → você respondeu".
 //   Nada é copiado à parte e nada gasta IA: é só leitura das conversas.
 // - Com 10 conversas vendidas o aprendizado fica COMPLETO e, com "Responder igual
-//   ao operador" ligado, a IA segue 100% a linha de quem respondeu.
+//   ao operador" ligado, a IA segue 100% a linha de quem respondeu. Depois das 10 ele
+//   CONTINUA aprendendo com cada venda nova (sem limite): na hora de responder usa só os
+//   exemplos mais parecidos, então o custo por resposta não cresce.
+// - Aprende também com as respostas da PRÓPRIA IA nas conversas que viraram venda (opção
+//   "aprender com as vendas da IA", ligada por padrão) — as manuais têm preferência.
 // - Arquivos mandados à mão entram na biblioteca como mídia "aprendida do clone"
 //   (sem duplicar), para a IA mandar a mesma coisa na mesma situação.
 // - Na hora de responder, os exemplos mais parecidos com o que o cliente acabou de
@@ -26,6 +30,7 @@ function configDa(empresa) {
   if (c.ativo === undefined) c.ativo = false;
   if (c.responder === undefined) c.responder = c.ativo === true; // quem já usava o modo clone continua respondendo
   if (!Array.isArray(c.ignorados)) c.ignorados = [];
+  if (c.aprenderDaIa === undefined) c.aprenderDaIa = true;
   delete c.exemplos; // formato antigo (cópia de toda resposta): agora vem das conversas vendidas
   return c;
 }
@@ -47,8 +52,11 @@ const palavras = (t) =>
 // Mensagem escrita à mão pela equipe (não conta disparo, automação nem aviso do sistema)
 const ehManual = (m) => m.papel === 'equipe' && !m.apagada && !m.disparoId && !m.automacaoId && !m.agendadaId && (m.texto || m.midiaCodigo || m.anexo);
 
-// Exemplos de UMA conversa: blocos de respostas manuais + o que o cliente tinha dito antes
-function exemplosDaConversa(lead) {
+// Resposta escrita pela IA no atendimento (não conta follow-up, automação, evento, aviso fixo)
+const ehDaIa = (m) => m.papel === 'assistente' && !m.apagada && !m.disparoId && !m.automacaoId && !m.agendadaId && !m.followupPasso && !m.eventoIa && !m.respostaAuto && !m.sistema && (m.texto || m.midiaCodigo);
+
+// Exemplos de UMA conversa: blocos de respostas (manuais e, se ligado, da IA) + o que o cliente tinha dito antes
+function exemplosDaConversa(lead, comIa = false) {
   const msgs = (lead.mensagens || []).filter((m) => !m.apagada);
   const saida = [];
   let atual = null;
@@ -63,7 +71,8 @@ function exemplosDaConversa(lead) {
       if (m.texto) doCliente.push(m.texto);
       continue;
     }
-    if (!ehManual(m)) {
+    const autor = ehManual(m) ? 'manual' : comIa && ehDaIa(m) ? 'ia' : '';
+    if (!autor) {
       if (atual) {
         saida.push(atual);
         atual = null;
@@ -72,13 +81,13 @@ function exemplosDaConversa(lead) {
     }
     const texto = /^\[(enviou|o cliente)/i.test(m.texto || '') ? '' : String(m.texto || '').trim();
     const midia = m.midiaCodigo || m.anexo?.midiaCodigo || '';
-    if (atual && new Date(m.em) - new Date(atual.ultimaEm) < JANELA_MS) {
+    if (atual && atual.autor === autor && new Date(m.em) - new Date(atual.ultimaEm) < JANELA_MS) {
       if (texto) atual.resposta = [atual.resposta, texto].filter(Boolean).join('\n').slice(0, 1200);
       if (midia && !atual.midias.includes(midia)) atual.midias.push(midia);
       atual.ultimaEm = m.em;
     } else {
       if (atual) saida.push(atual);
-      atual = { id: m.id, leadId: lead.id, cliente: doCliente.slice(-3).join(' / ').slice(0, 500) || '(você puxou a conversa)', resposta: texto.slice(0, 1200), midias: midia ? [midia] : [], etapa: lead.etapa || '', em: m.em, ultimaEm: m.em };
+      atual = { id: m.id, autor, leadId: lead.id, cliente: doCliente.slice(-3).join(' / ').slice(0, 500) || '(você puxou a conversa)', resposta: texto.slice(0, 1200), midias: midia ? [midia] : [], etapa: lead.etapa || '', em: m.em, ultimaEm: m.em };
     }
   }
   if (atual) saida.push(atual);
@@ -88,7 +97,7 @@ function exemplosDaConversa(lead) {
 // Todos os exemplos (só conversas que deram venda), com cache curto
 const cache = new Map();
 function exemplos(empresa) {
-  const marca = `${estado.conversas.length}|${(estado.vendas || []).length}|${estado.conversas.reduce((n, c) => (c.empresaId === empresa.id ? n + (c.mensagens?.length || 0) : n), 0)}|${configDa(empresa).ignorados.length}`;
+  const marca = `${estado.conversas.length}|${(estado.vendas || []).length}|${estado.conversas.reduce((n, c) => (c.empresaId === empresa.id ? n + (c.mensagens?.length || 0) : n), 0)}|${configDa(empresa).ignorados.length}|${configDa(empresa).aprenderDaIa}`;
   const c = cache.get(empresa.id);
   if (c && c.marca === marca && Date.now() - c.em < 60 * 1000) return c.dados;
   const { vendaConcluida } = require('./aprendizado');
@@ -96,7 +105,7 @@ function exemplos(empresa) {
   const conversas = [];
   const lista = [];
   for (const lead of estado.conversas.filter((x) => x.empresaId === empresa.id && vendaConcluida(empresa, x))) {
-    const ex = exemplosDaConversa(lead).filter((e) => !ignorados.has(e.id));
+    const ex = exemplosDaConversa(lead, configDa(empresa).aprenderDaIa === true).filter((e) => !ignorados.has(e.id));
     if (!ex.length) continue;
     conversas.push(lead.id);
     lista.push(...ex);
@@ -109,7 +118,8 @@ function exemplos(empresa) {
 
 function progresso(empresa) {
   const { lista, conversas } = exemplos(empresa);
-  return { conversas: conversas.length, meta: META, completo: conversas.length >= META, total: lista.length };
+  const manuais = lista.filter((e) => e.autor !== 'ia').length;
+  return { conversas: conversas.length, meta: META, completo: conversas.length >= META, total: lista.length, manuais, daIa: lista.length - manuais };
 }
 
 // Mensagens antigas (formato de antes): não fazem nada — os exemplos vêm das conversas vendidas
@@ -181,7 +191,8 @@ function relevantes(empresa, lead, quantos = NO_PROMPT) {
       let comum = 0;
       for (const p of pal) if (agoraCliente.has(p)) comum++;
       const sim = comum / Math.max(1, Math.sqrt(agoraCliente.size * pal.size || 1));
-      return { ex, nota: sim + (ex.etapa && ex.etapa === lead.etapa ? 0.05 : 0) + (i / lista.length) * 0.02 };
+      // a resposta escrita à mão vale um pouco mais que a da IA (é o jeito do dono)
+      return { ex, nota: sim + (ex.etapa && ex.etapa === lead.etapa ? 0.05 : 0) + (ex.autor === 'ia' ? 0 : 0.04) + (i / lista.length) * 0.02 };
     });
   const parecidos = pontuados.filter((p) => p.nota > 0.08).sort((a, b) => b.nota - a.nota).slice(0, quantos - 3).map((p) => p.ex);
   const escolhidos = [...parecidos];
@@ -201,7 +212,7 @@ function paraIa(empresa, lead) {
   const texto = lista
     .map((ex, i) => {
       const midias = (ex.midias || []).filter((c) => codigosValidos.has(c));
-      return `Exemplo ${i + 1} (conversa que virou venda)\nCliente: ${ex.cliente}\n${nome} respondeu: ${ex.resposta || '(só mandou mídia)'}${midias.length ? `\nE mandou: ${midias.map((c) => require('./midias').codigoVisivel(c)).join(' ')}` : ''}`;
+      return `Exemplo ${i + 1} (conversa que virou venda)\nCliente: ${ex.cliente}\n${ex.autor === 'ia' ? 'A IA respondeu' : `${nome} respondeu`}: ${ex.resposta || '(só mandou mídia)'}${midias.length ? `\nE mandou: ${midias.map((c) => require('./midias').codigoVisivel(c)).join(' ')}` : ''}`;
     })
     .join('\n\n');
   return { texto, nome, completo: p.completo };
@@ -214,14 +225,14 @@ function arquivo(empresa) {
   const { lista } = exemplos(empresa);
   const linhas = [
     `CLONE: ${cfg.nome || '(sem nome)'}`,
-    `Aprendizado: ${Math.min(p.conversas, META)}/${META} conversas que viraram venda${p.completo ? ' — COMPLETO' : ''} · ${p.total} respostas manuais`,
+    `Aprendizado: ${p.conversas} conversa(s) que viraram venda${p.completo ? ` — COMPLETO (${META}+) e continua aprendendo` : ` (completo com ${META})`} · ${p.manuais} respostas manuais · ${p.daIa} respostas da IA`,
     `Gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`,
     ''
   ];
   for (const ex of lista) {
     linhas.push(`— ${new Date(ex.em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${ex.etapa ? ` · etapa ${ex.etapa}` : ''}`);
     linhas.push(`Cliente: ${ex.cliente}`);
-    linhas.push(`${cfg.nome || 'Operador'}: ${ex.resposta || '(só mandou mídia)'}${ex.midias.length ? `\n[mídias: ${ex.midias.map((c) => `#${c}`).join(', ')}]` : ''}`);
+    linhas.push(`${ex.autor === 'ia' ? 'IA' : cfg.nome || 'Operador'}: ${ex.resposta || '(só mandou mídia)'}${ex.midias.length ? `\n[mídias: ${ex.midias.map((c) => `#${c}`).join(', ')}]` : ''}`);
     linhas.push('');
   }
   return linhas.join('\n');
@@ -233,6 +244,7 @@ function resumo(empresa) {
   return {
     ativo: cfg.ativo === true,
     responder: cfg.responder === true,
+    aprenderDaIa: cfg.aprenderDaIa === true,
     nome: cfg.nome || '',
     ...p,
     midiasAprendidas: require('./midias').midiasDa(empresa).filter((m) => m.aprendidaDoClone).length,
@@ -258,6 +270,7 @@ function configurar(empresa, b = {}) {
   const cfg = configDa(empresa);
   if (b.ativo !== undefined) cfg.ativo = b.ativo === true;
   if (b.responder !== undefined) cfg.responder = b.responder === true;
+  if (b.aprenderDaIa !== undefined) cfg.aprenderDaIa = b.aprenderDaIa === true;
   if (b.nome !== undefined) cfg.nome = String(b.nome || '').trim().slice(0, 40);
   salvar();
 }
