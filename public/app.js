@@ -5294,6 +5294,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
     abrirModal(`
       <h2>🖼️ Escolher mídias</h2>
       <div class="chips" id="fm-filtro" style="margin-bottom:10px"></div>
+      <p class="rotulo" style="margin:-4px 0 8px">O número no canto é a ordem de envio. Dá para mudar a ordem depois, com ↑ ↓.</p>
       <div class="grade-escolha-midia" id="fm-grade"></div>
       <p class="rotulo" style="margin:10px 0 0">Nova mídia? Envie em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a>, na aba <b>🔁 Só follow-up</b>.</p>
       <div class="acoes"><button type="button" data-fechar>Cancelar</button><button type="button" class="primario" id="fm-ok">Usar selecionadas</button></div>`, (m, fechar) => {
@@ -5301,7 +5302,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
         const n = (f) => opcoes.filter((o) => f === 'todas' || o.soFollowup).length;
         $('#fm-filtro', m).innerHTML = [['fup', '🔁 Só follow-up'], ['todas', 'Todas']].map(([k, t]) => `<button type="button" class="chip-filtro ${filtro === k ? 'ativo' : ''}" data-f="${k}">${t} <b>${n(k)}</b></button>`).join('');
         const lista = opcoes.filter((o) => filtro === 'todas' || o.soFollowup);
-        $('#fm-grade', m).innerHTML = lista.map((o) => `<button type="button" class="item-escolha-midia ${escolhidas.has(o.codigo) ? 'marcada' : ''}" data-c="${esc(o.codigo)}">${miniatura(o)}<span class="nome-mini">${esc(o.nome)}${o.qtd ? ` (${o.qtd})` : ''}</span>${escolhidas.has(o.codigo) ? '<span class="check-mini">✓</span>' : ''}</button>`).join('') || `<p class="rotulo">${filtro === 'fup' ? 'Nenhuma mídia marcada como "Só follow-up" ainda. Veja em "Todas" ou envie em Mídias.' : 'Nenhuma mídia cadastrada.'}</p>`;
+        $('#fm-grade', m).innerHTML = lista.map((o) => `<button type="button" class="item-escolha-midia ${escolhidas.has(o.codigo) ? 'marcada' : ''}" data-c="${esc(o.codigo)}" title="${esc(o.nome || '')}">${miniatura(o)}<span class="nome-mini">${esc(o.nome || 'Sem nome')}${o.qtd ? ` (${o.qtd})` : ''}</span><span class="cod-mini">${esc(codNum(o))}</span>${escolhidas.has(o.codigo) ? `<span class="check-mini" title="Ordem de envio">${[...escolhidas].indexOf(o.codigo) + 1}</span>` : ''}</button>`).join('') || `<p class="rotulo">${filtro === 'fup' ? 'Nenhuma mídia marcada como "Só follow-up" ainda. Veja em "Todas" ou envie em Mídias.' : 'Nenhuma mídia cadastrada.'}</p>`;
         $$('[data-f]', m).forEach((b) => { b.onclick = () => { filtro = b.dataset.f; desenhar(); }; });
         $$('[data-c]', m).forEach((b) => { b.onclick = () => { const c = b.dataset.c; if (escolhidas.has(c)) escolhidas.delete(c); else if (escolhidas.size < 5) escolhidas.add(c); else aviso('No máximo 5 mídias por mensagem.', true); desenhar(); }; });
       };
@@ -5515,8 +5516,13 @@ async function secaoFollowup(id, emp, el, editar = null) {
           <div class="msg-fup-topo"><b>${i + 1}</b><span>depois de</span><input type="number" min="1" value="${t.n}" data-n="${i}"><select data-u="${i}"><option value="h" ${t.u === 'h' ? 'selected' : ''}>horas</option><option value="d" ${t.u === 'd' ? 'selected' : ''}>dias</option></select>
             <span class="msg-fup-acoes">${i ? `<button type="button" class="icone-botao" data-subir="${i}" title="Subir">↑</button>` : ''}${i < q.passos.length - 1 ? `<button type="button" class="icone-botao" data-descer="${i}" title="Descer">↓</button>` : ''}<button type="button" class="icone-botao" data-testar="${i}" title="Enviar esta mensagem de teste">📤</button><button type="button" class="icone-botao perigo" data-tirar="${i}" title="Remover">🗑</button></span></div>
           ${p.textos.map((tx, j) => `<div class="var-fup">${p.textos.length > 1 ? `<span class="var-fup-rotulo">Variação ${j + 1}</span>` : ''}<textarea rows="2" maxlength="2000" data-texto="${i}:${j}" placeholder="{Oi|Olá} {nome}! Passando para saber se ficou alguma dúvida 😊">${esc(tx)}</textarea>${p.textos.length > 1 || p.midias.length ? `<button type="button" class="icone-botao" data-tirar-texto="${i}:${j}" title="Tirar">✕</button>` : ''}</div>`).join('')}
-          <div class="msg-fup-midias">${p.midias.map((c, j) => `<span class="mini-escolhida" title="${esc(porCodigo[c]?.nome || c)}">${porCodigo[c] ? miniatura(porCodigo[c]) : '<span class="mini-icone">⚠️</span>'}<button type="button" data-tirar-midia="${i}:${j}" title="Tirar">✕</button></span>`).join('')}
-            <button type="button" class="mini-add" data-add-midia="${i}" title="Escolher mídias">＋ 🖼️</button>
+          ${p.midias.length ? `<ol class="lista-midias-fup">${p.midias.map((c, j) => { const o = porCodigo[c]; return `<li class="midia-fup-item">
+            <span class="midia-fup-ordem">${j + 1}</span>${o ? miniatura(o) : '<span class="mini-icone">⚠️</span>'}
+            <span class="midia-fup-info"><span class="midia-fup-nome">${o ? esc(o.nome || 'Sem nome') + (o.qtd ? ` (${o.qtd})` : '') : 'Mídia apagada — tire daqui'}</span><span class="rotulo">${esc(o ? codNum(o) : c)}</span></span>
+            <span class="midia-fup-acoes">${j ? `<button type="button" class="icone-botao" data-midia-subir="${i}:${j}" title="Enviar antes">↑</button>` : ''}${j < p.midias.length - 1 ? `<button type="button" class="icone-botao" data-midia-descer="${i}:${j}" title="Enviar depois">↓</button>` : ''}<button type="button" class="icone-botao perigo" data-tirar-midia="${i}:${j}" title="Tirar">✕</button></span>
+          </li>`; }).join('')}</ol>` : ''}
+          <div class="msg-fup-midias">
+            <button type="button" class="botao pequeno" data-add-midia="${i}">＋ 🖼️ ${p.midias.length ? 'Trocar mídias' : 'Escolher mídias'}</button>
             ${p.textos.length < 6 ? `<button type="button" class="link-botao" data-add-texto="${i}">+ variação de texto</button>` : ''}
             ${p.midias.length && p.textos.length ? `<button type="button" class="link-botao" data-ordem="${i}">${p.midiaPrimeiro ? 'mídia antes do texto ⇄' : 'texto antes da mídia ⇄'}</button>` : ''}</div>
         </div>`;
@@ -5532,6 +5538,8 @@ async function secaoFollowup(id, emp, el, editar = null) {
       $$('[data-tirar]', el).forEach((x) => { x.onclick = () => { q.passos.splice(Number(x.dataset.tirar), 1); desenharPassos(); }; });
       $$('[data-subir]', el).forEach((x) => { x.onclick = () => { const i = Number(x.dataset.subir); [q.passos[i - 1], q.passos[i]] = [q.passos[i], q.passos[i - 1]]; desenharPassos(); }; });
       $$('[data-descer]', el).forEach((x) => { x.onclick = () => { const i = Number(x.dataset.descer); [q.passos[i + 1], q.passos[i]] = [q.passos[i], q.passos[i + 1]]; desenharPassos(); }; });
+      $$('[data-midia-subir]', el).forEach((x) => { x.onclick = () => { const [i, j] = ij(x.dataset.midiaSubir); const m = q.passos[i].midias; [m[j - 1], m[j]] = [m[j], m[j - 1]]; desenharPassos(); }; });
+      $$('[data-midia-descer]', el).forEach((x) => { x.onclick = () => { const [i, j] = ij(x.dataset.midiaDescer); const m = q.passos[i].midias; [m[j + 1], m[j]] = [m[j], m[j + 1]]; desenharPassos(); }; });
       $$('[data-tirar-midia]', el).forEach((x) => { x.onclick = () => { const [i, j] = ij(x.dataset.tirarMidia); q.passos[i].midias.splice(j, 1); desenharPassos(); }; });
       $$('[data-add-midia]', el).forEach((x) => { x.onclick = () => { const i = Number(x.dataset.addMidia); modalMidias(q.passos[i].midias, (lista) => { q.passos[i].midias = lista; desenharPassos(); }); }; });
       $$('[data-testar]', el).forEach((x) => { x.onclick = () => { const i = Number(x.dataset.testar); const p = limpo(q.passos[i]); if (!p.textos.length && !p.midias.length) return aviso('Escreva um texto ou escolha uma mídia primeiro.', true); modalTeste([p], `Testar a mensagem ${i + 1}`); }; });
