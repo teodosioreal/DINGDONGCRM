@@ -1360,7 +1360,15 @@ html.dark .funil-perda { color: #fca5a5; }
 .item-escolha-midia { position: relative; border: 2px solid transparent; border-radius: 10px; padding: 4px; background: var(--hover); cursor: pointer; display: flex; flex-direction: column; gap: 4px; text-align: left; }
 .item-escolha-midia img, .item-escolha-midia .mini-icone { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; font-size: 30px; }
 .item-escolha-midia.marcada { border-color: var(--acento); }
-.nome-mini { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nome-mini { font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cod-mini { font-size: 11px; color: var(--suave); }
+.lista-midias-fup { list-style: none; margin: 8px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.midia-fup-item { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--borda-campo); border-radius: 10px; }
+.midia-fup-item img, .midia-fup-item .mini-icone { width: 44px; height: 44px; flex: none; border-radius: 8px; object-fit: cover; }
+.midia-fup-ordem { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--acento); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+.midia-fup-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.midia-fup-nome { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+.midia-fup-acoes { flex: none; display: flex; gap: 2px; }
 .check-mini { position: absolute; top: 8px; right: 8px; background: var(--acento); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; }
 /* prévia estilo WhatsApp (cores do app) */
 .wa-celular-fup { border: 1px solid var(--borda); border-radius: 16px; overflow: hidden; background: #efeae2; }
