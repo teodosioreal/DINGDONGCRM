@@ -149,6 +149,8 @@ function numeroCurto(n) {
   if (n >= 1e3) return `${(n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
   return n.toLocaleString('pt-BR');
 }
+// celular/tablet: sem mouse (sem Shift no teclado, sem passar o mouse por cima)
+const telaDeToque = () => window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 const rotaEmpresa = (id, sub = '') => `#/empresas/${id}${sub ? `/${sub}` : ''}`;
 // código de mídia como aparece no prompt: #MIDIA_FOTO_ANTES (guardado como FOTO-ANTES)
 const codMidia = (c) => (c ? `#MIDIA_${String(c).replace(/-/g, '_')}` : '');
@@ -3947,7 +3949,7 @@ function htmlEntrega(m) {
 }
 
 // Uma mensagem no balão, do lado certo (cliente à esquerda, empresa à direita)
-function htmlMensagem(m, leadId, anterior) {
+function htmlMensagem(m, leadId, anterior, comStart = true) {
   const saida = m.papel !== 'visitante';
   const lado = saida ? 'saida' : 'entrada';
   const seguida = anterior && (anterior.papel !== 'visitante') === saida && new Date(m.em) - new Date(anterior.em) < 5 * 60 * 1000;
@@ -3963,7 +3965,7 @@ function htmlMensagem(m, leadId, anterior) {
     const quem = { cliente: 'O cliente apagou esta mensagem', celular: 'Apagada pelo celular da empresa', equipe: 'Você apagou esta mensagem' }[m.apagada.por] || 'Mensagem apagada';
     return `<div class="msg ${lado} apagada${seguida ? '' : ' cauda'}" title="${esc(data(m.apagada.em || m.em))}">${menu.replace('data-todos="1"', 'data-todos=""')}<span class="msg-texto">🚫 <i>${esc(quem)}</i></span><span class="msg-rodape">${hora}</span></div>`;
   }
-  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}${!saida && m.papel === 'visitante' ? `<button type="button" class="msg-start" data-ia-start="${esc(leadId)}" title="A IA lê o que o cliente mandou e começa o atendimento agora">▶ Start</button>` : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? htmlEntrega(m) : ''}</span></div>`;
+  return `<div class="msg ${lado}${seguida ? '' : ' cauda'}" title="${esc(data(m.em))}">${menu}${topo ? `<span class="msg-origem">${esc(topo)}</span>` : ''}${htmlAnexo(m, leadId)}${textoVisivel ? `<span class="msg-texto">${formatarWhats(textoVisivel)}</span>` : ''}${m.whatsapp ? '<em class="msg-nota">→ Ofereceu continuar no WhatsApp</em>' : ''}${m.envio === 'erro' ? `<em class="msg-nota erro-envio">⚠️ Não foi enviado: ${esc(m.erroEnvio || 'erro no WhatsApp')}</em>` : m.comoArquivo ? '<em class="msg-nota">Foi como arquivo (qualidade original)</em>' : ''}${!saida && m.papel === 'visitante' && comStart ? `<button type="button" class="msg-start" data-ia-start="${esc(leadId)}" title="A IA lê o que o cliente mandou e começa o atendimento agora">▶ Start</button>` : ''}<span class="msg-rodape">${hora}${m.envio === 'enviando' ? ' <span class="enviando" title="Enviando pelo WhatsApp">⏳</span>' : m.envio === 'erro' ? '' : saida ? htmlEntrega(m) : ''}</span></div>`;
 }
 
 // O que o modo clone aprendeu (dá para apagar exemplos ruins)
@@ -4389,10 +4391,12 @@ function htmlConversa(mensagens, leadId, tickets = []) {
       anterior = null;
     }
   };
+  // ▶ Start vale para a conversa toda: aparece só na última mensagem do cliente
+  const ultimaDoCliente = mensagens.findLast((m) => m.papel === 'visitante');
   for (const m of mensagens) {
     avisosAte(m.em);
     separador(m.em);
-    html += htmlMensagem(m, leadId, anterior);
+    html += htmlMensagem(m, leadId, anterior, m === ultimaDoCliente);
     anterior = m;
   }
   avisosAte(null);
@@ -4762,7 +4766,7 @@ async function paginaConversas(id, params) {
         </div>
         <div class="rapida-pendente" id="rapida-pendente" hidden></div>
         <div class="chat-linha">
-          <textarea id="chat-texto" rows="1" placeholder="Escreva uma mensagem… (Enter envia, / para respostas prontas)"></textarea>
+          <textarea id="chat-texto" rows="1" placeholder="${telaDeToque() ? 'Mensagem (/ = respostas prontas)' : 'Escreva uma mensagem… (Enter envia, / para respostas prontas)'}"></textarea>
           <button class="primario" type="submit" id="chat-enviar">Enviar</button>
         </div>
         <label class="linha-check rotulo manter-ia"><input type="checkbox" id="chat-manter-ia" ${emp.whatsapp?.iaAposManual ? 'checked' : ''}> Deixar a IA continuar atendendo depois da minha mensagem</label>
@@ -4966,7 +4970,8 @@ async function paginaConversas(id, params) {
     };
     campo.addEventListener('input', () => { ajustarAltura(); mostrarRapidas(); });
     campo.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      // no celular (sem Shift) o Enter pula linha, como no WhatsApp; envia pelo botão
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !telaDeToque()) {
         e.preventDefault();
         form.requestSubmit();
       }
