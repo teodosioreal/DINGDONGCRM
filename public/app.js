@@ -357,6 +357,16 @@ function caminhoDe(url) {
 const nomePagina = (p) => p.titulo || caminhoDe(p.url);
 const linkPagina = (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}">${esc(nomePagina(p))}</a>`;
 
+// campanha/conjunto/anúncio: o nome (UTM) ou, sem o UTM com nomes, o número (ID) da Meta
+const nomeOuNumero = (p) => (!p ? '' : p.nome || `nº ${p.id}`);
+function blocoCampanha(cp, curto = false) {
+  if (!cp) return '';
+  const via = cp.via === 'mensagem' ? '💬 Campanha de mensagem (WhatsApp)' : cp.via === 'site' ? '🌐 Campanha para o site' : '🔗 Link com UTM';
+  const itens = [['Campanha', cp.campanha], ['Conjunto', cp.conjunto], ['Anúncio', cp.anuncio]].filter(([, p]) => p);
+  if (curto) return itens.map(([n, p]) => `${n.toLowerCase()} <b>${esc(nomeOuNumero(p))}</b>`).join(' · ');
+  return `<div class="campanha-lead"><div class="rotulo">${via}</div>${itens.length ? itens.map(([n, p]) => `<div><span class="rotulo">${n}:</span> <b>${esc(nomeOuNumero(p))}</b></div>`).join('') : '<div class="rotulo">Sem nome de campanha (o anúncio não tem UTM).</div>'}${cp.soNumeros ? '<div class="rotulo aviso-texto" style="margin-top:4px">Aparecem só os números (IDs) da Meta: coloque o UTM com os nomes no anúncio (aba Meta Ads → Copiar) para ver o nome da campanha e do anúncio.</div>' : ''}</div>`;
+}
+
 // Linha curta (topo do chat): "📣 Anúncio Instagram · campanha verao · vendo: Volante em couro"
 function linhaOrigem(o) {
   if (!o || (!o.fonte && !o.atual && !o.anuncio && !o.manual)) return '';
@@ -364,6 +374,7 @@ function linhaOrigem(o) {
   const partes = [];
   if (o.fonte || atual) partes.push(`${ICONE_FONTE[o.tipo] || '🌐'} Veio ${o.fonte ? `de <b>${esc(o.fonte)}</b>` : 'do site'}`);
   if (o.anuncio) partes.push(`anúncio <b>${esc(o.anuncio.nome)}</b>`);
+  else if (o.campanhaMeta && blocoCampanha(o.campanhaMeta, true)) partes.push(blocoCampanha(o.campanhaMeta, true));
   else if (o.campanha) partes.push(`campanha <b>${esc(o.campanha)}</b>`);
   if (atual) partes.push(`estava vendo ${linkPagina(atual)}`);
   if (o.manual) partes.push(`📝 ${esc(o.manual)}`);
@@ -374,13 +385,14 @@ function linhaOrigem(o) {
 function linhaMeta(m) {
   if (!m) return '';
   const data = (iso, hora = true) => (iso ? new Date(iso).toLocaleString('pt-BR', hora ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit' }) : '');
-  const via = { site: 'clicou no anúncio e passou pelo site', whatsapp: 'anúncio direto para o WhatsApp', utm: 'link marcado como Facebook/Instagram' }[m.via] || '';
+  const via = { site: 'campanha para o site (clicou no anúncio e passou pelo site)', whatsapp: 'campanha de mensagem (anúncio direto para o WhatsApp)', utm: 'link marcado como Facebook/Instagram' }[m.via] || '';
   const info = [
     m.clicouEm ? `em <b>${esc(data(m.clicouEm))}</b>` : '',
     m.campanha ? `campanha <b>${esc(m.campanha)}</b>` : '',
     m.conjunto ? `conjunto <b>${esc(m.conjunto)}</b>` : '',
     m.anuncio ? `anúncio <b>${esc(m.anuncio)}</b>` : '',
     m.anuncioZap?.titulo && !m.anuncio ? `anúncio <b>${esc(m.anuncioZap.titulo)}</b>` : '',
+    m.soNumeros ? '<span class="aviso-texto">só os números da Meta: coloque o UTM com nomes no anúncio</span>' : '',
     m.origem ? `origem ${esc(m.origem)}` : '',
     m.pagina && m.via === 'site' ? `página ${esc(m.pagina)}` : ''
   ].filter(Boolean).join(' · ');
@@ -393,6 +405,7 @@ function linhaMeta(m) {
   ].join(' · ');
   const envio = !m.ligado ? '<span class="aviso-texto">⚪ envio de vendas para a Meta desligado</span>'
     : m.naoVai ? `<span class="aviso-texto">⚠️ se comprar, a venda NÃO vai para a Meta: ${esc(m.naoVai)}</span>`
+    : m.peloTelefone && m.viaMensagem ? '✅ se comprar, a venda vai para a Meta (campanha de mensagem: a Meta reconhece o cliente pelo telefone)'
     : m.peloTelefone ? '✅ se comprar, a venda vai para a Meta pelo telefone (sem o clique: a Meta reconhece o cliente)'
     : `✅ se comprar até <b>${esc(data(m.vaiAte, false))}</b>, a venda vai para a Meta`;
   const vendas = (m.vendas || []).map((v) => `<div>💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
@@ -413,7 +426,8 @@ function cardOrigem(o, l) {
   return `
     <div class="card origem-card">
       <h2 style="margin:0 0 10px;font-size:16px">De onde veio ${ajuda('O chat do site anota como o cliente chegou (anúncio, Google, Instagram…) e as páginas que ele viu. As duas IAs usam isso para entender o interesse dele.')}</h2>
-      ${o.fonte || o.chegada ? `<div class="origem-fonte">${ICONE_FONTE[o.tipo] || '🌐'} <b>${esc(o.fonte || 'Site')}</b>${o.campanha ? `<span class="rotulo"> · campanha ${esc(o.campanha)}</span>` : ''}</div>` : '<p class="rotulo" style="margin:0">Sem informação automática (o cliente não passou pelo chat nem por um botão do site, nem por anúncio de clique para WhatsApp).</p>'}
+      ${o.fonte || o.chegada ? `<div class="origem-fonte">${ICONE_FONTE[o.tipo] || '🌐'} <b>${esc(o.fonte || 'Site')}</b>${o.campanha && !o.campanhaMeta ? `<span class="rotulo"> · campanha ${esc(o.campanha)}</span>` : ''}</div>` : o.campanhaMeta ? '' : '<p class="rotulo" style="margin:0">Sem informação automática (o cliente não passou pelo chat nem por um botão do site, nem por anúncio de clique para WhatsApp).</p>'}
+      ${blocoCampanha(o.campanhaMeta)}
       ${o.anuncio ? `<div style="margin-top:8px">📣 Anúncio: <b>${esc(o.anuncio.nome)}</b> <span class="rotulo">(${o.anuncio.por === 'equipe' ? 'escolhido pela equipe' : 'reconhecido pelo CRM'})</span></div>` : ''}
       ${o.anuncioMeta ? `<div class="rotulo" style="margin-top:6px">Anúncio do Meta: “${esc(o.anuncioMeta.titulo || o.anuncioMeta.url || o.anuncioMeta.id)}”${o.anuncioMeta.url ? ` · <a href="${esc(o.anuncioMeta.url)}" target="_blank" rel="noopener noreferrer">ver</a>` : ''}</div>` : ''}
       ${utm ? `<div class="chips" style="margin-top:8px">${utm}</div>` : ''}
@@ -6028,6 +6042,7 @@ function cartaoVendasMeta(id, m) {
   const STATUS = {
     enviada: ['ok', '✅ Enviada com o clique do anúncio'],
     'enviada-sem-clique': ['aviso', '📨 Recebida pela Meta, sem o clique'],
+    'enviada-mensagem': ['ok', '💬 Enviada — campanha de mensagem'],
     teste: ['aviso', '🧪 Só em Eventos de teste'],
     'sem-confirmacao': ['erro', '⚠️ Meta não confirmou — vai de novo'],
     pronta: ['aviso', '🕐 Pronta — vai no próximo envio'],
@@ -6040,7 +6055,7 @@ function cartaoVendasMeta(id, m) {
   const linhas = (m.criterios || []).map((v) => {
     const [cls, rotulo] = STATUS[v.status] || ['off', v.status];
     return `<tr>
-      <td style="white-space:nowrap">${esc(hora(v.em))}<br>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || 'Cliente')}</a>` : esc(v.cliente || '—')}<br><b>${brl(v.valor)}</b><div class="rotulo">${esc(v.origemValor || '')}</div>${v.valorEnviado != null && Number(v.valorEnviado) !== Number(v.valor) ? `<div class="rotulo">foi para a Meta: <b>${brl(v.valorEnviado)}</b></div>` : ''}</td>
+      <td style="white-space:nowrap">${esc(hora(v.em))}<br>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || 'Cliente')}</a>` : esc(v.cliente || '—')}<br><b>${brl(v.valor)}</b>${v.campanha ? `<div class="rotulo campanha-venda">${v.campanha.via === 'mensagem' ? '💬' : '🌐'} ${blocoCampanha(v.campanha, true) || (v.campanha.via === 'mensagem' ? 'campanha de mensagem' : 'campanha para o site')}</div>` : ''}<div class="rotulo">${esc(v.origemValor || '')}</div>${v.valorEnviado != null && Number(v.valorEnviado) !== Number(v.valor) ? `<div class="rotulo">foi para a Meta: <b>${brl(v.valorEnviado)}</b></div>` : ''}</td>
       <td class="crit">${lista(v.obrigatorios)}<div class="rotulo" style="margin-top:3px">extras: ${lista(v.extras)}</div></td>
       <td><span class="etiqueta-status ${cls}">${rotulo}</span><div class="rotulo" style="margin-top:3px">${esc(v.situacao)}</div></td>
     </tr>`;
@@ -6050,15 +6065,17 @@ function cartaoVendasMeta(id, m) {
       <button type="button" id="meta-enviar-agora" ${m.pronto ? '' : 'disabled'}>Enviar agora</button></div>
     <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
     <p class="rotulo" style="margin:0 0 8px">⏳ Venda com comprovante espera 3 h e venda sem comprovante (IA, frase, à mão) espera 6 h antes de ir: dá tempo de o comprovante chegar e corrigir o valor, e os pagamentos do mesmo cliente no mesmo dia (sinal + restante) vão juntos como <b>uma</b> compra com o valor somado.</p>
-    <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
+    <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · veio do anúncio (campanha para o site com o clique, ou campanha de mensagem do WhatsApp) · telefone · até 30 dias do anúncio · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
     <div class="meta-legenda">
       <p style="margin:0 0 6px"><b>Como ler o status</b></p>
       <p style="margin:0 0 4px">✅ <b>Enviada com o clique do anúncio</b>: a Meta confirmou o recebimento e tem o clique, então liga a venda à campanha (aparece como compra no Gerenciador de Anúncios, se a venda for até 7 dias depois do clique — prazo padrão da Meta).</p>
       <p style="margin:0 0 4px">📨 <b>Recebida pela Meta, sem o clique</b>: a Meta confirmou o recebimento e a compra está no <b>Gerenciador de Eventos</b> (Pixel → Visão geral → Purchase). Ela só entra como compra da <b>campanha</b> se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio — às vezes reconhece, às vezes não. Acontece quando o cliente não chegou pelo botão de WhatsApp do site (ou mandou a mensagem de outro jeito).</p>
+      <p style="margin:0 0 4px">💬 <b>Enviada — campanha de mensagem</b>: cliente que veio de anúncio que abre o WhatsApp direto. Esse tipo de anúncio não tem o clique do site; a venda vai com o telefone do cliente (o mesmo que mandou a mensagem pelo anúncio) e a Meta liga à campanha quando reconhece a pessoa.</p>
       <p style="margin:0">🧪 <b>Só em Eventos de teste</b>: foi com o código de teste e não conta na campanha. ⚠️ <b>Erro</b> ou <b>Meta não confirmou</b>: não foi; o CRM tenta de novo.</p>
-      ${m.enviadas ? `<p style="margin:6px 0 0">Nos registros: <b>${m.enviadasComClique || 0}</b> com o clique · <b>${m.enviadasSemClique || 0}</b> sem o clique${m.semConfirmacao ? ` · <b>${m.semConfirmacao}</b> sem confirmação` : ''}.</p>` : ''}
+      ${m.enviadas ? `<p style="margin:6px 0 0">Nos registros: <b>${m.enviadasComClique || 0}</b> com o clique do site · <b>${m.enviadasMensagem || 0}</b> de campanha de mensagem · <b>${m.enviadasSemClique || 0}</b> sem o clique${m.semConfirmacao ? ` · <b>${m.semConfirmacao}</b> sem confirmação` : ''}.</p>` : ''}
     </div>
     ${caminhoDoAnuncio(m)}
+    ${(m.vendasPorCampanha || []).length ? `<div class="meta-caminho"><p style="margin:0 0 6px"><b>📊 Vendas por campanha e anúncio (30 dias)</b></p><div class="tabela-wrap" style="margin:0"><table><thead><tr><th>Campanha</th><th>Anúncio</th><th class="num">Vendas</th><th class="num">Valor</th><th class="num">Na Meta</th></tr></thead><tbody>${m.vendasPorCampanha.map((g) => `<tr><td>${g.via === 'mensagem' ? '💬 ' : g.via === 'site' ? '🌐 ' : ''}${esc(g.campanha)}</td><td>${esc(g.anuncio || '—')}</td><td class="num">${g.vendas}</td><td class="num">${brl(g.valor)}</td><td class="num">${g.naMeta}</td></tr>`).join('')}</tbody></table></div>${m.vendasPorCampanha.some((g) => g.soNumeros) ? '<p class="rotulo" style="margin:6px 0 0">"nº …" é o número (ID) da campanha na Meta. Com o UTM de nomes no anúncio, aparece o nome.</p>' : ''}</div>` : ''}
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
   $$('[data-copiar]', el).forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso('Copiado. Cole no anúncio, em Parâmetros de URL.')).catch(() => aviso(b.dataset.copiar)); }; });
@@ -6085,7 +6102,7 @@ async function cartaoMetaAds(id) {
     : !m.ativo ? ['erro', '⛔ Desligado', 'Nenhuma venda está indo para a Meta. Marque "Enviar vendas para a campanha" e salve.']
     : m.codigoTeste ? ['aviso', '🧪 Em modo teste', 'As vendas vão só para "Eventos de teste" e NÃO contam na campanha. Apague o código de teste e salve.']
     : t.conexao && !t.conexao.ok ? ['erro', '⚠️ A Meta recusou', t.conexao.erro || 'Teste a conexão.']
-    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) recebida(s) pela Meta: ${m.enviadasComClique || 0} com o clique do anúncio e ${m.enviadasSemClique || 0} sem o clique. As vendas prontas vão de hora em hora.`];
+    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) recebida(s) pela Meta: ${m.enviadasComClique || 0} de campanha para o site (com o clique), ${m.enviadasMensagem || 0} de campanha de mensagem e ${m.enviadasSemClique || 0} sem o clique. Funciona sozinho com os dois tipos de campanha. As vendas prontas vão de hora em hora.`];
   const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
   const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
   el.innerHTML = `
@@ -6097,7 +6114,7 @@ async function cartaoMetaAds(id) {
     <form id="f-meta-ads" style="margin-top:14px">
       <label class="linha-check meta-ligar"><input type="checkbox" name="ativo" ${m.ativo ? 'checked' : ''}> <b>Enviar vendas para a campanha</b></label>
       <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="todasVendas" ${m.todasVendas ? 'checked' : ''}> <b>Enviar todas as vendas válidas</b> (também as sem o clique do anúncio)</label>
-      <p class="rotulo" style="margin:6px 0 0">${m.todasVendas ? 'Vai toda venda <b>confirmada, com valor e com telefone</b>. Com o clique do anúncio (fbclid) a Meta liga a venda ao clique exato; sem ele, reconhece o cliente pelo <b>telefone</b> e só conta para a campanha se ele viu ou clicou num anúncio seu. Mais vendas = mais inteligência para a campanha.' : 'Vai só a venda <b>confirmada, com valor</b>, de cliente que <b>clicou no anúncio</b> (o CRM guardou o fbclid) e com <b>telefone</b>. Marque a opção acima para mandar também as vendas sem o clique (a Meta reconhece pelo telefone).'}</p>
+      <p class="rotulo" style="margin:6px 0 0">${m.todasVendas ? 'Vai toda venda <b>confirmada, com valor e com telefone</b>. Com o clique do anúncio (fbclid) a Meta liga a venda ao clique exato; sem ele, reconhece o cliente pelo <b>telefone</b> e só conta para a campanha se ele viu ou clicou num anúncio seu. Mais vendas = mais inteligência para a campanha.' : 'Vai a venda <b>confirmada, com valor e com telefone</b> de cliente que veio do anúncio — funciona sozinho com os <b>dois tipos de campanha</b>: <b>para o site</b> (lead/landing page: o CRM guarda o clique, fbclid) e <b>de mensagem</b> (anúncio que abre o WhatsApp: o CRM reconhece a mensagem do anúncio e manda pelo telefone). Marque a opção acima para mandar também as vendas de quem não veio de anúncio (a Meta reconhece pelo telefone).'}</p>
       <div class="campos" style="margin-top:10px">
         <div class="campo"><label>ID do Pixel</label><input name="pixelId" value="${esc(m.pixelId)}" inputmode="numeric" placeholder="só números"></div>
         <div class="campo"><label>Token da API de Conversões</label><input name="token" type="password" autocomplete="new-password" placeholder="${m.tokenSalvo ? `salvo — termina em …${esc(m.tokenFim)} (cole outro para trocar)` : 'cole o token'}"></div>
