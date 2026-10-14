@@ -6062,7 +6062,7 @@ function cartaoVendasMeta(id, m) {
     'enviada-sem-clique': ['aviso', '📨 Recebida pela Meta, sem o clique'],
     'enviada-mensagem': ['ok', '💬 Enviada — campanha de mensagem'],
     teste: ['aviso', '🧪 Só em Eventos de teste'],
-    'sem-confirmacao': ['erro', '⚠️ Meta não confirmou — vai de novo'],
+    'sem-confirmacao': ['erro', '⚠️ Meta não confirmou o recebimento'],
     pronta: ['aviso', '🕐 Pronta — vai no próximo envio'],
     esperando: ['aviso', '⏳ Esperando'],
     erro: ['erro', '⚠️ Erro ao enviar'],
