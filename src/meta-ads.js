@@ -96,6 +96,17 @@ const telefoneDe = (lead) => {
   return n.length <= 11 ? `55${n}` : n;
 };
 
+// cidade e estado do cliente (ajudam a Meta a reconhecer a pessoa), só quando a localização é
+// "Cidade - UF" e não foi chutada pelo DDD. Formato da Meta: minúsculas, sem acento nem espaço.
+function cidadeEstado(lead) {
+  const l = lead?.localizacao;
+  if (!l?.texto || l.fonte === 'ddd') return {};
+  const m = String(l.texto).match(/^(.{2,40}?)\s*[-–,/]\s*([A-Za-z]{2})$/);
+  if (!m) return {};
+  const cidade = sem(m[1]).toLowerCase().replace(/[^a-z]/g, '');
+  return cidade ? { ct: [sha(cidade)], st: [sha(m[2].toLowerCase())] } : {};
+}
+
 // o evento que vai para a Meta (sem nada de texto de conversa)
 function montarEvento(venda, lead, clique = null, valor = venda.valor) {
   clique = clique || {};
@@ -107,6 +118,7 @@ function montarEvento(venda, lead, clique = null, valor = venda.valor) {
     ...(nomes[0] && !/^\d/.test(lead.nome || '') ? { fn: [sha(nomes[0])] } : {}),
     ...(nomes.length > 1 ? { ln: [sha(nomes[nomes.length - 1])] } : {}),
     country: [sha('br')],
+    ...cidadeEstado(lead),
     external_id: [sha(lead.id)],
     ...(clique.fbc ? { fbc: clique.fbc } : {}),
     ...(clique.fbp ? { fbp: clique.fbp } : {}),
@@ -344,7 +356,7 @@ function situacaoDaVenda(v, motivo, c, empresa = null) {
     const conf = Number(m.recebidos) >= 1 ? ` · a Meta confirmou o recebimento${m.fbtrace ? ` (fbtrace ${m.fbtrace})` : ''}` : ' · a Meta NÃO confirmou o recebimento';
     const como = m.comClique === false ? ' pelo telefone, sem o clique do anúncio' : m.comClique ? ' com o clique do anúncio' : '';
     const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
-    const semClique = estadoDoEnvio(v) === 'enviada-sem-clique' ? ' · sem o clique a Meta recebe a compra (Gerenciador de Eventos), mas normalmente não consegue dizer de qual anúncio veio, então ela não aparece como compra da campanha no Gerenciador de Anúncios' : '';
+    const semClique = estadoDoEnvio(v) === 'enviada-sem-clique' ? ' · sem o clique: a compra está no Gerenciador de Eventos e só entra na campanha se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio' : '';
     const avisos = m.avisosMeta?.length ? ` · aviso da Meta: ${m.avisosMeta.join(' / ')}` : '';
     return `enviada${como}${soma} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}${avisos}${semClique}`;
   }
@@ -532,6 +544,8 @@ function paraPainel(empresa) {
     criterios,
     semClique,
     envio: { ultimo: ciclo?.em || null, enviadasNoUltimo: ciclo?.enviadas ?? null, proximo: ciclo?.em ? new Date(Math.max(Date.now(), new Date(ciclo.em).getTime() + ENVIO_MS)).toISOString() : null, aCadaMin: Math.round(ENVIO_MS / 60000) },
+    // cliques no WhatsApp do site: quantos chegaram como conversa (com o código ou pelo horário)
+    caminho: require('./origem').resumoVisitas(empresa.id),
     enviadas: vendas.filter((v) => ['enviada', 'enviada-sem-clique'].includes(estadoDoEnvio(v))).length,
     enviadasComClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada').length,
     enviadasSemClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada-sem-clique').length,
@@ -644,6 +658,7 @@ function eventoDeTeste(req, nome, valor) {
     event_source_url: `${require('./config').urlPublica || 'https://odingdong.tech/crm'}/`,
     user_data: {
       country: [sha('br')],
+    ...cidadeEstado(lead),
       external_id: [sha(id)],
       client_ip_address: String(req?.ip || '').replace(/^::ffff:/, '') || '127.0.0.1',
       client_user_agent: String(req?.get?.('user-agent') || 'DingDong CRM').slice(0, 400)

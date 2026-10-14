@@ -156,13 +156,14 @@
     return c;
   }
 
-  // Coloca "#CODIGO" no início do texto de um link de WhatsApp (o CRM liga a conversa por ele)
+  // Coloca o código no FIM do texto de um link de WhatsApp (o CRM liga a conversa por ele).
+  // No fim, entre parênteses, as pessoas apagam bem menos do que quando ele abre a mensagem.
   function comCodigo(url, codigo, padrao) {
     if (!codigo || !url) return url;
     try {
       var u = new URL(url);
       var texto = u.searchParams.get('text') || padrao || 'Olá! Vim pelo site.';
-      if (texto.indexOf('#' + codigo) === -1) u.searchParams.set('text', '#' + codigo + ' ' + texto);
+      if (texto.indexOf('#' + codigo) === -1) u.searchParams.set('text', texto.replace(/\s+$/, '') + ' (#' + codigo + ')');
       return u.toString();
     } catch (e) {
       return url;

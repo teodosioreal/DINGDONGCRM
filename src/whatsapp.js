@@ -756,6 +756,11 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
   }
   // 3) novo lead que chegou direto pelo WhatsApp
   const bot = botDoWhatsapp(empresa);
+  // 3b) sem o código (o cliente apagou o "#ABC123"), mas acabou de clicar no WhatsApp do site:
+  // só para mensagem que acabou de chegar (não para histórico recuperado) e se só houve UMA visita
+  const tsMsg = Number(msg?.messageTimestamp?.low ?? msg?.messageTimestamp) || 0;
+  const mensagemNova = !tsMsg || Math.abs(Date.now() - tsMsg * 1000) < 10 * 60 * 1000;
+  const visitaPelaHora = !visita && !codigo && !msg?.key?.fromMe && mensagemNova ? origem.visitaSemCodigo(empresa.id, texto, bot?.mensagemWhatsappPadrao) : null;
   const e = identidade.enderecos(msgCom);
   const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msgCom), whatsappJid: identidade.jidPreferido(empresa, msgCom) });
   if (e.lid) novo.lidJid = e.lid;
@@ -764,6 +769,11 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
     novo.codigo = codigo; // o mesmo código da mensagem, para a equipe achar
     novo.veioDoSite = true;
     origem.registrarNoLead(novo, visita.rastro);
+  } else if (visitaPelaHora) {
+    novo.codigo = visitaPelaHora.codigo;
+    novo.veioDoSite = true;
+    origem.registrarNoLead(novo, visitaPelaHora.rastro);
+    novo.origemSite.ligadoPelaHora = true; // sem o código na mensagem: ligado pelo horário do clique
   }
   return novo;
 }
