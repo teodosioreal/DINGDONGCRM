@@ -649,7 +649,9 @@ async function enviarMidia(empresa, destino, midia, legenda = '') {
     );
   let r;
   if (midia.tipo === 'audio') {
-    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, delay: 1500 }, { tempo });
+    // áudio de voz (como se tivesse acabado de gravar, nunca "encaminhado"): o cliente vê
+    // "gravando áudio…" durante o delay; encoding converte para o formato de voz do WhatsApp
+    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, delay: require('./audio').tempoGravando(midia), encoding: true }, { tempo });
   } else if (midia.tipo === 'video' && !videoTocaNoWhatsapp(midia)) {
     r = await mandar('document');
   } else {

@@ -416,6 +416,13 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
         '- Mídias marcadas como JÁ ENVIADA (em "Contexto desta conversa", no fim) não podem ser enviadas de novo — exceto as marcadas "pode repetir", e só se o cliente pedir.',
         ...(midias.some((m) => m.etapas?.length) ? ['- "só na etapa": a mídia só sai quando o lead estiver nessa etapa do funil.'] : []),
         ...(midias.some((m) => m.assuntos?.length) ? ['- "assunto": só mande quando estiver falando DAQUELE assunto; se ainda não sabe qual o cliente quer, pergunte antes.'] : []),
+        ...(midias.some((m) => m.tipo === 'audio')
+          ? [
+              '- Áudio é a SUA voz gravada: chega para o cliente como um áudio que você acabou de gravar. O campo "o áudio fala" diz exatamente o que ele fala.',
+              '- Quando mandar um áudio: na mesma resposta escreva pouco ou nenhum texto e NUNCA repita por escrito o que o áudio fala. Depois, continue a conversa a partir do que o áudio disse (se o áudio fez uma pergunta, espere a resposta do cliente; não pergunte de novo por escrito).',
+              '- Mande o áudio só na situação do "quando enviar". Se as instruções do dono disserem para alternar texto e áudio (ou em que passo do roteiro vai cada áudio), siga exatamente essa ordem.'
+            ]
+          : []),
         '',
         'Lista:',
         ...midias.map((m) =>
@@ -427,6 +434,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
             m.etapas?.length ? `só na etapa: ${m.etapas.join(' ou ')}` : '',
             m.assuntos?.length ? `assunto: ${m.assuntos.join(' ou ')}` : '',
             m.servicos?.length ? `serviço: ${m.servicos.join(' / ')}` : '',
+            m.fala ? `o áudio fala: "${String(m.fala).replace(/\s+/g, ' ').trim()}"` : '',
             m.umaVez === false ? 'pode repetir' : ''
           ]
             .filter(Boolean)
