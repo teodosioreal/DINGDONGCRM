@@ -1702,3 +1702,12 @@ html.dark .clone-situacao.nao { background: #334155; color: #e2e8f0; }
 .pendentes-aprovacao { border-color: color-mix(in srgb, #f59e0b 45%, var(--borda)); }
 .linha-pendente { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--borda); }
 .acoes-pendente { display: flex; gap: 6px; }
+.meta-legenda { font-size: 13px; line-height: 1.5; color: var(--suave); background: var(--hover); border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; }
+.meta-legenda b { color: var(--texto); }
+.cartao-empresa-caixa { display: flex; flex-direction: column; }
+.cartao-empresa-caixa > .cartao-empresa { flex: 1; }
+.cartao-acesso { margin-top: 6px; align-self: flex-end; padding: 4px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 600; background: transparent; border-color: transparent; color: var(--suave); }
+.cartao-acesso:hover, .cartao-acesso:focus-visible { background: var(--superficie); border-color: #f59e0b; color: var(--texto); }
+.cartao-acesso.reativar { opacity: 1; border-color: #22c55e; color: #15803d; }
+html.dark .cartao-acesso.reativar { color: #86efac; }
+.cartao-empresa-contas { margin: -4px 0 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

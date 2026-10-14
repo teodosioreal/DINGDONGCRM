@@ -58,11 +58,16 @@ router.post('/auth/login', (req, res) => {
   if (falhasRecentes(email).length >= 8) {
     return res.status(429).json({ erro: 'Muitas senhas erradas nesta conta. Espere 15 minutos e tente de novo.' });
   }
-  const usuario = estado.usuarios.find((u) => u.email === email && u.ativo !== false);
+  const usuario = estado.usuarios.find((u) => u.email === email);
   if (!usuario || !auth.conferirSenha(senha, usuario.senhaHash)) {
     if (falhasLogin.size > 5000) falhasLogin.clear(); // não cresce sem fim
     falhasLogin.set(email, [...falhasRecentes(email), Date.now()]);
     return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
+  }
+  // senha certa, mas a conta foi desativada pelo administrador
+  if (usuario.ativo === false) {
+    falhasLogin.delete(email);
+    return res.status(403).json({ erro: 'Esta conta está desativada. Se acha que é um engano, fale com o suporte do DingDong CRM.', desativada: true });
   }
   if (usuario.aprovacao === 'pendente') {
     return res.status(403).json({ erro: 'Sua conta está aguardando aprovação. Você recebe um e-mail assim que ela for liberada.', pendente: true });
@@ -478,6 +483,8 @@ function empresaComExtras(e, req) {
     ...resto,
     motores: resumoMotores(e),
     usoHoje: ia.usoDoDia(e),
+    // quem usa a conta desta empresa (só o admin vê)
+    ...(req?.usuario?.papel === 'admin' ? { contas: estado.usuarios.filter((u) => u.empresaId === e.id).map((u) => ({ email: u.email, ativo: u.ativo !== false })) } : {}),
     uso7d: ia.usoDoPeriodo(e, 7),
     uso30d: ia.usoDoPeriodo(e, 30),
     ...situacaoConfig(e, principal),
@@ -1172,6 +1179,52 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
   const empresa = criarEmpresa(dados, req.body?.sites);
   salvar();
   res.status(201).json(empresaComExtras(empresa, req));
+});
+
+// Desativar/reativar uma conta de cliente (só admin): pausa a empresa (IA, automações,
+// follow-up e disparos param) e bloqueia o login de quem usa a conta. Nada é apagado.
+router.post('/empresas/:id/acesso', auth.exigirAdmin, (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const ativar = req.body?.ativo === true;
+  const usuarios = estado.usuarios.filter((u) => u.empresaId === empresa.id && u.papel !== 'admin');
+  if (ativar) {
+    empresa.ativa = true;
+    delete empresa.desativadaEm;
+    delete empresa.desativadaPor;
+    for (const u of usuarios) {
+      if (u.bloqueadoComEmpresa) {
+        u.ativo = true;
+        delete u.bloqueadoComEmpresa;
+      }
+    }
+  } else {
+    empresa.ativa = false;
+    empresa.desativadaEm = agora();
+    empresa.desativadaPor = req.usuario.email;
+    for (const u of usuarios) {
+      if (u.ativo !== false) {
+        u.ativo = false;
+        u.bloqueadoComEmpresa = true; // ao reativar a empresa, volta só quem foi bloqueado junto
+      }
+    }
+    const ids = new Set(usuarios.map((u) => u.id));
+    estado.sessoes = estado.sessoes.filter((x) => !ids.has(x.usuarioId)); // sai na hora
+  }
+  salvar();
+  res.json({ ok: true, ativa: empresa.ativa !== false, usuarios: usuarios.length });
+});
+
+// Bloquear/desbloquear o login de um usuário (só admin)
+router.post('/usuarios/:id/ativo', auth.exigirAdmin, (req, res) => {
+  const usuario = estado.usuarios.find((u) => u.id === req.params.id);
+  if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+  if (usuario.id === req.usuario.id) return res.status(400).json({ erro: 'Você não pode bloquear o seu próprio acesso.' });
+  usuario.ativo = req.body?.ativo === true;
+  delete usuario.bloqueadoComEmpresa;
+  if (!usuario.ativo) estado.sessoes = estado.sessoes.filter((x) => x.usuarioId !== usuario.id);
+  salvar();
+  res.json(auth.usuarioPublico(usuario));
 });
 
 router.put('/empresas/:id', auth.exigirAdmin, (req, res) => {

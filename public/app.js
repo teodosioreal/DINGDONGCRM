@@ -527,6 +527,24 @@ function excluirEmpresa(emp, depois) {
 }
 
 function ligarExcluirEmpresas(lista, depois) {
+  $$('[data-acesso-empresa]').forEach((b) => {
+    b.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const emp = lista.find((x) => x.id === b.dataset.acessoEmpresa);
+      const ativar = b.dataset.ativar === '1';
+      const contas = (emp?.contas || []).map((u) => esc(u.email)).join(', ');
+      const ok = await confirmar(ativar
+        ? { titulo: `Reativar ${esc(emp?.nome || '')}?`, texto: `A IA, as automações e o follow-up voltam a funcionar${contas ? `, e ${contas} volta(m) a entrar no painel` : ''}. Tudo continua como estava.`, botao: '✅ Reativar' }
+        : { titulo: `Desativar ${esc(emp?.nome || '')}?`, texto: `<b>Nada é apagado.</b> Enquanto estiver desativada:<br>• a IA do site e a do WhatsApp, as automações, o follow-up e os disparos param;<br>• ${contas ? `<b>${contas}</b> sai do painel na hora e não consegue mais entrar` : 'ninguém dessa empresa consegue entrar no painel'}.<br><br>Dá para reativar quando quiser, com um clique.`, botao: '🚫 Desativar', perigo: true });
+      if (!ok) return;
+      try {
+        await comEspera(b, () => api(`empresas/${emp.id}/acesso`, { method: 'POST', body: { ativo: ativar } }));
+        aviso(ativar ? 'Conta reativada.' : 'Conta desativada. Nada foi apagado.');
+        depois();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
   $$('[data-excluir-empresa]').forEach((b) => {
     b.onclick = (e) => {
       e.preventDefault();
@@ -5891,6 +5909,7 @@ function gradeEmpresas(lista) {
         ${ehAdmin() ? `<button type="button" class="cartao-excluir" data-excluir-empresa="${esc(e.id)}" title="Excluir empresa" aria-label="Excluir ${esc(e.nome)}">🗑️</button>` : ''}
         <a class="cartao-empresa ${e.ativa === false ? 'pausada' : ''}" href="${rotaEmpresa(e.id)}">
           <div class="cartao-empresa-topo">${avatarEmpresa(e, 'grande')}<div class="cartao-empresa-nome"><strong>${esc(e.nome)}</strong><span class="rotulo">${esc(e.nicho || 'Sem ramo definido')}</span></div></div>
+          ${ehAdmin() && (e.contas || []).length ? `<div class="cartao-empresa-contas rotulo">👤 ${e.contas.map((u) => `${esc(u.email)}${u.ativo ? '' : ' (bloqueado)'}`).join(', ')}</div>` : ''}
           <div class="cartao-empresa-hero"><span class="rotulo">Faturamento no mês</span><b>${brl(e.faturamentoMes)}</b></div>
           <div class="cartao-empresa-numeros">
             <div><b>${e.leads7d || 0}</b><span class="rotulo">Leads 7 dias</span></div>
@@ -5901,12 +5920,13 @@ function gradeEmpresas(lista) {
             <span class="ponto-canal ${e.canais?.site ? 'ok' : ''}">Site</span>
             <span class="ponto-canal ${e.canais?.whatsapp && e.whatsapp?.configurado ? 'ok' : e.whatsapp?.configurado ? '' : 'falta'}">WhatsApp${e.whatsapp?.configurado ? '' : ' · não conectado'}</span>
             <span class="rodape-fim">
-            ${e.ativa === false ? '<span class="etiqueta off">Pausada</span>' : ''}
+            ${e.ativa === false ? `<span class="etiqueta off">${(e.contas || []).length ? 'Conta desativada' : 'Pausada'}</span>` : ''}
             ${(e.dicas || []).some((x) => x.nivel === 'erro') ? '<span class="etiqueta off">Precisa de atenção</span>' : ''}${e.alertasNaoLidos ? `<span class="etiqueta aviso">${e.alertasNaoLidos} ${e.alertasNaoLidos === 1 ? 'alerta' : 'alertas'}</span>` : ''}
             <span class="abrir-seta" aria-hidden="true">→</span>
             </span>
           </div>
         </a>
+        ${ehAdmin() ? `<button type="button" class="cartao-acesso ${e.ativa === false ? 'reativar' : ''}" data-acesso-empresa="${esc(e.id)}" data-ativar="${e.ativa === false ? '1' : ''}">${e.ativa === false ? '✅ Reativar conta' : '🚫 Desativar conta'}</button>` : ''}
         </div>`).join('')}
       ${ehAdmin() ? '<button type="button" class="cartao-empresa nova-empresa" id="nova-cartao"><span class="mais">+</span><strong>Nova empresa</strong><span class="rotulo">Cadastre um cliente e configure em minutos</span></button>' : ''}
     </div>`;
@@ -5987,7 +6007,17 @@ function cartaoVendasMeta(id, m) {
   if (!el) return;
   const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
   const env = m.envio || {};
-  const STATUS = { enviada: ['ok', '✅ Enviada'], pronta: ['aviso', '🕐 Pronta — vai no próximo envio'], esperando: ['aviso', '⏳ Esperando'], erro: ['erro', '⚠️ Erro ao enviar'], 'nao-vai': ['off', '⛔ Não vai'], desligado: ['off', '⚪ Envio desligado'] };
+  const STATUS = {
+    enviada: ['ok', '✅ Enviada com o clique do anúncio'],
+    'enviada-sem-clique': ['aviso', '📨 Recebida pela Meta, sem o clique'],
+    teste: ['aviso', '🧪 Só em Eventos de teste'],
+    'sem-confirmacao': ['erro', '⚠️ Meta não confirmou — vai de novo'],
+    pronta: ['aviso', '🕐 Pronta — vai no próximo envio'],
+    esperando: ['aviso', '⏳ Esperando'],
+    erro: ['erro', '⚠️ Erro ao enviar'],
+    'nao-vai': ['off', '⛔ Não vai'],
+    desligado: ['off', '⚪ Envio desligado']
+  };
   const lista = (itens) => itens.map(([n, ok]) => `<span class="${ok ? 'crit-ok' : 'crit-falta'}">${ok ? '✓' : '✗'} ${esc(n)}</span>`).join(' ');
   const linhas = (m.criterios || []).map((v) => {
     const [cls, rotulo] = STATUS[v.status] || ['off', v.status];
@@ -6003,6 +6033,13 @@ function cartaoVendasMeta(id, m) {
     <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
     <p class="rotulo" style="margin:0 0 8px">⏳ Venda com comprovante espera 3 h e venda sem comprovante (IA, frase, à mão) espera 6 h antes de ir: dá tempo de o comprovante chegar e corrigir o valor, e os pagamentos do mesmo cliente no mesmo dia (sinal + restante) vão juntos como <b>uma</b> compra com o valor somado.</p>
     <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
+    <div class="meta-legenda">
+      <p style="margin:0 0 6px"><b>Como ler o status</b></p>
+      <p style="margin:0 0 4px">✅ <b>Enviada com o clique do anúncio</b>: a Meta confirmou o recebimento e tem o clique, então consegue ligar a venda à campanha (aparece como compra no Gerenciador de Anúncios).</p>
+      <p style="margin:0 0 4px">📨 <b>Recebida pela Meta, sem o clique</b>: a Meta confirmou o recebimento, mas sem o clique ela normalmente <b>não sabe de qual anúncio veio</b>. A compra aparece no <b>Gerenciador de Eventos</b> (Pixel → Visão geral → Purchase), mas em geral <b>não</b> aparece como compra da campanha no Gerenciador de Anúncios. Clientes de anúncio "clique para WhatsApp" caem aqui: esse tipo de anúncio não passa pelo site, então não traz o clique do Pixel.</p>
+      <p style="margin:0">🧪 <b>Só em Eventos de teste</b>: foi com o código de teste e não conta na campanha. ⚠️ <b>Erro</b> ou <b>Meta não confirmou</b>: não foi; o CRM tenta de novo.</p>
+      ${m.enviadas ? `<p style="margin:6px 0 0">Nos registros: <b>${m.enviadasComClique || 0}</b> com o clique · <b>${m.enviadasSemClique || 0}</b> sem o clique${m.semConfirmacao ? ` · <b>${m.semConfirmacao}</b> sem confirmação` : ''}.</p>` : ''}
+    </div>
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
   $('#meta-enviar-agora').onclick = async (e) => {
@@ -6028,7 +6065,7 @@ async function cartaoMetaAds(id) {
     : !m.ativo ? ['erro', '⛔ Desligado', 'Nenhuma venda está indo para a Meta. Marque "Enviar vendas para a campanha" e salve.']
     : m.codigoTeste ? ['aviso', '🧪 Em modo teste', 'As vendas vão só para "Eventos de teste" e NÃO contam na campanha. Apague o código de teste e salve.']
     : t.conexao && !t.conexao.ok ? ['erro', '⚠️ A Meta recusou', t.conexao.erro || 'Teste a conexão.']
-    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) já enviada(s). As vendas prontas vão de hora em hora.`];
+    : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) recebida(s) pela Meta: ${m.enviadasComClique || 0} com o clique do anúncio e ${m.enviadasSemClique || 0} sem o clique. As vendas prontas vão de hora em hora.`];
   const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
   const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
   el.innerHTML = `
@@ -6741,12 +6778,24 @@ async function paginaUsuarios() {
               <td class="esconde-mobile">${esc(u.email)}</td>
               <td>${u.papel === 'admin' ? 'Administrador' : `Empresa: ${esc(u.empresaNome || '—')}`}</td>
               <td>${u.pendente ? '<span class="etiqueta aviso">Aguardando</span>' : u.ativo ? '<span class="etiqueta ok">Ativo</span>' : '<span class="etiqueta off">Bloqueado</span>'}${u.cadastroProprio ? ' <span class="rotulo" title="Criou a conta pela página de cadastro">· cadastro</span>' : ''}</td>
-              <td><button class="pequeno" data-editar="${esc(u.id)}">Editar</button></td>
+              <td style="white-space:nowrap"><button class="pequeno" data-editar="${esc(u.id)}">Editar</button>${u.id !== sessao.usuario.id && !u.pendente ? ` <button class="pequeno ${u.ativo ? 'perigo' : 'primario'}" data-bloquear="${esc(u.id)}" data-ativar="${u.ativo ? '' : '1'}">${u.ativo ? 'Bloquear' : 'Desbloquear'}</button>` : ''}</td>
             </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
   $('#novo').onclick = () => modalUsuario(null, empresas);
+  $$('[data-bloquear]').forEach((b) => {
+    b.onclick = async () => {
+      const u = lista.find((x) => x.id === b.dataset.bloquear);
+      const ativar = b.dataset.ativar === '1';
+      if (!ativar && !(await confirmar({ titulo: `Bloquear ${esc(u?.email || '')}?`, texto: 'A pessoa sai do painel na hora e não consegue mais entrar. Nada é apagado e dá para desbloquear quando quiser. (Para parar também a IA da empresa, use "Desativar" no cartão da empresa.)', botao: 'Bloquear', perigo: true }))) return;
+      try {
+        await comEspera(b, () => api(`usuarios/${b.dataset.bloquear}/ativo`, { method: 'POST', body: { ativo: ativar } }));
+        aviso(ativar ? 'Acesso liberado.' : 'Acesso bloqueado.');
+        paginaUsuarios();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
   $$('[data-aprovar]').forEach((b) => {
     b.onclick = async () => {
       try {
