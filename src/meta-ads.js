@@ -117,8 +117,9 @@ function montarEvento(venda, lead, clique = null, valor = venda.valor) {
     event_name: 'Purchase',
     event_time: Math.floor(quando / 1000),
     event_id: venda.id,
-    // com o navegador do clique é evento "do site"; sem ele, gerado pelo sistema (CRM)
-    action_source: clique.ua ? 'website' : 'system_generated',
+    // com o navegador do clique é evento "do site"; sem ele, a venda foi fechada na conversa
+    // do WhatsApp ("chat" = conversão feita por aplicativo de mensagens, na definição da Meta)
+    action_source: clique.ua ? 'website' : 'chat',
     ...(clique.ua ? { event_source_url: clique.pagina } : {}),
     user_data: user,
     custom_data: { currency: 'BRL', value: Math.round(Number(valor) * 100) / 100 }
@@ -130,7 +131,9 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   if (venda.status !== 'confirmada') return 'venda ainda não confirmada';
   if (!(Number(venda.valor) > 0)) return 'venda sem valor';
   const ja = venda.metaAds;
-  if (ja?.enviadoEm && (!ja.teste || c.codigoTeste)) return 'já enviada';
+  // já foi de verdade (com a Meta confirmando); envio de teste volta para a fila quando o código sai,
+  // e envio sem confirmação da Meta tenta de novo (o event_id é o mesmo, a Meta não conta em dobro)
+  if (ja?.enviadoEm && (!ja.teste || c.codigoTeste) && (ja.teste || ja.juntoCom || Number(ja.recebidos) >= 1)) return 'já enviada';
   if ((ja?.tentativas || 0) >= MAX_TENTATIVAS) return 'desistiu depois de 5 erros';
   const lead = venda.leadId && estado.conversas.find((l) => l.id === venda.leadId && l.empresaId === empresa.id);
   if (!lead) return 'venda sem conversa ligada';
@@ -197,6 +200,12 @@ async function enviarVenda(empresa, venda) {
     const total = Math.round(grupo.reduce((t, v) => t + (Number(v.valor) || 0), 0) * 100) / 100;
     const evento = montarEvento(venda, lead, k, total);
     const r = await enviarEventos(c, [evento]);
+    // a Meta responde events_received = quantos eventos aceitou; sem isso, NÃO foi
+    if (!(Number(r.events_received) >= 1)) {
+      const err = new Error(`a Meta respondeu sem confirmar o recebimento (events_received: ${r.events_received ?? 'vazio'})${r.fbtrace_id ? ` · fbtrace ${String(r.fbtrace_id).slice(0, 40)}` : ''}`);
+      err.status = 502;
+      throw err;
+    }
     const u = evento.user_data;
     // a prova: o que a Meta respondeu e quais dados foram (para conferir no painel)
     const prova = {
@@ -204,6 +213,8 @@ async function enviarVenda(empresa, venda) {
       teste: Boolean(c.codigoTeste),
       recebidos: r.events_received ?? null,
       fbtrace: String(r.fbtrace_id || '').slice(0, 40),
+      ...(Array.isArray(r.messages) && r.messages.length ? { avisosMeta: r.messages.map((x) => String(x).slice(0, 200)).slice(0, 5) } : {}),
+      fonte: evento.action_source,
       comClique: Boolean(cliqueDo(lead)), // false = foi pelo telefone (modo todas as vendas)
       dados: { clique: Boolean(u.fbc), telefone: Boolean(u.ph), nome: Boolean(u.fn), ip: Boolean(u.client_ip_address), navegador: Boolean(u.client_user_agent), pixelDoSite: Boolean(u.fbp) },
       valorEnviado: total,
@@ -305,19 +316,39 @@ function iniciar() {
 
 // ---------------------------------------------------------------- painel
 
+// Como a venda está na Meta, sem enfeitar:
+//  'enviada'            a Meta confirmou e foi com o clique do anúncio (dá para ligar à campanha)
+//  'enviada-sem-clique' a Meta confirmou, mas sem o clique: conta no Gerenciador de Eventos e
+//                       normalmente NÃO aparece como compra da campanha no Gerenciador de Anúncios
+//  'teste'              foi só para "Eventos de teste" (não conta na campanha)
+//  'sem-confirmacao'    saiu, mas a Meta não confirmou o recebimento (envios antigos)
+//  null                 não foi
+function estadoDoEnvio(v) {
+  const m = v.metaAds;
+  if (!m?.enviadoEm) return null;
+  if (m.teste) return 'teste';
+  if (!(Number(m.recebidos) >= 1) && !m.juntoCom) return 'sem-confirmacao';
+  return m.comClique || m.dados?.clique ? 'enviada' : 'enviada-sem-clique';
+}
+
 // texto da situação de uma venda na Meta (com a confirmação da Meta quando foi)
 function situacaoDaVenda(v, motivo, c, empresa = null) {
   const m = v.metaAds;
   if (m?.enviadoEm && m.juntoCom && (!m.teste || c.codigoTeste)) {
     return `enviada junto com outro pagamento do mesmo dia (uma compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) ${horaSP(new Date(m.enviadoEm).getTime())}`;
   }
-  if (m?.enviadoEm && (!m.teste || c.codigoTeste)) {
-    const conf = m.recebidos === 1 || m.recebidos > 0 ? ` · a Meta confirmou: ${m.recebidos} evento recebido` : ' · a Meta não confirmou o recebimento';
-    const como = m.comClique === false ? ' pelo telefone (sem o clique)' : m.comClique ? ' com o clique do anúncio' : '';
-    const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
-    return `${m.teste ? 'enviada (teste)' : 'enviada'}${como}${soma} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}`;
+  if (m?.enviadoEm && m.teste) {
+    return `foi só para "Eventos de teste" em ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — NÃO conta na campanha.${c.codigoTeste ? ' Apague o código de teste e salve: ela vai de verdade no próximo envio (se tiver até 7 dias).' : ' Vai de verdade no próximo envio, se tiver até 7 dias.'}`;
   }
-  if (m?.erro && motivo === null) return `erro: ${m.erro}`;
+  if (m?.enviadoEm) {
+    const conf = Number(m.recebidos) >= 1 ? ` · a Meta confirmou o recebimento${m.fbtrace ? ` (fbtrace ${m.fbtrace})` : ''}` : ' · a Meta NÃO confirmou o recebimento';
+    const como = m.comClique === false ? ' pelo telefone, sem o clique do anúncio' : m.comClique ? ' com o clique do anúncio' : '';
+    const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
+    const semClique = estadoDoEnvio(v) === 'enviada-sem-clique' ? ' · sem o clique a Meta recebe a compra (Gerenciador de Eventos), mas normalmente não consegue dizer de qual anúncio veio, então ela não aparece como compra da campanha no Gerenciador de Anúncios' : '';
+    const avisos = m.avisosMeta?.length ? ` · aviso da Meta: ${m.avisosMeta.join(' / ')}` : '';
+    return `enviada${como}${soma} ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${conf}${avisos}${semClique}`;
+  }
+  if (m?.erro && motivo === null) return `não foi: ${m.erro}${(m.tentativas || 0) < MAX_TENTATIVAS ? ` · o CRM tenta de novo no próximo envio (tentativa ${m.tentativas || 0} de ${MAX_TENTATIVAS})` : ''}`;
   const espera = motivo === null && empresa ? esperaDaVenda(empresa, v, c) : null;
   if (espera) return espera.texto;
   return motivo || (pronto(c) ? 'pronta: vai no próximo envio (de hora em hora)' : 'vai quando ligar o envio');
@@ -409,7 +440,8 @@ function criteriosDaVenda(empresa, v, lead, todas = configDa(empresa).todasVenda
       ...(todas ? [['clique do anúncio (fbclid)', Boolean(clique)]] : []),
       ['nome', Boolean(lead?.nome && !/^\d/.test(lead.nome))],
       ['cookie do Pixel', Boolean(nav.fbp || nav.fbc)],
-      ['IP e navegador', Boolean(nav.ip && nav.ua)]
+      ['IP e navegador', Boolean(nav.ip && nav.ua)],
+      ...(lead?.origemSite?.anuncioMeta && !clique ? [['veio de anúncio "clique para WhatsApp" (sem o fbclid do site)', true]] : [])
     ]
   };
 }
@@ -450,7 +482,9 @@ function paraPainel(empresa) {
     .map((v) => {
       const lead = daEmpresa.find((l) => l.id === v.leadId);
       const motivo = motivoNaoEnviar(empresa, v, c);
-      const enviada = Boolean(v.metaAds?.enviadoEm && (!v.metaAds.teste || c.codigoTeste));
+      const envio = estadoDoEnvio(v);
+      // envio de teste com o código já apagado: volta para a fila (vai de verdade)
+      const enviada = envio && !(envio === 'teste' && !c.codigoTeste) ? envio : null;
       return {
         leadId: lead?.id || null,
         cliente: lead?.nome || v.cliente || '',
@@ -458,7 +492,9 @@ function paraPainel(empresa) {
         em: v.confirmadaEm || v.data || v.criadoEm,
         ...criteriosDaVenda(empresa, v, lead, c.todasVendas),
         comClique: comCliqueIds.has(v.leadId),
-        status: enviada ? 'enviada' : motivo === null ? (!pronto(c) ? 'desligado' : esperaDaVenda(empresa, v, c) ? 'esperando' : 'pronta') : v.metaAds?.erro ? 'erro' : 'nao-vai',
+        // deu erro no último envio: vermelho até ir de verdade (o CRM tenta de novo sozinho)
+        status: enviada || (v.metaAds?.erro && motivo === null && pronto(c) ? 'erro' : null) || (motivo === null ? (!pronto(c) ? 'desligado' : esperaDaVenda(empresa, v, c) ? 'esperando' : 'pronta') : v.metaAds?.erro ? 'erro' : 'nao-vai'),
+        anuncioZap: Boolean(lead?.origemSite?.anuncioMeta) && !cliqueDo(lead),
         origemValor: origemDoValor(v).texto,
         valorEnviado: v.metaAds?.enviadoEm ? v.metaAds.valorEnviado ?? null : null,
         situacao: situacaoDaVenda(v, motivo, c, empresa),
@@ -496,7 +532,10 @@ function paraPainel(empresa) {
     criterios,
     semClique,
     envio: { ultimo: ciclo?.em || null, enviadasNoUltimo: ciclo?.enviadas ?? null, proximo: ciclo?.em ? new Date(Math.max(Date.now(), new Date(ciclo.em).getTime() + ENVIO_MS)).toISOString() : null, aCadaMin: Math.round(ENVIO_MS / 60000) },
-    enviadas: vendas.filter((v) => v.metaAds?.enviadoEm && !v.metaAds.teste).length,
+    enviadas: vendas.filter((v) => ['enviada', 'enviada-sem-clique'].includes(estadoDoEnvio(v))).length,
+    enviadasComClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada').length,
+    enviadasSemClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada-sem-clique').length,
+    semConfirmacao: vendas.filter((v) => estadoDoEnvio(v) === 'sem-confirmacao').length,
     enviadasTeste: vendas.filter((v) => v.metaAds?.enviadoEm && v.metaAds.teste).length,
     recentes
   };
