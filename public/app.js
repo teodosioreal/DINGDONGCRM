@@ -409,7 +409,9 @@ function linhaMeta(m) {
     : m.peloTelefone ? '✅ se comprar, a venda vai para a Meta pelo telefone (sem o clique: a Meta reconhece o cliente)'
     : `✅ se comprar até <b>${esc(data(m.vaiAte, false))}</b>, a venda vai para a Meta`;
   const vendas = (m.vendas || []).map((v) => `<div>💰 ${brl(v.valor)} → ${esc(v.situacao)}</div>`).join('');
-  return `<div class="chat-meta"><div>📣 <b>Meta Ads</b> · ${esc(via)}${info ? ` · ${info}` : ''}</div><div class="chat-meta-dados">${dados}</div><div>${envio}</div>${vendas}</div>`;
+  // fechado por padrão: só a etiqueta "📣 Meta Ads" com um resumo; clica e abre os detalhes
+  const resumo = (m.vendas || []).length ? `💰 ${m.vendas.length} venda${m.vendas.length > 1 ? 's' : ''}` : !m.ligado ? 'envio desligado' : m.naoVai ? '⚠️ venda não vai' : m.via === 'whatsapp' ? '💬 campanha de mensagem' : m.via === 'site' ? '🌐 campanha para o site' : 'veio de anúncio';
+  return `<details class="chat-meta"><summary><span class="chat-meta-etiqueta">📣 Meta Ads</span><span class="rotulo">${resumo}${m.campanha ? ` · ${esc(m.campanha)}` : ''}</span></summary><div class="chat-meta-corpo"><div>${esc(via)}${info ? ` · ${info}` : ''}</div><div class="chat-meta-dados">${dados}</div><div>${envio}</div>${vendas}</div></details>`;
 }
 
 function cardOrigem(o, l) {
@@ -5953,12 +5955,28 @@ async function paginaMetaAds(id) {
   const hashDaPagina = location.hash;
   await definirEmpresaAtual(id);
   if (location.hash !== hashDaPagina) return;
+  const ABAS = [['resumo', '📊 Resumo'], ['vendas', '💰 Vendas'], ['caminho', '🧭 Do anúncio ao WhatsApp'], ['config', '⚙️ Configurar']];
+  let aba = 'resumo';
+  try { aba = sessionStorage.getItem(`meta_aba_${id}`) || 'resumo'; } catch { /* ok */ }
+  if (!ABAS.some(([k]) => k === aba)) aba = 'resumo';
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Meta Ads</h1><p class="sub">As vendas do CRM vão para a sua campanha do Facebook/Instagram</p></div></div>
-    <div class="card" id="card-meta-vendas"><p class="rotulo">Carregando vendas…</p></div>
-    <div class="card" id="card-meta-ads"><p class="rotulo">Carregando Meta Ads…</p></div>
-    <div class="card tabela-wrap" id="card-meta-clientes"><p class="rotulo" style="padding:16px">Carregando clientes…</p></div>`;
+    <nav class="abas-meta" role="tablist">${ABAS.map(([k, t]) => `<button type="button" role="tab" class="aba-meta ${k === aba ? 'ativa' : ''}" data-aba-meta="${k}" aria-selected="${k === aba}">${t}</button>`).join('')}</nav>
+    <section data-painel-meta="resumo" ${aba === 'resumo' ? '' : 'hidden'}><div class="card" id="meta-resumo"><p class="rotulo">Carregando…</p></div></section>
+    <section data-painel-meta="vendas" ${aba === 'vendas' ? '' : 'hidden'}><div class="card" id="card-meta-vendas"><p class="rotulo">Carregando vendas…</p></div></section>
+    <section data-painel-meta="caminho" ${aba === 'caminho' ? '' : 'hidden'}><div class="card" id="meta-caminho"><p class="rotulo">Carregando…</p></div><div class="card tabela-wrap" id="card-meta-clientes"><p class="rotulo" style="padding:16px">Carregando clientes…</p></div></section>
+    <section data-painel-meta="config" ${aba === 'config' ? '' : 'hidden'}><div class="card" id="card-meta-ads"><p class="rotulo">Carregando Meta Ads…</p></div></section>`;
+  $$('[data-aba-meta]').forEach((b) => {
+    b.onclick = () => irAbaMeta(id, b.dataset.abaMeta);
+  });
   cartaoMetaAds(id);
+}
+
+// troca a aba da página Meta Ads (fica lembrada nesta sessão)
+function irAbaMeta(id, aba) {
+  $$('[data-aba-meta]').forEach((x) => { const sim = x.dataset.abaMeta === aba; x.classList.toggle('ativa', sim); x.setAttribute('aria-selected', String(sim)); });
+  $$('[data-painel-meta]').forEach((x) => { x.hidden = x.dataset.painelMeta !== aba; });
+  try { sessionStorage.setItem(`meta_aba_${id}`, aba); } catch { /* ok */ }
 }
 
 // Código do site, desta empresa: pega o fbclid de quem chega pelo anúncio e liga à conversa do WhatsApp
@@ -6012,7 +6030,7 @@ function ligarCodigoSiteMeta(id) {
       $('#resultado-teste-site').innerHTML = resultadoTesteSite(r);
     } catch (err) { aviso(err.message, true); }
   };
-  $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }); }; });
+  $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); irAbaMeta(id, 'config'); setTimeout(() => $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }), 50); }; });
 }
 
 // 🧭 Do anúncio ao WhatsApp: quantos cliques no WhatsApp do site viraram conversa (e levaram o clique)
@@ -6066,19 +6084,16 @@ function cartaoVendasMeta(id, m) {
     <p class="rotulo" style="margin:0 0 10px">⏱️ Envio de hora em hora${env.ultimo ? ` · último: <b>${esc(hora(env.ultimo))}</b>${env.enviadasNoUltimo != null ? ` (${env.enviadasNoUltimo} venda${env.enviadasNoUltimo === 1 ? '' : 's'})` : ''} · próximo: ~<b>${esc(hora(env.proximo))}</b>` : ' · ainda não rodou desde esta atualização'}${m.pronto ? '' : ' · <span class="aviso-texto">envio desligado ou falta configurar</span>'}</p>
     <p class="rotulo" style="margin:0 0 8px">⏳ Venda com comprovante espera 3 h e venda sem comprovante (IA, frase, à mão) espera 6 h antes de ir: dá tempo de o comprovante chegar e corrigir o valor, e os pagamentos do mesmo cliente no mesmo dia (sinal + restante) vão juntos como <b>uma</b> compra com o valor somado.</p>
     <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · veio do anúncio (campanha para o site com o clique, ou campanha de mensagem do WhatsApp) · telefone · até 30 dias do anúncio · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
-    <div class="meta-legenda">
-      <p style="margin:0 0 6px"><b>Como ler o status</b></p>
+    <details class="meta-legenda">
+      <summary><b>Como ler o status</b></summary>
       <p style="margin:0 0 4px">✅ <b>Enviada com o clique do anúncio</b>: a Meta confirmou o recebimento e tem o clique, então liga a venda à campanha (aparece como compra no Gerenciador de Anúncios, se a venda for até 7 dias depois do clique — prazo padrão da Meta).</p>
       <p style="margin:0 0 4px">📨 <b>Recebida pela Meta, sem o clique</b>: a Meta confirmou o recebimento e a compra está no <b>Gerenciador de Eventos</b> (Pixel → Visão geral → Purchase). Ela só entra como compra da <b>campanha</b> se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio — às vezes reconhece, às vezes não. Acontece quando o cliente não chegou pelo botão de WhatsApp do site (ou mandou a mensagem de outro jeito).</p>
       <p style="margin:0 0 4px">💬 <b>Enviada — campanha de mensagem</b>: cliente que veio de anúncio que abre o WhatsApp direto. Esse tipo de anúncio não tem o clique do site; a venda vai com o telefone do cliente (o mesmo que mandou a mensagem pelo anúncio) e a Meta liga à campanha quando reconhece a pessoa.</p>
       <p style="margin:0">🧪 <b>Só em Eventos de teste</b>: foi com o código de teste e não conta na campanha. ⚠️ <b>Erro</b> ou <b>Meta não confirmou</b>: não foi; o CRM tenta de novo.</p>
       ${m.enviadas ? `<p style="margin:6px 0 0">Nos registros: <b>${m.enviadasComClique || 0}</b> com o clique do site · <b>${m.enviadasMensagem || 0}</b> de campanha de mensagem · <b>${m.enviadasSemClique || 0}</b> sem o clique${m.semConfirmacao ? ` · <b>${m.semConfirmacao}</b> sem confirmação` : ''}.</p>` : ''}
-    </div>
-    ${caminhoDoAnuncio(m)}
-    ${(m.vendasPorCampanha || []).length ? `<div class="meta-caminho"><p style="margin:0 0 6px"><b>📊 Vendas por campanha e anúncio (30 dias)</b></p><div class="tabela-wrap" style="margin:0"><table><thead><tr><th>Campanha</th><th>Anúncio</th><th class="num">Vendas</th><th class="num">Valor</th><th class="num">Na Meta</th></tr></thead><tbody>${m.vendasPorCampanha.map((g) => `<tr><td>${g.via === 'mensagem' ? '💬 ' : g.via === 'site' ? '🌐 ' : ''}${esc(g.campanha)}</td><td>${esc(g.anuncio || '—')}</td><td class="num">${g.vendas}</td><td class="num">${brl(g.valor)}</td><td class="num">${g.naMeta}</td></tr>`).join('')}</tbody></table></div>${m.vendasPorCampanha.some((g) => g.soNumeros) ? '<p class="rotulo" style="margin:6px 0 0">"nº …" é o número (ID) da campanha na Meta. Com o UTM de nomes no anúncio, aparece o nome.</p>' : ''}</div>` : ''}
+    </details>
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
-  $$('[data-copiar]', el).forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso('Copiado. Cole no anúncio, em Parâmetros de URL.')).catch(() => aviso(b.dataset.copiar)); }; });
   $('#meta-enviar-agora').onclick = async (e) => {
     try {
       const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/meta-ads/enviar-agora`, { method: 'POST' }));
@@ -6105,9 +6120,34 @@ async function cartaoMetaAds(id) {
     : ['ok', '✅ Enviando vendas para a campanha', `${enviadas} venda(s) recebida(s) pela Meta: ${m.enviadasComClique || 0} de campanha para o site (com o clique), ${m.enviadasMensagem || 0} de campanha de mensagem e ${m.enviadasSemClique || 0} sem o clique. Funciona sozinho com os dois tipos de campanha. As vendas prontas vão de hora em hora.`];
   const ajudaMeta = (titulo, html) => `<details class="meta-ajuda"><summary>❓ ${titulo}</summary><div class="rotulo">${html}</div></details>`;
   const semSite = !m.chegadasDoSite30d && !m.clientesComClique;
+  const avisoSemSite = semSite ? `<div class="balao balao-aviso" style="margin:10px 0 0"><span class="balao-icone">⚠️</span><div><strong>O CRM ainda não recebe o clique do anúncio (fbclid)</strong><div class="balao-texto">Nos últimos 30 dias nenhum cliente chegou pelo seu site com o código do CRM. Sem ele, o CRM não sabe quem veio do anúncio de site. Instale o código do CRM no site (uma linha, uma vez só): veja <a href="#" data-ir-codigo-meta>Código do site</a> em Configurar. (Campanha de mensagem funciona sem o código.)</div></div></div>` : '';
+  const resumo = $('#meta-resumo');
+  if (resumo) {
+    const c = m.caminho?.doAnuncio || {};
+    const chegaram = (c.pelaMensagem || 0) + (c.pelaHora || 0);
+    const taxa = c.cliques ? `${Math.round((chegaram / Math.max(1, c.cliques - (c.esperando || 0))) * 100)}%` : '—';
+    resumo.innerHTML = `
+      <div class="meta-status ${status[0]}"><b>${status[1]}</b><span>${status[2]}</span></div>
+      ${avisoSemSite}
+      <div class="grade-resumo compacta meta-numeros">
+        ${numeroCard('Vendas na Meta com o clique do site', m.enviadasComClique || 0)}
+        ${numeroCard('Vendas na Meta de campanha de mensagem', m.enviadasMensagem || 0)}
+        ${numeroCard('Clientes do anúncio (30 dias)', (m.clientesComClique || 0) + (m.clientesMensagem || 0))}
+        ${numeroCard('Cliques do anúncio que viraram conversa', taxa)}
+      </div>
+      ${(m.vendasPorCampanha || []).length ? '' : '<p class="rotulo" style="margin:12px 0 0">Ainda não há vendas confirmadas nos últimos 30 dias para mostrar por campanha.</p>'}
+      ${(m.vendasPorCampanha || []).length ? `<div class="meta-caminho"><p style="margin:0 0 6px"><b>📊 Vendas por campanha e anúncio (30 dias)</b></p><div class="tabela-wrap" style="margin:0"><table><thead><tr><th>Campanha</th><th>Anúncio</th><th class="num">Vendas</th><th class="num">Valor</th><th class="num">Na Meta</th></tr></thead><tbody>${m.vendasPorCampanha.map((g) => `<tr><td>${g.via === 'mensagem' ? '💬 ' : g.via === 'site' ? '🌐 ' : ''}${esc(g.campanha)}</td><td>${esc(g.anuncio || '—')}</td><td class="num">${g.vendas}</td><td class="num">${brl(g.valor)}</td><td class="num">${g.naMeta}</td></tr>`).join('')}</tbody></table></div>${m.vendasPorCampanha.some((g) => g.soNumeros) ? '<p class="rotulo" style="margin:6px 0 0">"nº …" é o número (ID) da campanha na Meta. Com o UTM de nomes no anúncio, aparece o nome.</p>' : ''}</div>` : ''}
+      <p class="rotulo" style="margin:12px 0 0">Veja cada venda em <a href="#" data-ir-aba="vendas">Vendas</a> · de onde vêm os clientes em <a href="#" data-ir-aba="caminho">Do anúncio ao WhatsApp</a> · Pixel, token e código do site em <a href="#" data-ir-aba="config">Configurar</a>.</p>`;
+    $$('[data-ir-aba]', resumo).forEach((a) => { a.onclick = (e) => { e.preventDefault(); irAbaMeta(id, a.dataset.irAba); }; });
+  }
+  const caminho = $('#meta-caminho');
+  if (caminho) {
+    caminho.innerHTML = caminhoDoAnuncio(m);
+    $$('[data-copiar]', caminho).forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso('Copiado. Cole no anúncio, em Parâmetros de URL.')).catch(() => aviso(b.dataset.copiar)); }; });
+  }
   el.innerHTML = `
-    <div class="meta-status ${status[0]}"><b>${status[1]}</b><span>${status[2]}</span></div>
-    ${semSite ? `<div class="balao balao-aviso" style="margin:10px 0 0"><span class="balao-icone">⚠️</span><div><strong>O CRM ainda não recebe o clique do anúncio (fbclid)</strong><div class="balao-texto">Nos últimos 30 dias nenhum cliente chegou pelo seu site com o código do CRM. Sem ele, o CRM não sabe quem veio do anúncio e nenhuma venda vai para a Meta. Instale o código do CRM no site (uma linha, uma vez só): veja <a href="#" data-ir-codigo-meta>Código do site</a> logo abaixo. Ele pega o fbclid de quem chega pelo anúncio e liga à conversa quando o cliente toca no botão do WhatsApp do site.</div></div></div>` : ''}
+    <div class="meta-status ${status[0]} compacto"><b>${status[1]}</b></div>
+    ${avisoSemSite}
 
     ${blocoCodigoSiteMeta(id, m.site || {}, m.chegadasDoSite30d)}
 
