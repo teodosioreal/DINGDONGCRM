@@ -138,8 +138,14 @@ if ! git diff --quiet "$ANTES" HEAD -- package.json package-lock.json; then
 fi
 
 PORTA="$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
-BASE="$(grep -E '^BASE_PATH=' .env 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
-URL_TESTE="http://127.0.0.1:${PORTA:-3100}${BASE:-/crm}/login"
+# BASE_PATH vazio = CRM na raiz do domínio; sem a linha no .env = /crm (igual ao src/config.js)
+if grep -qE '^BASE_PATH=' .env 2>/dev/null; then
+  BASE="$(grep -E '^BASE_PATH=' .env | tail -n 1 | cut -d= -f2- | tr -d '[:space:]"'"'"'' | sed -e 's#/*$##' -e 's#^/*#/#')"
+  [ "$BASE" = "/" ] && BASE=""
+else
+  BASE="/crm"
+fi
+URL_TESTE="http://127.0.0.1:${PORTA:-3100}${BASE}/login"
 
 responde() {
   for _ in $(seq 1 15); do
