@@ -2558,6 +2558,15 @@ async function paginaMidias(id) {
         : `<video src="${esc(m.url)}#t=0.5" preload="metadata" muted playsinline onerror="this.hidden=true"></video><span class="selo-video">▶</span>`)
       : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`);
   const duracaoTxt = (s) => (s ? ` · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
+  const taxa = (g) => (g.clientes ? `${Math.round((g.compraram / g.clientes) * 100)}%` : '—');
+  const placarAB = (ab) => {
+    const a = ab.audio || {}, t = ab.texto || {};
+    const lider = a.clientes >= 10 && t.clientes >= 10 ? (a.compraram / a.clientes > t.compraram / t.clientes ? 'audio' : t.compraram / t.clientes > a.compraram / a.clientes ? 'texto' : '') : '';
+    return `<div class="placar-ab">
+      <div class="${lider === 'audio' ? 'lider' : ''}"><span class="rotulo">🎤 Áudio</span><b>${taxa(a)}</b><span class="rotulo">${a.compraram || 0} de ${a.clientes || 0} compraram${a.clientes ? ` · ${a.receberam || 0} já receberam o áudio` : ''}</span></div>
+      <div class="${lider === 'texto' ? 'lider' : ''}"><span class="rotulo">💬 Texto</span><b>${taxa(t)}</b><span class="rotulo">${t.compraram || 0} de ${t.clientes || 0} compraram</span></div>
+    </div>${a.clientes + t.clientes < 20 ? '<span class="rotulo">Com poucos clientes o resultado ainda varia muito: espere pelo menos uns 20 em cada grupo para decidir.</span>' : ''}`;
+  };
   const statusVideo = (m) => {
     if (m.tipo !== 'video') return '';
     if (m.processando) return '<span class="rotulo">⏳ Convertendo para MP4 do WhatsApp — a IA usa assim que terminar.</span>';
@@ -2590,7 +2599,13 @@ async function paginaMidias(id) {
         <label class="rotulo">🗣️ O que o áudio fala ${m.falaAuto ? '<span class="etiqueta">transcrito pela IA — confira</span>' : ''}</label>
         <textarea name="fala" rows="3" maxlength="2000" placeholder="Escreva o que o áudio fala (a IA usa isso para saber o conteúdo e não repetir por escrito)">${esc(m.fala || '')}</textarea>
         <span class="acoes-fala"><button type="submit" class="pequeno">Salvar</button><button type="button" class="pequeno" data-transcrever="${esc(m.id)}" title="A IA ouve o áudio e escreve o que ele fala">✨ Transcrever</button></span>
-      </form>` : ''}
+      </form>
+      <div class="ab-audio ${m.abTexto ? 'ligado' : ''}">
+        <label class="linha-check"><input type="checkbox" data-ab="${esc(m.id)}" ${m.abTexto ? 'checked' : ''}> <b>🧪 Teste A/B: áudio x texto</b></label>
+        <span class="rotulo">Metade dos clientes recebe este áudio; a outra metade recebe o mesmo conteúdo escrito pela IA. Cada cliente fica sempre no mesmo grupo.</span>
+        ${m.abTexto && !m.fala ? '<span class="rotulo aviso-texto">⚠️ Preencha "o que o áudio fala": é esse o texto que o grupo "texto" recebe.</span>' : ''}
+        ${m.ab ? placarAB(m.ab) : ''}
+      </div>` : ''}
       ${m.tipo === 'audio' && !m.soFollowup ? '<label class="rotulo" style="margin-top:6px">⏱️ Quando enviar</label>' : ''}
       ${m.soFollowup ? '' : `<form class="midia-desc" data-desc="${esc(m.id)}">
         <input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Descrição (opcional): quando a IA deve mandar">
@@ -2690,6 +2705,17 @@ async function paginaMidias(id) {
           aviso('Salvo: a IA já sabe o que este áudio fala.');
           desenharBiblioteca();
         } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-ab]').forEach((c) => {
+      c.onchange = async () => {
+        const m = lista.find((x) => x.id === c.dataset.ab);
+        try {
+          const r = await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { abTexto: c.checked } });
+          Object.assign(m, { abTexto: r.abTexto });
+          aviso(c.checked ? 'Teste A/B ligado: os próximos clientes são divididos entre áudio e texto.' : 'Teste A/B desligado: o áudio volta a ir para todos.');
+          desenharBiblioteca();
+        } catch (err) { c.checked = !c.checked; aviso(err.message, true); }
       };
     });
     $$('[data-transcrever]').forEach((b) => {

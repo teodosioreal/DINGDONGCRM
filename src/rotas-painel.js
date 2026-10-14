@@ -924,7 +924,7 @@ router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
 router.get('/empresas/:id/midias', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m), ...(m.tipo === 'video' ? { capa: `${config.urlPublica}/capa/${m.id}` } : {}) })));
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m), ...(m.tipo === 'video' ? { capa: `${config.urlPublica}/capa/${m.id}` } : {}), ...(m.tipo === 'audio' && (m.abTexto || empresa.abContador?.[m.id]) ? { ab: midias.resultadoAB(empresa, m) } : {}) })));
 });
 
 // Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)
@@ -981,6 +981,7 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.codigo !== undefined && midias.codigoDaEntrada(b.codigo) !== midia.codigo) midia.codigo = midias.validarCodigo(empresa, b.codigo, midia.id);
     if (b.descricao !== undefined) midia.descricao = texto(b.descricao, 300);
     if (b.legenda !== undefined) midia.legenda = texto(b.legenda, 1000);
+    if (b.abTexto !== undefined) midia.abTexto = midia.tipo === 'audio' && b.abTexto === true;
     if (b.fala !== undefined) {
       midia.fala = texto(b.fala, 2000);
       delete midia.falaAuto; // conferido/escrito pelo dono

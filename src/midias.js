@@ -473,6 +473,57 @@ function paraIa(empresa, { followup = false } = {}) {
   return [...avulsas, ...albuns, ...pastas];
 }
 
+// ---------------------------------------------------------------- teste A/B: áudio x texto
+// Áudio com "Teste A/B" ligado: os clientes são divididos um sim, um não. Metade recebe o
+// áudio; a outra metade recebe o mesmo conteúdo escrito pela IA. Cada cliente fica sempre no
+// mesmo grupo. O placar compara quantos compraram em cada grupo.
+function varianteAB(empresa, lead, midia) {
+  if (!midia?.abTexto || midia.tipo !== 'audio' || !lead) return null;
+  lead.abAudio = lead.abAudio || {};
+  if (!lead.abAudio[midia.id]) {
+    empresa.abContador = empresa.abContador || {};
+    const n = Number(empresa.abContador[midia.id]) || 0;
+    empresa.abContador[midia.id] = n + 1;
+    lead.abAudio[midia.id] = n % 2 === 0 ? 'audio' : 'texto';
+    salvar();
+  }
+  return lead.abAudio[midia.id];
+}
+
+// A lista de mídias para a IA nesta conversa: tira os áudios que, para este cliente, vão em texto
+function paraIaDoLead(empresa, lead, opcoes = {}) {
+  const lista = paraIa(empresa, opcoes);
+  const porCodigo = new Map(midiasDa(empresa).map((m) => [m.codigo, m]));
+  const noLugar = [];
+  const filtrada = lista.filter((x) => {
+    const m = porCodigo.get(x.codigo);
+    if (m && varianteAB(empresa, lead, m) === 'texto') {
+      if (m.fala) noLugar.push({ nome: m.nome, quando: x.quando || m.descricao || '', fala: String(m.fala).slice(0, 800) });
+      return false;
+    }
+    return true;
+  });
+  return { lista: filtrada, noLugar };
+}
+
+// este áudio NÃO pode ir para este cliente (ele está no grupo "texto" do teste A/B)?
+const bloqueadoPeloAB = (empresa, lead, midia) => varianteAB(empresa, lead, midia) === 'texto';
+
+// Placar do teste A/B de um áudio
+function resultadoAB(empresa, midia) {
+  const compraram = new Set((estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status === 'confirmada' && v.leadId).map((v) => v.leadId));
+  const grupos = { audio: { clientes: 0, compraram: 0, receberam: 0 }, texto: { clientes: 0, compraram: 0 } };
+  for (const l of estado.conversas) {
+    if (l.empresaId !== empresa.id) continue;
+    const g = l.abAudio?.[midia.id];
+    if (!grupos[g]) continue;
+    grupos[g].clientes++;
+    if (compraram.has(l.id) || l.vendaConcluida) grupos[g].compraram++;
+    if (g === 'audio' && l.midiasEnviadas?.[midia.codigo]) grupos.audio.receberam++;
+  }
+  return grupos;
+}
+
 // ---------------------------------------------------------------- códigos citados no prompt
 // O dono pode citar o código no prompt ("quando perguntarem do preço, mande #MIDIA_TABELA").
 // O sistema reconhece e avisa no painel se o código não existe (ou está desativado).
@@ -1013,6 +1064,10 @@ function apagarAnexosDoLead(leadId) {
 }
 
 module.exports = {
+  varianteAB,
+  paraIaDoLead,
+  bloqueadoPeloAB,
+  resultadoAB,
   revezamentoDe,
   escolherRevezando,
   definirRevezamento,

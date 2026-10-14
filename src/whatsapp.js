@@ -1728,7 +1728,11 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
-      midias: midias.paraIa(empresa),
+      // teste A/B áudio x texto: quem está no grupo "texto" não vê o áudio; recebe o conteúdo escrito
+      ...(() => {
+        const ab = midias.paraIaDoLead(empresa, lead);
+        return { midias: ab.lista, textoNoLugarDeAudio: ab.noLugar };
+      })(),
       links: midias.linksDa(empresa),
       etiquetas: leads.etiquetasDa(empresa)
     });
@@ -1778,7 +1782,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   if (logs.prometeuMidiaSemCodigo(r.texto, r.midias)) {
     // a IA disse que ia mandar e esqueceu o código: se a mídia certa é clara (pelo que ela
     // escreveu + o que o cliente pediu), o CRM manda; senão só avisa no log
-    const daIa = new Set(midias.paraIa(empresa).map((m) => m.codigo));
+    const daIa = new Set(midias.paraIaDoLead(empresa, lead).lista.map((m) => m.codigo));
     const certa = midias.conexaoCerta(empresa, `${r.texto} ${ultimaDoCliente(lead)?.texto || ''}`);
     if (certa && daIa.has(certa.codigo) && !jaEnviouMidia(lead, certa.codigo)) {
       r.midias = [...(r.midias || []), certa.codigo];
@@ -2026,6 +2030,11 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
         resultado.revezados = [...(resultado.revezados || []), { pedido: visivel(pedido.alvo.codigo, nome), enviado: visivel(daVez.codigo) }];
         pedido = midias.resolverPedido(empresa, daVez.codigo);
       }
+    }
+    // teste A/B: este cliente está no grupo "texto" deste áudio → o áudio não vai (a IA escreveu o conteúdo)
+    if (daIa && pedido.alvo && pedido.itens.length === 1 && midias.bloqueadoPeloAB(empresa, lead, pedido.alvo)) {
+      resultado.itens.push({ codigo: visivel(pedido.alvo.codigo, nome), nome: pedido.alvo.nome, tipo: 'audio', status: 'pulada', motivo: 'teste A/B: este cliente está no grupo que recebe em texto' });
+      continue;
     }
     const codigoPedido = visivel(pedido.alvo?.codigo, nome);
     if (!pedido.alvo) {
