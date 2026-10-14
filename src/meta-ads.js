@@ -75,6 +75,15 @@ function cliqueDo(lead) {
   return null;
 }
 
+// cliente que veio de campanha de MENSAGEM (anúncio que abre o WhatsApp direto, sem passar
+// pelo site): não tem o fbclid; a venda vai pelo telefone (a Meta reconhece o cliente que
+// mandou mensagem pelo anúncio). Vale por 30 dias depois da mensagem do anúncio.
+function anuncioDeMensagem(lead) {
+  const z = lead?.origemSite?.anuncioMeta;
+  if (!z || cliqueDo(lead)) return null;
+  return { em: z.em || lead.criadoEm || null, titulo: z.titulo || '', id: z.id || '' };
+}
+
 // cliente sem o fbclid que passou pelo site: cookie do Pixel (o _fbc vale 90 dias), IP e navegador
 function dadosDoNavegador(lead) {
   const o = lead?.origemSite || {};
@@ -151,9 +160,11 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   if (!lead) return 'venda sem conversa ligada';
   const clique = cliqueDo(lead);
   const vendaMs = new Date(venda.confirmadaEm || venda.data || venda.criadoEm).getTime();
-  if (!clique && !c.todasVendas) return 'sem o clique do anúncio (fbclid): o cliente não passou pelo site com o código do CRM';
+  const mensagem = anuncioDeMensagem(lead);
+  if (!clique && !mensagem && !c.todasVendas) return 'não veio de anúncio: sem o clique do site (fbclid) e sem anúncio de mensagem do WhatsApp';
   if (!telefoneDe(lead)) return 'sem o telefone do cliente';
   if (clique && !c.todasVendas && vendaMs - new Date(clique.em).getTime() > DIAS_CLIQUE * 86400000) return 'venda mais de 30 dias depois do clique';
+  if (!clique && mensagem && !c.todasVendas && mensagem.em && vendaMs - new Date(mensagem.em).getTime() > DIAS_CLIQUE * 86400000) return 'venda mais de 30 dias depois da mensagem do anúncio';
   if (Date.now() - vendaMs > DIAS_EVENTO * 86400000) return 'venda de mais de 7 dias (a Meta não aceita)';
   return null;
 }
@@ -228,6 +239,7 @@ async function enviarVenda(empresa, venda) {
       ...(Array.isArray(r.messages) && r.messages.length ? { avisosMeta: r.messages.map((x) => String(x).slice(0, 200)).slice(0, 5) } : {}),
       fonte: evento.action_source,
       comClique: Boolean(cliqueDo(lead)), // false = foi pelo telefone (modo todas as vendas)
+      viaMensagem: !cliqueDo(lead) && Boolean(anuncioDeMensagem(lead)), // campanha de mensagem (WhatsApp)
       dados: { clique: Boolean(u.fbc), telefone: Boolean(u.ph), nome: Boolean(u.fn), ip: Boolean(u.client_ip_address), navegador: Boolean(u.client_user_agent), pixelDoSite: Boolean(u.fbp) },
       valorEnviado: total,
       ...(grupo.length > 1 ? { grupo: grupo.map((v) => v.id) } : {})
@@ -332,6 +344,7 @@ function iniciar() {
 //  'enviada'            a Meta confirmou e foi com o clique do anúncio (dá para ligar à campanha)
 //  'enviada-sem-clique' a Meta confirmou, mas sem o clique: conta no Gerenciador de Eventos e
 //                       normalmente NÃO aparece como compra da campanha no Gerenciador de Anúncios
+//  'enviada-mensagem'   a Meta confirmou; cliente de campanha de mensagem (WhatsApp), vai pelo telefone
 //  'teste'              foi só para "Eventos de teste" (não conta na campanha)
 //  'sem-confirmacao'    saiu, mas a Meta não confirmou o recebimento (envios antigos)
 //  null                 não foi
@@ -340,7 +353,8 @@ function estadoDoEnvio(v) {
   if (!m?.enviadoEm) return null;
   if (m.teste) return 'teste';
   if (!(Number(m.recebidos) >= 1) && !m.juntoCom) return 'sem-confirmacao';
-  return m.comClique || m.dados?.clique ? 'enviada' : 'enviada-sem-clique';
+  if (m.comClique || m.dados?.clique) return 'enviada';
+  return m.viaMensagem ? 'enviada-mensagem' : 'enviada-sem-clique';
 }
 
 // texto da situação de uma venda na Meta (com a confirmação da Meta quando foi)
@@ -354,7 +368,7 @@ function situacaoDaVenda(v, motivo, c, empresa = null) {
   }
   if (m?.enviadoEm) {
     const conf = Number(m.recebidos) >= 1 ? ` · a Meta confirmou o recebimento${m.fbtrace ? ` (fbtrace ${m.fbtrace})` : ''}` : ' · a Meta NÃO confirmou o recebimento';
-    const como = m.comClique === false ? ' pelo telefone, sem o clique do anúncio' : m.comClique ? ' com o clique do anúncio' : '';
+    const como = m.viaMensagem ? ' (campanha de mensagem do WhatsApp, pelo telefone do cliente)' : m.comClique === false ? ' pelo telefone, sem o clique do anúncio' : m.comClique ? ' com o clique do anúncio' : '';
     const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
     const semClique = estadoDoEnvio(v) === 'enviada-sem-clique' ? ' · sem o clique: a compra está no Gerenciador de Eventos e só entra na campanha se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio' : '';
     const avisos = m.avisosMeta?.length ? ` · aviso da Meta: ${m.avisosMeta.join(' / ')}` : '';
@@ -388,9 +402,10 @@ function paraConversa(empresa, lead) {
     .map((v) => ({ valor: v.valor, em: v.confirmadaEm || v.data || v.criadoEm, situacao: situacaoDaVenda(v, motivoNaoEnviar(empresa, v, c), c, empresa) }));
   // se este cliente comprar hoje, a venda vai para a Meta?
   const ate = k ? new Date(new Date(k.em).getTime() + DIAS_CLIQUE * 86400000).toISOString() : null;
-  const peloTelefone = !k && c.todasVendas && Boolean(telefoneDe(lead));
+  const mensagem = anuncioDeMensagem(lead);
+  const peloTelefone = !k && (c.todasVendas || Boolean(mensagem)) && Boolean(telefoneDe(lead));
   const naoVai = peloTelefone ? null : !k
-    ? (zap ? 'veio de anúncio direto para o WhatsApp (sem passar pelo site), não tem o fbclid' : 'não tem o fbclid do clique (chegou sem passar pelo código do site)')
+    ? 'não tem o fbclid do clique (chegou sem passar pelo código do site)'
     : !telefoneDe(lead) ? 'sem o telefone do cliente'
     : Date.now() > new Date(ate).getTime() ? 'o clique tem mais de 30 dias'
     : null;
@@ -398,9 +413,12 @@ function paraConversa(empresa, lead) {
     via: k ? 'site' : zap ? 'whatsapp' : 'utm',
     fbclid: k?.fbclid || '',
     clicouEm: k?.em || zap?.em || o.chegada?.em || null,
-    campanha: utm.campaign || '',
-    conjunto: utm.term || '',
-    anuncio: utm.content || '',
+    ...(() => {
+      const cp = require('./origem').campanhaDoLead(lead);
+      const r = (p) => (!p ? '' : p.nome || `nº ${p.id}`);
+      return { campanha: r(cp?.campanha), conjunto: r(cp?.conjunto), anuncio: r(cp?.anuncio), soNumeros: Boolean(cp?.soNumeros) };
+    })(),
+    viaMensagem: Boolean(mensagem),
     origem: [utm.source, utm.medium].filter(Boolean).join(' / '),
     pagina,
     anuncioZap: zap ? { titulo: zap.titulo || '', id: zap.id || '' } : null,
@@ -437,15 +455,16 @@ function situacaoDoSite(empresa) {
 // cada critério de uma venda (todos, não só o primeiro que falta) — para mapear o que chega
 function criteriosDaVenda(empresa, v, lead, todas = configDa(empresa).todasVendas) {
   const clique = lead ? cliqueDo(lead) : null;
+  const mensagem = lead ? anuncioDeMensagem(lead) : null;
   const vendaMs = new Date(v.confirmadaEm || v.data || v.criadoEm).getTime();
   const nav = lead?.origemSite?.navegador || {};
   return {
     obrigatorios: [
       ['confirmada', v.status === 'confirmada'],
       ['com valor', Number(v.valor) > 0],
-      ...(todas ? [] : [['clique do anúncio (fbclid)', Boolean(clique)]]),
+      ...(todas ? [] : [[mensagem ? 'veio de anúncio de mensagem (WhatsApp)' : 'veio do anúncio (clique no site ou mensagem)', Boolean(clique || mensagem)]]),
       ['telefone', Boolean(lead && telefoneDe(lead))],
-      ...(todas ? [] : [['até 30 dias do clique', Boolean(clique) && vendaMs - new Date(clique.em).getTime() <= DIAS_CLIQUE * 86400000]]),
+      ...(todas ? [] : [[mensagem ? 'até 30 dias da mensagem do anúncio' : 'até 30 dias do clique', clique ? vendaMs - new Date(clique.em).getTime() <= DIAS_CLIQUE * 86400000 : Boolean(mensagem) && (!mensagem.em || vendaMs - new Date(mensagem.em).getTime() <= DIAS_CLIQUE * 86400000)]]),
       ['até 7 dias (prazo da Meta)', Date.now() - vendaMs <= DIAS_EVENTO * 86400000 || Boolean(v.metaAds?.enviadoEm)]
     ],
     extras: [
@@ -453,7 +472,7 @@ function criteriosDaVenda(empresa, v, lead, todas = configDa(empresa).todasVenda
       ['nome', Boolean(lead?.nome && !/^\d/.test(lead.nome))],
       ['cookie do Pixel', Boolean(nav.fbp || nav.fbc)],
       ['IP e navegador', Boolean(nav.ip && nav.ua)],
-      ...(lead?.origemSite?.anuncioMeta && !clique ? [['veio de anúncio "clique para WhatsApp" (sem o fbclid do site)', true]] : [])
+      ...(todas && mensagem ? [['veio de anúncio de mensagem (WhatsApp)', true]] : [])
     ]
   };
 }
@@ -485,7 +504,8 @@ function paraPainel(empresa) {
       };
     });
   // vendas de clientes que vieram do anúncio (+ as já enviadas): critérios e situação de cada uma
-  const comCliqueIds = new Set(daEmpresa.filter((l) => cliqueDo(l)).map((l) => l.id));
+  const comCliqueIds = new Set(daEmpresa.filter((l) => cliqueDo(l) || anuncioDeMensagem(l)).map((l) => l.id));
+  const origem = require('./origem');
   const desde = Date.now() - DIAS_CLIQUE * 86400000;
   const doPeriodo = vendas.filter((v) => v.status !== 'cancelada' && new Date(v.confirmadaEm || v.data || v.criadoEm).getTime() > desde);
   const criterios = doPeriodo
@@ -504,6 +524,7 @@ function paraPainel(empresa) {
         em: v.confirmadaEm || v.data || v.criadoEm,
         ...criteriosDaVenda(empresa, v, lead, c.todasVendas),
         comClique: comCliqueIds.has(v.leadId),
+        campanha: lead ? origem.campanhaDoLead(lead) : null,
         // deu erro no último envio: vermelho até ir de verdade (o CRM tenta de novo sozinho)
         status: enviada || (v.metaAds?.erro && motivo === null && pronto(c) ? 'erro' : null) || (motivo === null ? (!pronto(c) ? 'desligado' : esperaDaVenda(empresa, v, c) ? 'esperando' : 'pronta') : v.metaAds?.erro ? 'erro' : 'nao-vai'),
         anuncioZap: Boolean(lead?.origemSite?.anuncioMeta) && !cliqueDo(lead),
@@ -513,6 +534,19 @@ function paraPainel(empresa) {
         recebidos: v.metaAds?.recebidos ?? null
       };
     });
+  // vendas confirmadas dos últimos 30 dias por campanha e anúncio (pelos UTMs ou anúncio do WhatsApp)
+  const rotulo = (p) => (!p ? '' : p.nome || `nº ${p.id}`);
+  const porCampanha = {};
+  for (const v of doPeriodo.filter((x) => x.status === 'confirmada')) {
+    const lead = daEmpresa.find((l) => l.id === v.leadId);
+    const cp = lead ? origem.campanhaDoLead(lead) : null;
+    const chave = cp ? `${rotulo(cp.campanha) || (cp.via === 'mensagem' ? 'Campanha de mensagem' : 'Sem nome de campanha')}||${rotulo(cp.anuncio)}` : 'Fora de anúncio||';
+    const g = (porCampanha[chave] = porCampanha[chave] || { campanha: chave.split('||')[0], anuncio: chave.split('||')[1], via: cp?.via || null, soNumeros: Boolean(cp?.soNumeros), vendas: 0, valor: 0, naMeta: 0 });
+    g.vendas++;
+    g.valor += Number(v.valor) || 0;
+    if (['enviada', 'enviada-mensagem', 'enviada-sem-clique'].includes(estadoDoEnvio(v))) g.naMeta++;
+  }
+  const vendasPorCampanha = Object.values(porCampanha).sort((a, b) => b.valor - a.valor).slice(0, 20);
   const semClique = c.todasVendas ? 0 : doPeriodo.filter((v) => v.status === 'confirmada' && !comCliqueIds.has(v.leadId) && !v.metaAds?.enviadoEm).length;
   const ciclo = empresa.metaAdsCiclo || null;
   const clientes = comClique
@@ -546,9 +580,15 @@ function paraPainel(empresa) {
     envio: { ultimo: ciclo?.em || null, enviadasNoUltimo: ciclo?.enviadas ?? null, proximo: ciclo?.em ? new Date(Math.max(Date.now(), new Date(ciclo.em).getTime() + ENVIO_MS)).toISOString() : null, aCadaMin: Math.round(ENVIO_MS / 60000) },
     // cliques no WhatsApp do site: quantos chegaram como conversa (com o código ou pelo horário)
     caminho: require('./origem').resumoVisitas(empresa.id),
-    enviadas: vendas.filter((v) => ['enviada', 'enviada-sem-clique'].includes(estadoDoEnvio(v))).length,
+    vendasPorCampanha,
+    clientesMensagem: daEmpresa.filter((l) => {
+      const z = anuncioDeMensagem(l);
+      return z && (!z.em || new Date(z.em).getTime() > trinta);
+    }).length,
+    enviadas: vendas.filter((v) => ['enviada', 'enviada-sem-clique', 'enviada-mensagem'].includes(estadoDoEnvio(v))).length,
     enviadasComClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada').length,
     enviadasSemClique: vendas.filter((v) => estadoDoEnvio(v) === 'enviada-sem-clique').length,
+    enviadasMensagem: vendas.filter((v) => estadoDoEnvio(v) === 'enviada-mensagem').length,
     semConfirmacao: vendas.filter((v) => estadoDoEnvio(v) === 'sem-confirmacao').length,
     enviadasTeste: vendas.filter((v) => v.metaAds?.enviadoEm && v.metaAds.teste).length,
     recentes

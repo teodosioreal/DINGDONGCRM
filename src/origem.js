@@ -543,6 +543,43 @@ async function contextoParaIa(lead, bot, canal, empresa = null) {
 }
 
 // Resumo para o painel
+// Campanha, conjunto e anúncio do cliente, pelos UTMs da página de chegada (campanha de site/lead)
+// ou pelo anúncio do WhatsApp (campanha de mensagem). Valor só com números = ID da Meta (o anúncio
+// não tem UTM com os nomes): fica em "id" para a tela explicar.
+const soNumero = (v) => /^\d{6,}$/.test(String(v || '').trim());
+function campanhaDoLead(lead) {
+  const o = lead?.origemSite || {};
+  const utm = {};
+  for (const ch of [o.chegada, o.primeira]) {
+    try {
+      const u = new URL(ch?.url || '');
+      for (const c of ['source', 'medium', 'campaign', 'term', 'content', 'id']) {
+        const v = u.searchParams.get(`utm_${c}`);
+        if (v && !utm[c]) utm[c] = v.slice(0, 120);
+      }
+    } catch { /* sem página */ }
+    if (utm.campaign || utm.content) break;
+  }
+  const temFbclid = [o.chegada?.url, o.primeira?.url].some((u) => /[?&]fbclid=/.test(u || ''));
+  const zap = o.anuncioMeta || null;
+  if (!temFbclid && !zap && !utm.campaign && !utm.content && !utm.id) return null;
+  const parte = (v) => (!v ? null : soNumero(v) ? { nome: '', id: String(v).trim() } : { nome: String(v).trim(), id: '' });
+  const campanha = parte(utm.campaign) || parte(utm.id);
+  const conjunto = parte(utm.term);
+  const anuncio = parte(utm.content) || (zap && (zap.titulo || zap.id) ? { nome: zap.titulo || '', id: zap.id || '' } : null);
+  const partes = [campanha, conjunto, anuncio].filter(Boolean);
+  return {
+    via: temFbclid ? 'site' : zap ? 'mensagem' : 'utm',
+    fonte: utm.source || '',
+    campanha,
+    conjunto,
+    anuncio,
+    // tem campanha/anúncio, mas só os números da Meta: falta o UTM com os nomes no anúncio
+    soNumeros: partes.length > 0 && partes.every((p) => !p.nome),
+    em: (temFbclid ? o.chegada?.em : zap?.em) || o.chegada?.em || null
+  };
+}
+
 function resumoOrigem(lead, empresa = null) {
   const o = lead.origemSite || {};
   const anuncio = empresa && lead.anuncioId ? anunciosDa(empresa).find((a) => a.id === lead.anuncioId) : null;
@@ -554,6 +591,7 @@ function resumoOrigem(lead, empresa = null) {
     fonte: o.classificacao?.fonte || '',
     tipo: o.classificacao?.tipo || '',
     campanha: o.classificacao?.campanha || '',
+    campanhaMeta: campanhaDoLead(lead),
     utm: o.chegada?.utm || {},
     chegada: o.chegada ? { url: o.chegada.url, titulo: o.chegada.titulo, referrer: o.chegada.referrer, em: o.chegada.em } : null,
     atual: o.atual || null,
@@ -570,6 +608,7 @@ module.exports = {
   tirarVisita,
   visitaSemCodigo,
   resumoVisitas,
+  campanhaDoLead,
   lerPagina,
   extrairTexto,
   baixarHtml,
