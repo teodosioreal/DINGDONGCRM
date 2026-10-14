@@ -1711,3 +1711,6 @@ html.dark .clone-situacao.nao { background: #334155; color: #e2e8f0; }
 .cartao-acesso.reativar { opacity: 1; border-color: #22c55e; color: #15803d; }
 html.dark .cartao-acesso.reativar { color: #86efac; }
 .cartao-empresa-contas { margin: -4px 0 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-caminho { font-size: 13px; line-height: 1.5; border: 1px solid var(--borda); border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; }
+.utm-copiar { display: flex; gap: 8px; align-items: center; }
+.utm-copiar code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 6px 8px; border-radius: 6px; background: var(--hover); font-size: 12px; }

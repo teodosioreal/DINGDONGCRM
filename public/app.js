@@ -6001,6 +6001,24 @@ function ligarCodigoSiteMeta(id) {
   $$('[data-ir-codigo-meta]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('#codigo-site-meta')?.scrollIntoView({ behavior: 'smooth' }); }; });
 }
 
+// 🧭 Do anúncio ao WhatsApp: quantos cliques no WhatsApp do site viraram conversa (e levaram o clique)
+const PARAMETROS_UTM = 'utm_source={{site_source_name}}&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}';
+function caminhoDoAnuncio(m) {
+  const c = m.caminho?.doAnuncio || {};
+  const t = m.caminho?.todos || {};
+  const chegaram = (c.pelaMensagem || 0) + (c.pelaHora || 0);
+  const taxa = c.cliques ? Math.round((chegaram / Math.max(1, c.cliques - (c.esperando || 0))) * 100) : null;
+  return `<div class="meta-caminho">
+    <p style="margin:0 0 6px"><b>🧭 Do anúncio ao WhatsApp (30 dias)</b></p>
+    ${c.cliques ? `<p style="margin:0 0 4px">Pessoas que vieram do anúncio e clicaram no WhatsApp do site: <b>${c.cliques}</b> · chegaram como conversa (levando o clique para a Meta): <b>${chegaram}</b>${c.pelaHora ? ` (${c.pelaHora} sem o código, ligadas pelo horário do clique)` : ''}${c.esperando ? ` · ${c.esperando} ainda podem chegar` : ''} · <b class="${c.perdidos ? 'aviso-texto' : ''}">não chegaram: ${c.perdidos || 0}</b>${taxa != null ? ` · <b>${taxa}%</b> de aproveitamento` : ''}.</p>
+    <p style="margin:0 0 4px" class="rotulo">"Não chegaram" = clicou no botão do WhatsApp do site e a mensagem não veio (desistiu, ou mandou de outro jeito, ou apagou o código e mais de uma pessoa clicou no mesmo horário). Esses clientes, se comprarem, vão sem o clique.</p>`
+      : `<p style="margin:0 0 4px">${t.cliques ? `${t.cliques} clique(s) no WhatsApp do site nos últimos 30 dias, mas <b>nenhum veio de anúncio</b> (sem o fbclid no endereço).` : 'Ainda não houve clique no WhatsApp do site registrado desde esta atualização.'} Confira se o anúncio leva para o site com o código do CRM instalado.</p>`}
+    <p style="margin:8px 0 4px"><b>Para saber a campanha e o anúncio de cada cliente</b>, cole isto no anúncio, em <b>Rastreamento → Parâmetros de URL</b> (a Meta troca as {{…}} pelo nome certo):</p>
+    <div class="utm-copiar"><code>${esc(PARAMETROS_UTM)}</code><button type="button" class="pequeno" data-copiar="${esc(PARAMETROS_UTM)}">Copiar</button></div>
+    <p style="margin:4px 0 0" class="rotulo">Isso mostra no CRM de qual campanha/anúncio veio cada lead. Quem liga a venda à campanha para a Meta é o clique (fbclid), que a Meta já coloca sozinha no link do anúncio.</p>
+  </div>`;
+}
+
 // 📋 Vendas para a Meta: cada venda de cliente do anúncio, os critérios (✓/✗) e se foi enviada
 function cartaoVendasMeta(id, m) {
   const el = $('#card-meta-vendas');
@@ -6035,13 +6053,15 @@ function cartaoVendasMeta(id, m) {
     <p class="rotulo" style="margin:0 0 8px">${m.todasVendas ? 'Modo <b>todas as vendas</b>: para ir é preciso confirmada · com valor · telefone · até 7 dias (prazo da Meta). O clique do anúncio e os extras ajudam a Meta a ligar a venda ao anúncio.' : 'Para ir é preciso <b>todos</b> estes: confirmada · com valor · clique do anúncio (fbclid) · telefone · até 30 dias do clique · até 7 dias (prazo da Meta). Os extras ajudam a Meta a reconhecer o cliente.'}</p>
     <div class="meta-legenda">
       <p style="margin:0 0 6px"><b>Como ler o status</b></p>
-      <p style="margin:0 0 4px">✅ <b>Enviada com o clique do anúncio</b>: a Meta confirmou o recebimento e tem o clique, então consegue ligar a venda à campanha (aparece como compra no Gerenciador de Anúncios).</p>
-      <p style="margin:0 0 4px">📨 <b>Recebida pela Meta, sem o clique</b>: a Meta confirmou o recebimento, mas sem o clique ela normalmente <b>não sabe de qual anúncio veio</b>. A compra aparece no <b>Gerenciador de Eventos</b> (Pixel → Visão geral → Purchase), mas em geral <b>não</b> aparece como compra da campanha no Gerenciador de Anúncios. Clientes de anúncio "clique para WhatsApp" caem aqui: esse tipo de anúncio não passa pelo site, então não traz o clique do Pixel.</p>
+      <p style="margin:0 0 4px">✅ <b>Enviada com o clique do anúncio</b>: a Meta confirmou o recebimento e tem o clique, então liga a venda à campanha (aparece como compra no Gerenciador de Anúncios, se a venda for até 7 dias depois do clique — prazo padrão da Meta).</p>
+      <p style="margin:0 0 4px">📨 <b>Recebida pela Meta, sem o clique</b>: a Meta confirmou o recebimento e a compra está no <b>Gerenciador de Eventos</b> (Pixel → Visão geral → Purchase). Ela só entra como compra da <b>campanha</b> se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio — às vezes reconhece, às vezes não. Acontece quando o cliente não chegou pelo botão de WhatsApp do site (ou mandou a mensagem de outro jeito).</p>
       <p style="margin:0">🧪 <b>Só em Eventos de teste</b>: foi com o código de teste e não conta na campanha. ⚠️ <b>Erro</b> ou <b>Meta não confirmou</b>: não foi; o CRM tenta de novo.</p>
       ${m.enviadas ? `<p style="margin:6px 0 0">Nos registros: <b>${m.enviadasComClique || 0}</b> com o clique · <b>${m.enviadasSemClique || 0}</b> sem o clique${m.semConfirmacao ? ` · <b>${m.semConfirmacao}</b> sem confirmação` : ''}.</p>` : ''}
     </div>
+    ${caminhoDoAnuncio(m)}
     ${linhas ? `<div class="tabela-wrap"><table><thead><tr><th>Venda</th><th>Critérios</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="rotulo">Nenhuma venda de cliente que veio do anúncio nos últimos 30 dias.</p>'}
     ${m.semClique ? `<p class="rotulo" style="margin:8px 0 0">${m.semClique} venda(s) confirmada(s) nos últimos 30 dias de clientes <b>sem</b> o clique do anúncio — não entram (não vieram pelo site com o código ou não vieram de anúncio).</p>` : ''}`;
+  $$('[data-copiar]', el).forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso('Copiado. Cole no anúncio, em Parâmetros de URL.')).catch(() => aviso(b.dataset.copiar)); }; });
   $('#meta-enviar-agora').onclick = async (e) => {
     try {
       const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/meta-ads/enviar-agora`, { method: 'POST' }));

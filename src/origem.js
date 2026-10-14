@@ -191,6 +191,7 @@ function guardarVisita(empresaId, botId, codigo, rastro) {
   estado.visitas = estado.visitas || {};
   if (estado.conversas.some((c) => c.codigo === codigo)) return false;
   estado.visitas[codigo] = { empresaId, botId, rastro, em: Date.now() };
+  if (!estado.visitasLog?.[empresaId]?.some((x) => x.codigo === codigo)) anotarVisita(empresaId, codigo, rastro);
   const chaves = Object.keys(estado.visitas);
   const limite = Date.now() - VISITA_VALIDA_MS;
   for (const k of chaves) if (estado.visitas[k].em < limite) delete estado.visitas[k];
@@ -204,7 +205,53 @@ function tirarVisita(empresaId, codigo) {
   const v = estado.visitas?.[codigo];
   if (!v || v.empresaId !== empresaId || Date.now() - v.em > VISITA_VALIDA_MS) return null;
   delete estado.visitas[codigo];
+  anotarResultadoVisita(empresaId, codigo, 'codigo');
   return v;
+}
+
+// Cliente clicou no WhatsApp do site mas mandou a mensagem SEM o código (apagou o "#ABC123"):
+// se só UMA pessoa clicou no WhatsApp do site nesse intervalo, é ela. Com duas ou mais, não
+// arrisca (a venda iria para o clique de outra pessoa).
+const JANELA_SEM_CODIGO_MS = 20 * 60 * 1000;
+const JANELA_COM_TEXTO_MS = 2 * 3600 * 1000; // a mensagem tem o texto do botão do site ("vim pelo site")
+function visitaSemCodigo(empresaId, texto, padrao = '') {
+  const agoraMs = Date.now();
+  const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const t = sem(texto);
+  const textoDoSite = (padrao && t.includes(sem(padrao).slice(0, 40))) || /vim (pelo|do|no) site|vi (no|o) site|pelo site|pelo anuncio|vi o anuncio|vi seu anuncio/.test(t);
+  const janela = textoDoSite ? JANELA_COM_TEXTO_MS : JANELA_SEM_CODIGO_MS;
+  const candidatas = Object.entries(estado.visitas || {}).filter(([, v]) => v.empresaId === empresaId && agoraMs - v.em <= janela && v.em <= agoraMs + 60000);
+  if (candidatas.length !== 1) return null;
+  const [codigo, v] = candidatas[0];
+  delete estado.visitas[codigo];
+  anotarResultadoVisita(empresaId, codigo, 'horario');
+  return { ...v, codigo, pelaHora: true };
+}
+
+// Diagnóstico (Meta Ads): cada clique no WhatsApp do site e se a conversa chegou
+const MAX_LOG = 1500;
+function anotarVisita(empresaId, codigo, rastro) {
+  estado.visitasLog = estado.visitasLog || {};
+  const log = (estado.visitasLog[empresaId] = estado.visitasLog[empresaId] || []);
+  const anuncio = /[?&]fbclid=/.test(rastro?.chegada?.url || '') || /[?&]fbclid=/.test(rastro?.primeira?.url || '');
+  let campanha = '';
+  try { campanha = new URL(rastro?.chegada?.url || '').searchParams.get('utm_campaign') || ''; } catch { /* sem campanha */ }
+  log.push({ em: Date.now(), codigo, anuncio, campanha: campanha.slice(0, 80), ligada: null });
+  const corte = Date.now() - 30 * 86400000;
+  estado.visitasLog[empresaId] = log.filter((x) => x.em > corte).slice(-MAX_LOG);
+}
+function anotarResultadoVisita(empresaId, codigo, como) {
+  const item = (estado.visitasLog?.[empresaId] || []).find((x) => x.codigo === codigo);
+  if (item && !item.ligada) item.ligada = como;
+}
+function resumoVisitas(empresaId, dias = 30) {
+  const corte = Date.now() - dias * 86400000;
+  const log = (estado.visitasLog?.[empresaId] || []).filter((x) => x.em > corte);
+  const doAnuncio = log.filter((x) => x.anuncio);
+  // ainda pode chegar: clique de menos de 2 horas sem conversa
+  const recente = (x) => !x.ligada && Date.now() - x.em < JANELA_COM_TEXTO_MS;
+  const conta = (l) => ({ cliques: l.length, pelaMensagem: l.filter((x) => x.ligada === 'codigo').length, pelaHora: l.filter((x) => x.ligada === 'horario').length, esperando: l.filter(recente).length, perdidos: l.filter((x) => !x.ligada && !recente(x)).length });
+  return { todos: conta(log), doAnuncio: conta(doAnuncio), desde: log[0]?.em || null };
 }
 
 // ---------------------------------------------------------------- ler a página (para a IA entender o contexto)
@@ -521,6 +568,8 @@ module.exports = {
   registrarNoLead,
   guardarVisita,
   tirarVisita,
+  visitaSemCodigo,
+  resumoVisitas,
   lerPagina,
   extrairTexto,
   baixarHtml,
