@@ -152,9 +152,12 @@ function motivoNaoEnviar(empresa, venda, c = configDa(empresa)) {
   if (venda.status !== 'confirmada') return 'venda ainda não confirmada';
   if (!(Number(venda.valor) > 0)) return 'venda sem valor';
   const ja = venda.metaAds;
-  // já foi de verdade (com a Meta confirmando); envio de teste volta para a fila quando o código sai,
-  // e envio sem confirmação da Meta tenta de novo (o event_id é o mesmo, a Meta não conta em dobro)
-  if (ja?.enviadoEm && (!ja.teste || c.codigoTeste) && (ja.teste || ja.juntoCom || Number(ja.recebidos) >= 1)) return 'já enviada';
+  // já foi de verdade: não manda de novo (a Meta só descarta repetido dentro de 48 h). Envio de
+  // teste volta para a fila quando o código de teste sai. Só tenta de novo quando a Meta respondeu
+  // explicitamente 0 eventos recebidos e faz menos de 48 h (o event_id igual evita contar em dobro).
+  // Registro antigo sem o número de confirmação conta como enviado (a Meta aceitou sem erro).
+  const zeroRecente = ja?.recebidos === 0 && Date.now() - new Date(ja.enviadoEm).getTime() < 48 * 3600 * 1000;
+  if (ja?.enviadoEm && (!ja.teste || c.codigoTeste) && !zeroRecente) return 'já enviada';
   if ((ja?.tentativas || 0) >= MAX_TENTATIVAS) return 'desistiu depois de 5 erros';
   const lead = venda.leadId && estado.conversas.find((l) => l.id === venda.leadId && l.empresaId === empresa.id);
   if (!lead) return 'venda sem conversa ligada';
@@ -257,7 +260,7 @@ async function enviarVenda(empresa, venda) {
     venda.metaAds = { ...(venda.metaAds || {}), tentativas: (venda.metaAds?.tentativas || 0) + 1, erro: err.message, erroEm: agora() };
     console.error(`[meta-ads ${empresa.id}] não enviou: ${err.message}`);
     if (venda.metaAds.tentativas >= MAX_TENTATIVAS || err.status === 400 || err.status === 401 || err.status === 403) {
-      require('./alertas').registrar(empresa, 'meta-ads', `Uma venda não foi para a Meta Ads: ${err.message}. Confira o Pixel e o token em Faturamento → Meta Ads.`, { nivel: 'aviso', leadId: lead?.id });
+      require('./alertas').registrar(empresa, 'meta-ads', `Uma venda não foi para a Meta Ads: ${err.message}. Confira o Pixel e o token em Meta Ads → Configurar.`, { nivel: 'aviso', leadId: lead?.id });
     }
     return false;
   } finally {
@@ -352,7 +355,7 @@ function estadoDoEnvio(v) {
   const m = v.metaAds;
   if (!m?.enviadoEm) return null;
   if (m.teste) return 'teste';
-  if (!(Number(m.recebidos) >= 1) && !m.juntoCom) return 'sem-confirmacao';
+  if (m.recebidos === 0 && !m.juntoCom) return 'sem-confirmacao';
   if (m.comClique || m.dados?.clique) return 'enviada';
   return m.viaMensagem ? 'enviada-mensagem' : 'enviada-sem-clique';
 }
@@ -367,7 +370,7 @@ function situacaoDaVenda(v, motivo, c, empresa = null) {
     return `foi só para "Eventos de teste" em ${new Date(m.enviadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — NÃO conta na campanha.${c.codigoTeste ? ' Apague o código de teste e salve: ela vai de verdade no próximo envio (se tiver até 7 dias).' : ' Vai de verdade no próximo envio, se tiver até 7 dias.'}`;
   }
   if (m?.enviadoEm) {
-    const conf = Number(m.recebidos) >= 1 ? ` · a Meta confirmou o recebimento${m.fbtrace ? ` (fbtrace ${m.fbtrace})` : ''}` : ' · a Meta NÃO confirmou o recebimento';
+    const conf = Number(m.recebidos) >= 1 ? ` · a Meta confirmou o recebimento${m.fbtrace ? ` (fbtrace ${m.fbtrace})` : ''}` : m.recebidos === 0 ? ' · a Meta NÃO confirmou o recebimento' : ' · a Meta aceitou o envio (registro antigo, sem o número de confirmação)';
     const como = m.viaMensagem ? ' (campanha de mensagem do WhatsApp, pelo telefone do cliente)' : m.comClique === false ? ' pelo telefone, sem o clique do anúncio' : m.comClique ? ' com o clique do anúncio' : '';
     const soma = m.grupo?.length > 1 ? ` · ${m.grupo.length} pagamentos do dia numa compra de R$ ${Number(m.valorEnviado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
     const semClique = estadoDoEnvio(v) === 'enviada-sem-clique' ? ' · sem o clique: a compra está no Gerenciador de Eventos e só entra na campanha se a Meta reconhecer o cliente (pelo telefone e nome) entre quem viu ou clicou no anúncio' : '';
