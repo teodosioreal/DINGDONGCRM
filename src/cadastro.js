@@ -65,4 +65,33 @@ const temPendente = (motivo, email) => {
   return Boolean(p && p.expira > Date.now());
 };
 
-module.exports = { gerar, conferir, temPendente };
+// ---------------------------------------------------------------- link de acesso único (esqueci a senha)
+// Vale 30 minutos e só uma vez. Guardamos só o hash do token.
+const VALIDADE_LINK = 30 * 60 * 1000;
+const links = new Map(); // hash do token → { email, expira }
+
+setInterval(() => {
+  const t = Date.now();
+  for (const [k, l] of links) if (l.expira < t) links.delete(k);
+}, 5 * 60 * 1000).unref();
+
+function gerarLink(email) {
+  // mesmo limite dos códigos: 1 por minuto e 5 por hora para o mesmo e-mail
+  gerar('link', email);
+  pendentes.delete(`link:${email}`); // o código gerado só serviu para contar o limite
+  for (const [k, l] of links) if (l.email === email) links.delete(k); // só o link mais novo vale
+  const token = crypto.randomBytes(32).toString('base64url');
+  links.set(hash(token), { email, expira: Date.now() + VALIDADE_LINK });
+  return token;
+}
+
+// Devolve o e-mail do link (e apaga o link) ou lança erro
+function usarLink(token) {
+  const k = hash(String(token || ''));
+  const l = links.get(k);
+  links.delete(k);
+  if (!l || l.expira < Date.now()) throw Object.assign(new Error('Este link já foi usado ou venceu. Peça um novo em "Esqueci a senha".'), { status: 400 });
+  return l.email;
+}
+
+module.exports = { gerar, conferir, temPendente, gerarLink, usarLink };

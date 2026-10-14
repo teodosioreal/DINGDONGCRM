@@ -38,6 +38,8 @@ module.exports = {
   emailRemetente: (process.env.EMAIL_REMETENTE || '').trim(),
   // false = ninguém novo consegue se cadastrar (o login continua normal)
   cadastroAberto: process.env.CADASTRO_ABERTO !== 'false',
+  // true = conta nova espera o admin aprovar; padrão: já entra direto depois de confirmar o e-mail
+  cadastroComAprovacao: process.env.CADASTRO_APROVACAO === 'true',
   // aparece nos Termos de Uso e na Política de Privacidade
   responsavelLegal: (process.env.RESPONSAVEL_LEGAL || '').trim(),
   emailContato: (process.env.EMAIL_CONTATO || '').trim(),

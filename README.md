@@ -851,15 +851,15 @@ deploy/                → instalador, atualizador, bloco do Nginx e config do p
 
 ## Cadastro de novas contas
 
-Qualquer pessoa pode criar a própria conta em `https://odingdong.tech/crm/login` → **Criar conta**:
+Qualquer pessoa pode criar a própria conta em `https://odingdong.tech/login` → **Criar conta**:
 
-1. Preenche nome, empresa, e-mail, WhatsApp (opcional) e senha, e aceita os Termos e a Privacidade.
+1. Preenche os dados dela (nome, e-mail, WhatsApp), da empresa (nome, ramo, site) e a senha duas vezes, e aceita os Termos e a Privacidade.
 2. Recebe um **código de 6 dígitos** no e-mail (vale 10 minutos, 5 tentativas, no máximo 1 por minuto e 5 por hora).
-3. Com o código certo, o CRM cria a **empresa** (com o assistente principal) e o **usuário**, que fica **aguardando aprovação**.
-4. Os administradores recebem um e-mail. Em **Usuários**, aprovam (a pessoa recebe um e-mail e já entra) ou recusam (a conta e a empresa vazia são apagadas).
+3. Com o código certo, o CRM cria a **empresa** (com o assistente principal, o ramo e o site) e o **usuário**, e a pessoa **já entra no painel**. Os administradores (e `EMAIL_AVISOS`) recebem um e-mail avisando.
+   Com `CADASTRO_APROVACAO=true`, a conta espera um admin aprovar em **Usuários**.
 
-**Esqueci a senha**: código por e-mail → senha nova (derruba as outras sessões).
+**Esqueci a senha**: a pessoa recebe um **link de acesso único** por e-mail (vale 30 minutos, funciona uma vez). Ao entrar por ele, as outras sessões caem e ela é **obrigada a criar uma senha nova** antes de usar o painel.
 
-Cada empresa só vê os próprios dados: todas as rotas conferem a empresa do usuário. As contas antigas continuam iguais.
+Cada conta tem só a própria empresa (criar empresa é só para admin) e só vê os próprios dados. As contas antigas continuam iguais.
 
-Configuração no `.env` (veja `.env.example`): `RESEND_API_KEY`, `EMAIL_REMETENTE`, `CADASTRO_ABERTO`, `RESPONSAVEL_LEGAL`, `EMAIL_CONTATO`. Sem `RESEND_API_KEY`, as opções "Criar conta" e "Esqueci a senha" ficam escondidas (em teste local com `COOKIE_SECURE=false`, o código aparece no console).
+Configuração no `.env` (veja `.env.example`): `RESEND_API_KEY`, `EMAIL_REMETENTE`, `EMAIL_AVISOS`, `CADASTRO_ABERTO`, `CADASTRO_APROVACAO`, `RESPONSAVEL_LEGAL`, `EMAIL_CONTATO`. Sem `RESEND_API_KEY`, "Criar conta" e "Esqueci a senha" ficam escondidos (em teste local com `COOKIE_SECURE=false`, o código e o link aparecem no console).
