@@ -17,49 +17,208 @@
 </head>
 <body>
   <div class="pagina-login">
-    <form class="card" id="form">
+    <div class="card login-card">
       <h1>DingDong</h1>
       <p class="sub">CRM · assistentes de IA</p>
-      <div class="campo">
-        <label for="email">E-mail</label>
-        <input id="email" type="email" autocomplete="username" required>
+
+      <!-- entrar -->
+      <form id="v-entrar" class="login-vista">
+        <div class="campo">
+          <label for="e-email">E-mail</label>
+          <input id="e-email" name="email" type="email" autocomplete="username" required>
+        </div>
+        <div class="campo">
+          <label for="e-senha">Senha</label>
+          <input id="e-senha" name="senha" type="password" autocomplete="current-password" required>
+        </div>
+        <p class="login-link-dir"><button type="button" class="link-botao" data-ir="esqueci" hidden data-precisa="recuperarSenha">Esqueci a senha</button></p>
+        <p class="erro-caixa" data-erro hidden></p>
+        <p class="ok-caixa" data-ok hidden></p>
+        <button class="primario" type="submit">Entrar</button>
+        <p class="login-troca" hidden data-precisa="cadastro">Ainda não tem conta? <button type="button" class="link-botao" data-ir="criar">Criar conta</button></p>
+      </form>
+
+      <!-- criar conta -->
+      <form id="v-criar" class="login-vista" hidden>
+        <h2>Criar conta</h2>
+        <div class="campo">
+          <label for="c-nome">Seu nome</label>
+          <input id="c-nome" name="nome" autocomplete="name" maxlength="120" required>
+        </div>
+        <div class="campo">
+          <label for="c-empresa">Nome da empresa</label>
+          <input id="c-empresa" name="empresa" autocomplete="organization" maxlength="120" required>
+        </div>
+        <div class="campo">
+          <label for="c-email">E-mail</label>
+          <input id="c-email" name="email" type="email" autocomplete="email" required>
+        </div>
+        <div class="campo">
+          <label for="c-telefone">WhatsApp (opcional)</label>
+          <input id="c-telefone" name="telefone" type="tel" autocomplete="tel" placeholder="21 99999-9999">
+        </div>
+        <div class="campo">
+          <label for="c-senha">Crie uma senha</label>
+          <input id="c-senha" name="senha" type="password" autocomplete="new-password" minlength="8" required>
+          <small class="rotulo">Pelo menos 8 caracteres.</small>
+        </div>
+        <label class="linha-check login-aceite"><input type="checkbox" name="aceite" required> <span>Li e aceito os <a href="termos" target="_blank" rel="noopener">Termos de Uso</a> e a <a href="privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</span></label>
+        <p class="erro-caixa" data-erro hidden></p>
+        <button class="primario" type="submit">Continuar</button>
+        <p class="login-troca">Já tem conta? <button type="button" class="link-botao" data-ir="entrar">Entrar</button></p>
+      </form>
+
+      <!-- código do cadastro -->
+      <form id="v-codigo" class="login-vista" hidden>
+        <h2>Confirme seu e-mail</h2>
+        <p class="rotulo">Mandamos um código de 6 dígitos para <b data-email-mostra></b>. Olhe também a caixa de spam.</p>
+        <div class="campo">
+          <label for="k-codigo">Código</label>
+          <input id="k-codigo" name="codigo" class="login-codigo" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required>
+        </div>
+        <p class="erro-caixa" data-erro hidden></p>
+        <p class="ok-caixa" data-ok hidden></p>
+        <button class="primario" type="submit">Confirmar</button>
+        <p class="login-troca"><button type="button" class="link-botao" data-reenviar="cadastro">Mandar outro código</button> · <button type="button" class="link-botao" data-ir="criar">Corrigir o e-mail</button></p>
+      </form>
+
+      <!-- conta criada, aguardando aprovação -->
+      <div id="v-pendente" class="login-vista" hidden>
+        <h2>Conta criada! ✅</h2>
+        <p>Seu e-mail foi confirmado. Agora a nossa equipe libera o seu acesso. Você recebe um e-mail assim que a conta estiver pronta.</p>
+        <button type="button" data-ir="entrar">Voltar para o login</button>
       </div>
-      <div class="campo" style="margin-top:16px">
-        <label for="senha">Senha</label>
-        <input id="senha" type="password" autocomplete="current-password" required>
-      </div>
-      <p id="erro" class="erro-caixa" hidden style="margin:16px 0 0"></p>
-      <button class="primario" type="submit">Entrar</button>
-    </form>
+
+      <!-- esqueci a senha -->
+      <form id="v-esqueci" class="login-vista" hidden>
+        <h2>Esqueci a senha</h2>
+        <p class="rotulo">Informe o e-mail da sua conta. Se ele estiver cadastrado, mandamos um código para você criar uma senha nova.</p>
+        <div class="campo">
+          <label for="s-email">E-mail</label>
+          <input id="s-email" name="email" type="email" autocomplete="username" required>
+        </div>
+        <p class="erro-caixa" data-erro hidden></p>
+        <button class="primario" type="submit">Mandar código</button>
+        <p class="login-troca"><button type="button" class="link-botao" data-ir="entrar">Voltar para o login</button></p>
+      </form>
+
+      <!-- nova senha -->
+      <form id="v-nova" class="login-vista" hidden>
+        <h2>Crie uma senha nova</h2>
+        <p class="rotulo">Se <b data-email-mostra></b> tiver conta, o código já chegou. Olhe também a caixa de spam.</p>
+        <div class="campo">
+          <label for="n-codigo">Código</label>
+          <input id="n-codigo" name="codigo" class="login-codigo" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required>
+        </div>
+        <div class="campo">
+          <label for="n-senha">Senha nova</label>
+          <input id="n-senha" name="senha" type="password" autocomplete="new-password" minlength="8" required>
+          <small class="rotulo">Pelo menos 8 caracteres.</small>
+        </div>
+        <p class="erro-caixa" data-erro hidden></p>
+        <p class="ok-caixa" data-ok hidden></p>
+        <button class="primario" type="submit">Salvar e entrar</button>
+        <p class="login-troca"><button type="button" class="link-botao" data-reenviar="senha">Mandar outro código</button> · <button type="button" class="link-botao" data-ir="entrar">Voltar para o login</button></p>
+      </form>
+    </div>
+    <p class="login-rodape"><a href="termos">Termos de Uso</a> · <a href="privacidade">Privacidade</a></p>
   </div>
   <script>
-    document.getElementById('form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const erro = document.getElementById('erro');
-      erro.hidden = true;
-      const botao = e.target.querySelector('button');
-      botao.disabled = true;
-      botao.textContent = 'Entrando…';
-      try {
-        const r = await fetch('api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: document.getElementById('email').value,
-            senha: document.getElementById('senha').value
-          })
-        });
-        const dados = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(dados.erro || 'Não foi possível entrar.');
-        location.href = './';
-      } catch (err) {
-        erro.textContent = err.message;
-        erro.hidden = false;
-      } finally {
-        botao.disabled = false;
-        botao.textContent = 'Entrar';
+    (function () {
+      var emailAtual = '';
+      var vistas = ['entrar', 'criar', 'codigo', 'pendente', 'esqueci', 'nova'];
+      function $(s, el) { return (el || document).querySelector(s); }
+      function ir(v) {
+        vistas.forEach(function (n) { $('#v-' + n).hidden = n !== v; });
+        document.querySelectorAll('[data-email-mostra]').forEach(function (b) { b.textContent = emailAtual; });
+        var vista = $('#v-' + v);
+        vista.querySelectorAll('[data-erro],[data-ok]').forEach(function (p) { p.hidden = true; });
+        var campo = vista.querySelector('input:not([type=checkbox])');
+        if (campo) setTimeout(function () { campo.focus(); }, 50);
+        try { history.replaceState(null, '', v === 'entrar' ? location.pathname : '#' + v); } catch (e) {}
       }
-    });
+      function mensagem(vista, tipo, texto) {
+        var p = vista.querySelector('[data-' + tipo + ']');
+        var outro = vista.querySelector('[data-' + (tipo === 'erro' ? 'ok' : 'erro') + ']');
+        if (outro) outro.hidden = true;
+        if (!p) return;
+        p.textContent = texto;
+        p.hidden = !texto;
+      }
+      async function chamar(rota, corpo) {
+        var r = await fetch('api/' + rota, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+        var d = await r.json().catch(function () { return {}; });
+        if (!r.ok) { var e = new Error(d.erro || 'Não deu certo. Tente de novo.'); e.dados = d; throw e; }
+        return d;
+      }
+      // envia o formulário com o botão travado e a mensagem de erro no lugar certo
+      function aoEnviar(id, textoEspera, acao) {
+        var form = $('#' + id);
+        form.addEventListener('submit', async function (ev) {
+          ev.preventDefault();
+          var botao = form.querySelector('button[type=submit]');
+          var original = botao.textContent;
+          mensagem(form, 'erro', '');
+          botao.disabled = true;
+          botao.textContent = textoEspera;
+          try { await acao(form); } catch (err) { mensagem(form, 'erro', err.message); }
+          finally { botao.disabled = false; botao.textContent = original; }
+        });
+      }
+      function valor(form, nome) { var c = form.elements[nome]; return c ? (c.type === 'checkbox' ? c.checked : c.value.trim()) : ''; }
+
+      aoEnviar('v-entrar', 'Entrando…', async function (f) {
+        try {
+          await chamar('auth/login', { email: valor(f, 'email'), senha: f.elements.senha.value });
+          location.href = './';
+        } catch (err) {
+          if (err.dados && err.dados.pendente) return ir('pendente');
+          throw err;
+        }
+      });
+      aoEnviar('v-criar', 'Enviando código…', async function (f) {
+        emailAtual = valor(f, 'email').toLowerCase();
+        await chamar('auth/cadastro', { nome: valor(f, 'nome'), empresa: valor(f, 'empresa'), email: emailAtual, telefone: valor(f, 'telefone'), senha: f.elements.senha.value, aceite: valor(f, 'aceite') });
+        $('#k-codigo').value = '';
+        ir('codigo');
+      });
+      aoEnviar('v-codigo', 'Confirmando…', async function (f) {
+        await chamar('auth/cadastro/confirmar', { email: emailAtual, codigo: valor(f, 'codigo') });
+        $('#v-criar').reset();
+        ir('pendente');
+      });
+      aoEnviar('v-esqueci', 'Enviando…', async function (f) {
+        emailAtual = valor(f, 'email').toLowerCase();
+        await chamar('auth/senha/esqueci', { email: emailAtual });
+        $('#n-codigo').value = '';
+        ir('nova');
+      });
+      aoEnviar('v-nova', 'Salvando…', async function (f) {
+        var r = await chamar('auth/senha/redefinir', { email: emailAtual, codigo: valor(f, 'codigo'), senha: f.elements.senha.value });
+        if (r.pendente) return ir('pendente');
+        location.href = './';
+      });
+
+      document.querySelectorAll('[data-ir]').forEach(function (b) { b.addEventListener('click', function () { ir(b.dataset.ir); }); });
+      document.querySelectorAll('[data-reenviar]').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          var vista = b.closest('form');
+          b.disabled = true;
+          try {
+            if (b.dataset.reenviar === 'cadastro') await chamar('auth/cadastro/reenviar', { email: emailAtual });
+            else await chamar('auth/senha/esqueci', { email: emailAtual });
+            mensagem(vista, 'ok', 'Código novo enviado.');
+          } catch (err) { mensagem(vista, 'erro', err.message); }
+          finally { b.disabled = false; }
+        });
+      });
+
+      // mostra "Criar conta" e "Esqueci a senha" só quando o servidor consegue mandar e-mail
+      fetch('api/auth/opcoes').then(function (r) { return r.json(); }).then(function (o) {
+        document.querySelectorAll('[data-precisa]').forEach(function (el) { el.hidden = !o[el.dataset.precisa]; });
+        if (location.hash === '#criar' && o.cadastro) ir('criar');
+      }).catch(function () {});
+    })();
   </script>
 </body>
 </html>

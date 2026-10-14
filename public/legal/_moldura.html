@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITULO}} · DingDong CRM</title>
+  <script>
+    try {
+      var tema = localStorage.getItem('dingdong_crm_tema');
+      var escuro = tema ? tema === 'escuro' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (escuro) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="pagina-legal">
+    <p><a href="login">← Voltar</a></p>
+    {{CONTEUDO}}
+    <p class="rotulo">Última atualização: {{DATA}}</p>
+  </main>
+</body>
+</html>

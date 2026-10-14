@@ -100,6 +100,22 @@ base.use('/api', rotasPainel);
 
 base.get('/', (req, res) => res.sendFile(path.join(pastaPublica, 'index.html')));
 base.get('/login', (req, res) => res.sendFile(path.join(pastaPublica, 'login.html')));
+// Termos de Uso e Política de Privacidade (o responsável e o contato vêm do .env)
+const paginaLegal = (arquivo, titulo) => (req, res) => {
+  const fs = require('fs');
+  const pasta = path.join(pastaPublica, 'legal');
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const emailContato = config.emailContato || (config.emailRemetente.match(/<([^>]+)>/)?.[1] ?? config.emailRemetente);
+  const contato = emailContato ? `<a href="mailto:${esc(emailContato)}">${esc(emailContato)}</a>` : 'pelo e-mail de suporte informado no painel';
+  const mudou = fs.statSync(path.join(pasta, arquivo)).mtime;
+  const conteudo = fs.readFileSync(path.join(pasta, arquivo), 'utf8').replaceAll('{{RESPONSAVEL}}', esc(config.responsavelLegal || 'DingDong')).replaceAll('{{CONTATO}}', contato);
+  const html = fs.readFileSync(path.join(pasta, '_moldura.html'), 'utf8').replace('{{TITULO}}', titulo).replace('{{DATA}}', mudou.toLocaleDateString('pt-BR')).replace('{{CONTEUDO}}', () => conteudo);
+  res.setHeader('Cache-Control', 'public, max-age=600');
+  res.type('html').send(html);
+};
+base.get('/termos', paginaLegal('termos.html', 'Termos de Uso'));
+base.get('/privacidade', paginaLegal('privacidade.html', 'Política de Privacidade'));
+base.use('/legal', (req, res) => res.sendStatus(404)); // os modelos só saem por /termos e /privacidade
 base.use(express.static(pastaPublica, { index: false }));
 
 base.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));

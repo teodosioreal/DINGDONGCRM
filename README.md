@@ -848,3 +848,18 @@ public/                → painel (HTML/CSS/JS puro) e o widget chat.js
 deploy/                → instalador, atualizador, bloco do Nginx e config do pm2
 .github/workflows/     → deploy automático na VPS a cada push na main
 ```
+
+## Cadastro de novas contas
+
+Qualquer pessoa pode criar a própria conta em `https://odingdong.tech/crm/login` → **Criar conta**:
+
+1. Preenche nome, empresa, e-mail, WhatsApp (opcional) e senha, e aceita os Termos e a Privacidade.
+2. Recebe um **código de 6 dígitos** no e-mail (vale 10 minutos, 5 tentativas, no máximo 1 por minuto e 5 por hora).
+3. Com o código certo, o CRM cria a **empresa** (com o assistente principal) e o **usuário**, que fica **aguardando aprovação**.
+4. Os administradores recebem um e-mail. Em **Usuários**, aprovam (a pessoa recebe um e-mail e já entra) ou recusam (a conta e a empresa vazia são apagadas).
+
+**Esqueci a senha**: código por e-mail → senha nova (derruba as outras sessões).
+
+Cada empresa só vê os próprios dados: todas as rotas conferem a empresa do usuário. As contas antigas continuam iguais.
+
+Configuração no `.env` (veja `.env.example`): `RESEND_API_KEY`, `EMAIL_REMETENTE`, `CADASTRO_ABERTO`, `RESPONSAVEL_LEGAL`, `EMAIL_CONTATO`. Sem `RESEND_API_KEY`, as opções "Criar conta" e "Esqueci a senha" ficam escondidas (em teste local com `COOKIE_SECURE=false`, o código aparece no console).
