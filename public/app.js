@@ -29,6 +29,11 @@ async function api(caminho, opcoes = {}) {
     throw new Error('Sessão expirada.');
   }
   const dados = await r.json().catch(() => ({}));
+  // entrou pelo link de acesso único: primeiro cria a senha nova
+  if (r.status === 403 && dados.trocarSenha) {
+    location.href = 'login#nova-senha';
+    throw new Error(dados.erro);
+  }
   if (!r.ok) throw Object.assign(new Error(dados.erro || `Erro ${r.status}`), { status: r.status, dados });
   return dados;
 }
@@ -7270,6 +7275,10 @@ async function iniciar() {
   try {
     sessao = await api('auth/eu');
   } catch {
+    return;
+  }
+  if (sessao.usuario.trocarSenha) {
+    location.href = 'login#nova-senha';
     return;
   }
   $('#nome-usuario').textContent = sessao.usuario.email;

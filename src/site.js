@@ -170,4 +170,4 @@ function resumo(empresa) {
   };
 }
 
-module.exports = { siteDa, guardar, lerSite, verificarAgenda, textoParaIa, resumo, linksInternos };
+module.exports = { siteDa, guardar, lerSite, verificarAgenda, textoParaIa, resumo, linksInternos, normalizarLinks };

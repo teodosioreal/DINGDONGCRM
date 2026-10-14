@@ -58,4 +58,14 @@ function codigo(para, cod, motivo) {
   });
 }
 
-module.exports = { enviar, codigo, configurado, modoConsole, esc };
+function linkDeAcesso(para, nome, link) {
+  return enviar({
+    para,
+    assunto: 'Seu link para entrar no DingDong CRM',
+    titulo: 'Entre com um clique',
+    html: `<p style="margin:0 0 16px">Olá${nome ? `, ${esc(nome)}` : ''}! Recebemos um pedido para entrar na sua conta sem a senha. Clique no botão abaixo:</p><p style="margin:0 0 16px"><a href="${esc(link)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700">Entrar no DingDong CRM</a></p><p style="margin:0 0 8px;color:#6b7280;font-size:13px">O link vale por 30 minutos e funciona uma vez só. Ao entrar, você vai criar uma senha nova.</p><p style="margin:0;color:#6b7280;font-size:13px">Se o botão não abrir, copie este endereço no navegador:<br><span style="word-break:break-all">${esc(link)}</span></p>`,
+    texto: `Olá${nome ? `, ${nome}` : ''}! Para entrar na sua conta do DingDong CRM, abra este link (vale 30 minutos e funciona uma vez só):\n\n${link}\n\nAo entrar, você vai criar uma senha nova.`
+  });
+}
+
+module.exports = { enviar, codigo, linkDeAcesso, configurado, modoConsole, esc };

@@ -95,6 +95,7 @@ function usuarioPublico(u) {
     empresaId: u.empresaId || null,
     ativo: u.ativo !== false,
     pendente: u.aprovacao === 'pendente',
+    trocarSenha: u.trocarSenha === true,
     cadastroProprio: u.cadastroProprio === true,
     criadoEm: u.criadoEm
   };

@@ -68,6 +68,11 @@ router.post('/auth/login', (req, res) => {
     return res.status(403).json({ erro: 'Sua conta está aguardando aprovação. Você recebe um e-mail assim que ela for liberada.', pendente: true });
   }
   falhasLogin.delete(email);
+  // entrou com a senha certa: não precisa mais trocar (caso tenha usado um link antes)
+  if (usuario.trocarSenha) {
+    delete usuario.trocarSenha;
+    salvar();
+  }
   auth.criarSessao(res, usuario);
   res.json({ usuario: auth.usuarioPublico(usuario) });
 });
@@ -96,7 +101,7 @@ router.get('/auth/opcoes', (req, res) => {
   res.json({ cadastro: config.cadastroAberto && (correio.configurado() || correio.modoConsole()), recuperarSenha: correio.configurado() || correio.modoConsole() });
 });
 
-// 1º passo: dados da conta → manda o código para o e-mail
+// 1º passo: dados da conta e da empresa → manda o código para o e-mail
 router.post('/auth/cadastro', async (req, res) => {
   if (!config.cadastroAberto) return res.status(403).json({ erro: 'O cadastro de novas contas está fechado no momento.' });
   if (!pedirCodigo(req, res)) return;
@@ -105,6 +110,8 @@ router.post('/auth/cadastro', async (req, res) => {
     nome: texto(b.nome, 120),
     email: texto(b.email, 200).toLowerCase(),
     empresa: texto(b.empresa, 120),
+    ramo: texto(b.ramo, 120),
+    site: texto(b.site, 300),
     telefone: numeroWhatsapp(b.telefone),
     senhaHash: ''
   };
@@ -113,7 +120,15 @@ router.post('/auth/cadastro', async (req, res) => {
   if (!emailValido(dados.email)) return res.status(400).json({ erro: 'E-mail inválido.' });
   if (!dados.empresa) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
   if (senha.length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  if (b.senha2 !== undefined && String(b.senha2) !== String(b.senha)) return res.status(400).json({ erro: 'As duas senhas não são iguais.' });
   if (b.aceite !== true) return res.status(400).json({ erro: 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.' });
+  if (dados.site) {
+    try {
+      dados.site = siteEmpresa.normalizarLinks([dados.site])[0] || '';
+    } catch {
+      return res.status(400).json({ erro: 'O endereço do site não parece certo. Ex.: www.suaempresa.com.br (ou deixe em branco).' });
+    }
+  }
   if (estado.usuarios.some((u) => u.email === dados.email)) return res.status(409).json({ erro: 'Este e-mail já tem conta. Entre com a sua senha ou use "Esqueci a senha".' });
   dados.senhaHash = auth.hashSenha(senha);
   try {
@@ -138,7 +153,8 @@ router.post('/auth/cadastro/reenviar', async (req, res) => {
   }
 });
 
-// 2º passo: código certo → cria a empresa e a conta (aguardando aprovação do admin)
+// 2º passo: código certo → cria a empresa e a conta e já entra
+// (com CADASTRO_APROVACAO=true, a conta espera o admin aprovar)
 router.post('/auth/cadastro/confirmar', async (req, res) => {
   if (!pedirCodigo(req, res)) return;
   const e = texto(req.body?.email, 200).toLowerCase();
@@ -149,62 +165,93 @@ router.post('/auth/cadastro/confirmar', async (req, res) => {
     return responderErro(res, err);
   }
   if (estado.usuarios.some((u) => u.email === e)) return res.status(409).json({ erro: 'Este e-mail já tem conta. Entre com a sua senha.' });
-  const empresa = criarEmpresa({ nome: dados.empresa, nicho: '', whatsapp: dados.telefone, responsavel: dados.nome, observacoes: '', ativa: true }, '', { cadastroProprio: true });
-  const usuario = { id: novoId('usr'), nome: dados.nome, email: e, papel: 'empresa', empresaId: empresa.id, ativo: true, aprovacao: 'pendente', cadastroProprio: true, senhaHash: dados.senhaHash, criadoEm: agora() };
+  const extra = { cadastroProprio: true, ...(dados.site ? { site: { links: [dados.site] } } : {}) };
+  const empresa = criarEmpresa({ nome: dados.empresa, nicho: dados.ramo || '', whatsapp: dados.telefone, responsavel: dados.nome, observacoes: '', ativa: true }, '', extra);
+  const comAprovacao = config.cadastroComAprovacao;
+  const usuario = { id: novoId('usr'), nome: dados.nome, email: e, papel: 'empresa', empresaId: empresa.id, ativo: true, ...(comAprovacao ? { aprovacao: 'pendente' } : {}), cadastroProprio: true, senhaHash: dados.senhaHash, criadoEm: agora() };
   estado.usuarios.push(usuario);
   salvar();
-  res.status(201).json({ ok: true, pendente: true });
+  if (comAprovacao) res.status(201).json({ ok: true, pendente: true });
+  else {
+    auth.criarSessao(res, usuario);
+    res.status(201).json({ ok: true });
+  }
   // avisa os administradores (sem travar a resposta)
   const destinos = [...new Set([...estado.usuarios.filter((u) => u.papel === 'admin' && u.ativo !== false).map((u) => u.email), ...config.emailAvisos])].filter(emailValido);
   const link = `${config.urlPublica || ''}/#/usuarios`;
+  const quem = `<b>${correio.esc(dados.nome)}</b> (${correio.esc(e)}) criou uma conta para a empresa <b>${correio.esc(dados.empresa)}</b>${dados.ramo ? ` · ${correio.esc(dados.ramo)}` : ''}${dados.telefone ? ` · WhatsApp ${correio.esc(dados.telefone)}` : ''}${dados.site ? ` · ${correio.esc(dados.site)}` : ''}.`;
   for (const para of destinos) {
     correio.enviar({
       para,
-      assunto: `Nova conta para aprovar: ${dados.empresa}`,
-      titulo: 'Nova conta aguardando aprovação',
-      html: `<p style="margin:0 0 12px"><b>${correio.esc(dados.nome)}</b> (${correio.esc(e)}) criou uma conta para a empresa <b>${correio.esc(dados.empresa)}</b>${dados.telefone ? ` · WhatsApp ${correio.esc(dados.telefone)}` : ''}.</p><p style="margin:0">Aprove ou recuse em <a href="${correio.esc(link)}">Usuários</a>, no painel.</p>`,
-      texto: `${dados.nome} (${e}) criou uma conta para a empresa ${dados.empresa}. Aprove ou recuse em Usuários, no painel: ${link}`
+      assunto: `${comAprovacao ? 'Nova conta para aprovar' : 'Nova conta criada'}: ${dados.empresa}`,
+      titulo: comAprovacao ? 'Nova conta aguardando aprovação' : 'Nova conta no DingDong CRM',
+      html: `<p style="margin:0 0 12px">${quem}</p><p style="margin:0">${comAprovacao ? 'Aprove ou recuse' : 'A conta já está liberada. Veja ou bloqueie'} em <a href="${correio.esc(link)}">Usuários</a>, no painel.</p>`,
+      texto: `${dados.nome} (${e}) criou uma conta para a empresa ${dados.empresa}. ${comAprovacao ? 'Aprove ou recuse' : 'Veja ou bloqueie'} em Usuários, no painel: ${link}`
     }).catch((err) => console.error('[cadastro] aviso ao admin:', err.message));
   }
 });
 
-// Esqueci a senha: manda o código (responde igual exista ou não a conta)
+// Esqueci a senha: manda um link de acesso único (responde igual exista ou não a conta)
 router.post('/auth/senha/esqueci', async (req, res) => {
   if (!pedirCodigo(req, res)) return;
   const e = texto(req.body?.email, 200).toLowerCase();
   if (!emailValido(e)) return res.status(400).json({ erro: 'E-mail inválido.' });
   const usuario = estado.usuarios.find((u) => u.email === e && u.ativo !== false);
   try {
-    if (usuario) await correio.codigo(e, cadastro.gerar('senha', e), 'senha');
+    if (usuario) {
+      const token = cadastro.gerarLink(e);
+      const base = config.urlPublica || `${req.protocol}://${req.get('host')}${config.basePath}`;
+      // o token vai depois do # : não chega a servidor nenhum e robôs que "abrem" links
+      // nos e-mails não gastam o acesso (só o navegador, rodando a página, usa)
+      await correio.linkDeAcesso(e, usuario.nome, `${base}/login#acesso=${token}`);
+    }
     res.json({ ok: true });
   } catch (err) {
     responderErro(res, err);
   }
 });
 
-// Código certo → senha nova, derruba as outras sessões e já entra
-router.post('/auth/senha/redefinir', (req, res) => {
+// Link de acesso único → entra e fica obrigado a criar uma senha nova
+router.post('/auth/link', (req, res) => {
   if (!pedirCodigo(req, res)) return;
-  const e = texto(req.body?.email, 200).toLowerCase();
-  const senha = String(req.body?.senha || '').slice(0, 500);
-  if (senha.length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  let e;
   try {
-    cadastro.conferir('senha', e, req.body?.codigo);
+    e = cadastro.usarLink(req.body?.token);
   } catch (err) {
     return responderErro(res, err);
   }
   const usuario = estado.usuarios.find((u) => u.email === e && u.ativo !== false);
   if (!usuario) return res.status(400).json({ erro: 'Conta não encontrada.' });
-  usuario.senhaHash = auth.hashSenha(senha);
-  estado.sessoes = estado.sessoes.filter((x) => x.usuarioId !== usuario.id);
+  if (usuario.aprovacao === 'pendente') return res.status(403).json({ erro: 'Sua conta está aguardando aprovação. Você recebe um e-mail assim que ela for liberada.', pendente: true });
+  usuario.trocarSenha = true;
+  estado.sessoes = estado.sessoes.filter((x) => x.usuarioId !== usuario.id); // derruba as outras sessões
   falhasLogin.delete(e);
   salvar();
-  if (usuario.aprovacao === 'pendente') return res.json({ ok: true, pendente: true });
   auth.criarSessao(res, usuario);
-  res.json({ ok: true });
+  res.json({ ok: true, trocarSenha: true, nome: usuario.nome });
 });
 
 router.use(auth.exigirLogin);
+
+// Entrou pelo link de acesso único: só cria a senha nova (ou sai) antes de usar o painel
+const LIVRES_SEM_SENHA = new Set(['/auth/eu', '/auth/sair', '/auth/senha-nova']);
+router.use((req, res, next) => {
+  if (req.usuario.trocarSenha && !LIVRES_SEM_SENHA.has(req.path)) {
+    return res.status(403).json({ erro: 'Crie uma senha nova para continuar.', trocarSenha: true });
+  }
+  next();
+});
+
+router.put('/auth/senha-nova', (req, res) => {
+  if (!req.usuario.trocarSenha) return res.status(400).json({ erro: 'Use "Minha conta" para trocar a senha.' });
+  const senha = String(req.body?.senha || '').slice(0, 500);
+  if (senha.length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  if (String(req.body?.senha2 ?? senha) !== senha) return res.status(400).json({ erro: 'As duas senhas não são iguais.' });
+  req.usuario.senhaHash = auth.hashSenha(senha);
+  delete req.usuario.trocarSenha;
+  salvar();
+  res.json({ ok: true });
+});
 
 router.get('/auth/eu', (req, res) => {
   const empresa = estado.empresas.find((e) => e.id === req.usuario.empresaId);
