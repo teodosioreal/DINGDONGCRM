@@ -7,6 +7,8 @@ const config = require('./config');
 const { versao } = require('./versao');
 const { estado, salvar, novoId, agora } = require('./db');
 const auth = require('./auth');
+const correio = require('./email');
+const cadastro = require('./cadastro');
 const ia = require('./ia');
 const leads = require('./leads');
 const whatsapp = require('./whatsapp');
@@ -62,6 +64,9 @@ router.post('/auth/login', (req, res) => {
     falhasLogin.set(email, [...falhasRecentes(email), Date.now()]);
     return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
   }
+  if (usuario.aprovacao === 'pendente') {
+    return res.status(403).json({ erro: 'Sua conta está aguardando aprovação. Você recebe um e-mail assim que ela for liberada.', pendente: true });
+  }
   falhasLogin.delete(email);
   auth.criarSessao(res, usuario);
   res.json({ usuario: auth.usuarioPublico(usuario) });
@@ -69,6 +74,133 @@ router.post('/auth/login', (req, res) => {
 
 router.post('/auth/sair', (req, res) => {
   auth.encerrarSessao(req, res);
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- criar conta e recuperar senha (sem login)
+
+const limiteCodigos = criarLimitador(15, 15 * 60 * 1000); // por IP: pedidos de código e confirmações
+const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) && e.length <= 200;
+const pedirCodigo = (req, res) => {
+  if (limiteCodigos(req.ip)) return true;
+  res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' });
+  return false;
+};
+const responderErro = (res, err) => {
+  if (!err.status || err.status >= 500) console.error('[cadastro]', err.message);
+  res.status(err.status || 500).json({ erro: err.status ? err.message : 'Erro interno. Tente de novo.' });
+};
+
+// o que a tela de login precisa saber: se dá para criar conta
+router.get('/auth/opcoes', (req, res) => {
+  res.json({ cadastro: config.cadastroAberto && (correio.configurado() || correio.modoConsole()), recuperarSenha: correio.configurado() || correio.modoConsole() });
+});
+
+// 1º passo: dados da conta → manda o código para o e-mail
+router.post('/auth/cadastro', async (req, res) => {
+  if (!config.cadastroAberto) return res.status(403).json({ erro: 'O cadastro de novas contas está fechado no momento.' });
+  if (!pedirCodigo(req, res)) return;
+  const b = req.body || {};
+  const dados = {
+    nome: texto(b.nome, 120),
+    email: texto(b.email, 200).toLowerCase(),
+    empresa: texto(b.empresa, 120),
+    telefone: numeroWhatsapp(b.telefone),
+    senhaHash: ''
+  };
+  const senha = String(b.senha || '').slice(0, 500);
+  if (!dados.nome) return res.status(400).json({ erro: 'Informe o seu nome.' });
+  if (!emailValido(dados.email)) return res.status(400).json({ erro: 'E-mail inválido.' });
+  if (!dados.empresa) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
+  if (senha.length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  if (b.aceite !== true) return res.status(400).json({ erro: 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.' });
+  if (estado.usuarios.some((u) => u.email === dados.email)) return res.status(409).json({ erro: 'Este e-mail já tem conta. Entre com a sua senha ou use "Esqueci a senha".' });
+  dados.senhaHash = auth.hashSenha(senha);
+  try {
+    const cod = cadastro.gerar('cadastro', dados.email, dados);
+    await correio.codigo(dados.email, cod, 'cadastro');
+    res.json({ ok: true });
+  } catch (err) {
+    responderErro(res, err);
+  }
+});
+
+// reenviar o código do cadastro (os dados ficam guardados junto com o código)
+router.post('/auth/cadastro/reenviar', async (req, res) => {
+  if (!pedirCodigo(req, res)) return;
+  const e = texto(req.body?.email, 200).toLowerCase();
+  if (!cadastro.temPendente('cadastro', e)) return res.status(400).json({ erro: 'O cadastro venceu. Preencha os dados de novo.' });
+  try {
+    await correio.codigo(e, cadastro.gerar('cadastro', e), 'cadastro');
+    res.json({ ok: true });
+  } catch (err) {
+    responderErro(res, err);
+  }
+});
+
+// 2º passo: código certo → cria a empresa e a conta (aguardando aprovação do admin)
+router.post('/auth/cadastro/confirmar', async (req, res) => {
+  if (!pedirCodigo(req, res)) return;
+  const e = texto(req.body?.email, 200).toLowerCase();
+  let dados;
+  try {
+    dados = cadastro.conferir('cadastro', e, req.body?.codigo);
+  } catch (err) {
+    return responderErro(res, err);
+  }
+  if (estado.usuarios.some((u) => u.email === e)) return res.status(409).json({ erro: 'Este e-mail já tem conta. Entre com a sua senha.' });
+  const empresa = criarEmpresa({ nome: dados.empresa, nicho: '', whatsapp: dados.telefone, responsavel: dados.nome, observacoes: '', ativa: true }, '', { cadastroProprio: true });
+  const usuario = { id: novoId('usr'), nome: dados.nome, email: e, papel: 'empresa', empresaId: empresa.id, ativo: true, aprovacao: 'pendente', cadastroProprio: true, senhaHash: dados.senhaHash, criadoEm: agora() };
+  estado.usuarios.push(usuario);
+  salvar();
+  res.status(201).json({ ok: true, pendente: true });
+  // avisa os administradores (sem travar a resposta)
+  const admins = estado.usuarios.filter((u) => u.papel === 'admin' && u.ativo !== false && emailValido(u.email));
+  const link = `${config.urlPublica || ''}/#/usuarios`;
+  for (const a of admins) {
+    correio.enviar({
+      para: a.email,
+      assunto: `Nova conta para aprovar: ${dados.empresa}`,
+      titulo: 'Nova conta aguardando aprovação',
+      html: `<p style="margin:0 0 12px"><b>${correio.esc(dados.nome)}</b> (${correio.esc(e)}) criou uma conta para a empresa <b>${correio.esc(dados.empresa)}</b>${dados.telefone ? ` · WhatsApp ${correio.esc(dados.telefone)}` : ''}.</p><p style="margin:0">Aprove ou recuse em <a href="${correio.esc(link)}">Usuários</a>, no painel.</p>`,
+      texto: `${dados.nome} (${e}) criou uma conta para a empresa ${dados.empresa}. Aprove ou recuse em Usuários, no painel: ${link}`
+    }).catch((err) => console.error('[cadastro] aviso ao admin:', err.message));
+  }
+});
+
+// Esqueci a senha: manda o código (responde igual exista ou não a conta)
+router.post('/auth/senha/esqueci', async (req, res) => {
+  if (!pedirCodigo(req, res)) return;
+  const e = texto(req.body?.email, 200).toLowerCase();
+  if (!emailValido(e)) return res.status(400).json({ erro: 'E-mail inválido.' });
+  const usuario = estado.usuarios.find((u) => u.email === e && u.ativo !== false);
+  try {
+    if (usuario) await correio.codigo(e, cadastro.gerar('senha', e), 'senha');
+    res.json({ ok: true });
+  } catch (err) {
+    responderErro(res, err);
+  }
+});
+
+// Código certo → senha nova, derruba as outras sessões e já entra
+router.post('/auth/senha/redefinir', (req, res) => {
+  if (!pedirCodigo(req, res)) return;
+  const e = texto(req.body?.email, 200).toLowerCase();
+  const senha = String(req.body?.senha || '').slice(0, 500);
+  if (senha.length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  try {
+    cadastro.conferir('senha', e, req.body?.codigo);
+  } catch (err) {
+    return responderErro(res, err);
+  }
+  const usuario = estado.usuarios.find((u) => u.email === e && u.ativo !== false);
+  if (!usuario) return res.status(400).json({ erro: 'Conta não encontrada.' });
+  usuario.senhaHash = auth.hashSenha(senha);
+  estado.sessoes = estado.sessoes.filter((x) => x.usuarioId !== usuario.id);
+  falhasLogin.delete(e);
+  salvar();
+  if (usuario.aprovacao === 'pendente') return res.json({ ok: true, pendente: true });
+  auth.criarSessao(res, usuario);
   res.json({ ok: true });
 });
 
@@ -82,6 +214,7 @@ router.get('/auth/eu', (req, res) => {
     // "configurado" aqui = existe chave PADRÃO (opcional); cada empresa tem a sua
     provedores: Object.entries(ia.PROVEDORES).map(([id, p]) => ({ id, nome: p.nome, configurado: Boolean(ia.chavePadrao(id)) })),
     urlPublica: config.urlPublica || `${req.protocol}://${req.get('host')}${config.basePath}`,
+    ...(ehAdmin(req) ? { pendentes: estado.usuarios.filter((u) => u.aprovacao === 'pendente').length } : {}),
     versao
   });
 });
@@ -952,11 +1085,10 @@ function provedorPadrao(empresa) {
   return ia.provedoresConfigurados(empresa)[0] || 'anthropic';
 }
 
-router.post('/empresas', auth.exigirAdmin, (req, res) => {
-  const dados = dadosEmpresa(req.body || {});
-  if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
+// Empresa nova + assistente principal (usado pelo admin e pelo cadastro próprio)
+function criarEmpresa(dados, sites, extra = {}) {
   // empresa nova: usa só as próprias chaves de IA (o admin pode liberar a padrão)
-  const empresa = { id: novoId('emp'), usarChavePadrao: false, etapas: leads.ETAPAS_PADRAO.slice(), ...dados, funilV2: true, chavesIa: {}, criadoEm: agora() };
+  const empresa = { id: novoId('emp'), usarChavePadrao: false, etapas: leads.ETAPAS_PADRAO.slice(), ...dados, funilV2: true, chavesIa: {}, ...extra, criadoEm: agora() };
   estado.empresas.push(empresa);
 
   // Já cria o assistente principal, para o código da empresa funcionar de cara
@@ -976,7 +1108,7 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
     regras: '',
     whatsapp: '',
     mensagemWhatsappPadrao: 'Olá! Vim pelo site.',
-    dominios: listaDominios(req.body?.sites),
+    dominios: listaDominios(sites),
     ativo: true,
     provedor,
     modelo: ia.MODELO_PADRAO[provedor],
@@ -984,6 +1116,13 @@ router.post('/empresas', auth.exigirAdmin, (req, res) => {
     limiteConversa: 40,
     criadoEm: agora()
   });
+  return empresa;
+}
+
+router.post('/empresas', auth.exigirAdmin, (req, res) => {
+  const dados = dadosEmpresa(req.body || {});
+  if (!dados.nome) return res.status(400).json({ erro: 'Informe o nome da empresa.' });
+  const empresa = criarEmpresa(dados, req.body?.sites);
   salvar();
   res.status(201).json(empresaComExtras(empresa, req));
 });
@@ -3342,6 +3481,43 @@ router.put('/usuarios/:id', auth.exigirAdmin, (req, res) => {
   if (v.senha || !usuario.ativo) estado.sessoes = estado.sessoes.filter((s) => s.usuarioId !== usuario.id || usuario.id === req.usuario.id);
   salvar();
   res.json(auth.usuarioPublico(usuario));
+});
+
+// Conta criada pelo cadastro: o admin libera (manda e-mail avisando) ou recusa
+router.post('/usuarios/:id/aprovar', auth.exigirAdmin, (req, res) => {
+  const usuario = estado.usuarios.find((u) => u.id === req.params.id);
+  if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+  if (usuario.aprovacao !== 'pendente') return res.status(400).json({ erro: 'Esta conta já está liberada.' });
+  delete usuario.aprovacao;
+  usuario.aprovadoEm = agora();
+  usuario.aprovadoPor = req.usuario.email;
+  salvar();
+  const link = `${config.urlPublica || ''}/login`;
+  correio.enviar({
+    para: usuario.email,
+    assunto: 'Sua conta no DingDong CRM foi liberada',
+    titulo: 'Conta liberada! 🎉',
+    html: `<p style="margin:0 0 12px">Olá, ${correio.esc(usuario.nome)}! Sua conta no DingDong CRM já está liberada.</p><p style="margin:0 0 16px">Entre com o seu e-mail e a senha que você criou e siga os primeiros passos para colocar a IA para atender.</p><p style="margin:0"><a href="${correio.esc(link)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">Entrar no painel</a></p>`,
+    texto: `Olá, ${usuario.nome}! Sua conta no DingDong CRM já está liberada. Entre em ${link} com o seu e-mail e a senha que você criou.`
+  }).catch((err) => console.error('[cadastro] aviso de conta liberada:', err.message));
+  res.json(auth.usuarioPublico(usuario));
+});
+
+router.post('/usuarios/:id/recusar', auth.exigirAdmin, (req, res) => {
+  const usuario = estado.usuarios.find((u) => u.id === req.params.id);
+  if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+  if (usuario.aprovacao !== 'pendente') return res.status(400).json({ erro: 'Só dá para recusar conta que ainda aguarda aprovação.' });
+  estado.usuarios = estado.usuarios.filter((u) => u.id !== usuario.id);
+  estado.sessoes = estado.sessoes.filter((s) => s.usuarioId !== usuario.id);
+  // a empresa criada junto com o cadastro sai também (se ninguém mais usa e está vazia)
+  const empresa = estado.empresas.find((e) => e.id === usuario.empresaId);
+  const vazia = empresa?.cadastroProprio && !estado.usuarios.some((u) => u.empresaId === empresa.id) && !estado.conversas.some((c) => c.empresaId === empresa.id);
+  if (vazia) {
+    estado.empresas = estado.empresas.filter((e) => e.id !== empresa.id);
+    estado.bots = estado.bots.filter((b) => b.empresaId !== empresa.id);
+  }
+  salvar();
+  res.json({ ok: true, empresaRemovida: Boolean(vazia) });
 });
 
 router.delete('/usuarios/:id', auth.exigirAdmin, (req, res) => {

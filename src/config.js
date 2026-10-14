@@ -32,6 +32,15 @@ module.exports = {
   midiasDir: process.env.MIDIAS_DIR || require('path').join(__dirname, '..', 'midias'),
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   adminSenha: process.env.ADMIN_SENHA || '',
+  // Cadastro de novas contas: e-mails pelo Resend (resend.com)
+  resendApiKey: (process.env.RESEND_API_KEY || '').trim(),
+  // remetente com domínio verificado no Resend. Ex.: DingDong CRM <nao-responda@odingdong.tech>
+  emailRemetente: (process.env.EMAIL_REMETENTE || '').trim(),
+  // false = ninguém novo consegue se cadastrar (o login continua normal)
+  cadastroAberto: process.env.CADASTRO_ABERTO !== 'false',
+  // aparece nos Termos de Uso e na Política de Privacidade
+  responsavelLegal: (process.env.RESPONSAVEL_LEGAL || '').trim(),
+  emailContato: (process.env.EMAIL_CONTATO || '').trim(),
   // true quando o site é acessado por HTTPS (produção atrás do Nginx)
   cookieSeguro: process.env.COOKIE_SECURE !== 'false',
   diasSessao: 7

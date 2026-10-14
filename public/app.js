@@ -303,7 +303,7 @@ function montarMenu(ativo) {
   }
   if (ehAdmin()) {
     html += '<p class="titulo-grupo">Administração</p>';
-    html += item('#/usuarios', 'usuarios', 'Usuários');
+    html += item('#/usuarios', 'usuarios', 'Usuários', sessao.pendentes ? `<span class="contador" title="Contas aguardando aprovação">${sessao.pendentes}</span>` : '');
     html += item('#/configuracoes', 'config', 'Configurações do sistema');
   }
   $('#menu').innerHTML = html;
@@ -6723,6 +6723,8 @@ async function paginaUsuarios() {
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Usuários</h1><p class="sub">Quem entra no painel</p></div><button class="primario" id="novo">+ Novo usuário</button></div>
+    ${lista.some((u) => u.pendente) ? `<div class="card pendentes-aprovacao"><h2 style="margin:0 0 4px">🆕 Contas aguardando aprovação (${lista.filter((u) => u.pendente).length})</h2><p class="rotulo" style="margin:0 0 12px">Criadas pela página de cadastro, com o e-mail já confirmado. Ao aprovar, a pessoa recebe um e-mail e já pode entrar.</p>
+      ${lista.filter((u) => u.pendente).map((u) => `<div class="linha-pendente"><div><b>${esc(u.nome)}</b> · ${esc(u.empresaNome || '—')}<br><span class="rotulo">${esc(u.email)} · ${esc(data(u.criadoEm))}</span></div><span class="acoes-pendente"><button class="primario pequeno" data-aprovar="${esc(u.id)}">Aprovar</button><button class="pequeno perigo" data-recusar="${esc(u.id)}">Recusar</button></span></div>`).join('')}</div>` : ''}
     ${balao('Dê acesso ao dono da empresa', 'Crie um <b>usuário de empresa</b>: ele entra direto na empresa dele, só vê o que é dela e consegue configurar tudo sozinho (chave de IA, WhatsApp, mídias, disparos).')}
     <div class="card tabela-wrap">
       <table>
@@ -6733,13 +6735,33 @@ async function paginaUsuarios() {
               <td>${esc(u.nome)}</td>
               <td class="esconde-mobile">${esc(u.email)}</td>
               <td>${u.papel === 'admin' ? 'Administrador' : `Empresa: ${esc(u.empresaNome || '—')}`}</td>
-              <td>${u.ativo ? '<span class="etiqueta ok">Ativo</span>' : '<span class="etiqueta off">Bloqueado</span>'}</td>
+              <td>${u.pendente ? '<span class="etiqueta aviso">Aguardando</span>' : u.ativo ? '<span class="etiqueta ok">Ativo</span>' : '<span class="etiqueta off">Bloqueado</span>'}${u.cadastroProprio ? ' <span class="rotulo" title="Criou a conta pela página de cadastro">· cadastro</span>' : ''}</td>
               <td><button class="pequeno" data-editar="${esc(u.id)}">Editar</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
   $('#novo').onclick = () => modalUsuario(null, empresas);
+  $$('[data-aprovar]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await comEspera(b, () => api(`usuarios/${b.dataset.aprovar}/aprovar`, { method: 'POST', body: {} }));
+        aviso('Conta aprovada. A pessoa recebeu um e-mail avisando.');
+        paginaUsuarios();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-recusar]').forEach((b) => {
+    b.onclick = async () => {
+      const u = lista.find((x) => x.id === b.dataset.recusar);
+      if (!(await confirmar({ titulo: `Recusar ${esc(u?.email || '')}?`, texto: 'A conta e a empresa criada junto com ela (ainda vazia) são apagadas. A pessoa não recebe aviso e pode se cadastrar de novo.', botao: 'Recusar', perigo: true }))) return;
+      try {
+        await api(`usuarios/${b.dataset.recusar}/recusar`, { method: 'POST', body: {} });
+        aviso('Cadastro recusado.');
+        paginaUsuarios();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
   $$('[data-editar]').forEach((b) => {
     b.onclick = () => modalUsuario(lista.find((u) => u.id === b.dataset.editar), empresas);
   });

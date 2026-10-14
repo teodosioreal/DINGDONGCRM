@@ -67,7 +67,7 @@ function usuarioDaRequisicao(req) {
   if (!token) return null;
   const sessao = estado.sessoes.find((s) => s.token === token);
   if (!sessao || sessao.expiraEm < agora()) return null;
-  const usuario = estado.usuarios.find((u) => u.id === sessao.usuarioId && u.ativo !== false);
+  const usuario = estado.usuarios.find((u) => u.id === sessao.usuarioId && u.ativo !== false && u.aprovacao !== 'pendente');
   return usuario || null;
 }
 
@@ -94,6 +94,8 @@ function usuarioPublico(u) {
     papel: u.papel,
     empresaId: u.empresaId || null,
     ativo: u.ativo !== false,
+    pendente: u.aprovacao === 'pendente',
+    cadastroProprio: u.cadastroProprio === true,
     criadoEm: u.criadoEm
   };
 }

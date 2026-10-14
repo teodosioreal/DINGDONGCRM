@@ -218,6 +218,26 @@ details summary { cursor: pointer; }
 /* ---------- login ---------- */
 .pagina-login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .pagina-login form { width: 100%; max-width: 384px; padding: 32px; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+/* login com várias telas (entrar, criar conta, código, esqueci a senha) dentro de um cartão só */
+.pagina-login { align-content: center; gap: 12px; }
+.pagina-login .login-card { width: 100%; max-width: 400px; padding: 32px; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.pagina-login .login-card form { max-width: none; padding: 0; box-shadow: none; border-radius: 0; }
+.login-vista { display: flex; flex-direction: column; gap: 14px; }
+.login-vista[hidden] { display: none; }
+.login-vista h2 { margin: 0; font-size: 17px; }
+.login-vista p { margin: 0; }
+.login-vista .campo small { display: block; margin-top: 4px; }
+.pagina-login .login-vista button.primario { margin-top: 6px; }
+.login-link-dir { text-align: right; margin-top: -6px !important; font-size: 13.5px; }
+.login-troca { text-align: center; font-size: 14px; color: var(--suave); }
+.login-aceite { align-items: flex-start; font-size: 13.5px; line-height: 1.45; }
+.login-aceite input { margin-top: 2px; }
+.login-codigo { font-size: 24px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.ok-caixa { background: color-mix(in srgb, #22c55e 14%, transparent); color: #15803d; border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+html.dark .ok-caixa { color: #86efac; }
+.login-rodape { text-align: center; font-size: 13px; color: var(--suave); margin: 0; }
+.login-rodape a { color: inherit; }
+@media (max-width: 480px) { .pagina-login .login-card { padding: 24px 18px; } }
 .pagina-login h1 { text-align: center; font-size: 20px; margin: 0; }
 .pagina-login .sub { text-align: center; color: var(--suave); margin: 4px 0 24px; }
 .pagina-login button.primario { width: 100%; justify-content: center; margin-top: 24px; }
@@ -1672,3 +1692,13 @@ html.dark .clone-situacao.nao { background: #334155; color: #e2e8f0; }
   .leads-layout .coluna { flex: 0 0 82%; min-width: 0; scroll-snap-align: start; }
   .quadro { scroll-snap-type: x mandatory; }
 }
+
+/* Termos de Uso e Política de Privacidade */
+.pagina-legal { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; line-height: 1.65; font-size: 15.5px; }
+.pagina-legal h1 { font-size: 26px; margin: 8px 0 16px; }
+.pagina-legal h2 { font-size: 17px; margin: 28px 0 8px; }
+.pagina-legal ul { padding-left: 20px; }
+.pagina-legal li { margin-bottom: 6px; }
+.pendentes-aprovacao { border-color: color-mix(in srgb, #f59e0b 45%, var(--borda)); }
+.linha-pendente { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--borda); }
+.acoes-pendente { display: flex; gap: 6px; }
