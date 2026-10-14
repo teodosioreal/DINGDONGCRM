@@ -1740,3 +1740,9 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .midia-fala { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .midia-fala textarea { font-size: 13px; min-height: 64px; }
 .acoes-fala { display: flex; gap: 6px; }
+.ab-audio { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding: 8px; border-radius: 8px; border: 1px dashed var(--borda-campo); font-size: 12.5px; }
+.ab-audio.ligado { border-style: solid; border-color: color-mix(in srgb, var(--acento) 45%, var(--borda)); }
+.placar-ab { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.placar-ab > div { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 8px; background: var(--hover); }
+.placar-ab b { font-size: 18px; }
+.placar-ab > .lider { outline: 2px solid #22c55e; }

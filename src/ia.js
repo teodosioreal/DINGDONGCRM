@@ -532,6 +532,10 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const hojeSp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const dinamico = ['Contexto desta conversa:', `- Agora: ${hojeSp} (horário de Brasília).`];
   if (contexto.etapaAtual) dinamico.push(`- O lead está na etapa: ${contexto.etapaAtual}.`);
+  // teste A/B: para este cliente, o conteúdo de um áudio vai por texto
+  for (const t of contexto.textoNoLugarDeAudio || []) {
+    dinamico.push(`- Nesta conversa NÃO mande o áudio "${t.nome}". Na mesma situação em que ele seria enviado (${t.quando || 'quando ajudar o cliente'}), escreva por TEXTO, com as suas palavras, em mensagens curtas e naturais, este conteúdo: "${String(t.fala).replace(/\s+/g, ' ').trim()}". Não diga que é um texto no lugar de áudio.`);
+  }
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
   if (contexto.endereco !== undefined && empresa?.agendaExigeEndereco !== false) dinamico.push(contexto.endereco ? `- Endereço do cliente (já informado): ${contexto.endereco}` : '- Endereço do cliente: ainda NÃO informado — peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]].');
