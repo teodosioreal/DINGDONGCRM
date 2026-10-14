@@ -41,6 +41,8 @@ module.exports = {
   // aparece nos Termos de Uso e na Política de Privacidade
   responsavelLegal: (process.env.RESPONSAVEL_LEGAL || '').trim(),
   emailContato: (process.env.EMAIL_CONTATO || '').trim(),
+  // quem recebe o aviso de conta nova para aprovar (além dos administradores). Vários: separe por vírgula
+  emailAvisos: (process.env.EMAIL_AVISOS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
   // true quando o site é acessado por HTTPS (produção atrás do Nginx)
   cookieSeguro: process.env.COOKIE_SECURE !== 'false',
   diasSessao: 7

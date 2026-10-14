@@ -155,11 +155,11 @@ router.post('/auth/cadastro/confirmar', async (req, res) => {
   salvar();
   res.status(201).json({ ok: true, pendente: true });
   // avisa os administradores (sem travar a resposta)
-  const admins = estado.usuarios.filter((u) => u.papel === 'admin' && u.ativo !== false && emailValido(u.email));
+  const destinos = [...new Set([...estado.usuarios.filter((u) => u.papel === 'admin' && u.ativo !== false).map((u) => u.email), ...config.emailAvisos])].filter(emailValido);
   const link = `${config.urlPublica || ''}/#/usuarios`;
-  for (const a of admins) {
+  for (const para of destinos) {
     correio.enviar({
-      para: a.email,
+      para,
       assunto: `Nova conta para aprovar: ${dados.empresa}`,
       titulo: 'Nova conta aguardando aprovação',
       html: `<p style="margin:0 0 12px"><b>${correio.esc(dados.nome)}</b> (${correio.esc(e)}) criou uma conta para a empresa <b>${correio.esc(dados.empresa)}</b>${dados.telefone ? ` · WhatsApp ${correio.esc(dados.telefone)}` : ''}.</p><p style="margin:0">Aprove ou recuse em <a href="${correio.esc(link)}">Usuários</a>, no painel.</p>`,
