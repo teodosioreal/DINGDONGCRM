@@ -2510,7 +2510,8 @@ async function paginaMidias(id) {
     prontas: { nome: '✅ A IA usa', filtro: (m) => (m.pronta !== false || citada(m)) && !m.soFollowup && !m.pastaId },
     fotos: { nome: '📷 Fotos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'image' },
     videos: { nome: '🎬 Vídeos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'video' },
-    docs: { nome: '📄 Documentos e áudios', filtro: (m) => m.pronta !== false && !m.soFollowup && !['image', 'video'].includes(m.tipo) },
+    audios: { nome: '🎤 Áudios', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'audio' },
+    docs: { nome: '📄 Documentos', filtro: (m) => m.pronta !== false && !m.soFollowup && !['image', 'video', 'audio'].includes(m.tipo) },
     // separadas: só saem no follow-up (a IA nunca manda na conversa)
     followup: { nome: '🔁 Só follow-up', filtro: (m) => m.soFollowup === true },
     albuns: { nome: '🗂️ Álbuns', filtro: () => false }
@@ -2584,6 +2585,13 @@ async function paginaMidias(id) {
       <button type="button" class="codigo-num" data-copiar="${esc(codNum(m))}" title="Copiar o código para colar no prompt">${esc(codNum(m))} <span>⧉ copiar</span></button>
       <strong>${esc(m.nome)}</strong>
       ${statusIa(m)}
+      ${m.tipo === 'audio' ? `<audio class="midia-audio" controls preload="none" src="${esc(m.url)}"></audio>
+      <form class="midia-fala" data-fala="${esc(m.id)}">
+        <label class="rotulo">🗣️ O que o áudio fala ${m.falaAuto ? '<span class="etiqueta">transcrito pela IA — confira</span>' : ''}</label>
+        <textarea name="fala" rows="3" maxlength="2000" placeholder="Escreva o que o áudio fala (a IA usa isso para saber o conteúdo e não repetir por escrito)">${esc(m.fala || '')}</textarea>
+        <span class="acoes-fala"><button type="submit" class="pequeno">Salvar</button><button type="button" class="pequeno" data-transcrever="${esc(m.id)}" title="A IA ouve o áudio e escreve o que ele fala">✨ Transcrever</button></span>
+      </form>` : ''}
+      ${m.tipo === 'audio' && !m.soFollowup ? '<label class="rotulo" style="margin-top:6px">⏱️ Quando enviar</label>' : ''}
       ${m.soFollowup ? '' : `<form class="midia-desc" data-desc="${esc(m.id)}">
         <input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Descrição (opcional): quando a IA deve mandar">
         <button type="submit" class="pequeno" title="Salvar a descrição">Salvar</button>
@@ -2622,7 +2630,7 @@ async function paginaMidias(id) {
         <div class="lista-pastas">${albuns.filter(passaAssunto).map(cartaoAlbum).join('') || '<p class="rotulo">Nenhum álbum aqui.</p>'}</div>`;
     } else {
       const itens = lista.filter((m) => grupos[aba].filtro(m) && passaAssunto(m));
-      grade.innerHTML = (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
+      grade.innerHTML = (aba === 'audios' ? `<p class="rotulo" style="margin:4px 0 10px">🎤 Os áudios chegam para o cliente como <b>áudio de voz gravado na hora</b> (ele vê "gravando áudio…"), nunca como encaminhado. Para cada áudio: escreva <b>quando enviar</b> e confira <b>o que ele fala</b> — a IA usa isso para mandar na hora certa e não repetir por escrito. Para a IA alternar texto e áudio num roteiro, cite o código do áudio nas instruções (ex.: "depois de saber o carro, mande o áudio #MIDIA_12").</p>` : '') + (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
         (itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : aba === 'prontas' ? 'Nenhuma mídia pronta ainda — configure as da aba "A configurar".' : 'Nenhuma aqui ainda.'}</p>`);
     }
     const barra = $('#barra-selecao');
@@ -2672,6 +2680,29 @@ async function paginaMidias(id) {
     });
     $$('[data-editar]').forEach((b) => { b.onclick = () => modalMidia(lista.find((x) => x.id === b.dataset.editar)); });
     // descrição na hora (opcional): escreveu, a IA já pode usar a mídia
+    $$('[data-fala]').forEach((f) => {
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const m = lista.find((x) => x.id === f.dataset.fala);
+        try {
+          const r = await comEspera(f.querySelector('button[type=submit]'), () => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { fala: f.elements.fala.value.trim() } }));
+          Object.assign(m, { fala: r.fala, falaAuto: r.falaAuto });
+          aviso('Salvo: a IA já sabe o que este áudio fala.');
+          desenharBiblioteca();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-transcrever]').forEach((b) => {
+      b.onclick = async () => {
+        const m = lista.find((x) => x.id === b.dataset.transcrever);
+        try {
+          const r = await comEspera(b, () => api(`empresas/${id}/midias/${m.id}/transcrever`, { method: 'POST', body: {} }), 'Ouvindo…');
+          Object.assign(m, { fala: r.fala, falaAuto: r.falaAuto, duracao: r.duracao });
+          aviso('Pronto: a IA escreveu o que o áudio fala. Confira e corrija se precisar.');
+          desenharBiblioteca();
+        } catch (err) { aviso(err.message, true); }
+      };
+    });
     $$('[data-desc]').forEach((f) => {
       f.onsubmit = async (e) => {
         e.preventDefault();

@@ -34,6 +34,7 @@ const TIPOS = {
   'audio/ogg': 'audio',
   'audio/mp4': 'audio',
   'audio/aac': 'audio',
+  'audio/wav': 'audio',
   'application/pdf': 'document'
 };
 
@@ -61,6 +62,7 @@ const EXTENSOES = {
   '.opus': 'audio/ogg',
   '.m4a': 'audio/mp4',
   '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -286,6 +288,7 @@ function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeIn
   empresa.midias.push(midia);
   salvar();
   require('./video').enfileirar(midia); // vídeo: confere/converte para MP4 do WhatsApp
+  if (midia.tipo === 'audio') setImmediate(() => require('./audio').preparar(empresa, midia)); // duração e o que o áudio fala
   return midia;
 }
 
@@ -459,7 +462,7 @@ function paraIa(empresa, { followup = false } = {}) {
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
     .filter((m) => !m.pastaId && !m.albumId && valeAqui(m))
-    .map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo) }));
+    .map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo), ...(m.tipo === 'audio' && m.fala ? { fala: String(m.fala).slice(0, 500) } : {}) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
     .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo) || doPrompt.has(a.codigo))).length, servicos: servicos(a.codigo) }))
@@ -759,6 +762,7 @@ function concluirEnvio(empresa, envioId, dados = {}) {
   empresa.midias.push(midia);
   salvar();
   require('./video').enfileirar(midia);
+  if (midia.tipo === 'audio') setImmediate(() => require('./audio').preparar(empresa, midia));
   return midia;
 }
 
@@ -870,7 +874,7 @@ async function salvarMidiaDoLink(empresa, { link, nome, descricao, extra = {} })
   return salvarMidia(empresa, { buffer: baixado.buffer, nomeArquivo: path.extname(nomeArquivo) ? nomeArquivo : `${nomeArquivo}${ext}`, nome: nome || path.parse(nomeArquivo).name, descricao, mimetypeInformado: baixado.tipo, extra: { ...extra, origemLink: linkDiretoDrive(arquivoId).replace(DRIVE, 'https://drive.google.com') } });
 }
 
-const EXT_ACEITAS = /\.(jpe?g|png|webp|gif|mp4|3gp|mov|m4v|webm|mkv|avi|mp3|ogg|opus|m4a|aac|pdf)$/i;
+const EXT_ACEITAS = /\.(jpe?g|png|webp|gif|mp4|3gp|mov|m4v|webm|mkv|avi|mp3|ogg|opus|m4a|aac|wav|pdf)$/i;
 
 // Adiciona ou sincroniza uma pasta. Retorna o resumo do que mudou.
 async function sincronizarPasta(empresa, { link, nome, descricao, pastaExistente, chaveGoogle }) {

@@ -981,6 +981,10 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.codigo !== undefined && midias.codigoDaEntrada(b.codigo) !== midia.codigo) midia.codigo = midias.validarCodigo(empresa, b.codigo, midia.id);
     if (b.descricao !== undefined) midia.descricao = texto(b.descricao, 300);
     if (b.legenda !== undefined) midia.legenda = texto(b.legenda, 1000);
+    if (b.fala !== undefined) {
+      midia.fala = texto(b.fala, 2000);
+      delete midia.falaAuto; // conferido/escrito pelo dono
+    }
     if (b.umaVezPorConversa !== undefined) midia.umaVezPorConversa = b.umaVezPorConversa !== false;
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
@@ -995,6 +999,23 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
   }
   salvar();
   res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
+});
+
+// Áudio: transcreve com a IA o que ele fala (para a IA saber o conteúdo)
+router.post('/empresas/:id/midias/:midiaId/transcrever', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const midia = midias.midiasDa(empresa).find((m) => m.id === req.params.midiaId);
+  if (!midia) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+  if (midia.tipo !== 'audio') return res.status(400).json({ erro: 'Só dá para transcrever áudio.' });
+  if (!ia.podeOuvirAudio(empresa)) return res.status(400).json({ erro: 'Para transcrever, cadastre uma chave do Gemini (grátis) ou do GPT em IAs e chaves. Ou escreva você mesmo o que o áudio fala.' });
+  try {
+    await require('./audio').preparar(empresa, midia, { forcarTranscricao: true });
+    if (!midia.fala) return res.status(400).json({ erro: 'Não consegui entender fala neste áudio. Escreva você mesmo o que ele fala.' });
+    res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
+  } catch (err) {
+    res.status(502).json({ erro: `A IA não conseguiu transcrever agora: ${ia.descreverErroIa ? ia.descreverErroIa(err) : err.message}` });
+  }
 });
 
 // Várias de uma vez: marcar prontas / a configurar, pôr num álbum, apagar

@@ -1736,3 +1736,7 @@ details.chat-meta[open] > summary::after { content: '▴'; }
 details.chat-meta:not([open]) { background: transparent; padding: 2px 0; }
 html.dark details.chat-meta:not([open]) { background: transparent; }
 .meta-numeros + .meta-caminho, #meta-resumo > .meta-caminho { margin-top: 12px; }
+.midia-audio { width: 100%; height: 36px; margin: 4px 0; }
+.midia-fala { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.midia-fala textarea { font-size: 13px; min-height: 64px; }
+.acoes-fala { display: flex; gap: 6px; }
