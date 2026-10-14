@@ -1,87 +1,51 @@
 # Passar o CRM de `odingdong.tech/crm` para `odingdong.tech`
 
-O CRM passa a ser o único projeto do domínio. Os outros projetos **saem do
-domínio, mas nada é apagado**: os arquivos continuam na VPS e o código
-continua no GitHub. Os endereços antigos com `/crm` (código do chat colado nos
-sites e webhooks do WhatsApp) **continuam funcionando**.
+O CRM passa a ser o único projeto do domínio. O projeto que hoje abre na raiz
+(porta 3000) **sai do domínio, mas nada é apagado nem desligado**: os arquivos
+continuam na VPS e o código continua no GitHub. Os endereços antigos com `/crm`
+(código do chat colado nos sites e webhooks do WhatsApp) **continuam
+funcionando**.
 
-Tudo abaixo é feito no terminal da VPS (SSH). Cada passo tem como desfazer.
+Não muda: outros domínios do mesmo arquivo do Nginx (ex.: `avaliacao.privefeet.pro`),
+o bloco da porta 80, a Evolution API e os outros programas do pm2/docker.
 
-## 0. Diagnóstico (não muda nada)
-
-```bash
-bash /opt/dingdong-crm/deploy/diagnostico-dominio.sh
-```
-
-Mande o resultado para o Claude. Ele confere quais blocos `location` são de
-outros projetos e monta a configuração final.
-
-## 1. Cópia de segurança do Nginx
+## 1. Rodar (na VPS, como root)
 
 ```bash
-ARQ=$(sudo grep -rlI "odingdong.tech" /etc/nginx/sites-enabled | head -n 1)
-ARQ=$(readlink -f "$ARQ"); echo "$ARQ"
-sudo cp "$ARQ" "$ARQ.bak-$(date +%F)"
+bash /opt/dingdong-crm/deploy/aplicar-raiz.sh
 ```
 
-## 2. Trocar os blocos do domínio
+O script:
 
-Abra o arquivo (`sudo nano "$ARQ"`). Dentro do `server { ... }` que tem
-`listen 443`:
+1. guarda cópias do Nginx e do `.env` em `/root/backup-raiz-DATA` (fora da
+   pasta do Nginx, para o Nginx não ler a cópia junto);
+2. troca só os `location` do bloco HTTPS do `odingdong.tech` pelo conteúdo de
+   `deploy/nginx-crm-raiz.conf`;
+3. roda `nginx -t`;
+4. muda no `.env`: `BASE_PATH=` e `PUBLIC_URL=https://odingdong.tech`;
+5. recarrega o Nginx, reinicia só o CRM e testa `/`, `/login`, `/crm`,
+   `/crm/chat.js`, `/api/...` e `/termos`.
 
-- **apague** os blocos `location` dos outros projetos e o `location /crm/`
-  antigo (e o `location = /crm`);
-- **cole** no lugar o conteúdo de `/opt/dingdong-crm/deploy/nginx-crm-raiz.conf`.
+Se qualquer teste falhar, **ele volta tudo sozinho** e avisa.
 
-Não mexa nas linhas `ssl_certificate`, `listen` e `server_name`.
-
-Depois:
-
-```bash
-sudo nginx -t                    # só siga se aparecer "syntax is ok"
-sudo systemctl reload nginx
-```
-
-## 3. Avisar o CRM que ele está na raiz
-
-No `/opt/dingdong-crm/.env`, deixe assim:
-
-```
-BASE_PATH=
-PUBLIC_URL=https://odingdong.tech
-```
-
-E reinicie só o CRM:
-
-```bash
-pm2 restart dingdong-crm --update-env
-```
-
-## 4. Testar
+## 2. Conferir
 
 - `https://odingdong.tech` → abre o login/painel do CRM
 - `https://odingdong.tech/crm` → vai sozinho para `https://odingdong.tech`
-- `https://odingdong.tech/crm/chat.js` → mostra o código do chat (sites antigos)
 - Mande uma mensagem de teste no WhatsApp da Madara e veja se chega no painel
 
 Na primeira vez, todo mundo precisa entrar de novo (o login muda de endereço).
 
-## 5. (Opcional) Desligar os outros projetos sem apagar
+## Desfazer
 
-Para eles não ficarem gastando memória da VPS:
-
-```bash
-pm2 stop NOME_DO_PROJETO     # para; os arquivos ficam onde estão
-pm2 save                     # lembra disso quando a VPS reiniciar
-```
-
-Para religar um dia: `pm2 start NOME_DO_PROJETO && pm2 save`.
-
-## Desfazer tudo
+O script mostra no final o comando certo, algo como:
 
 ```bash
-sudo cp "$ARQ.bak-AAAA-MM-DD" "$ARQ" && sudo nginx -t && sudo systemctl reload nginx
+bash /opt/dingdong-crm/deploy/desfazer-raiz.sh /root/backup-raiz-AAAA-MM-DD-HHMMSS
 ```
 
-E no `.env` volte `BASE_PATH=/crm` e `PUBLIC_URL=https://odingdong.tech/crm`,
-depois `pm2 restart dingdong-crm --update-env`.
+## (Opcional) O projeto da porta 3000
+
+Ele continua rodando na VPS, só não abre mais pelo domínio. Se um dia quiser
+desligar para economizar memória, sem apagar nada: descubra o programa com
+`ss -ltnp | grep :3000` e pare só ele. Para religar, é só iniciar de novo.
