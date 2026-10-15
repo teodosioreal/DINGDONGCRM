@@ -6,7 +6,8 @@ DOMINIO="$1"
 [ -z "$DOMINIO" ] && { echo "    (sem PUBLIC_URL)"; exit 0; }
 mascara() { sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+\.[0-9]+/\1.x.x/g; s/([0-9a-f]+:[0-9a-f]+):[0-9a-f:]+/\1:…/gi'; }
 a4="$(getent ahostsv4 "$DOMINIO" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')"
-a6="$(getent ahostsv6 "$DOMINIO" 2>/dev/null | awk '{print $1}' | grep ':' | sort -u | tr '\n' ' ')"
+# (::ffff:1.2.3.4 é o próprio IPv4 "traduzido": não é endereço IPv6 de verdade)
+a6="$(getent ahostsv6 "$DOMINIO" 2>/dev/null | awk '{print $1}' | grep ':' | grep -vi '^::ffff:' | sort -u | tr '\n' ' ')"
 meu4="$(curl -4 -s --max-time 8 https://api.ipify.org 2>/dev/null)"
 meu6="$(curl -6 -s --max-time 8 https://api64.ipify.org 2>/dev/null)"
 echo "    DNS de $DOMINIO: IPv4 ${a4:-nenhum} · IPv6 ${a6:-nenhum}"
@@ -29,6 +30,8 @@ else
 fi
 command -v ufw >/dev/null 2>&1 && echo "    firewall (ufw): $(ufw status 2>/dev/null | head -n 1)"
 n="$(iptables -S 2>/dev/null | grep -c -- '-j DROP\|-j REJECT')"; echo "    regras de bloqueio no iptables: ${n:-sem permissão}"
+iptables -S 2>/dev/null | grep -E -- '-j (DROP|REJECT)' | mascara | sed 's/^/      iptables: /' | head -n 10
+command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -iE 'deny|reject|limit|443|80|Nginx' | mascara | sed 's/^/      ufw: /' | head -n 12
 grep -rhsE 'limit_req|limit_conn|deny ' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | sed 's/^ */      nginx: /' | sort -u | head -n 8
 echo "    nginx bloqueou por limite (últimas linhas do log de erro):"
 tail -n 3000 /var/log/nginx/error.log 2>/dev/null | grep -iE 'limiting requests|limiting connections|access forbidden' | tail -n 5 | mascara | sed 's/^/      /'
