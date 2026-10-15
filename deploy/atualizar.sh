@@ -118,6 +118,41 @@ diagnostico() {
     | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 40 | sed 's/^/      /' || true
 }
 
+# Saúde do CRM AGORA (antes de atualizar): responde? em quanto tempo? memória, disco, banco.
+# Se não responder em 20 s (travado), reinicia o processo dingdong-crm (só ele).
+saude() {
+  local porta base url pub t
+  porta="$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
+  if grep -qE '^BASE_PATH=' .env 2>/dev/null; then
+    base="$(grep -E '^BASE_PATH=' .env | tail -n 1 | cut -d= -f2- | tr -d '[:space:]"'"'"'' | sed -e 's#/*$##' -e 's#^/*#/#')"; [ "$base" = "/" ] && base=""
+  else base="/crm"; fi
+  url="http://127.0.0.1:${porta:-3100}${base}/login"
+  echo "==> Saúde do CRM agora"
+  pm2 jlist 2>/dev/null | node -e '
+    let t = ""; process.stdin.on("data", (c) => (t += c)).on("end", () => {
+      const p = JSON.parse(t.slice(t.indexOf("["))).find((x) => x.name === process.argv[1]); if (!p) return console.log("    pm2: processo não encontrado");
+      const e = p.pm2_env || {}, m = p.monit || {};
+      console.log(`    pm2: ${e.status} · reinícios ${e.restart_time} · memória ${Math.round((m.memory || 0) / 1048576)} MB · CPU ${m.cpu}% · no ar há ${Math.round((Date.now() - e.pm_uptime) / 60000)} min`);
+    });' "$NOME_PM2" || true
+  t="$(curl -s -o /dev/null -w '%{http_code} em %{time_total}s' --max-time 20 "$url" || echo 'SEM RESPOSTA em 20 s')"
+  echo "    resposta local (${base:-/}/login): $t"
+  pub="$(ler_env PUBLIC_URL .env)"
+  [ -n "$pub" ] && echo "    resposta pelo endereço público: $(curl -s -o /dev/null -w '%{http_code} em %{time_total}s' --max-time 20 "${pub%/}${base}/login" || echo 'SEM RESPOSTA em 20 s')"
+  echo "    disco: $(df -h . | tail -n 1 | awk '{print $3" usados de "$2" ("$5" cheio), livres "$4}')"
+  echo "    memória do servidor: $(free -m 2>/dev/null | awk '/^Mem/{print $3" MB usados de "$2" MB, livres "$7" MB"}') · carga: $(cut -d' ' -f1-3 /proc/loadavg)"
+  [ -f data.json ] && echo "    banco (data.json): $(du -h data.json | cut -f1)"
+  [ -d backups ] && echo "    cópias de segurança: $(du -sh backups 2>/dev/null | cut -f1) no total · $(ls backups/banco 2>/dev/null | wc -l) cópias de deploy ($(du -sh backups/banco 2>/dev/null | cut -f1))"
+  [ -d midias ] && echo "    mídias: $(du -sh midias 2>/dev/null | cut -f1)"
+  if ! curl -fs -o /dev/null --max-time 20 "$url"; then
+    echo "!!  O CRM não respondeu em 20 s: reiniciando o processo $NOME_PM2 (só ele)"
+    pm2 restart "$NOME_PM2" --update-env >/dev/null || true
+    for _ in $(seq 1 20); do sleep 1; curl -fs -o /dev/null "$url" && break; done
+    echo "    depois de reiniciar: $(curl -s -o /dev/null -w '%{http_code} em %{time_total}s' --max-time 20 "$url" || echo 'AINDA SEM RESPOSTA')"
+    pm2 logs "$NOME_PM2" --err --lines 25 --nostream --raw 2>/dev/null | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 25 | sed 's/^/      erro: /' || true
+  fi
+}
+saude || true
+
 git "${GIT_AUTH[@]}" fetch -q "${REPO_URL:-origin}" "$BRANCH"
 NOVA="$(git rev-parse FETCH_HEAD)"
 if [ "$NOVA" = "$ANTES" ]; then
