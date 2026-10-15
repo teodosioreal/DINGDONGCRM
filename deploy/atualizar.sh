@@ -62,6 +62,8 @@ diagnostico() {
   set +e +o pipefail # só informa: nada aqui derruba um deploy que já deu certo
   echo "==> Diagnóstico do CRM"
   echo "    PUBLIC_URL=$(ler_env PUBLIC_URL .env)"
+  echo "    Rede (por que abre no 4G e não no Wi-Fi, só leitura):"
+  timeout 90 bash deploy/diagnostico-rede.sh "$(ler_env PUBLIC_URL .env | sed -E 's#^https?://##; s#/.*##')" 2>&1 | head -n 30 || true
   echo "    Contatos (anônimo, só leitura):"
   CRM_DB_PATH="$(ler_env CRM_DB_PATH .env)" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 60 node deploy/diagnostico-contatos.js 2>&1 | head -n 80 || true
   # etiquetas do WhatsApp Business: copia (só leitura) as marcações dos números DO CRM para o CRM importar
