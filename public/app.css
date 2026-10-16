@@ -1750,12 +1750,30 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .card.receita.pausada { opacity: .85; border-style: dashed; }
 .receita-controle { margin-top: 8px; }
 
-/* 🎤 Áudios: gravador do painel */
-.gravador { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.gravador > p, .gravador > audio, .gravador > form, .gravador > .acoes { flex-basis: 100%; }
+/* 🎤 Áudios: gravador do painel (feito para o polegar no celular) */
+.gravador { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.gravador > p, .gravador > audio, .gravador > form, .gravador > .acoes, .gravador > .grav-status, .gravador > .grav-nivel { flex-basis: 100%; }
+.gravador audio { width: 100%; }
+.grav-grande { min-height: 52px; padding: 12px 22px; font-size: 16px; border-radius: 12px; }
+.grav-acoes { margin-top: 4px; }
+.grav-status { display: flex; align-items: center; gap: 8px; font-size: 16px; }
 .gravador.gravando b { color: var(--perigo); }
-.ponto-gravando { width: 12px; height: 12px; border-radius: 50%; background: var(--perigo); display: inline-block; animation: piscar-grav 1s infinite; }
+.grav-tempo { margin-left: auto; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ponto-gravando { width: 14px; height: 14px; border-radius: 50%; background: var(--perigo); display: inline-block; animation: piscar-grav 1s infinite; }
 @keyframes piscar-grav { 50% { opacity: 0.25; } }
-.botao-arquivo { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--borda, #d4d4d8); border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: 13px; }
+.grav-nivel { height: 8px; border-radius: 99px; background: var(--borda); overflow: hidden; }
+.grav-nivel span { display: block; height: 100%; width: 0; background: var(--perigo); border-radius: 99px; transition: width .08s linear; }
+.botao-arquivo { display: inline-flex; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: 1px solid var(--borda); border-radius: 10px; padding: 10px 14px; font-weight: 600; font-size: 14px; min-height: 44px; }
 .audio-card .audio-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .audio-card .midia-fala textarea { width: 100%; }
+@media (max-width: 768px) {
+  .pagina-audios input, .pagina-audios textarea, .pagina-audios select { font-size: 16px; } /* iPhone não dá zoom ao tocar */
+  .gravador .grav-grande, .gravador .botao-arquivo { width: 100%; }
+  .gravador input, .gravador textarea { font-size: 16px; }
+  .gravador .grav-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .gravador .grav-acoes .grav-grande { grid-column: 1 / -1; }
+  .gravador .grav-acoes button { min-height: 46px; margin: 0; }
+  .pagina-audios .grade-midias { grid-template-columns: 1fr; }
+  .pagina-audios .audio-card .acoes button, .pagina-audios .audio-card .acoes-fala button { min-height: 42px; }
+  .pagina-audios .audio-card .midia-audio { height: 44px; }
+}

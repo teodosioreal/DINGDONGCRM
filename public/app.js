@@ -2300,11 +2300,41 @@ function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áud
   let rec = null;
   let fluxo = null;
   let relogio = null;
+  let trava = null; // tela acesa enquanto grava (celular)
+  let medidor = null; // { ctx, raf }
+  const aoEsconder = () => { if (document.hidden && rec?.state === 'recording') parar(); }; // bloqueou o celular: guarda o que gravou
   const parar = () => {
     clearInterval(relogio);
     if (rec && rec.state !== 'inactive') rec.stop();
     fluxo?.getTracks().forEach((t) => t.stop());
     fluxo = null;
+    trava?.release?.().catch(() => {});
+    trava = null;
+    if (medidor) { cancelAnimationFrame(medidor.raf); medidor.ctx.close().catch(() => {}); medidor = null; }
+    document.removeEventListener('visibilitychange', aoEsconder);
+  };
+  // barrinha que mexe com a voz: mostra que o microfone está pegando
+  const ligarMedidor = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx || !fluxo) return;
+      const ctx = new Ctx();
+      ctx.resume?.().catch(() => {}); // celular: o toque já passou quando o microfone liberou
+      const an = ctx.createAnalyser();
+      an.fftSize = 512;
+      ctx.createMediaStreamSource(fluxo).connect(an);
+      const dados = new Uint8Array(an.fftSize);
+      medidor = { ctx, raf: 0 };
+      const passo = () => {
+        an.getByteTimeDomainData(dados);
+        let pico = 0;
+        for (const v of dados) pico = Math.max(pico, Math.abs(v - 128));
+        const barra = $('.grav-nivel span', el);
+        if (barra) barra.style.width = `${Math.min(100, Math.round((pico / 128) * 160))}%`;
+        medidor.raf = requestAnimationFrame(passo);
+      };
+      passo();
+    } catch { /* sem medidor: grava igual */ }
   };
   const campos = () => (comCampos ? `
     <div class="campos" style="margin-top:10px">
@@ -2314,8 +2344,10 @@ function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áud
     <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="ativa" checked> <b>Ativa</b> — a IA já pode mandar (precisa do "quando a IA manda")</label>` : '');
   const desenhar = (estado, seg = 0) => {
     if (estado === 'gravando') {
-      el.innerHTML = `<div class="gravador gravando"><span class="ponto-gravando"></span> <b>Gravando…</b> <span class="rotulo" id="grav-tempo">0:00</span>
-        <div class="acoes" style="margin-top:10px"><button type="button" class="primario" id="grav-parar">⏹️ Parar</button><button type="button" id="grav-cancelar">Cancelar</button></div></div>`;
+      el.innerHTML = `<div class="gravador gravando">
+        <div class="grav-status"><span class="ponto-gravando"></span> <b>Gravando</b> <span class="grav-tempo" id="grav-tempo">0:00</span></div>
+        <div class="grav-nivel" aria-hidden="true"><span></span></div>
+        <div class="acoes grav-acoes"><button type="button" class="primario grav-grande" id="grav-parar">⏹️ Parar e ouvir</button><button type="button" id="grav-cancelar">Cancelar</button></div></div>`;
       $('#grav-parar', el).onclick = () => parar();
       $('#grav-cancelar', el).onclick = () => { gravacao = null; if (rec) rec.onstop = null; parar(); desenhar('inicio'); };
       return;
@@ -2324,7 +2356,7 @@ function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áud
       el.innerHTML = `<div class="gravador"><p class="rotulo" style="margin:0 0 6px">🎧 Ouça antes de salvar:</p>
         <audio controls src="${gravacao.url}" style="width:100%"></audio>
         <form id="grav-form">${campos()}
-          <div class="acoes" style="margin-top:10px"><button type="submit" class="primario">${textoSalvar}</button><button type="button" id="grav-de-novo">🔄 Gravar de novo</button><button type="button" id="grav-descartar">Descartar</button></div>
+          <div class="acoes grav-acoes"><button type="submit" class="primario grav-grande">${textoSalvar}</button><button type="button" id="grav-de-novo">🔄 Gravar de novo</button><button type="button" id="grav-descartar">Descartar</button></div>
         </form></div>`;
       $('#grav-de-novo', el).onclick = () => { URL.revokeObjectURL(gravacao.url); gravacao = null; comecar(); };
       $('#grav-descartar', el).onclick = () => { URL.revokeObjectURL(gravacao.url); gravacao = null; desenhar('inicio'); };
@@ -2340,8 +2372,8 @@ function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áud
       return;
     }
     el.innerHTML = `<div class="gravador">
-      ${podeGravar ? '<button type="button" class="primario" id="grav-comecar">🎙️ Gravar áudio</button>' : '<p class="rotulo aviso-texto">Este navegador não deixa gravar. Use o Chrome (computador ou Android) ou o Safari atualizado — ou envie um arquivo de áudio.</p>'}
-      <label class="botao-arquivo pequeno" style="margin-left:8px">📁 Enviar arquivo de áudio<input type="file" accept="audio/*" id="grav-arquivo" hidden></label>
+      ${podeGravar ? '<button type="button" class="primario grav-grande" id="grav-comecar">🎙️ Toque para gravar</button>' : '<p class="rotulo aviso-texto">Este navegador não deixa gravar. Use o Chrome (computador ou Android) ou o Safari atualizado — ou envie um arquivo de áudio.</p>'}
+      <label class="botao-arquivo">📁 Enviar arquivo de áudio<input type="file" accept="audio/*" id="grav-arquivo" hidden></label>
       <p class="rotulo" style="margin:8px 0 0">Grave, ouça e só depois salve. Pode regravar quantas vezes quiser.</p></div>`;
     if (podeGravar) $('#grav-comecar', el).onclick = comecar;
     $('#grav-arquivo', el).onchange = (e) => {
@@ -2375,6 +2407,10 @@ function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áud
     rec.start(1000);
     const inicio = Date.now();
     desenhar('gravando');
+    ligarMedidor();
+    navigator.vibrate?.(30);
+    navigator.wakeLock?.request?.('screen').then((t) => { trava = t; }).catch(() => {});
+    document.addEventListener('visibilitychange', aoEsconder);
     relogio = setInterval(() => {
       const s = Math.floor((Date.now() - inicio) / 1000);
       const t = $('#grav-tempo', el);
@@ -2422,12 +2458,12 @@ async function paginaAudios(id) {
       <div class="acoes" style="margin-top:8px"><button type="button" class="pequeno" data-regravar="${esc(m.id)}">🎙️ Regravar</button><button type="button" class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   };
-  conteudo.innerHTML = `
+  conteudo.innerHTML = `<div class="pagina-audios">
     <div class="cabecalho"><div><h1>🎤 Áudios</h1><p class="sub">Grave aqui mesmo, ouça antes de salvar e diga quando a IA manda. O cliente recebe como <b>áudio de voz gravado na hora</b> (vê "gravando áudio…"), nunca como encaminhado.</p></div></div>
     <div class="card"><h2 style="margin-top:0">🎙️ Novo áudio</h2><div id="gravador-novo"></div></div>
     <h2>Seus áudios <span class="rotulo">(${audios.length})</span></h2>
     <p class="rotulo" style="margin-top:-6px">Para a IA mandar num momento certo do roteiro, cite o código no prompt (ex.: "depois de saber o carro, mande o áudio ${esc(audios[0] ? codNum(audios[0]) : '#MIDIA_12')}"). Teste A/B, etapas e revezamento ficam em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> → Editar.</p>
-    ${audios.length ? `<div class="grade-midias">${audios.map(cartao).join('')}</div>` : '<div class="card vazio">Nenhum áudio ainda. Grave o primeiro aqui em cima 👆</div>'}`;
+    ${audios.length ? `<div class="grade-midias">${audios.map(cartao).join('')}</div>` : '<div class="card vazio">Nenhum áudio ainda. Grave o primeiro aqui em cima 👆</div>'}</div>`;
 
   montarGravador($('#gravador-novo'), {
     comCampos: true,
@@ -2870,7 +2906,7 @@ async function paginaMidias(id) {
         <div class="lista-pastas">${albuns.filter(passaAssunto).map(cartaoAlbum).join('') || '<p class="rotulo">Nenhum álbum aqui.</p>'}</div>`;
     } else {
       const itens = lista.filter((m) => grupos[aba].filtro(m) && passaAssunto(m));
-      grade.innerHTML = (aba === 'audios' ? `<p class="rotulo" style="margin:4px 0 10px">🎤 Os áudios chegam para o cliente como <b>áudio de voz gravado na hora</b> (ele vê "gravando áudio…"), nunca como encaminhado. Para cada áudio: escreva <b>quando enviar</b> e confira <b>o que ele fala</b> — a IA usa isso para mandar na hora certa e não repetir por escrito. Para a IA alternar texto e áudio num roteiro, cite o código do áudio nas instruções (ex.: "depois de saber o carro, mande o áudio #MIDIA_12").</p>` : '') + (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
+      grade.innerHTML = (aba === 'audios' ? `<p style="margin:4px 0 10px"><a class="botao primario pequeno" href="${rotaEmpresa(id, 'audios')}">🎙️ Gravar áudio pelo CRM</a></p><p class="rotulo" style="margin:4px 0 10px">🎤 Os áudios chegam para o cliente como <b>áudio de voz gravado na hora</b> (ele vê "gravando áudio…"), nunca como encaminhado. Para cada áudio: escreva <b>quando enviar</b> e confira <b>o que ele fala</b> — a IA usa isso para mandar na hora certa e não repetir por escrito. Para a IA alternar texto e áudio num roteiro, cite o código do áudio nas instruções (ex.: "depois de saber o carro, mande o áudio #MIDIA_12").</p>` : '') + (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
         (itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : aba === 'prontas' ? 'Nenhuma mídia pronta ainda — configure as da aba "A configurar".' : 'Nenhuma aqui ainda.'}</p>`);
     }
     const barra = $('#barra-selecao');
