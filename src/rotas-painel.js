@@ -924,7 +924,7 @@ router.delete('/empresas/:id/disparos/:disparoId', (req, res) => {
 router.get('/empresas/:id/midias', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m), ...(m.tipo === 'video' ? { capa: `${config.urlPublica}/capa/${m.id}` } : {}), ...(m.tipo === 'audio' && (m.abTexto || empresa.abContador?.[m.id]) ? { ab: midias.resultadoAB(empresa, m) } : {}) })));
+  res.json(midias.midiasDa(empresa).map((m) => ({ ...m, url: midias.urlPublica(m), codigoVisivel: midias.codigoNumerico(m), ...(m.tipo === 'video' ? { capa: `${config.urlPublica}/capa/${m.id}${m.versao ? `?v=${m.versao}` : ''}` } : {}), ...(m.tipo === 'audio' && (m.abTexto || empresa.abContador?.[m.id]) ? { ab: midias.resultadoAB(empresa, m) } : {}) })));
 });
 
 // Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)
@@ -966,6 +966,20 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
   }
 });
 
+// 🔁 Trocar o arquivo da mídia: o novo fica no lugar do antigo (mesmo código e configuração)
+router.post('/empresas/:id/midias/:midiaId/arquivo', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const midia = midias.midiasDa(empresa).find((m) => m.id === req.params.midiaId);
+  if (!midia) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+  try {
+    midias.trocarArquivo(empresa, midia, { buffer: req.body, nomeArquivo: texto(req.query.arquivo, 200), mimetypeInformado: texto(req.query.tipo, 100) });
+    res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 router.put('/empresas/:id/midias/:midiaId', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
@@ -989,7 +1003,12 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.umaVezPorConversa !== undefined) midia.umaVezPorConversa = b.umaVezPorConversa !== false;
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
-    if (b.pronta !== undefined) midia.pronta = b.pronta === true;
+    if (b.pronta !== undefined) {
+      // desligou uma mídia que estava ativa: fica DESLIGADA de verdade (não sai nem pelo prompt)
+      if (b.pronta !== true && midia.pronta !== false) midia.pausada = true;
+      if (b.pronta === true) delete midia.pausada;
+      midia.pronta = b.pronta === true;
+    }
     // escreveu a descrição (quando mandar): a mídia já vale para a IA
     else if (b.descricao !== undefined && midia.descricao && !midia.soFollowup) midia.pronta = true;
     if (b.assuntos !== undefined) midia.assuntos = midias.listaAssuntos(empresa, b.assuntos);
@@ -1028,7 +1047,13 @@ router.post('/empresas/:id/midias/lote', (req, res) => {
   if (!alvo.length) return res.status(400).json({ erro: 'Selecione pelo menos uma mídia.' });
   const acao = String(req.body?.acao || '');
   if (acao === 'apagar') for (const m of alvo) midias.apagarMidia(empresa, m.id);
-  else if (acao === 'pronta' || acao === 'aConfigurar') for (const m of alvo) m.pronta = acao === 'pronta';
+  else if (acao === 'pronta' || acao === 'aConfigurar') {
+    for (const m of alvo) {
+      m.pronta = acao === 'pronta';
+      if (acao === 'pronta') delete m.pausada;
+      else m.pausada = true; // "Voltar para a configurar": não sai de jeito nenhum
+    }
+  }
   else if (acao === 'album') {
     const albumId = midias.albunsDa(empresa).some((a) => a.id === req.body?.albumId) ? req.body.albumId : null;
     for (const m of alvo) m.albumId = albumId;
@@ -2761,7 +2786,7 @@ router.post('/leads/:id/midia', async (req, res) => {
   if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
   const nome = texto(req.body?.nome, 120);
   if (!midias.acharParaEnviar(empresa, nome).length) return res.status(404).json({ erro: 'Mídia não encontrada.' });
-  const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe');
+  const r = await whatsapp.enviarMidiasPedidas(empresa, c, [nome], 'equipe', { manual: true }); // mandada à mão pela equipe
   if (r.enviadas) require('./clone').registrar(empresa, c, { midias: [midias.resolverPedido(empresa, nome).alvo?.codigo] });
   salvar();
   if (r.falhas.length && !r.enviadas) return res.status(502).json({ erro: `Não foi enviada. ${r.falhas.join(' · ')}` });

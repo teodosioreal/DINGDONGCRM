@@ -701,7 +701,6 @@ function eventoDeTeste(req, nome, valor) {
     event_source_url: `${require('./config').urlPublica || 'https://odingdong.tech/crm'}/`,
     user_data: {
       country: [sha('br')],
-    ...cidadeEstado(lead),
       external_id: [sha(id)],
       client_ip_address: String(req?.ip || '').replace(/^::ffff:/, '') || '127.0.0.1',
       client_user_agent: String(req?.get?.('user-agent') || 'DingDong CRM').slice(0, 400)

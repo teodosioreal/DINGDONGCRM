@@ -229,7 +229,8 @@ function midiasDoDisparo(empresa, d) {
     if (m) saida.push(m);
     else if (midias.albunsDa(empresa).some((a) => a.id === id)) saida.push(...todas.filter((x) => x.albumId === id).slice(0, 10));
   }
-  return [...new Set(saida)].filter((m) => !m.processando).slice(0, 20);
+  // mídia que o dono desligou ("não está pronta") não vai nem no disparo já marcado
+  return [...new Set(saida)].filter((m) => !m.processando && !midias.desligadaPeloDono(m)).slice(0, 20);
 }
 
 // ---------------------------------------------------------------- operações

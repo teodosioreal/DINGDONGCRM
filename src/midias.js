@@ -292,6 +292,45 @@ function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeIn
   return midia;
 }
 
+// 🔁 Trocar arquivo: o arquivo novo fica NO LUGAR do antigo — mesmo código, número, "quando
+// enviar", álbum e revezamento. O antigo é apagado: daqui em diante só vai o novo.
+function trocarArquivo(empresa, midia, { buffer, nomeArquivo, mimetypeInformado }) {
+  if (!buffer?.length) throw Object.assign(new Error('Arquivo vazio.'), { status: 400 });
+  if (buffer.length > TAMANHO_MAXIMO) throw Object.assign(new Error('Arquivo maior que 200 MB. Divida o vídeo em partes e envie de novo.'), { status: 413 });
+  if (midia.pastaId) throw Object.assign(new Error('Esta mídia vem da pasta do Google Drive: troque o arquivo lá.'), { status: 400 });
+  const arquivo = nomeArquivoSeguro(nomeArquivo);
+  const mimetype = mimeDe(arquivo, mimetypeInformado);
+  const antigo = caminhoDoArquivo(midia);
+  garantirPasta();
+  const novo = path.join(config.midiasDir, `${midia.id}${path.extname(arquivo).toLowerCase()}`);
+  const temp = `${novo}.troca`;
+  fs.writeFileSync(temp, buffer);
+  if (antigo !== novo) {
+    try {
+      fs.unlinkSync(antigo);
+    } catch {
+      /* já não existia */
+    }
+  }
+  fs.renameSync(temp, novo);
+  try {
+    fs.unlinkSync(path.join(config.midiasDir, `${midia.id}.capa.jpg`)); // miniatura do vídeo antigo
+  } catch {
+    /* não tinha */
+  }
+  for (const k of ['videoOk', 'videoPadrao', 'avisoVideo', 'erroVideo', 'duracao', 'processando']) delete midia[k];
+  if (midia.hash) midia.hash = crypto.createHash('sha1').update(buffer).digest('hex'); // o clone reconhece o arquivo novo
+  if (midia.falaAuto) {
+    delete midia.fala; // o que o áudio antigo falava (transcrito sozinho) não vale para o novo
+    delete midia.falaAuto;
+  }
+  Object.assign(midia, { arquivo, mimetype, tipo: tipoDoMime(mimetype), tamanho: buffer.length, versao: (Number(midia.versao) || 1) + 1, trocadoEm: agora() });
+  salvar();
+  require('./video').enfileirar(midia);
+  if (midia.tipo === 'audio') setImmediate(() => require('./audio').preparar(empresa, midia));
+  return midia;
+}
+
 function caminhoDoArquivo(midia) {
   return path.join(config.midiasDir, `${midia.id}${path.extname(midia.arquivo).toLowerCase()}`);
 }
@@ -346,7 +385,8 @@ function nomeComExtensao(nome, mimetype) {
 
 function urlPublica(midia) {
   // o servidor acha a mídia pelo id; o nome no fim do link é só para o WhatsApp reconhecer o tipo
-  return `${config.urlPublica}/midia/${midia.id}/${encodeURIComponent(nomeComExtensao(midia.arquivo, midia.mimetype))}`;
+  // (?v=: arquivo trocado — o link muda e ninguém recebe o antigo guardado em cache)
+  return `${config.urlPublica}/midia/${midia.id}/${encodeURIComponent(nomeComExtensao(midia.arquivo, midia.mimetype))}${midia.versao ? `?v=${midia.versao}` : ''}`;
 }
 
 function acharPorId(id) {
@@ -408,9 +448,9 @@ function revezamentoDe(empresa, midia) {
 // revezamento nunca trava numa mídia pausada (mesmo citada no prompt).
 function escolherRevezando(empresa, midia, jaRecebeu = () => false) {
   const todas = revezamentoDe(empresa, midia);
-  const ativas = todas.filter((m) => prontaParaIa(m));
+  const ativas = todas.filter((m) => prontaParaIa(m) && !desligadaPeloDono(m));
   // este cliente já recebeu uma do grupo: é ela (não manda outra versão do mesmo conteúdo)
-  const recebida = todas.find((m) => (m === midia || prontaParaIa(m)) && jaRecebeu(m));
+  const recebida = todas.find((m) => (m === midia || prontaParaIa(m)) && !desligadaPeloDono(m) && jaRecebeu(m));
   if (recebida) return recebida;
   const grupo = prontaParaIa(midia) ? ativas : ativas.length ? ativas : [midia];
   if (grupo.length < 2) return grupo[0] || midia;
@@ -451,13 +491,48 @@ function prontaParaIa(m) {
   return m.pronta !== false && !m.processando;
 }
 
+// O dono DESLIGOU esta mídia ("não está pronta"): não sai de jeito nenhum — nem pela IA (mesmo
+// citada no prompt), nem pelo follow-up, automações ou respostas automáticas. Só a equipe,
+// mandando à mão, ainda consegue. Vale quando desmarcou "Ativa"/"Voltar para a configurar"
+// (pausada) ou quando a mídia já estava configurada (tem "quando enviar") e ficou desativada.
+function desligadaPeloDono(m) {
+  return Boolean(m) && (m.pausada === true || (m.pronta === false && Boolean(String(m.descricao || '').trim())));
+}
+
+// Do que foi pedido, o que pode sair agora. manual: a equipe mandou à mão (sai qualquer uma).
+// daIa: pedido da IA (só as prontas; a "a configurar" citada no prompt/ligada ao catálogo vale).
+// Álbum: com alguma pronta, vão só as prontas (a que você tirou/desligou não vai junto).
+// Devolve { itens, bloqueadas }
+function liberadasParaEnvio(empresa, pedido, { manual = false, daIa = false } = {}) {
+  const itens = pedido?.itens || [];
+  if (manual) return { itens, bloqueadas: [] };
+  const alvo = pedido.alvo;
+  const doPrompt = daIa ? codigosDoPrompt(empresa) : new Set();
+  const ligadas = daIa ? require('./catalogo').midiasLigadas(empresa) : new Map();
+  const autorizada = (c) => Boolean(c) && (doPrompt.has(c) || ligadas.has(c));
+  const ehAlbum = Boolean(alvo && !alvo.arquivo && itens.length && itens.every((m) => m.albumId === alvo.id));
+  let ok;
+  if (ehAlbum) {
+    const semDesligadas = itens.filter((m) => !desligadaPeloDono(m) && !(daIa && m.processando));
+    const prontas = semDesligadas.filter((m) => prontaParaIa(m));
+    ok = prontas.length ? prontas : !daIa || autorizada(alvo.codigo) ? semDesligadas : [];
+  } else {
+    ok = itens.filter((m) => {
+      if (desligadaPeloDono(m)) return false;
+      if (!daIa || m.pastaId) return !(daIa && m.processando);
+      return prontaParaIa(m) || (autorizada(m.codigo) && !m.processando) || (autorizada(alvo?.codigo) && !m.processando);
+    });
+  }
+  return { itens: ok, bloqueadas: itens.filter((m) => !ok.includes(m)) };
+}
+
 // { followup: true } inclui as mídias marcadas "só no follow-up"
 function paraIa(empresa, { followup = false } = {}) {
   // mídia ligada a um serviço/produto do catálogo já está "configurada": vai quando se fala dele
   const ligadas = require('./catalogo').midiasLigadas(empresa);
   const doPrompt = codigosDoPrompt(empresa);
   const albunsDoPrompt = new Set(albunsDa(empresa).filter((a) => doPrompt.has(a.codigo)).map((a) => a.id));
-  const todas = midiasDa(empresa).filter((m) => prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando));
+  const todas = midiasDa(empresa).filter((m) => !desligadaPeloDono(m) && (prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando)));
   const valeAqui = (x) => followup || !x.soFollowup;
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
@@ -465,7 +540,7 @@ function paraIa(empresa, { followup = false } = {}) {
     .map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo), ...(m.tipo === 'audio' && m.fala ? { fala: String(m.fala).slice(0, 500) } : {}) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
-    .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id && (prontaParaIa(m) || ligadas.has(a.codigo) || doPrompt.has(a.codigo))).length, servicos: servicos(a.codigo) }))
+    .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: (() => { const fs_ = todas.filter((m) => m.albumId === a.id); return fs_.some((m) => prontaParaIa(m)) ? fs_.filter((m) => prontaParaIa(m)).length : ligadas.has(a.codigo) || doPrompt.has(a.codigo) ? fs_.length : 0; })(), servicos: servicos(a.codigo) }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
     .map((p) => ({ codigo: p.codigo, numero: p.numero, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
@@ -659,7 +734,9 @@ function midiaPorPalavraRara(empresa, texto, permitidos = null) {
 // A mídia certa para um trecho do prompt, só quando não há dúvida: a melhor sugestão
 // combina com o trecho (nome/descrição/assunto) e ganha com folga da segunda
 function conexaoCerta(empresa, trecho) {
-  const [a, b] = sugerirMidias(empresa, trecho, 2);
+  // a mídia que o dono desligou nunca é a "certa" (ex.: trocou a foto do serviço por outra)
+  const desligadas = new Set(midiasDa(empresa).filter((m) => desligadaPeloDono(m)).map((m) => m.id));
+  const [a, b] = sugerirMidias(empresa, trecho, 6).filter((x) => !(x.id && desligadas.has(x.id)));
   if (!a || a.pontos < 5) return null;
   if (b && b.pontos > a.pontos - 3) return null;
   return a;
@@ -675,7 +752,7 @@ function instrucoesComMidias(empresa, texto, botId = '') {
   if (!empresa || !original) return { texto: original, conectadas: [] };
   const chave = crypto
     .createHash('sha1')
-    .update(JSON.stringify([botId, original, empresa.mencoesIgnoradas || [], midiasDa(empresa).map((m) => [m.codigo, m.nome, m.descricao, m.assuntos, m.pronta, m.tipo, m.albumId, m.pastaId]), albunsDa(empresa).map((a) => [a.codigo, a.nome, a.descricao, a.assuntos]), pastasDa(empresa).map((x) => [x.codigo, x.nome, x.descricao])]))
+    .update(JSON.stringify([botId, original, empresa.mencoesIgnoradas || [], midiasDa(empresa).map((m) => [m.codigo, m.nome, m.descricao, m.assuntos, m.pronta, m.pausada, m.tipo, m.albumId, m.pastaId]), albunsDa(empresa).map((a) => [a.codigo, a.nome, a.descricao, a.assuntos]), pastasDa(empresa).map((x) => [x.codigo, x.nome, x.descricao])]))
     .digest('hex');
   const guardado = cacheConexoes.get(`${empresa.id}|${botId}`);
   if (guardado && guardado.chave === chave) return guardado.r;
@@ -1102,6 +1179,9 @@ module.exports = {
   TIPOS,
   tipoDoMime,
   prontaParaIa,
+  desligadaPeloDono,
+  liberadasParaEnvio,
+  trocarArquivo,
   assuntosDa,
   salvarAssuntos,
   listaAssuntos,

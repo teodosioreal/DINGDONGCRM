@@ -1984,7 +1984,7 @@ async function enviarRespostaRapida(empresa, lead, resposta) {
     require('./detector-agenda').observar(empresa, lead);
     require('./clone').registrar(empresa, lead, { texto: resposta.texto, midias: resposta.midia ? [midias.resolverPedido(empresa, resposta.midia).alvo?.codigo] : [] });
   }
-  if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe');
+  if (resposta.midia) await enviarMidiasPedidas(empresa, lead, [resposta.midia], 'equipe', { manual: true }); // a equipe escolheu
 }
 
 async function usarAtalhoDoCelular(empresa, jid, msg, resposta) {
@@ -2013,7 +2013,9 @@ function anotarMidiaEnviada(lead, midia) {
   lead.midiasEnviadas[midia.codigo] = { nome: midia.nome, tipo: midia.tipo, primeiraEm: antes?.primeiraEm || agora(), em: agora(), vezes: (antes?.vezes || 0) + 1 };
 }
 
-async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', { papelMensagem = papel, followup = false } = {}) {
+// manual: a equipe escolheu e mandou à mão (painel, resposta rápida) — sai até a desligada.
+// O resto (IA, follow-up, automações, resposta automática) nunca manda mídia desligada.
+async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', { papelMensagem = papel, followup = false, manual = false } = {}) {
   // itens: o que aconteceu com cada mídia (vai para o log da resposta)
   const resultado = { enviadas: 0, falhas: [], itens: [] };
   const visivel = (c, ref) => (c ? midias.numeroDoCodigo(empresa, c) : String(ref || ''));
@@ -2042,15 +2044,14 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
       require('./alertas').registrar(empresa, 'midia', `A IA pediu a mídia "${nome}", mas não existe mídia com esse código nesta empresa. Nada foi enviado — confira os códigos em Mídias.`, { nivel: 'aviso', leadId: lead.id });
       continue;
     }
-    // a IA só manda mídia ATIVA (pronta); a equipe, o follow-up sem IA e a mídia fixa das
-    // automações (escolhidas pelo dono, papel 'equipe') mandam qualquer uma
-    // (mídia citada nas instruções do WhatsApp vale mesmo "a configurar": o dono mandou enviar)
-    const doPrompt = papel === 'assistente' ? midias.codigosDoPrompt(empresa) : new Set();
-    const naoProntas = papel === 'assistente' && !doPrompt.has(pedido.alvo.codigo) ? pedido.itens.filter((m) => !midias.prontaParaIa(m) && !doPrompt.has(m.codigo)) : [];
-    const achadas = pedido.itens.filter((m) => !naoProntas.includes(m));
-    if (naoProntas.length && !achadas.length) {
-      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'inativa', motivo: 'a mídia está desativada (a configurar)' });
-      require('./alertas').registrar(empresa, 'midia', `A IA quis enviar "${codigoPedido}", mas a mídia está desativada. Nada foi enviado — ative em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+    // a IA só manda mídia ATIVA (pronta) — a "a configurar" citada no prompt vale (o dono
+    // mandou enviar). Mídia DESLIGADA pelo dono não sai nunca, nem pelo prompt, follow-up,
+    // automação ou resposta automática; só a equipe à mão (manual). Álbum: só as prontas.
+    const { itens: achadas } = midias.liberadasParaEnvio(empresa, pedido, { manual, daIa: papel === 'assistente' });
+    if (pedido.itens.length && !achadas.length) {
+      const quem = papel === 'assistente' ? 'A IA quis' : 'O sistema (follow-up/automação) quis';
+      resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'inativa', motivo: 'a mídia está desativada (não está pronta)' });
+      require('./alertas').registrar(empresa, 'midia', `${quem} enviar "${codigoPedido}", mas a mídia está desativada. Nada foi enviado — ative em Mídias.`, { nivel: 'aviso', leadId: lead.id });
       continue;
     }
     // mídia "só no follow-up": a IA não manda numa conversa normal

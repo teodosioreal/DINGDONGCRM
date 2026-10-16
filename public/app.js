@@ -2579,8 +2579,12 @@ async function paginaMidias(id) {
   const chipEtapas = (etapas) => (etapas?.length ? etapas.map((e) => `<span class="etiqueta">${esc(e)}</span>`).join(' ') : '');
   // a IA usa esta mídia? (citada no prompt, com descrição, ou marcada pronta)
   const citadas = new Set((noPrompt?.citados || []).filter((c) => c.existe).map((c) => c.codigo));
-  const citada = (m) => citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo));
-  const statusIa = (m) => m.soFollowup
+  // desligada pelo dono: não sai de jeito nenhum (nem citada no prompt) — igual ao servidor
+  const desligada = (m) => m.pausada === true || (m.pronta === false && Boolean((m.descricao || '').trim()));
+  const citada = (m) => !desligada(m) && (citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo)));
+  const statusIa = (m) => desligada(m)
+    ? '<span class="midia-uso off">⛔ Desligada — não sai de jeito nenhum (nem pela IA, nem pelo follow-up/automações). Só se você mandar à mão.</span>'
+    : m.soFollowup
     ? '<span class="midia-uso fup">🔁 Só no follow-up</span>'
     : citada(m)
       ? '<span class="midia-uso ok">📌 Está no prompt — a IA manda quando o prompt pedir</span>'
@@ -2616,7 +2620,7 @@ async function paginaMidias(id) {
       ${(m.assuntos || []).length ? `<span class="rotulo">${chipsAssuntos({ ...m, soFollowup: false })}</span>` : ''}
       ${statusVideo(m)}
       <span class="rotulo">${m.tamanho < 100 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : `${(m.tamanho / 1024 / 1024).toFixed(1)} MB`}${duracaoTxt(m.duracao)}${m.umaVezPorConversa === false ? ' · pode repetir' : ''}${m.legenda ? ' · 💬 legenda' : ''}${m.revezar ? ` · 🔁 reveza com ${esc(lista.filter((x) => x.id !== m.id && x.revezar === m.revezar).map((x) => codNum(x)).join(', '))}` : ''}</span>
-      <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button><button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
+      <div class="acoes" style="margin-top:8px"><button class="pequeno" data-editar="${esc(m.id)}">Editar</button>${m.pastaId ? '' : `<button class="pequeno" data-trocar="${esc(m.id)}" title="Sobe um arquivo novo no lugar deste: mesmo código e mesma configuração. O antigo é apagado e não vai mais.">🔁 Trocar arquivo</button>`}<button class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   const cartaoAlbum = (a) => {
     const itens = lista.filter((m) => m.albumId === a.id);
@@ -2694,6 +2698,35 @@ async function paginaMidias(id) {
       };
     });
     $$('[data-editar]').forEach((b) => { b.onclick = () => modalMidia(lista.find((x) => x.id === b.dataset.editar)); });
+    // 🔁 Trocar arquivo: o novo fica no lugar do antigo (mesmo código) — só o novo vai daqui em diante
+    $$('[data-trocar]').forEach((b) => {
+      b.onclick = () => {
+        const m = lista.find((x) => x.id === b.dataset.trocar);
+        if (!m) return;
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = m.tipo === 'image' ? 'image/*' : m.tipo === 'video' ? 'video/*' : m.tipo === 'audio' ? 'audio/*' : '';
+        inp.onchange = async () => {
+          const f = inp.files?.[0];
+          if (!f) return;
+          if (!(await confirmar({ titulo: `Trocar o arquivo de ${codNum(m)}?`, texto: `"${m.nome}" passa a ser "${f.name}". O código ${codNum(m)} e a configuração continuam; o arquivo antigo é apagado e não vai mais para ninguém.`, botao: 'Trocar' }))) return;
+          b.disabled = true;
+          b.textContent = 'Enviando…';
+          try {
+            const r = await fetch(`api/empresas/${id}/midias/${m.id}/arquivo?arquivo=${encodeURIComponent(f.name)}&tipo=${encodeURIComponent(f.type)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+            const corpo = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(corpo.erro || 'Não consegui trocar o arquivo.');
+            aviso(`Arquivo de ${codNum(m)} trocado. Daqui em diante vai só o novo.`);
+            paginaMidias(id);
+          } catch (err) {
+            aviso(err.message, true);
+            b.disabled = false;
+            b.textContent = '🔁 Trocar arquivo';
+          }
+        };
+        inp.click();
+      };
+    });
     // descrição na hora (opcional): escreveu, a IA já pode usar a mídia
     $$('[data-fala]').forEach((f) => {
       f.onsubmit = async (e) => {
@@ -2783,7 +2816,7 @@ async function paginaMidias(id) {
           return outras.length ? `<div class="campo" style="margin-top:12px"><label>🔁 Revezar com ${ajuda('Quando a IA pedir esta mídia (ou a outra), o CRM alterna entre as duas: o 1º cliente recebe uma, o próximo cliente recebe a outra, e assim por diante. O mesmo cliente nunca recebe as duas.')}</label><select name="revezarCom"><option value="">— não revezar —</option>${outras.map((x) => `<option value="${esc(x.id)}" ${par && par.id === x.id ? 'selected' : ''}>${esc(codNum(x))} · ${esc(x.nome)}</option>`).join('')}</select><small>Ex.: dois vídeos do serviço completo — cada cliente novo recebe um, alternando.</small></div>` : '';
         })()}
         <div class="campo" style="margin-top:12px"><label>Álbum</label><select name="albumId"><option value="">— nenhum —</option>${albuns.map((a) => `<option value="${esc(a.id)}" ${a.id === m.albumId ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
-        <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pronta" ${m.pronta === false ? '' : 'checked'}> <b>Ativa</b> — a IA já pode enviar (desmarcada = fica em "a configurar")</label>
+        <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pronta" ${m.pronta === false ? '' : 'checked'}> <b>Ativa</b> — a IA já pode enviar (desmarcada = desligada: não sai de jeito nenhum, nem pelo prompt, follow-up ou automações)</label>
         <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button></div>
       </form>`, (modal, fechar) => {
       $('#f-ed-midia', modal).onsubmit = async (e) => {
