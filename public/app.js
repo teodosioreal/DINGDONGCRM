@@ -5812,12 +5812,20 @@ async function paginaAutomacoes(id) {
 
     <h2>Receitas prontas</h2>
     <div class="grade-receitas">
-      ${d.receitas.map((r) => `
-        <div class="card receita">
+      ${d.receitas.map((r) => {
+        // receita já ligada: controla a automação dela aqui mesmo (pausar/ligar e editar)
+        const regra = r.jaTem ? d.regras.find((x) => x.receita === r.id) : null;
+        return `
+        <div class="card receita ${regra ? (regra.ativa ? 'ligada' : 'pausada') : ''}">
           <strong>${esc(r.nome)}</strong>
           <p class="rotulo">${esc(r.explicacao)}</p>
-          ${r.jaTem ? '<span class="etiqueta ok">✓ Na sua lista</span>' : `<button type="button" class="primario pequeno" data-receita="${esc(r.id)}">Ligar</button>`}
-        </div>`).join('')}
+          ${regra ? `
+            <div class="receita-controle">${interruptor(`receita-regra-${regra.id}`, regra.ativa, regra.ativa ? '<b>Ligada</b>' : '<b>Pausada</b>')}</div>
+            <div class="rotulo" style="margin:6px 0">${regra.numeros.leadsAtingidos} receberam · ${regra.numeros.responderam} responderam · ${regra.numeros.prontosAgora} na fila</div>
+            <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-editar="${esc(regra.id)}">✏️ Editar</button></div>`
+          : r.jaTem ? '<span class="etiqueta ok">✓ Na sua lista</span>' : `<button type="button" class="primario pequeno" data-receita="${esc(r.id)}">Ligar</button>`}
+        </div>`;
+      }).join('')}
     </div>`;
 
   $('#f-link-anuncio').onsubmit = async (e) => {
@@ -5852,6 +5860,14 @@ async function paginaAutomacoes(id) {
       try {
         await api(`empresas/${id}/automacoes/${r.id}`, { method: 'PUT', body: { ativa: e.target.checked } });
         aviso(e.target.checked ? 'Automação ligada.' : 'Automação desligada.');
+      } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
+    };
+    const naReceita = $(`#receita-regra-${r.id}`);
+    if (naReceita) naReceita.onchange = async (e) => {
+      try {
+        await api(`empresas/${id}/automacoes/${r.id}`, { method: 'PUT', body: { ativa: e.target.checked } });
+        aviso(e.target.checked ? `"${r.nome}" ligada.` : `"${r.nome}" pausada: ninguém recebe até você ligar de novo.`);
+        paginaAutomacoes(id);
       } catch (err) { aviso(err.message, true); e.target.checked = !e.target.checked; }
     };
   }

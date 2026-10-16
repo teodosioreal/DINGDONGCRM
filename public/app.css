@@ -1746,3 +1746,6 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .placar-ab > div { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 8px; background: var(--hover); }
 .placar-ab b { font-size: 18px; }
 .placar-ab > .lider { outline: 2px solid #22c55e; }
+.card.receita.ligada { border-color: color-mix(in srgb, #16a34a 45%, var(--borda)); }
+.card.receita.pausada { opacity: .85; border-style: dashed; }
+.receita-controle { margin-top: 8px; }
