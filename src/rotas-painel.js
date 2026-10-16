@@ -2066,13 +2066,27 @@ router.put('/leads/:id/agendamentos/:agId/valor', (req, res) => {
   res.json({ ok: true, ...valorAgendamento.valorDo(c, a) });
 });
 
+// Sugestão para o "Marcar agendamento": dia/hora e valor que a conversa já tem
+router.get('/leads/:id/agendamentos/sugestao', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const h = require('./detector-agenda').horarioDaConversa(c);
+  const v = valorAgendamento.valorDo(c, { quando: null });
+  res.json({ quando: h?.quando || null, descricao: h?.descricao || '', valor: v.valor || null, valorTrecho: v.trecho || '', valorIncerto: Boolean(v.incerto) });
+});
+
 // Agendamento marcado pela equipe (aparece como aviso na conversa)
 router.post('/leads/:id/agendamentos', (req, res) => {
   const c = acharLead(req, res);
   if (!c) return;
   const empresa = estado.empresas.find((e) => e.id === c.empresaId);
   if (!tickets.quandoDe(req.body?.quando)) return res.status(400).json({ erro: 'Escolha o dia e o horário.' });
-  const r = tickets.registrarAgendamento(empresa, c, { quando: req.body.quando, descricao: texto(req.body?.descricao, 200), por: 'equipe' });
+  let valor = null;
+  if (req.body?.valor !== undefined && String(req.body.valor).trim() !== '') {
+    valor = tickets.valorDe(req.body.valor);
+    if (!valor) return res.status(400).json({ erro: 'Valor inválido. Ex.: 250 ou 1.250,00' });
+  }
+  const r = tickets.registrarAgendamento(empresa, c, { quando: req.body.quando, descricao: texto(req.body?.descricao, 200), por: 'equipe', valor });
   res.status(201).json(r.agendamento);
 });
 

@@ -161,7 +161,8 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = '
   return { venda, nova: true };
 }
 
-function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false }) {
+function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false, valor = null }) {
+  const valorOk = Number.isFinite(Number(valor)) && Number(valor) > 0 ? Math.round(Number(valor) * 100) / 100 : null;
   const iso = quandoDe(quando);
   const desc = String(descricao || '').trim().slice(0, 200);
   lead.agendamentos = Array.isArray(lead.agendamentos) ? lead.agendamentos : [];
@@ -169,10 +170,11 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', se
   const mesmo = lead.agendamentos.find((a) => a.status === 'agendado' && ((iso && a.quando === iso) || (!iso && !a.quando && a.descricao === desc)));
   if (mesmo) {
     if (desc) mesmo.descricao = desc;
+    if (valorOk) mesmo.valor = valorOk;
     salvar();
     return { agendamento: mesmo, novo: false };
   }
-  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora() };
+  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora(), ...(valorOk ? { valor: valorOk } : {}) };
   lead.agendamentos.push(ag);
   colocarEtiquetaAgendado(empresa, lead); // agendou no CRM → etiqueta Agendado aqui e no WhatsApp
   const etapa = acharEtapaAgendamento(empresa);

@@ -238,8 +238,79 @@ function etiquetaTirada(empresa, lead) {
 }
 
 // ---------------------------------------------------------------- entrada: cada mensagem nova
+// ---------------------------------------------------------------- "agendamento confirmado" da equipe
+// A equipe escreveu "agendamento confirmado" (no painel ou no celular): é uma ordem — o CRM lança
+// na hora com o que a conversa tem: dia/hora (da própria mensagem ou do último horário falado),
+// a descrição e o valor (escrito na mensagem; senão o preço combinado na conversa, calculado no
+// cartão). Sem dia/hora na conversa entra como "data a combinar". Não exige endereço.
+const FRASE_AGENDA = /\b(agendamento (confirmado|marcado|fechado)|confirmad[oa] o agendamento|agendamento (esta|ta|fica|ficou) confirmado)\b/;
+const HORARIO_DE_FUNCIONAMENTO = /\b(atendemos|funcionamos|abrimos|horario de funcionamento|de segunda a)\b/;
+// o último dia/hora (que ainda não passou) falado na conversa — com horário vale mais que só o dia
+function horarioDaConversa(lead, ate = null) {
+  const tickets = require('./tickets');
+  const limite = Date.now() - 3 * 86400000;
+  const msgs = (lead.mensagens || []).filter((m) => m.texto && !m.apagada && !m.eventoInterno && ['visitante', 'equipe', 'assistente'].includes(m.papel) && new Date(m.em || 0).getTime() > limite && m !== ate).slice(-15);
+  for (const comHora of [true, false]) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const t = semAcento(msgs[i].texto);
+      if (DUVIDA.test(t) || HORARIO_DE_FUNCIONAMENTO.test(t) || /\bou\b.*\d/.test(t)) continue;
+      if (comHora && !TEM_HORA.test(t)) continue;
+      const q = tickets.quandoNoTexto(msgs[i].texto, new Date(msgs[i].em || Date.now()));
+      if (q && new Date(q).getTime() > Date.now() - 3600 * 1000) return { quando: q, descricao: String(msgs[i].texto).replace(/\s+/g, ' ').trim().slice(0, 120) };
+    }
+  }
+  return null;
+}
+function pelaFrase(empresa, lead) {
+  const m = (lead.mensagens || []).filter((x) => x.texto && !x.apagada).slice(-1)[0];
+  if (!m || m.papel !== 'equipe' || m.agendaFrase || !FRASE_AGENDA.test(semAcento(m.texto))) return null;
+  m.agendaFrase = true;
+  const tickets = require('./tickets');
+  const precos = require('./valor-agendamento').precosDe(m.texto);
+  // "agendamento confirmado 250": número solto também vale (tirando hora "10h"/"14:30", data "12/10" e "2x")
+  const solto = () => {
+    const limpo = semAcento(m.texto).replace(/\b\d{1,2}\s*\/\s*\d{1,2}(\s*\/\s*\d{2,4})?\b/g, ' ').replace(/\b\d{1,2}(:\d{2}|\s*(h|hs|hrs|horas)\b(\d{2})?)/g, ' ').replace(/\b(as|dia|das)\s+\d{1,2}\b/g, ' ').replace(/\b\d+\s*x\s*(de\s*)?(r\$\s*)?\d+([.,]\d{2})?/g, ' ').replace(/\b\d+\s*x\b/g, ' ');
+    const nums = [...limpo.matchAll(/(?:^|[\s$])(\d{2,5}(?:[.,]\d{2})?)(?=\s|$|[.,!])/g)].map((x) => Number(x[1].replace(',', '.'))).filter((x) => x >= 20 && x <= 100000);
+    return nums.length ? nums[nums.length - 1] : null;
+  };
+  const valor = precos.length ? precos[precos.length - 1].valor : solto();
+  const daMensagem = tickets.quandoNoTexto(m.texto, new Date(m.em || Date.now()));
+  const achado = daMensagem && new Date(daMensagem).getTime() > Date.now() - 3600 * 1000 ? { quando: daMensagem, descricao: '' } : horarioDaConversa(lead, m);
+  const nome = lead.nome || 'Cliente';
+  const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const avisar = (texto) => require('./alertas').registrar(empresa, `agenda:${lead.id}`, texto, { nivel: 'info', leadId: lead.id });
+  const ativos = (lead.agendamentos || []).filter(ehAgendado);
+  if (ativos.length) {
+    // já está na agenda (ex.: a mensagem tinha o horário e já marcou): completa o que faltar
+    const a = ativos.find((x) => achado && x.quando === achado.quando) || ativos[ativos.length - 1];
+    if (valor) a.valor = valor;
+    if (!a.quando && achado?.quando) {
+      a.quando = achado.quando;
+      a.quandoTexto = '';
+    }
+    salvar();
+    if (valor || achado) avisar(`📅 Agendamento confirmado por você: ${nome}${a.quando ? ` — ${fmt(a.quando)}` : ''}${valor ? ` · ${brl(valor)}` : ''}.`);
+    return a;
+  }
+  const r = tickets.registrarAgendamento(empresa, lead, { quando: achado?.quando || 'Data a combinar', descricao: achado?.descricao || '', por: 'equipe', valor });
+  if (!r?.agendamento) return null;
+  r.agendamento.detectadoPor = 'frase';
+  salvar();
+  avisar(achado
+    ? `📅 Agendamento confirmado por você: ${nome} — ${fmt(achado.quando)}${valor ? ` · ${brl(valor)}` : ''}. Peguei o dia e o horário da conversa; se não for isso, ajuste no cartão.`
+    : `📅 Agendamento confirmado por você: ${nome} entrou em Agendamentos como "data a combinar"${valor ? ` (${brl(valor)})` : ''} — não achei dia e horário na conversa. Coloque o dia no cartão.`);
+  return r.agendamento;
+}
+
 function observar(empresa, lead) {
-  if (!empresa || !lead || empresa.agendaAutomatica === false) return;
+  if (!empresa || !lead) return;
+  try {
+    pelaFrase(empresa, lead); // "agendamento confirmado" da equipe (vale mesmo com a agenda automática desligada)
+  } catch (err) {
+    console.error('[agenda] frase:', err.message);
+  }
+  if (empresa.agendaAutomatica === false) return;
   const ultimas = (lead.mensagens || []).filter((m) => m.texto && !m.apagada).slice(-3);
   const texto = semAcento(ultimas.map((m) => m.texto).join(' \n '));
   const temAtivo = (lead.agendamentos || []).some(ehAgendado);
@@ -296,4 +367,4 @@ function revisarRecentes() {
   }
 }
 
-module.exports = { pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE, ACEITE_FIRME, TEM_HORA, EMPRESA_CONFIRMA, DUVIDA };
+module.exports = { pelaFrase, horarioDaConversa, pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE, ACEITE_FIRME, TEM_HORA, EMPRESA_CONFIRMA, DUVIDA };

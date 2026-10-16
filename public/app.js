@@ -4669,17 +4669,22 @@ function ligarPedidos(raiz, l, depois) {
   });
 }
 
-// Marcar agendamento pela equipe
-function modalAgendamento(leadId, depois) {
+// Marcar agendamento pela equipe (dia/hora e valor já vêm da conversa quando ela tem)
+async function modalAgendamento(leadId, depois) {
+  const paraCampo = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const amanha = new Date(Date.now() + 24 * 3600 * 1000);
   amanha.setHours(9, 0, 0, 0);
-  const local = new Date(amanha.getTime() - amanha.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  let sug = {};
+  try { sug = await api(`leads/${leadId}/agendamentos/sugestao`); } catch { /* sem sugestão: campos em branco */ }
+  const local = paraCampo(sug.quando ? new Date(sug.quando) : amanha);
+  const valorTexto = sug.valor ? String(sug.valor).replace('.', ',') : '';
   abrirModal(`
     <h2>📅 Marcar agendamento</h2>
-    <p class="rotulo" style="margin-top:-4px">Aparece como aviso na conversa. A IA também marca sozinha quando o cliente confirma dia e horário.</p>
+    <p class="rotulo" style="margin-top:-4px">Aparece como aviso na conversa. A IA também marca sozinha quando o cliente confirma dia e horário — e você pode escrever <b>"agendamento confirmado"</b> na conversa que o CRM lança com o que tiver.</p>
     <form id="f-ag">
-      <div class="campo"><label>Dia e horário</label><input type="datetime-local" name="quando" value="${local}" required></div>
-      <div class="campo" style="margin-top:10px"><label>O que foi agendado</label><input name="descricao" maxlength="200" placeholder="Ex.: Avaliação, instalação, consulta"></div>
+      <div class="campo"><label>Dia e horário${sug.quando ? ' <span class="rotulo">(da conversa)</span>' : ''}</label><input type="datetime-local" name="quando" value="${local}" required></div>
+      <div class="campo" style="margin-top:10px"><label>O que foi agendado</label><input name="descricao" maxlength="200" placeholder="Ex.: Revestimento completo, instalação, consulta"></div>
+      <div class="campo" style="margin-top:10px"><label>Valor (R$)${sug.valor ? ' <span class="rotulo">(da conversa — confira)</span>' : ''}</label><input name="valor" inputmode="decimal" value="${esc(valorTexto)}" placeholder="Ex.: 250">${sug.valorTrecho ? `<small class="rotulo">${esc(sug.valorTrecho)}</small>` : ''}</div>
       <div class="acoes"><button class="primario" type="submit">Marcar</button><button type="button" data-fechar>Cancelar</button></div>
     </form>`, (m, fechar) => {
     $('#f-ag', m).onsubmit = async (e) => {
