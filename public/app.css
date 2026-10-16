@@ -1749,3 +1749,13 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .card.receita.ligada { border-color: color-mix(in srgb, #16a34a 45%, var(--borda)); }
 .card.receita.pausada { opacity: .85; border-style: dashed; }
 .receita-controle { margin-top: 8px; }
+
+/* 🎤 Áudios: gravador do painel */
+.gravador { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gravador > p, .gravador > audio, .gravador > form, .gravador > .acoes { flex-basis: 100%; }
+.gravador.gravando b { color: var(--perigo); }
+.ponto-gravando { width: 12px; height: 12px; border-radius: 50%; background: var(--perigo); display: inline-block; animation: piscar-grav 1s infinite; }
+@keyframes piscar-grav { 50% { opacity: 0.25; } }
+.botao-arquivo { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--borda, #d4d4d8); border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: 13px; }
+.audio-card .audio-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.audio-card .midia-fala textarea { width: 100%; }

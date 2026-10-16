@@ -63,6 +63,7 @@ const EXTENSOES = {
   '.m4a': 'audio/mp4',
   '.aac': 'audio/aac',
   '.wav': 'audio/wav',
+  '.weba': 'audio/webm', // gravado no painel (navegador sem conversão)
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -292,6 +293,19 @@ function salvarMidia(empresa, { buffer, nomeArquivo, nome, descricao, mimetypeIn
   return midia;
 }
 
+// Áudio gravado no painel: o navegador grava em webm (Chrome/Android) ou mp4 (iPhone). Vira
+// áudio de voz do WhatsApp (.ogg) quando o servidor tem ffmpeg; sem ele, guarda como veio.
+async function arquivoDaGravacao(buffer, mimetypeInformado, nome = 'audio') {
+  if (!buffer?.length) throw Object.assign(new Error('A gravação ficou vazia. Grave de novo.'), { status: 400 });
+  if (buffer.length > 30 * 1024 * 1024) throw Object.assign(new Error('Gravação grande demais (máx. 30 MB).'), { status: 413 });
+  const mime = String(mimetypeInformado || '').split(';')[0].trim().toLowerCase();
+  const ext = mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac') ? '.m4a' : mime.includes('ogg') ? '.ogg' : mime.includes('wav') ? '.wav' : mime.includes('mpeg') ? '.mp3' : '.weba';
+  const base = nomeArquivoSeguro(String(nome || 'audio').replace(/\.[a-z0-9]+$/i, '')) || 'audio';
+  const voz = await require('./video').paraVozDoWhatsapp(buffer, ext === '.weba' ? '.webm' : ext);
+  if (voz) return { buffer: voz, nomeArquivo: `${base}.ogg`, mimetypeInformado: 'audio/ogg' };
+  return { buffer, nomeArquivo: `${base}${ext}`, mimetypeInformado: EXTENSOES[ext] };
+}
+
 // 🔁 Trocar arquivo: o arquivo novo fica NO LUGAR do antigo — mesmo código, número, "quando
 // enviar", álbum e revezamento. O antigo é apagado: daqui em diante só vai o novo.
 function trocarArquivo(empresa, midia, { buffer, nomeArquivo, mimetypeInformado }) {
@@ -370,7 +384,7 @@ function apagarTodasDa(empresa) {
 const EXTENSAO_DO_TIPO = {
   'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic',
   'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'video/3gpp': '.3gp',
-  'audio/ogg': '.ogg', 'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/aac': '.aac', 'audio/wav': '.wav',
+  'audio/ogg': '.ogg', 'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/aac': '.aac', 'audio/wav': '.wav', 'audio/webm': '.weba',
   'application/pdf': '.pdf', 'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
   'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx'
 };
@@ -1182,6 +1196,7 @@ module.exports = {
   desligadaPeloDono,
   liberadasParaEnvio,
   trocarArquivo,
+  arquivoDaGravacao,
   assuntosDa,
   salvarAssuntos,
   listaAssuntos,

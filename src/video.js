@@ -77,6 +77,26 @@ function rodar(args, { tempo = TEMPO_MAX_MS } = {}) {
   });
 }
 
+// Áudio gravado no painel (webm/mp4 do navegador) → áudio de voz do WhatsApp (ogg/opus,
+// mono). Devolve o buffer convertido, ou null se não tiver ffmpeg/não conseguir (vai o original).
+async function paraVozDoWhatsapp(buffer, extOriginal = '.webm') {
+  if (!disponivel() || !buffer?.length) return null;
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-voz-'));
+  const entrada = path.join(dir, `in${extOriginal}`);
+  const saida = path.join(dir, 'voz.ogg');
+  try {
+    fs.writeFileSync(entrada, buffer);
+    const r = await rodar(['-y', '-i', entrada, '-vn', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', '-b:a', '48k', '-f', 'ogg', saida], { tempo: 120000 });
+    if (r.codigo !== 0 || !fs.existsSync(saida) || !fs.statSync(saida).size) return null;
+    return fs.readFileSync(saida);
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // Lê duração, codecs e tamanho da imagem pela saída do "ffmpeg -i"
 async function examinar(arquivo) {
   const { saida } = await rodar(['-hide_banner', '-i', arquivo], { tempo: 60000 });
@@ -293,6 +313,7 @@ async function capa(midia) {
 
 module.exports = {
   capa,
+  paraVozDoWhatsapp,
   argsConversao,
   examinar,
   leveDeTocar, disponivel, enfileirar, revisarPendentes, preparar, situacao, examinar, LIMITE_WHATSAPP };

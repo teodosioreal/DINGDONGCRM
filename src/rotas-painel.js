@@ -40,7 +40,7 @@ const falhasRecentes = (email) => (falhasLogin.get(email) || []).filter((t) => D
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  const upload = req.method === 'POST' && /\/(midias|arquivo|logo|comprovante|parte)$/.test(req.path) && req.is('application/octet-stream');
+  const upload = req.method === 'POST' && /\/(midias|arquivo|gravacao|logo|comprovante|parte)$/.test(req.path) && req.is('application/octet-stream');
   if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
@@ -966,6 +966,29 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
   }
 });
 
+// 🎙️ Áudio gravado no painel: nova mídia de áudio (ou, com ?midiaId, regrava no lugar da antiga)
+router.post('/empresas/:id/midias/gravacao', express.raw({ type: 'application/octet-stream', limit: 31 * 1024 * 1024 }), async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const nome = texto(req.query.nome, 80) || `Áudio ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+    const arq = await midias.arquivoDaGravacao(req.body, texto(req.query.tipo, 100), nome);
+    if (req.query.midiaId) {
+      const midia = midias.midiasDa(empresa).find((m) => m.id === req.query.midiaId);
+      if (!midia) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+      if (midia.tipo !== 'audio') return res.status(400).json({ erro: 'Só dá para regravar um áudio.' });
+      midias.trocarArquivo(empresa, midia, arq);
+      return res.json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
+    }
+    if (midias.midiasDa(empresa).some((m) => m.nome.toLowerCase() === nome.toLowerCase())) return res.status(400).json({ erro: `Já existe uma mídia chamada "${nome}". Use outro nome.` });
+    const descricao = texto(req.query.descricao, 300);
+    const midia = midias.salvarMidia(empresa, { ...arq, nome, descricao, extra: { pronta: req.query.ativa !== 'nao' && Boolean(descricao), gravadoNoPainel: true } });
+    res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 // 🔁 Trocar o arquivo da mídia: o novo fica no lugar do antigo (mesmo código e configuração)
 router.post('/empresas/:id/midias/:midiaId/arquivo', express.raw({ type: 'application/octet-stream', limit: midias.TAMANHO_MAXIMO + 1024 }), (req, res) => {
   const empresa = acharEmpresa(req, res);
@@ -1010,7 +1033,7 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
       midia.pronta = b.pronta === true;
     }
     // escreveu a descrição (quando mandar): a mídia já vale para a IA
-    else if (b.descricao !== undefined && midia.descricao && !midia.soFollowup) midia.pronta = true;
+    else if (b.descricao !== undefined && midia.descricao && !midia.soFollowup && !midia.pausada) midia.pronta = true; // desligada continua desligada
     if (b.assuntos !== undefined) midia.assuntos = midias.listaAssuntos(empresa, b.assuntos);
     if (b.soFollowup !== undefined) midia.soFollowup = b.soFollowup === true;
     if (b.revezarCom !== undefined) midias.definirRevezamento(empresa, midia, String(b.revezarCom || ''));

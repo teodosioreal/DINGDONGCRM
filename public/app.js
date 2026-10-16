@@ -201,6 +201,7 @@ const ICONES = {
   cerebro: I('<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3"/>'),
   site: I('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>'),
   whatsapp: I('<path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.1A8 8 0 1 1 20 12z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/>'),
+  microfone: I('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
   midias: I('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>'),
   etiquetas: I('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>'),
   chave: I('<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>'),
@@ -287,6 +288,7 @@ function montarMenu(ativo) {
         ['ia', 'cerebro', 'Sobre a empresa', 'treinar instrucoes conhecimento prompt nome atendente'],
         ['catalogo', 'catalogo', 'Serviços e preços', 'catalogo produtos preco tabela valores'],
         ['midias', 'midias', 'Mídias e respostas', 'fotos videos imagens respostas rapidas so follow-up sugestao de midia'],
+        ['audios', 'microfone', 'Áudios', 'audio gravar gravacao voz microfone ouvir regravar'],
         ['aprendizado', 'livro', 'Clone e aprendizados', 'clone aprender responder igual a mim aprendizado anuncios'],
         ['whatsapp', 'whatsapp', 'IA do WhatsApp', 'conectar qr code numero instrucoes aviso de agendamento etiquetas lista negra modo teste'],
         ['site', 'site', 'IA do site', 'chat do site codigo widget instalar']
@@ -2287,6 +2289,225 @@ async function paginaWhatsapp(id) {
 // ---------------------------------------------------------------- empresa: mídias
 
 const ICONE_TIPO = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' };
+
+// ---------------------------------------------------------------- 🎤 Áudios
+// Gravador do painel: grava pelo microfone, deixa ouvir antes de salvar e regravar à vontade.
+// aoSalvar(blob, mimetype) só é chamado quando a pessoa aprova o que ouviu.
+function montarGravador(el, { comCampos = false, textoSalvar = '💾 Salvar áudio', aoSalvar }) {
+  const podeGravar = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  const tipoGravacao = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+  let gravacao = null; // { blob, tipo, url }
+  let rec = null;
+  let fluxo = null;
+  let relogio = null;
+  const parar = () => {
+    clearInterval(relogio);
+    if (rec && rec.state !== 'inactive') rec.stop();
+    fluxo?.getTracks().forEach((t) => t.stop());
+    fluxo = null;
+  };
+  const campos = () => (comCampos ? `
+    <div class="campos" style="margin-top:10px">
+      <div class="campo"><label>Nome do áudio</label><input name="nome" maxlength="80" placeholder="Ex.: Explicação do revestimento completo"></div>
+      <div class="campo"><label>Quando a IA manda ${ajuda('Ex.: "quando o cliente perguntar como é o serviço completo". Sem isso o áudio fica guardado, mas a IA ainda não usa.')}</label><input name="descricao" maxlength="300" placeholder="Ex.: quando perguntarem como funciona o completo"></div>
+    </div>
+    <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="ativa" checked> <b>Ativa</b> — a IA já pode mandar (precisa do "quando a IA manda")</label>` : '');
+  const desenhar = (estado, seg = 0) => {
+    if (estado === 'gravando') {
+      el.innerHTML = `<div class="gravador gravando"><span class="ponto-gravando"></span> <b>Gravando…</b> <span class="rotulo" id="grav-tempo">0:00</span>
+        <div class="acoes" style="margin-top:10px"><button type="button" class="primario" id="grav-parar">⏹️ Parar</button><button type="button" id="grav-cancelar">Cancelar</button></div></div>`;
+      $('#grav-parar', el).onclick = () => parar();
+      $('#grav-cancelar', el).onclick = () => { gravacao = null; if (rec) rec.onstop = null; parar(); desenhar('inicio'); };
+      return;
+    }
+    if (estado === 'ouvir') {
+      el.innerHTML = `<div class="gravador"><p class="rotulo" style="margin:0 0 6px">🎧 Ouça antes de salvar:</p>
+        <audio controls src="${gravacao.url}" style="width:100%"></audio>
+        <form id="grav-form">${campos()}
+          <div class="acoes" style="margin-top:10px"><button type="submit" class="primario">${textoSalvar}</button><button type="button" id="grav-de-novo">🔄 Gravar de novo</button><button type="button" id="grav-descartar">Descartar</button></div>
+        </form></div>`;
+      $('#grav-de-novo', el).onclick = () => { URL.revokeObjectURL(gravacao.url); gravacao = null; comecar(); };
+      $('#grav-descartar', el).onclick = () => { URL.revokeObjectURL(gravacao.url); gravacao = null; desenhar('inicio'); };
+      $('#grav-form', el).onsubmit = async (e) => {
+        e.preventDefault();
+        const botao = e.submitter || $('#grav-form button[type=submit]', el);
+        try {
+          await comEspera(botao, () => aoSalvar(gravacao.blob, gravacao.tipo, e.target), 'Salvando…');
+          URL.revokeObjectURL(gravacao.url);
+          gravacao = null;
+        } catch (err) { aviso(err.message, true); }
+      };
+      return;
+    }
+    el.innerHTML = `<div class="gravador">
+      ${podeGravar ? '<button type="button" class="primario" id="grav-comecar">🎙️ Gravar áudio</button>' : '<p class="rotulo aviso-texto">Este navegador não deixa gravar. Use o Chrome (computador ou Android) ou o Safari atualizado — ou envie um arquivo de áudio.</p>'}
+      <label class="botao-arquivo pequeno" style="margin-left:8px">📁 Enviar arquivo de áudio<input type="file" accept="audio/*" id="grav-arquivo" hidden></label>
+      <p class="rotulo" style="margin:8px 0 0">Grave, ouça e só depois salve. Pode regravar quantas vezes quiser.</p></div>`;
+    if (podeGravar) $('#grav-comecar', el).onclick = comecar;
+    $('#grav-arquivo', el).onchange = (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      if (!/^audio\//.test(f.type) && !/\.(mp3|ogg|opus|m4a|aac|wav|weba|webm)$/i.test(f.name)) return aviso('Escolha um arquivo de áudio (mp3, ogg, m4a, wav…).', true);
+      gravacao = { blob: f, tipo: f.type || 'audio/mpeg', url: URL.createObjectURL(f) };
+      desenhar('ouvir');
+      const nome = $('input[name=nome]', el);
+      if (nome && !nome.value) nome.value = f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 80);
+    };
+  };
+  async function comecar() {
+    try {
+      fluxo = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      aviso('Não consegui usar o microfone. Libere o microfone para este site (cadeado ao lado do endereço) e tente de novo.', true);
+      return desenhar('inicio');
+    }
+    const tipo = tipoGravacao();
+    const pedacos = [];
+    rec = new MediaRecorder(fluxo, tipo ? { mimeType: tipo } : undefined);
+    rec.ondataavailable = (e) => { if (e.data?.size) pedacos.push(e.data); };
+    rec.onstop = () => {
+      const t = rec.mimeType || tipo || 'audio/webm';
+      const blob = new Blob(pedacos, { type: t });
+      if (!blob.size) { aviso('A gravação ficou vazia. Tente de novo.', true); return desenhar('inicio'); }
+      gravacao = { blob, tipo: t, url: URL.createObjectURL(blob) };
+      desenhar('ouvir');
+    };
+    rec.start(1000);
+    const inicio = Date.now();
+    desenhar('gravando');
+    relogio = setInterval(() => {
+      const s = Math.floor((Date.now() - inicio) / 1000);
+      const t = $('#grav-tempo', el);
+      if (t) t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      if (s >= 300) parar(); // 5 minutos no máximo
+      if (!el.isConnected) { if (rec) rec.onstop = null; parar(); } // saiu da página gravando
+    }, 500);
+  }
+  desenhar('inicio');
+}
+
+// manda a gravação para o servidor (vira áudio de voz do WhatsApp). midiaId: regrava aquela mídia
+async function enviarGravacao(empresaId, blob, tipo, { nome = '', descricao = '', ativa = true, midiaId = '' } = {}) {
+  const qs = new URLSearchParams({ tipo: tipo || blob.type || '', ...(nome ? { nome } : {}), ...(descricao ? { descricao } : {}), ...(ativa ? {} : { ativa: 'nao' }), ...(midiaId ? { midiaId } : {}) });
+  const r = await fetch(`api/empresas/${empresaId}/midias/gravacao?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: blob });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(corpo.erro || 'Não consegui salvar o áudio.');
+  return corpo;
+}
+
+// Página só dos áudios: gravar, ouvir, regravar e dizer quando a IA manda
+async function paginaAudios(id) {
+  const hashDaPagina = location.hash;
+  await definirEmpresaAtual(id);
+  const todas = await api(`empresas/${id}/midias`);
+  if (location.hash !== hashDaPagina) return;
+  const audios = todas.filter((m) => m.tipo === 'audio' && !m.pastaId).sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
+  const desligada = (m) => m.pausada === true || (m.pronta === false && Boolean((m.descricao || '').trim()));
+  const situacao = (m) => (m.soFollowup ? ['fup', '🔁 Só no follow-up'] : desligada(m) ? ['off', '⛔ Desligado — não sai'] : m.pronta === false ? ['off', '⚪ A IA ainda não usa — falta o "quando a IA manda"'] : ['ok', '✅ Ativo — a IA manda']);
+  const tempo = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
+  const cartao = (m) => {
+    const [cls, txt] = situacao(m);
+    return `<div class="card midia audio-card" data-audio="${esc(m.id)}">
+      <div class="audio-topo"><button type="button" class="codigo-num" data-copiar="${esc(codNum(m))}" title="Copiar o código para colar no prompt">${esc(codNum(m))} <span>⧉ copiar</span></button>${m.duracao ? `<span class="rotulo">⏱️ ${tempo(m.duracao)}</span>` : ''}</div>
+      <strong>${esc(m.nome)}</strong>
+      <span class="midia-uso ${cls}">${txt}</span>
+      <audio class="midia-audio" controls preload="none" src="${esc(m.url)}"></audio>
+      <label class="linha-check"><input type="checkbox" data-ativo="${esc(m.id)}" ${m.pronta !== false && !desligada(m) ? 'checked' : ''}> <b>Ativo</b> (desmarcado = não sai de jeito nenhum)</label>
+      <form class="midia-desc" data-quando="${esc(m.id)}"><input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Quando a IA manda (ex.: quando perguntarem do completo)"><button type="submit" class="pequeno">Salvar</button></form>
+      <form class="midia-fala" data-fala="${esc(m.id)}">
+        <label class="rotulo">🗣️ O que o áudio fala ${m.falaAuto ? '<span class="etiqueta">transcrito pela IA — confira</span>' : ''}</label>
+        <textarea name="fala" rows="2" maxlength="2000" placeholder="A IA usa isso para saber o conteúdo e não repetir por escrito">${esc(m.fala || '')}</textarea>
+        <span class="acoes-fala"><button type="submit" class="pequeno">Salvar</button><button type="button" class="pequeno" data-transcrever="${esc(m.id)}">✨ Transcrever</button></span>
+      </form>
+      <div class="acoes" style="margin-top:8px"><button type="button" class="pequeno" data-regravar="${esc(m.id)}">🎙️ Regravar</button><button type="button" class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
+    </div>`;
+  };
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>🎤 Áudios</h1><p class="sub">Grave aqui mesmo, ouça antes de salvar e diga quando a IA manda. O cliente recebe como <b>áudio de voz gravado na hora</b> (vê "gravando áudio…"), nunca como encaminhado.</p></div></div>
+    <div class="card"><h2 style="margin-top:0">🎙️ Novo áudio</h2><div id="gravador-novo"></div></div>
+    <h2>Seus áudios <span class="rotulo">(${audios.length})</span></h2>
+    <p class="rotulo" style="margin-top:-6px">Para a IA mandar num momento certo do roteiro, cite o código no prompt (ex.: "depois de saber o carro, mande o áudio ${esc(audios[0] ? codNum(audios[0]) : '#MIDIA_12')}"). Teste A/B, etapas e revezamento ficam em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> → Editar.</p>
+    ${audios.length ? `<div class="grade-midias">${audios.map(cartao).join('')}</div>` : '<div class="card vazio">Nenhum áudio ainda. Grave o primeiro aqui em cima 👆</div>'}`;
+
+  montarGravador($('#gravador-novo'), {
+    comCampos: true,
+    aoSalvar: async (blob, tipo, f) => {
+      const ativa = f.elements.ativa.checked;
+      const descricao = f.elements.descricao.value.trim();
+      const nova = await enviarGravacao(id, blob, tipo, { nome: f.elements.nome.value.trim(), descricao, ativa });
+      aviso(`Áudio ${nova.codigoVisivel} salvo.${ativa && !descricao ? ' Falta o "quando a IA manda" para a IA usar.' : ''}`);
+      paginaAudios(id);
+    }
+  });
+  const achar = (mid) => audios.find((x) => x.id === mid);
+  const atualizar = (m, corpo) => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: corpo });
+  $$('[data-copiar]').forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso(`Código ${b.dataset.copiar} copiado.`)).catch(() => aviso(b.dataset.copiar)); }; });
+  $$('[data-ativo]').forEach((c) => {
+    c.onchange = async () => {
+      const m = achar(c.dataset.ativo);
+      if (c.checked && !(m.descricao || '').trim() && !(await confirmar({ titulo: 'Sem "quando a IA manda"?', texto: 'Sem essa regra a IA decide sozinha quando mandar (ou só manda quando o prompt citar o código). Ativar assim mesmo?', botao: 'Ativar' }))) { c.checked = false; return; }
+      try {
+        await atualizar(m, { pronta: c.checked });
+        aviso(c.checked ? 'Áudio ativo.' : 'Áudio desligado: não sai de jeito nenhum (nem pelo prompt, follow-up ou automações).');
+        paginaAudios(id);
+      } catch (err) { c.checked = !c.checked; aviso(err.message, true); }
+    };
+  });
+  $$('[data-quando]').forEach((f) => {
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await comEspera(f.querySelector('button'), () => atualizar(achar(f.dataset.quando), { descricao: f.elements.descricao.value.trim() }));
+        aviso('Salvo.');
+        paginaAudios(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-fala]').forEach((f) => {
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await comEspera(f.querySelector('button[type=submit]'), () => atualizar(achar(f.dataset.fala), { fala: f.elements.fala.value.trim() }));
+        aviso('Salvo: a IA já sabe o que este áudio fala.');
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-transcrever]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await comEspera(b, () => api(`empresas/${id}/midias/${b.dataset.transcrever}/transcrever`, { method: 'POST', body: {} }), 'Ouvindo…');
+        aviso('Pronto: a IA escreveu o que o áudio fala. Confira e corrija se precisar.');
+        paginaAudios(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-apagar]').forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Apagar este áudio?', texto: 'A IA não vai mais conseguir enviá-lo.', botao: 'Apagar', perigo: true }))) return;
+      try {
+        await api(`empresas/${id}/midias/${b.dataset.apagar}`, { method: 'DELETE' });
+        paginaAudios(id);
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  // 🎙️ Regravar: grava de novo no lugar (mesmo código, mesma configuração); o antigo é apagado
+  $$('[data-regravar]').forEach((b) => {
+    b.onclick = () => {
+      const m = achar(b.dataset.regravar);
+      abrirModal(`<h2>🎙️ Regravar ${esc(codNum(m))}</h2><p class="rotulo">"${esc(m.nome)}" — o áudio novo fica no lugar deste, com o mesmo código e a mesma configuração. O antigo é apagado e não vai mais.</p><div id="gravador-troca"></div><div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (modal, fechar) => {
+        montarGravador($('#gravador-troca', modal), {
+          textoSalvar: '💾 Usar este no lugar',
+          aoSalvar: async (blob, tipo) => {
+            await enviarGravacao(id, blob, tipo, { midiaId: m.id, nome: m.nome });
+            fechar();
+            aviso(`${codNum(m)} regravado. Daqui em diante vai só o novo.`);
+            paginaAudios(id);
+          }
+        });
+      });
+    };
+  });
+}
 
 async function paginaMidias(id) {
   const hashDaPagina = location.hash;
@@ -7466,6 +7687,7 @@ async function rotear() {
         site: () => paginaSite(id),
         whatsapp: () => paginaWhatsapp(id),
         midias: () => paginaMidias(id),
+        audios: () => paginaAudios(id),
         organizar: () => paginaOrganizar(id),
         chave: () => paginaChave(id),
         'meta-ads': () => paginaMetaAds(id)
