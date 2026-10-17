@@ -287,8 +287,7 @@ function montarMenu(ativo) {
       ['Sua IA', [
         ['ia', 'cerebro', 'Sobre a empresa', 'treinar instrucoes conhecimento prompt nome atendente'],
         ['catalogo', 'catalogo', 'Serviços e preços', 'catalogo produtos preco tabela valores'],
-        ['midias', 'midias', 'Mídias e respostas', 'fotos videos imagens respostas rapidas so follow-up sugestao de midia'],
-        ['audios', 'microfone', 'Áudios', 'audio gravar gravacao voz microfone ouvir regravar'],
+        ['midias', 'midias', 'Mídias e respostas', 'fotos videos imagens audios gravar audio microfone respostas rapidas so follow-up sugestao de midia'],
         ['aprendizado', 'livro', 'Clone e aprendizados', 'clone aprender responder igual a mim aprendizado anuncios'],
         ['whatsapp', 'whatsapp', 'IA do WhatsApp', 'conectar qr code numero instrucoes aviso de agendamento etiquetas lista negra modo teste'],
         ['site', 'site', 'IA do site', 'chat do site codigo widget instalar']
@@ -2431,12 +2430,15 @@ async function enviarGravacao(empresaId, blob, tipo, { nome = '', descricao = ''
   return corpo;
 }
 
-// Página só dos áudios: gravar, ouvir, regravar e dizer quando a IA manda
-async function paginaAudios(id) {
-  const hashDaPagina = location.hash;
-  await definirEmpresaAtual(id);
-  const todas = await api(`empresas/${id}/midias`);
-  if (location.hash !== hashDaPagina) return;
+// Endereço antigo (#/…/audios): os áudios ficam dentro de Mídias, na aba 🎤 Áudios
+function paginaAudios(id) {
+  try { sessionStorage.setItem(`midias_aba_${id}`, 'audios'); } catch { /* ok */ }
+  location.replace(rotaEmpresa(id, 'midias'));
+}
+
+// Aba 🎤 Áudios de Mídias: gravar, ouvir antes de salvar, regravar e dizer quando a IA manda.
+// alvo: onde desenhar; recarregar: redesenha a página de Mídias depois de salvar
+function montarAudios(id, alvo, todas, recarregar) {
   const audios = todas.filter((m) => m.tipo === 'audio' && !m.pastaId).sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
   const desligada = (m) => m.pausada === true || (m.pronta === false && Boolean((m.descricao || '').trim()));
   const situacao = (m) => (m.soFollowup ? ['fup', '🔁 Só no follow-up'] : desligada(m) ? ['off', '⛔ Desligado — não sai'] : m.pronta === false ? ['off', '⚪ A IA ainda não usa — falta o "quando a IA manda"'] : ['ok', '✅ Ativo — a IA manda']);
@@ -2448,88 +2450,88 @@ async function paginaAudios(id) {
       <strong>${esc(m.nome)}</strong>
       <span class="midia-uso ${cls}">${txt}</span>
       <audio class="midia-audio" controls preload="none" src="${esc(m.url)}"></audio>
-      <label class="linha-check"><input type="checkbox" data-ativo="${esc(m.id)}" ${m.pronta !== false && !desligada(m) ? 'checked' : ''}> <b>Ativo</b> (desmarcado = não sai de jeito nenhum)</label>
-      <form class="midia-desc" data-quando="${esc(m.id)}"><input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Quando a IA manda (ex.: quando perguntarem do completo)"><button type="submit" class="pequeno">Salvar</button></form>
-      <form class="midia-fala" data-fala="${esc(m.id)}">
+      <label class="linha-check"><input type="checkbox" data-au-ativo="${esc(m.id)}" ${m.pronta !== false && !desligada(m) ? 'checked' : ''}> <b>Ativo</b> (desmarcado = não sai de jeito nenhum)</label>
+      <form class="midia-desc" data-au-quando="${esc(m.id)}"><input name="descricao" maxlength="300" value="${esc(m.descricao || '')}" placeholder="Quando a IA manda (ex.: quando perguntarem do completo)"><button type="submit" class="pequeno">Salvar</button></form>
+      <form class="midia-fala" data-au-fala="${esc(m.id)}">
         <label class="rotulo">🗣️ O que o áudio fala ${m.falaAuto ? '<span class="etiqueta">transcrito pela IA — confira</span>' : ''}</label>
         <textarea name="fala" rows="2" maxlength="2000" placeholder="A IA usa isso para saber o conteúdo e não repetir por escrito">${esc(m.fala || '')}</textarea>
-        <span class="acoes-fala"><button type="submit" class="pequeno">Salvar</button><button type="button" class="pequeno" data-transcrever="${esc(m.id)}">✨ Transcrever</button></span>
+        <span class="acoes-fala"><button type="submit" class="pequeno">Salvar</button><button type="button" class="pequeno" data-au-transcrever="${esc(m.id)}">✨ Transcrever</button></span>
       </form>
-      <div class="acoes" style="margin-top:8px"><button type="button" class="pequeno" data-regravar="${esc(m.id)}">🎙️ Regravar</button><button type="button" class="pequeno perigo" data-apagar="${esc(m.id)}">Apagar</button></div>
+      <div class="acoes" style="margin-top:8px"><button type="button" class="pequeno" data-au-regravar="${esc(m.id)}">🎙️ Regravar</button><button type="button" class="pequeno perigo" data-au-apagar="${esc(m.id)}">Apagar</button></div>
     </div>`;
   };
-  conteudo.innerHTML = `<div class="pagina-audios">
-    <div class="cabecalho"><div><h1>🎤 Áudios</h1><p class="sub">Grave aqui mesmo, ouça antes de salvar e diga quando a IA manda. O cliente recebe como <b>áudio de voz gravado na hora</b> (vê "gravando áudio…"), nunca como encaminhado.</p></div></div>
-    <div class="card"><h2 style="margin-top:0">🎙️ Novo áudio</h2><div id="gravador-novo"></div></div>
-    <h2>Seus áudios <span class="rotulo">(${audios.length})</span></h2>
-    <p class="rotulo" style="margin-top:-6px">Para a IA mandar num momento certo do roteiro, cite o código no prompt (ex.: "depois de saber o carro, mande o áudio ${esc(audios[0] ? codNum(audios[0]) : '#MIDIA_12')}"). Teste A/B, etapas e revezamento ficam em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> → Editar.</p>
+  alvo.innerHTML = `<div class="pagina-audios">
+    <p class="rotulo" style="margin:4px 0 10px">🎤 Grave aqui mesmo, ouça antes de salvar e diga quando a IA manda. O cliente recebe como <b>áudio de voz gravado na hora</b> (vê "gravando áudio…"), nunca como encaminhado.</p>
+    <div class="card"><h3 style="margin-top:0">🎙️ Novo áudio</h3><div id="gravador-novo"></div></div>
+    <h3>Seus áudios <span class="rotulo">(${audios.length})</span></h3>
+    <p class="rotulo" style="margin-top:-6px">Para a IA mandar num momento certo do roteiro, cite o código no prompt (ex.: "depois de saber o carro, mande o áudio ${esc(audios[0] ? codNum(audios[0]) : '#MIDIA_12')}"). Teste A/B, etapas e revezamento: abra o áudio nas outras abas de Mídias → Editar.</p>
     ${audios.length ? `<div class="grade-midias">${audios.map(cartao).join('')}</div>` : '<div class="card vazio">Nenhum áudio ainda. Grave o primeiro aqui em cima 👆</div>'}</div>`;
 
-  montarGravador($('#gravador-novo'), {
+  montarGravador($('#gravador-novo', alvo), {
     comCampos: true,
     aoSalvar: async (blob, tipo, f) => {
       const ativa = f.elements.ativa.checked;
       const descricao = f.elements.descricao.value.trim();
       const nova = await enviarGravacao(id, blob, tipo, { nome: f.elements.nome.value.trim(), descricao, ativa });
       aviso(`Áudio ${nova.codigoVisivel} salvo.${ativa && !descricao ? ' Falta o "quando a IA manda" para a IA usar.' : ''}`);
-      paginaAudios(id);
+      recarregar();
     }
   });
   const achar = (mid) => audios.find((x) => x.id === mid);
   const atualizar = (m, corpo) => api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: corpo });
-  $$('[data-copiar]').forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso(`Código ${b.dataset.copiar} copiado.`)).catch(() => aviso(b.dataset.copiar)); }; });
-  $$('[data-ativo]').forEach((c) => {
+  $$('[data-copiar]', alvo).forEach((b) => { b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copiar).then(() => aviso(`Código ${b.dataset.copiar} copiado.`)).catch(() => aviso(b.dataset.copiar)); }; });
+  $$('[data-au-ativo]', alvo).forEach((c) => {
     c.onchange = async () => {
-      const m = achar(c.dataset.ativo);
+      const m = achar(c.dataset.auAtivo);
       if (c.checked && !(m.descricao || '').trim() && !(await confirmar({ titulo: 'Sem "quando a IA manda"?', texto: 'Sem essa regra a IA decide sozinha quando mandar (ou só manda quando o prompt citar o código). Ativar assim mesmo?', botao: 'Ativar' }))) { c.checked = false; return; }
       try {
         await atualizar(m, { pronta: c.checked });
         aviso(c.checked ? 'Áudio ativo.' : 'Áudio desligado: não sai de jeito nenhum (nem pelo prompt, follow-up ou automações).');
-        paginaAudios(id);
+        recarregar();
       } catch (err) { c.checked = !c.checked; aviso(err.message, true); }
     };
   });
-  $$('[data-quando]').forEach((f) => {
+  $$('[data-au-quando]', alvo).forEach((f) => {
     f.onsubmit = async (e) => {
       e.preventDefault();
       try {
-        await comEspera(f.querySelector('button'), () => atualizar(achar(f.dataset.quando), { descricao: f.elements.descricao.value.trim() }));
+        await comEspera(f.querySelector('button'), () => atualizar(achar(f.dataset.auQuando), { descricao: f.elements.descricao.value.trim() }));
         aviso('Salvo.');
-        paginaAudios(id);
+        recarregar();
       } catch (err) { aviso(err.message, true); }
     };
   });
-  $$('[data-fala]').forEach((f) => {
+  $$('[data-au-fala]', alvo).forEach((f) => {
     f.onsubmit = async (e) => {
       e.preventDefault();
       try {
-        await comEspera(f.querySelector('button[type=submit]'), () => atualizar(achar(f.dataset.fala), { fala: f.elements.fala.value.trim() }));
+        await comEspera(f.querySelector('button[type=submit]'), () => atualizar(achar(f.dataset.auFala), { fala: f.elements.fala.value.trim() }));
         aviso('Salvo: a IA já sabe o que este áudio fala.');
       } catch (err) { aviso(err.message, true); }
     };
   });
-  $$('[data-transcrever]').forEach((b) => {
+  $$('[data-au-transcrever]', alvo).forEach((b) => {
     b.onclick = async () => {
       try {
-        await comEspera(b, () => api(`empresas/${id}/midias/${b.dataset.transcrever}/transcrever`, { method: 'POST', body: {} }), 'Ouvindo…');
+        await comEspera(b, () => api(`empresas/${id}/midias/${b.dataset.auTranscrever}/transcrever`, { method: 'POST', body: {} }), 'Ouvindo…');
         aviso('Pronto: a IA escreveu o que o áudio fala. Confira e corrija se precisar.');
-        paginaAudios(id);
+        recarregar();
       } catch (err) { aviso(err.message, true); }
     };
   });
-  $$('[data-apagar]').forEach((b) => {
+  $$('[data-au-apagar]', alvo).forEach((b) => {
     b.onclick = async () => {
       if (!(await confirmar({ titulo: 'Apagar este áudio?', texto: 'A IA não vai mais conseguir enviá-lo.', botao: 'Apagar', perigo: true }))) return;
       try {
-        await api(`empresas/${id}/midias/${b.dataset.apagar}`, { method: 'DELETE' });
-        paginaAudios(id);
+        await api(`empresas/${id}/midias/${b.dataset.auApagar}`, { method: 'DELETE' });
+        recarregar();
       } catch (err) { aviso(err.message, true); }
     };
   });
   // 🎙️ Regravar: grava de novo no lugar (mesmo código, mesma configuração); o antigo é apagado
-  $$('[data-regravar]').forEach((b) => {
+  $$('[data-au-regravar]', alvo).forEach((b) => {
     b.onclick = () => {
-      const m = achar(b.dataset.regravar);
+      const m = achar(b.dataset.auRegravar);
       abrirModal(`<h2>🎙️ Regravar ${esc(codNum(m))}</h2><p class="rotulo">"${esc(m.nome)}" — o áudio novo fica no lugar deste, com o mesmo código e a mesma configuração. O antigo é apagado e não vai mais.</p><div id="gravador-troca"></div><div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (modal, fechar) => {
         montarGravador($('#gravador-troca', modal), {
           textoSalvar: '💾 Usar este no lugar',
@@ -2537,7 +2539,7 @@ async function paginaAudios(id) {
             await enviarGravacao(id, blob, tipo, { midiaId: m.id, nome: m.nome });
             fechar();
             aviso(`${codNum(m)} regravado. Daqui em diante vai só o novo.`);
-            paginaAudios(id);
+            recarregar();
           }
         });
       });
@@ -2767,7 +2769,8 @@ async function paginaMidias(id) {
     prontas: { nome: '✅ A IA usa', filtro: (m) => (m.pronta !== false || citada(m)) && !m.soFollowup && !m.pastaId },
     fotos: { nome: '📷 Fotos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'image' },
     videos: { nome: '🎬 Vídeos', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'video' },
-    audios: { nome: '🎤 Áudios', filtro: (m) => m.pronta !== false && !m.soFollowup && m.tipo === 'audio' },
+    // todos os áudios (ativos, desligados e a configurar): a aba tem o gravador
+    audios: { nome: '🎤 Áudios', filtro: (m) => m.tipo === 'audio' && !m.pastaId },
     docs: { nome: '📄 Documentos', filtro: (m) => m.pronta !== false && !m.soFollowup && !['image', 'video', 'audio'].includes(m.tipo) },
     // separadas: só saem no follow-up (a IA nunca manda na conversa)
     followup: { nome: '🔁 Só follow-up', filtro: (m) => m.soFollowup === true },
@@ -2900,13 +2903,18 @@ async function paginaMidias(id) {
       : '';
     $$('[data-fassunto]').forEach((b) => { b.onclick = () => { filtroAssunto = b.dataset.fassunto; selecionadas.clear(); desenharBiblioteca(); }; });
     const grade = $('#grade-biblioteca');
-    if (aba === 'albuns') {
+    if (aba === 'audios') {
+      // 🎤 Áudios: gravador + cartões próprios (os outros botões da biblioteca não valem aqui)
+      try { sessionStorage.setItem(`midias_aba_${id}`, 'audios'); } catch { /* ok */ }
+      grade.innerHTML = '<div id="aba-audios"></div>';
+      montarAudios(id, $('#aba-audios'), lista, () => paginaMidias(id));
+    } else if (aba === 'albuns') {
       grade.innerHTML = `<p class="rotulo" style="margin:4px 0 12px">Álbum = várias mídias que a IA manda juntas (até 10). Selecione as mídias nas outras abas e use <b>Pôr no álbum</b>, ou crie aqui.</p>
         <div class="acoes" style="margin:0 0 12px"><button type="button" class="primario pequeno" id="novo-album">+ Novo álbum</button></div>
         <div class="lista-pastas">${albuns.filter(passaAssunto).map(cartaoAlbum).join('') || '<p class="rotulo">Nenhum álbum aqui.</p>'}</div>`;
     } else {
       const itens = lista.filter((m) => grupos[aba].filtro(m) && passaAssunto(m));
-      grade.innerHTML = (aba === 'audios' ? `<p style="margin:4px 0 10px"><a class="botao primario pequeno" href="${rotaEmpresa(id, 'audios')}">🎙️ Gravar áudio pelo CRM</a></p><p class="rotulo" style="margin:4px 0 10px">🎤 Os áudios chegam para o cliente como <b>áudio de voz gravado na hora</b> (ele vê "gravando áudio…"), nunca como encaminhado. Para cada áudio: escreva <b>quando enviar</b> e confira <b>o que ele fala</b> — a IA usa isso para mandar na hora certa e não repetir por escrito. Para a IA alternar texto e áudio num roteiro, cite o código do áudio nas instruções (ex.: "depois de saber o carro, mande o áudio #MIDIA_12").</p>` : '') + (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
+      grade.innerHTML = (aba === 'followup' ? `<p class="rotulo" style="margin:4px 0 10px">🔁 Estas mídias <b>só saem no follow-up</b> (escolha nos passos da aba <a href="${rotaEmpresa(id, 'followup')}">Follow-up</a>). A IA <b>nunca</b> manda estas na conversa. Para mover para cá: selecione e use <b>Uso → Só no follow-up</b>, ou envie arquivos com esta aba aberta.</p>` : '') +
         (itens.length ? `<div class="grade-midias">${itens.map(cartao).join('')}</div>` : `<p class="rotulo" style="padding:12px 0">${aba === 'configurar' ? 'Nada para configurar. 🎉' : aba === 'prontas' ? 'Nenhuma mídia pronta ainda — configure as da aba "A configurar".' : 'Nenhuma aqui ainda.'}</p>`);
     }
     const barra = $('#barra-selecao');
