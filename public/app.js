@@ -655,7 +655,7 @@ async function paginaEmpresa(id) {
   ];
   if (siteLigado) lista.push({ feito: Object.keys(r.porEtapa).length > 0 || r.totalLeads > 0, texto: 'Coloque o chat no seu site', dica: 'Copie e cole um código uma vez só.', href: rotaEmpresa(id, 'site') });
   if (zapLigado) lista.push({ feito: Boolean(zap.configurado), texto: 'Conecte o WhatsApp', dica: 'Clique em Gerar QR code e escaneie com o celular.', href: rotaEmpresa(id, 'whatsapp') });
-  if (zapLigado) lista.push({ feito: emp.totalMidias > 0 || (emp.links || []).length > 0, texto: 'Coloque fotos (ou uma pasta do Drive) e links para a IA usar', dica: 'Mostrar o trabalho vende: a IA manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
+  if (zapLigado) lista.push({ feito: emp.totalMidias > 0 || (emp.links || []).length > 0, texto: 'Coloque fotos e links para a IA usar', dica: 'Mostrar o trabalho vende: a IA manda quando o cliente pedir.', href: rotaEmpresa(id, 'midias') });
   if (zapLigado) lista.push({ feito: emp.followupAtivo || (emp.automacoes || []).some((a) => a.ativa), texto: 'Ligue a máquina de vendas', dica: 'Recuperar vendas e pedir avaliações no Google, no automático.', href: rotaEmpresa(id, 'automacoes') });
   const feitos = lista.filter((p) => p.feito).length;
   const tudoPronto = feitos === lista.length;
@@ -1442,7 +1442,7 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
         <div class="campo largo"><label>Detalhes para a IA usar ${ajuda('O que está incluso, materiais, cores, garantia, condições. Só o que for verdade: a IA usa isto para responder.')}</label><textarea name="descricao" maxlength="1500" style="min-height:90px" placeholder="Ex.: Couro legítimo, costura à mão, cores preto e caramelo, garantia de 1 ano.">${esc(x.descricao)}</textarea></div>
       </div>
       <div class="campo">
-        <label>Mídias deste item <span class="rotulo" id="cat-qtd"></span> ${ajuda('Fotos, vídeos, álbuns ou pastas do Drive que mostram este serviço/produto. A IA manda quando o cliente falar dele.')}</label>
+        <label>Mídias deste item <span class="rotulo" id="cat-qtd"></span> ${ajuda('Fotos, vídeos ou álbuns que mostram este serviço/produto. A IA manda quando o cliente falar dele.')}</label>
         ${opcoes.length ? `<input id="cat-busca-midia" placeholder="🔎 Filtrar mídias" style="margin-bottom:8px">
         <div class="seletor-midias">${opcoes.map((o) => `<button type="button" class="opcao-midia ${escolhidas.has(o.codigo) ? 'marcada' : ''}" data-codigo="${esc(o.codigo)}" data-busca="${esc(`${o.nome} ${o.codigo}`.toLowerCase())}">${miniaturaMidia(o)}<span class="opcao-nome">${esc(o.nome)}</span><span class="opcao-check">✓</span></button>`).join('')}</div>`
         : `<p class="rotulo">Nenhuma mídia na biblioteca ainda. <a href="${rotaEmpresa(id, 'midias')}">Subir fotos e vídeos</a></p>`}
@@ -1899,7 +1899,7 @@ async function paginaWhatsapp(id) {
           <p class="rotulo" style="margin:0 0 6px">Sozinha, a IA do WhatsApp:</p>
           <ul>
             <li>🎤 ${emp.ouveAudio ? '<b>ouve os áudios</b> e <b>entende as fotos</b> que o cliente manda' : 'entende as fotos que o cliente manda — para <b>ouvir áudios</b>, cadastre também a <a href="' + rotaEmpresa(id, 'chave') + '">chave do Gemini</a> (grátis)'}</li>
-            <li>📎 envia as <a href="${rotaEmpresa(id, 'midias')}">fotos, álbuns do Drive e links</a> quando o cliente pede</li>
+            <li>📎 envia as <a href="${rotaEmpresa(id, 'midias')}">fotos, álbuns e links</a> quando o cliente pede</li>
             <li>➜ move o lead de <a href="${rotaEmpresa(id, 'organizar')}">etapa</a> e coloca <a href="${rotaEmpresa(id, 'organizar')}">etiquetas</a></li>
             <li>👤 chama alguém da equipe quando precisa (e para de responder aquele cliente)</li>
             <li>✋ para sozinha quando alguém da equipe responde pelo celular</li>
@@ -2583,7 +2583,7 @@ async function paginaMidias(id) {
     </div>
 
     <div class="card" id="biblioteca">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🖼️ Suas fotos, vídeos e arquivos</h2><span class="barra"><button type="button" id="midia-por-link" title="Cole o link de um arquivo do Google Drive">🔗 Por link do Drive</button><label class="botao primario">📤 Adicionar (vários de uma vez)<input type="file" id="mais-midias" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label></span></div>
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🖼️ Suas fotos, vídeos e arquivos</h2><span class="barra"><label class="botao primario">📤 Adicionar (vários de uma vez)<input type="file" id="mais-midias" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label></span></div>
       <label class="soltar" id="soltar"><span class="soltar-texto">📁 Arraste vários arquivos aqui — fotos, vídeos (até 200 MB cada, qualidade original), PDFs e áudios</span></label>
       <div id="fila-envio"></div>
       <div class="assuntos-midia" id="assuntos-midia"></div>
@@ -2593,20 +2593,9 @@ async function paginaMidias(id) {
       <div id="grade-biblioteca"></div>
     </div>
 
-    <div class="card" data-cfg="drive" data-pronto="${pastas.length ? 'ok' : 'off'}" data-resumo="${pastas.length ? `${pastas.length} pasta(s) conectada(s)` : 'Nenhuma pasta conectada'}">
-      <h2>📁 Fotos do Google Drive</h2>
-      <p class="rotulo" style="margin-top:-6px">Cada pasta vira um <b>álbum</b>: a IA manda as fotos da pasta de uma vez. Coloque fotos novas na pasta e o CRM sincroniza sozinho (a cada 6 horas, ou no botão).</p>
-      <details ${pastas.length ? '' : 'open'}><summary>Como compartilhar a pasta</summary>${passos([
-        'No Google Drive, clique com o botão direito na pasta → <b>Compartilhar</b>.',
-        'Em "Acesso geral", escolha <b>Qualquer pessoa com o link</b> (leitor) → <b>Copiar link</b>.',
-        'Cole o link aqui, dê um nome para o álbum e diga quando a IA deve mandar.'
-      ])}</details>
-      <form id="f-drive" class="campos" style="margin-top:12px">
-        <div class="campo largo"><label>Link da pasta</label><input name="link" required placeholder="https://drive.google.com/drive/folders/…"></div>
-        <div class="campo"><label>Nome do álbum</label><input name="nome" placeholder="Ex.: Trabalhos feitos"></div>
-        <div class="campo"><label>Quando a IA deve mandar</label><input name="descricao" placeholder="Ex.: quando pedir fotos de trabalhos feitos"></div>
-        <div class="campo largo"><div class="acoes" style="margin-top:0"><button class="primario" type="submit">Conectar pasta</button></div></div>
-      </form>
+    ${pastas.length ? `<div class="card" data-cfg="drive" data-pronto="ok" data-resumo="${pastas.length} pasta(s) antiga(s) do Drive">
+      <h2>📁 Pastas antigas do Google Drive</h2>
+      <p class="rotulo" style="margin-top:-6px">Enviar pelo Google Drive não existe mais no CRM — use <b>📤 Adicionar</b> lá em cima. Estas pastas conectadas antes continuam com as fotos que já estão aqui; você pode editar ou remover.</p>
       <div class="lista-pastas">
         ${pastas.map((p) => {
           const fotos = todas.filter((m) => m.pastaId === p.id);
@@ -2614,11 +2603,11 @@ async function paginaMidias(id) {
           <div class="pasta">
             <div class="pasta-fotos">${fotos.slice(0, 4).map((m) => (m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="" loading="lazy">` : `<span>${ICONE_TIPO[m.tipo] || '📎'}</span>`)).join('') || '<span>📁</span>'}</div>
             <div class="pasta-info"><strong>${esc(p.nome)} ${p.codigo ? `<button type="button" class="codigo-chip" data-copiar="${esc(codNum(p))}" title="Copiar código">${esc(codNum(p))} ⧉</button>` : ''}</strong><span class="rotulo">${p.total || 0} arquivos · ${esc(p.descricao || 'sem instrução de quando mandar')}</span><span class="rotulo">Sincronizada ${data(p.ultimaSincronia)}${p.falhas?.length ? ` · ${p.falhas.length} arquivo(s) não baixaram` : ''}</span></div>
-            <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-sinc="${esc(p.id)}">🔄 Sincronizar</button><button type="button" class="pequeno" data-editar-pasta="${esc(p.id)}">Editar</button><button type="button" class="pequeno perigo" data-tirar-pasta="${esc(p.id)}">Remover</button></div>
+            <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-editar-pasta="${esc(p.id)}">Editar</button><button type="button" class="pequeno perigo" data-tirar-pasta="${esc(p.id)}">Remover</button></div>
           </div>`;
         }).join('')}
       </div>
-    </div>
+    </div>` : ''}
 
     <div class="card" data-cfg="rapidas" data-pronto="${(emp.respostasRapidas || []).length ? 'ok' : 'off'}" data-resumo="${(emp.respostasRapidas || []).length ? `${emp.respostasRapidas.length} atalho(s)` : 'Nenhum atalho ainda'}">
       <div class="cabecalho" style="margin-bottom:6px;padding-right:0"><h2 style="margin:0">⚡ Respostas rápidas com mídia</h2><button type="button" class="primario pequeno" id="abrir-rapidas">Gerenciar</button></div>
@@ -2654,7 +2643,8 @@ async function paginaMidias(id) {
       ligarChatTeste({ botId: botPrincipal.id, canal: 'whatsapp', rascunho: null, saudacao: () => '' });
     });
   });
-  $('#midia-por-link').onclick = () => {
+  // (enviar por link do Google Drive saiu do CRM)
+  if ($('#midia-por-link')) $('#midia-por-link').onclick = () => {
     abrirModal(`
       <h2>🔗 Mídia por link do Google Drive</h2>
       <p class="rotulo" style="margin:0 0 10px">No Drive: botão direito no arquivo → <b>Compartilhar</b> → "Qualquer pessoa com o link" → <b>Copiar link</b>. O CRM converte para o link de download direto, baixa e guarda o arquivo.</p>
@@ -2694,7 +2684,7 @@ async function paginaMidias(id) {
   });
 
   // ---------- Drive
-  $('#f-drive').onsubmit = async (e) => {
+  if ($('#f-drive')) $('#f-drive').onsubmit = async (e) => {
     e.preventDefault();
     try {
       const r = await comEspera(e.target.querySelector('button[type=submit]'), () => api(`empresas/${id}/drive`, { method: 'POST', body: formParaObjeto(e.target) }), 'Baixando fotos…');

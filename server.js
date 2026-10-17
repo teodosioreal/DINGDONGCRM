@@ -243,16 +243,7 @@ const servidor = app.listen(config.port, config.host, () => {
     }
     whatsapp.recuperarAnexosRecentes(); // comprovantes de mensagens que chegaram durante uma queda
   }, 15000).unref();
-  // pastas do Google Drive: sincroniza sozinho a cada 6 horas
-  setInterval(async () => {
-    const { estado } = require('./src/db');
-    const ia = require('./src/ia');
-    for (const e of estado.empresas) {
-      for (const pasta of midias.pastasDa(e)) {
-        await midias.sincronizarPasta(e, { pastaExistente: pasta, chaveGoogle: ia.chave('gemini', e) }).catch((err) => console.error(`[drive ${e.id}]`, err.message));
-      }
-    }
-  }, 6 * 60 * 60 * 1000).unref();
+  // (pastas do Google Drive: não sincroniza mais — enviar pelo Drive saiu do CRM; as fotos que já vieram ficam)
   if (!require('./src/ia').provedoresConfigurados().length) {
     console.log('Aviso: nenhuma chave de IA configurada — cadastre a do Claude ou do Gemini em Configurações.');
   }

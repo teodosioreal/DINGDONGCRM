@@ -929,6 +929,8 @@ router.get('/empresas/:id/midias', (req, res) => {
 
 // Mídia pelo link de um arquivo do Google Drive (vira link direto, o CRM baixa e guarda)
 router.post('/empresas/:id/midias/link', async (req, res) => {
+  // enviar pelo Google Drive saiu do CRM (as pastas já conectadas continuam como estão)
+  return res.status(410).json({ erro: 'Enviar pelo Google Drive não existe mais. Use 📤 Adicionar em Mídias.' });
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const b = req.body || {};
@@ -3058,6 +3060,8 @@ router.put('/empresas/:id/links', (req, res) => {
 });
 
 router.post('/empresas/:id/drive', async (req, res) => {
+  // enviar pelo Google Drive saiu do CRM (as pastas já conectadas continuam como estão)
+  return res.status(410).json({ erro: 'Enviar pelo Google Drive não existe mais. Use 📤 Adicionar em Mídias.' });
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const b = req.body || {};
@@ -3071,6 +3075,7 @@ router.post('/empresas/:id/drive', async (req, res) => {
 });
 
 router.post('/empresas/:id/drive/:pastaId/sincronizar', async (req, res) => {
+  return res.status(410).json({ erro: 'Enviar pelo Google Drive não existe mais. Use 📤 Adicionar em Mídias.' });
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const pasta = midias.pastasDa(empresa).find((p) => p.id === req.params.pastaId);
