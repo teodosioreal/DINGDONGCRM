@@ -108,7 +108,7 @@ diagnostico() {
   echo "    Últimas conversas com mensagem de cliente (por que a IA respondeu ou não; anônimo):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-ultimo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
   echo "    Meta Ads (anônimo: configuração, código do atendimento, fbclid e o site):"
-  CRM_DB_PATH="$DB_CRM" timeout 90 node deploy/diagnostico-meta.js 2>&1 | head -n 30 || true
+  CRM_DB_PATH="$DB_CRM" timeout 90 node deploy/diagnostico-meta.js 2>&1 | head -n 40 || true
   echo "    Tamanho do prompt da IA (salvo × enviado, só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-prompt-tamanho.js 2>&1 | head -n 30 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"

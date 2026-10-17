@@ -24,6 +24,20 @@ const fb = (u) => /[?&]fbclid=/.test(String(u || ''));
     const conf = vendas.filter((v) => v.status === 'confirmada' && (v.confirmadaEm || v.criadoEm || '') >= desde);
     const daCampanha = conf.filter((v) => comFb.some((l) => l.id === v.leadId));
     console.log(`      vendas confirmadas ${DIAS} dias: ${conf.length} · de clientes com clique de anúncio: ${daCampanha.length}`);
+    // funil do site → WhatsApp (7 dias, só contagens): cliques no botão, quantos chegaram com o
+    // código, ligados pelo horário e perdidos; e as mensagens com o texto do site com/sem código
+    const log7 = ((db.visitasLog || {})[e.id] || []).filter((x) => x.em > Date.now() - 7 * 864e5);
+    const velho = (x) => !x.ligada && Date.now() - x.em > 2 * 3600e3;
+    const funil = (l) => `cliques ${l.length} · chegou com código ${l.filter((x) => x.ligada === 'codigo').length} · ligado pelo horário ${l.filter((x) => x.ligada === 'horario').length} · não chegou/perdido ${l.filter(velho).length}`;
+    console.log(`      site → WhatsApp (7 dias): todos: ${funil(log7)} | do anúncio: ${funil(log7.filter((x) => x.anuncio))}`);
+    const porDia = {};
+    for (const l of doSite) {
+      const d = String(l.criadoEm || '').slice(5, 10);
+      if (!d || (l.criadoEm || '') < new Date(Date.now() - 7 * 864e5).toISOString()) continue;
+      porDia[d] = porDia[d] || [0, 0];
+      porDia[d][/#[A-Z2-9]{6}\b/.test(primeira(l)) ? 0 : 1]++;
+    }
+    console.log(`      mensagens com o texto do site por dia (com código / sem código): ${Object.entries(porDia).sort().map(([d, [c, sc]]) => `${d}: ${c}/${sc}`).join(' · ') || 'nenhuma'}`);
     // ✔ checklist da configuração (só sim/não, nada de token ou número inteiro)
     const bots = (db.bots || []).filter((b) => b.empresaId === e.id);
     const principal = bots.find((b) => b.principal) || bots[0];
@@ -43,13 +57,14 @@ const fb = (u) => /[?&]fbclid=/.test(String(u || ''));
       try {
         const r = await fetch(`https://${d}/`, { signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'Mozilla/5.0 (diagnostico CRM)' } });
         const html = await r.text();
-        const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((x) => x[1]);
+        // scripts e pedaços do site (sites React/TanStack/Vite guardam o botão em arquivos /assets/*.js)
+        const scripts = [...new Set([...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi), ...html.matchAll(/<link[^>]+rel=["']modulepreload["'][^>]+href=["']([^"']+)["']/gi), ...html.matchAll(/["'](\/assets\/[^"']+\.js)["']/g)].map((x) => x[1]))];
         let js = '';
-        for (const s of scripts.slice(0, 8)) {
+        for (const s of scripts.slice(0, 40)) {
           try { const u = new URL(s, `https://${d}/`); if (u.host !== d) continue; js += await (await fetch(u, { signal: AbortSignal.timeout(15000) })).text(); } catch { /* pula */ }
         }
         const tudo = html + js;
-        console.log(`      site ${i + 1}: HTTP ${r.status} · código desta empresa no site: ${sn(html.includes(e.id))} · só rastrear: ${sn(/data-chat=["']nao["']/.test(html))} · Pixel do site = Pixel do CRM: ${m.pixelId ? sn(tudo.includes(String(m.pixelId))) : '-'} · botão do site usa o número do CRM: ${numCrm ? sn(tudo.includes(numCrm.slice(-8))) : '-'} · nosso chat.js no site: ${sn(/\/chat\.js/.test(html) && /data-bot|crm/i.test(html))} · Pixel da Meta (fbq): ${sn(/fbq\(|connect\.facebook\.net/.test(tudo))} · links wa.me no HTML: ${(html.match(/wa\.me\/|api\.whatsapp\.com\/send/g) || []).length} · WhatsApp montado no JavaScript: ${sn(/wa\.me|api\.whatsapp\.com/.test(js))} · abre com window.open: ${sn(/window\.open\(/.test(js))} · abre com location.href: ${sn(/location\.href\s*=|location\.assign\(/.test(js))} · site React/SPA: ${sn(/id=["']root["']|__next|vite/i.test(html))}`);
+        console.log(`      site ${i + 1}: HTTP ${r.status} · código desta empresa no site: ${sn(html.includes(e.id))} · só rastrear: ${sn(/data-chat=["']nao["']/.test(html))} · Pixel do site = Pixel do CRM: ${m.pixelId ? sn(tudo.includes(String(m.pixelId))) : '-'} · botão do site usa o número do CRM: ${numCrm ? sn(tudo.includes(numCrm.slice(-8))) : '-'} (CRM termina em ${numCrm ? numCrm.slice(-4) : '-'}; números de WhatsApp no site terminam em: ${[...new Set([...tudo.matchAll(/wa\.me\/(\d{10,15})|phone=(\d{10,15})|WHATSAPP_NUMBER\s*=\s*["'](\d{10,15})/g)].map((x) => (x[1] || x[2] || x[3]).slice(-4)))].join(', ') || 'nenhum achado'}; arquivos lidos: ${scripts.length}) · nosso chat.js no site: ${sn(/\/chat\.js/.test(html) && /data-bot|crm/i.test(html))} · Pixel da Meta (fbq): ${sn(/fbq\(|connect\.facebook\.net/.test(tudo))} · links wa.me no HTML: ${(html.match(/wa\.me\/|api\.whatsapp\.com\/send/g) || []).length} · WhatsApp montado no JavaScript: ${sn(/wa\.me|api\.whatsapp\.com/.test(js))} · abre com window.open: ${sn(/window\.open\(/.test(js))} · abre com location.href: ${sn(/location\.href\s*=|location\.assign\(/.test(js))} · site React/SPA: ${sn(/id=["']root["']|__next|vite/i.test(html))}`);
       } catch (err) {
         console.log(`      site ${i + 1}: não consegui abrir (${String(err.message).slice(0, 60)})`);
       }
