@@ -135,6 +135,12 @@ function jaAgendou(empresa, lead) {
   return (lead.etiquetas || []).some((id) => /agendad/.test(nomes.get(id) || ''));
 }
 
+// teve agendamento que aconteceu (realizado/concluído) nos últimos 90 dias
+function jaFoiAtendido(lead) {
+  const corte = Date.now() - 90 * 86400000;
+  return (lead.agendamentos || []).some((a) => ['realizado', 'concluido'].includes(a.status) && new Date(a.quando || a.realizadoEm || a.criadoEm || 0).getTime() > corte);
+}
+
 // Etiqueta "Indeciso": entra quando o follow-up começa, sai quando ele agenda ou compra.
 // Só se existir no WhatsApp Business (o CRM não cria etiqueta própria).
 function etiquetaIndeciso(empresa) {
@@ -298,13 +304,17 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   if (!seq.ativa) return { motivo: 'sequência desligada' };
   // já comprou (venda no CRM, venda à mão, etiqueta de venda do WhatsApp ou etapa de venda):
   // não recebe follow-up nenhum, nem o de pós-venda (avaliação e comentário são automações)
-  const venda = !require('./ia-desligada').iaComCompradores(empresa) && require('./comprovantes').jaVendeu(empresa, lead);
+  // (vale mesmo com "IA atende quem já comprou" ligado: a IA conversa, o follow-up não insiste)
+  const venda = require('./comprovantes').jaVendeu(empresa, lead);
   if (venda) return { motivo: `já comprou (${venda.por})` };
   if (require('./entre-empresas').leadDeOutraEmpresa(empresa, lead)) return { motivo: 'é o número de outra empresa do CRM' };
   if (!seq.passos.length) return { motivo: 'sequência sem passos' };
   // agendou: a sequência é cancelada. Só com "IA atende quem agendou" ligado as sequências
   // feitas para quem agendou (ex.: lembrete) continuam
   if (jaAgendou(empresa, lead) && !(ehPosAgendamento(empresa, seq) && require('./ia-desligada').iaComAgendados(empresa))) return { motivo: 'já agendou' };
+  // já foi atendido (o horário passou e o agendamento ficou "realizado"/"concluído"), mesmo sem a
+  // venda lançada: não recebe "consigo te encaixar…" (só as sequências feitas para quem agendou)
+  if (!ehPosAgendamento(empresa, seq) && jaFoiAtendido(lead)) return { motivo: 'já foi atendido' };
   // colocado na fila à mão (painel → Follow-up): conta a partir de quando entrou na fila
   const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
   if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
@@ -503,7 +513,7 @@ function colocarNaFila(empresa, lead, seqId, { jaPrimeira = false, por = '' } = 
   if (!seq) throw erro('Escolha uma sequência.');
   if (!seq.ativa) throw erro(`A sequência "${seq.nome}" está desligada. Ligue ela primeiro.`);
   if (!seq.passos.length) throw erro('Essa sequência não tem mensagens.');
-  const venda = !require('./ia-desligada').iaComCompradores(empresa) && require('./comprovantes').jaVendeu(empresa, lead);
+  const venda = require('./comprovantes').jaVendeu(empresa, lead);
   if (venda) throw erro(`Este cliente já comprou (${venda.por}): follow-up não vai para quem comprou.`);
   if (jaAgendou(empresa, lead) && !(ehPosAgendamento(empresa, seq) && require('./ia-desligada').iaComAgendados(empresa))) throw erro('Este cliente já agendou: o follow-up não vai para quem agendou.');
   const geral = motivoGeral(empresa, lead, { ...f, ativo: true, paraManual: true });
