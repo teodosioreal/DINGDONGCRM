@@ -88,13 +88,13 @@ function abrirModal(html, aoMontar) {
 }
 
 // Confirmação bonita (no lugar do confirm() do navegador)
-function confirmar({ titulo, texto, botao = 'Confirmar', perigo = false }) {
+function confirmar({ titulo, texto, botao = 'Confirmar', perigo = false, voltar = 'Cancelar' }) {
   return new Promise((resolve) => {
     let respondeu = false;
     const fechar = abrirModal(`
       <h2>${esc(titulo)}</h2>
       <div class="texto-modal">${texto}</div>
-      <div class="acoes"><button type="button" class="${perigo ? 'perigo-cheio' : 'primario'}" id="sim">${esc(botao)}</button><button type="button" data-fechar>Cancelar</button></div>`, (m) => {
+      <div class="acoes"><button type="button" class="${perigo ? 'perigo-cheio' : 'primario'}" id="sim">${esc(botao)}</button><button type="button" data-fechar>${esc(voltar)}</button></div>`, (m) => {
       $('#sim', m).onclick = () => { respondeu = true; fechar(); resolve(true); };
       $('#sim', m).focus();
       new MutationObserver((_, obs) => { if (!m.isConnected) { obs.disconnect(); if (!respondeu) resolve(false); } }).observe(document.body, { childList: true });
@@ -1131,7 +1131,8 @@ async function paginaAgenda(id, params) {
       <footer class="ag-card-acoes">
         <button type="button" class="ag-btn-fotos" data-ag-fotos="${esc(x.id)}" ${nFotos ? '' : 'disabled title="O cliente não mandou fotos na conversa"'}>📷 ${nFotos ? `Ver fotos <em>${nFotos}</em>` : 'Sem fotos do cliente'}</button>
         <a class="botao pequeno" href="${rotaEmpresa(id, 'conversas')}?lead=${esc(x.leadId)}">💬 Conversa</a>
-        ${x.grupo === 'proximos' ? `<button type="button" class="pequeno perigo" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar agendamento" aria-label="Cancelar agendamento">✕</button>` : ''}
+        ${x.grupo === 'proximos' ? `<button type="button" class="pequeno" data-ag-cancelar="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Cancelar: o cliente ou você desmarcou (fica no histórico)">✕ Cancelar</button>` : ''}
+        <button type="button" class="pequeno perigo" data-ag-excluir="${esc(x.id)}" data-lead="${esc(x.leadId)}" title="Excluir: o agendamento está errado (some de tudo)">🗑️ Excluir</button>
       </footer>
     </article>`;
   };
@@ -1153,6 +1154,12 @@ async function paginaAgenda(id, params) {
       b.onclick = () => {
         const x = itens.find((y) => y.id === b.dataset.agFotos);
         if (x?.fotos?.length) galeriaFotos(x.fotos, x.nome || telefoneBonito(x.telefone) || 'Cliente');
+      };
+    });
+    $$('[data-ag-excluir]').forEach((b) => {
+      b.onclick = async () => {
+        if (!(await excluirAgendamento(b.dataset.lead, b.dataset.agExcluir))) return;
+        paginaAgenda(id, new URLSearchParams({ aba })).then(() => montarMenu(rotaEmpresa(id, 'agenda')));
       };
     });
     $$('[data-ag-cancelar]').forEach((b) => {
@@ -4760,7 +4767,7 @@ function htmlTicket(t) {
     <span class="ticket-icone" aria-hidden="true">${cancelado ? '🗓️' : '📅'}</span>
     <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
     ${!cancelado && t.trecho ? `<span class="ticket-trecho">“${esc(t.trecho)}”</span>` : ''}
-    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido || realizado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`}</small></div>
+    <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido || realizado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`} · <button type="button" class="link-botao" data-excluir-ag="${esc(t.id)}" title="O agendamento está errado: some de tudo">excluir</button></small></div>
   </div>`;
 }
 
@@ -4997,7 +5004,24 @@ async function modalAgendamento(leadId, depois) {
   });
 }
 
+// Excluir = o agendamento está errado: some de tudo (agenda, conversa, etiqueta, etapa, avisos).
+// Cancelar = o cliente ou você desmarcou: fica no histórico como cancelado.
+async function excluirAgendamento(leadId, agId) {
+  if (!(await confirmar({ titulo: 'Excluir este agendamento?', texto: 'Use quando o agendamento está ERRADO. Ele some de tudo: da agenda, da conversa, a etiqueta Agendado e a etapa voltam como antes, e os avisos dele saem do sininho. Se o número de aviso já tinha recebido, ele recebe que não vale. O cliente não recebe nada. (Se o cliente desmarcou, use Cancelar.)', botao: 'Excluir agendamento', perigo: true, voltar: 'Voltar' }))) return false;
+  try {
+    await api(`leads/${leadId}/agendamentos/${agId}/excluir`, { method: 'POST', body: {} });
+    aviso('Agendamento excluído.');
+    return true;
+  } catch (err) {
+    aviso(err.message, true);
+    return false;
+  }
+}
+
 function ligarCancelarAgendamento(raiz, leadId, depois) {
+  $$('[data-excluir-ag]', raiz).forEach((b) => {
+    b.onclick = async () => { if (await excluirAgendamento(leadId, b.dataset.excluirAg)) depois?.(); };
+  });
   $$('[data-cancelar-ag]', raiz).forEach((b) => {
     b.onclick = async () => {
       const desfazer = b.dataset.detectado === '1';

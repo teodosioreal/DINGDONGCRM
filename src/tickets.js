@@ -191,7 +191,7 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', se
 
 // Cancela (ou marca como remarcado). Sem outro agendamento ativo, o lead sai de
 // "Agendou" e volta para a etapa de antes; quem recebeu o aviso é avisado também.
-function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado = false, empresa = null } = {}) {
+function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado = false, empresa = null, avisarCancelado = true } = {}) {
   const ag = (lead.agendamentos || []).find((a) => a.id === id);
   if (!ag) return null;
   if (ag.status !== 'agendado') return ag;
@@ -211,9 +211,54 @@ function cancelarAgendamento(lead, id, { por = 'equipe', motivo = '', remarcado 
       if (volta === etapas[0] && etapas.indexOf(etapa) > 1) volta = etapas[etapas.indexOf(etapa) - 1];
       leads.moverEtapa(lead, emp, volta, por === 'ia' ? 'ia-whatsapp' : por === 'detectado' ? 'sistema' : 'equipe');
     }
-    require('./aviso-agendamento').agendamentoCancelado?.(emp, lead, ag);
+    if (avisarCancelado) require('./aviso-agendamento').agendamentoCancelado?.(emp, lead, ag);
     // cancelou e não sobrou agendamento: a etiqueta Agendado sai (aqui e no WhatsApp)
     if (!(lead.agendamentos || []).some((a) => a.status === 'agendado')) tirarEtiquetaAgendado(emp, lead);
+  }
+  lead.atualizadoEm = agora();
+  salvar();
+  return ag;
+}
+
+// EXCLUIR (agendamento errado — cancelar é quando o cliente ou você desmarca): some de tudo,
+// como se nunca tivesse existido. Sai da agenda e da conversa; a etapa e a etiqueta Agendado
+// voltam (sem outro agendamento ativo); a IA volta a atender se tinha desligado só por ele;
+// os avisos dele somem do sininho; quem já recebeu o aviso no WhatsApp recebe que não vale.
+// Fica anotado só o horário, para a detecção automática não marcar o mesmo de novo sozinha.
+function horarioExcluido(lead, quando) {
+  return Boolean(quando) && (lead.agendaExcluidos || []).some((x) => x.quando === quando);
+}
+
+function excluirAgendamento(empresa, lead, id) {
+  const lista = lead.agendamentos || [];
+  const ag = lista.find((a) => a.id === id);
+  if (!ag) return null;
+  const criadoMs = new Date(ag.criadoEm || 0).getTime();
+  if (ag.status === 'agendado') {
+    ag.motivoCancelamento = 'agendamento lançado errado — desconsidere';
+    cancelarAgendamento(lead, id, { por: 'equipe', motivo: ag.motivoCancelamento, empresa, avisarCancelado: false });
+    // o número de aviso (técnico/dono) já recebeu este agendamento: avisa que não vale
+    if (ag.avisoStatus === 'enviado') require('./aviso-agendamento').agendamentoCancelado?.(empresa, lead, ag);
+  }
+  lead.agendamentos = lista.filter((a) => a.id !== id);
+  if (ag.quando) lead.agendaExcluidos = [...(lead.agendaExcluidos || []).filter((x) => x.quando !== ag.quando), { quando: ag.quando, em: agora() }].slice(-20);
+  // a IA desligou por causa deste agendamento (e não sobrou outro motivo): volta a atender,
+  // e os retornos que ela tinha combinado (cancelados porque "o cliente agendou") voltam
+  if (lead.iaDesligadaPor === 'agenda' && new Date(lead.iaDesligadaEm || 0).getTime() >= criadoMs - 60000 && !require('./ia-desligada').motivo(empresa, lead)) {
+    lead.iaPausada = false;
+    delete lead.iaPausadaMotivo;
+    delete lead.iaDesligadaPor;
+    delete lead.iaDesligadaEm;
+    for (const a of lead.agendadas || []) {
+      if (a.status === 'cancelada' && a.motivo === 'o cliente agendou' && new Date(a.quando).getTime() > Date.now()) {
+        a.status = 'pendente';
+        delete a.motivo;
+      }
+    }
+  }
+  // avisos do sininho sobre este agendamento
+  if (Array.isArray(estado.alertas)) {
+    estado.alertas = estado.alertas.filter((a) => !(a.tipo === `agenda:${lead.id}` && new Date(a.ultimoEm || 0).getTime() >= criadoMs - 60000 && /agendamento|agendou|entrou em Agendamentos/i.test(a.mensagem || '')));
   }
   lead.atualizadoEm = agora();
   salvar();
@@ -335,6 +380,8 @@ function aplicarDaIa(empresa, lead, r) {
   } else if (r?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [r.agendamento.descricao])) {
     // última trava: a IA marcou sem o endereço do cliente → não registra (a conversa continua normal)
     require('./alertas').registrar(empresa, `agenda:${lead.id}`, `📍 A IA quis agendar ${lead.nome || 'um cliente'}, mas ele ainda não passou o endereço — não agendei.`, { nivel: 'info', leadId: lead.id });
+  } else if (r?.agendamento && iso && horarioExcluido(lead, iso)) {
+    // esse horário foi excluído por você (estava errado): a IA não marca de novo sozinha
   } else if (r?.agendamento && !(iso && new Date(iso).getTime() < Date.now() - 3600 * 1000)) {
     const antes = (lead.agendamentos || []).filter((a) => a.status === 'agendado');
     const novo = registrarAgendamento(empresa, lead, { ...r.agendamento, por: 'ia' });
@@ -347,4 +394,4 @@ function aplicarDaIa(empresa, lead, r) {
 
 module.exports = {
   colocarEtiquetaAgendado,
-  tirarEtiquetaAgendado, finalizarPassados, quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };
+  tirarEtiquetaAgendado, finalizarPassados, quandoNoTexto, agendamentoDaMensagem, valorDe, quandoDe, registrarVenda, registrarAgendamento, cancelarAgendamento, excluirAgendamento, horarioExcluido, ticketsDoLead, destaqueDoLead, paraIa, aplicarDaIa };

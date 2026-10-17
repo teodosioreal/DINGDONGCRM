@@ -2145,6 +2145,15 @@ router.delete('/leads/:id/agendamentos/:agId', (req, res) => {
   res.json({ ok: true });
 });
 
+// Excluir (agendamento errado): some de tudo — diferente de cancelar, que fica no histórico
+router.post('/leads/:id/agendamentos/:agId/excluir', (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  if (!tickets.excluirAgendamento(empresa, c, req.params.agId)) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  res.json({ ok: true });
+});
+
 // Equipe responde pelo painel (vai pelo WhatsApp; a IA para neste lead)
 router.post('/leads/:id/mensagem', async (req, res) => {
   const c = acharLead(req, res);

@@ -142,6 +142,8 @@ function aplicar(empresa, lead, d) {
     avisar(`📍 Combinaram ${fmt(d.quando)} com ${nome}, mas o cliente ainda não passou o endereço — não agendei. Peça o endereço (rua, número e bairro) ou marque à mão.`);
     return null;
   }
+  // você excluiu esse horário (agendamento errado): a detecção não marca de novo sozinha
+  if (tickets.horarioExcluido(lead, d.quando)) return null;
   const jaMarcado = ativos.find((a) => a.quando === d.quando);
   // esse mesmo horário já foi marcado antes e cancelado/realizado/trocado: não marca de novo sozinho
   if (!jaMarcado && d.fonte === 'codigo' && (lead.agendamentos || []).some((a) => a.quando === d.quando)) return null;
