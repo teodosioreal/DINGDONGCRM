@@ -68,6 +68,13 @@ for (const [n, e] of (db.empresas || []).entries()) {
   const recuperados = comFup.filter((l) => { const f = ms((l.mensagens || []).find((m) => m.followupPasso != null && ms(m.em) >= de28)?.em); return (l.agendamentos || []).some((a) => ms(a.criadoEm) > f) || vendas.some((v) => v.leadId === l.id && ms(v.criadoEm) > f); });
   const responderam = comFup.filter((l) => { const f = ms((l.mensagens || []).find((m) => m.followupPasso != null && ms(m.em) >= de28)?.em); return (l.mensagens || []).some((m) => m.papel === 'visitante' && ms(m.em) > f); });
   console.log(`    follow-up 28 dias: clientes que receberam ${comFup.length} · responderam depois ${responderam.length} · agendaram ou compraram depois ${recuperados.length}`);
+  // como está o follow-up e os horários livres (para o {horarios} das mensagens)
+  const fc = e.followup || {};
+  const seqs = (fc.sequencias || []).map((q) => `${q.ativa ? 'ligada' : 'desligada'} ${q.inicio?.tipo || '?'} ${(q.passos || []).map((p) => p.horas + 'h').join('→')}${(q.passos || []).some((p) => (p.textos || []).some((t) => /\{horarios\}/i.test(t))) ? ' (oferece horários)' : ''}`);
+  const hz = e.horariosIa || {};
+  const vagas7 = (hz.vagas || []).filter((v) => ms(v.quando) > agora && ms(v.quando) < agora + 7 * DIA).length;
+  console.log(`    follow-up: ${fc.ativo === false ? 'DESLIGADO' : 'ligado'} · sequências: ${seqs.join(' | ') || 'nenhuma'} · modelo de agendamento aplicado: ${(fc.sequencias || []).some((q) => q.modeloAgenda) ? 'sim' : 'não'}`);
+  console.log(`    horários livres cadastrados (Agendamentos): agenda da IA ${hz.ativo ? 'ligada' : 'desligada'} · horários nos próximos 7 dias: ${vagas7}${vagas7 ? '' : ' → o {horarios} vira "ainda essa semana"'}`);
   // agendamentos que o CRM não marcou por falta de endereço (avisos do sininho)
   const semEnd = (db.alertas || []).filter((a) => a.empresaId === e.id && /endereço/.test(a.mensagem || '') && /agend/i.test(a.mensagem || '') && ms(a.ultimoEm) >= de28);
   console.log(`    "combinaram horário mas falta endereço — não agendei" (28 dias): ${semEnd.length} cliente(s) · ${semEnd.reduce((s, a) => s + (a.vezes || 1), 0)} aviso(s)`);

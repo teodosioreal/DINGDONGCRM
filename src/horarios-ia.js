@@ -112,6 +112,31 @@ const formatarCodigo = (iso) => {
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 };
 
+// {horarios} nas mensagens prontas (follow-up, automações, disparos): os próximos horários livres
+// cadastrados em Agendamentos, para este cliente — ex.: "no sábado (18/10) às 9h ou 14h, ou na
+// segunda (20/10) às 10h". Sem horário livre nos próximos 7 dias: "ainda essa semana".
+const SEM_HORARIO = 'ainda essa semana';
+function textoHorarios(empresa, lead, max = 3) {
+  if (!empresa) return SEM_HORARIO;
+  const ate = Date.now() + 7 * 86400000;
+  const lista = livres(empresa, lead).filter((v) => new Date(v.quando).getTime() <= ate).slice(0, max);
+  if (!lista.length) return SEM_HORARIO;
+  const partes = (iso) => Object.fromEntries(new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  const dias = [];
+  for (const v of lista) {
+    const p = partes(v.quando);
+    const dia = String(p.weekday || '').replace(/-feira$/, '');
+    const hora = p.minute === '00' ? `${Number(p.hour)}h` : `${Number(p.hour)}h${p.minute}`;
+    const chave = `${dia} (${p.day}/${p.month})`;
+    const atual = dias.find((d) => d.chave === chave);
+    if (atual) atual.horas.push(hora);
+    else dias.push({ chave, artigo: /^(sábado|domingo)/.test(dia) ? 'no' : 'na', horas: [hora] });
+  }
+  const juntar = (l) => (l.length > 1 ? `${l.slice(0, -1).join(', ')} ou ${l[l.length - 1]}` : l[0]);
+  const porDia = dias.map((d) => `${d.artigo} ${d.chave} às ${juntar(d.horas)}`);
+  return porDia.length > 1 ? `${porDia.slice(0, -1).join(', ')}, ou ${porDia[porDia.length - 1]}` : porDia[0];
+}
+
 // Texto para o "Contexto desta conversa" da IA (vazio quando desligado)
 function paraIa(empresa, lead) {
   const c = configDa(empresa);
@@ -146,4 +171,4 @@ function validar(empresa, lead, r) {
   return null;
 }
 
-module.exports = { configDa, guardar, adicionar, remover, situacao, livres, conflito, localPermitido, paraIa, validar, formatar };
+module.exports = { textoHorarios, configDa, guardar, adicionar, remover, situacao, livres, conflito, localPermitido, paraIa, validar, formatar };

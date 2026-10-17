@@ -66,6 +66,44 @@ function sequenciaPadrao(passos = RECOMENDADO()) {
   return { id: 'seq_padrao', nome: 'Recomendado — quem parou de responder', ativa: true, ativadaEm: agora(), inicio: { tipo: 'sem_resposta' }, soEtiquetas: [], soEtapas: [], pararAoResponder: true, passos };
 }
 
+// Modelo que PUXA AGENDAMENTO: cada mensagem oferece os próximos horários livres ({horarios},
+// de Agendamentos) e pede para o cliente escolher. Depois de 3 h, +1 dia, +2 dias e +4 dias.
+// (a mesma lista do botão "📅 Usar modelo que puxa agendamento" do painel)
+const MODELO_AGENDAR = () => [
+  { id: novoId('fup'), horas: 3, midiaPrimeiro: false, midias: [], textos: [
+    '{Oi|Olá} {nome}! Consigo te encaixar {horarios}. Qual fica melhor pra você? 😊',
+    '{nome}, consigo te atender {horarios}. Quer que eu já deixe reservado pra você?'
+  ] },
+  { id: novoId('fup'), horas: 24, midiaPrimeiro: false, midias: [], textos: [
+    '{nome}, pra você não ficar sem horário: consigo {horarios}. Me diz o melhor dia que eu já marco ✅',
+    '{Oi|Olá} {nome}! Bora deixar agendado? Consigo {horarios}. É só responder com o dia 🙂'
+  ] },
+  { id: novoId('fup'), horas: 48, midiaPrimeiro: false, midias: [], textos: [
+    '{nome}, a agenda dos próximos dias está enchendo. Consigo te encaixar {horarios} — quer que eu segure um horário pra você?',
+    '{Oi|Olá} {nome}! Ainda dá pra garantir: consigo {horarios}. Te reservo um?'
+  ] },
+  { id: novoId('fup'), horas: 96, midiaPrimeiro: false, midias: [], textos: [
+    '{Oi|Olá} {nome}, vou parar de te chamar pra não incomodar 🙏 Quando quiser agendar é só mandar um oi aqui que eu te encaixo!',
+    '{nome}, fico à disposição! Quando for o momento, me chama aqui que eu vejo um horário pra você 😉'
+  ] }
+];
+
+// Coloca o modelo que puxa agendamento na sequência de "parou de responder" da empresa (a
+// recomendada, ou a 1ª desse tipo). Guarda antes uma cópia das sequências (dá para voltar) e
+// mantém as mídias que já estavam (vão na 2ª mensagem). Devolve a sequência mudada ou null.
+function aplicarModeloAgendar(empresa) {
+  const f = configDa(empresa);
+  const seq = f.sequencias.find((q) => q.id === 'seq_padrao') || f.sequencias.find((q) => q.inicio?.tipo === 'sem_resposta');
+  if (!seq) return null;
+  if (!f.sequenciasAntesDoModeloAgenda) f.sequenciasAntesDoModeloAgenda = { em: agora(), sequencias: JSON.parse(JSON.stringify(f.sequencias)) };
+  const midias = [...new Set((seq.passos || []).flatMap((p) => p.midias || []))].slice(0, 5);
+  seq.passos = MODELO_AGENDAR().map((p, i) => ({ ...p, midias: i === 1 ? midias : [] }));
+  seq.modeloAgenda = agora();
+  f.editadoEm = agora();
+  salvar();
+  return seq;
+}
+
 // mensagens de reserva que vinham prontas na versão com IA (não foram escritas pela empresa)
 const RESERVAS_ANTIGAS = [
   '{Oi|Olá} {nome}! Tudo bem? Passando para saber se ficou alguma dúvida. Posso te ajudar a agendar? 😊',
@@ -603,4 +641,4 @@ async function testar(empresa, { numero, passos, variacao = null, nome = '' } = 
 const PADRAO = RECOMENDADO;
 const RESERVAS = RECOMENDADO().map((p) => p.textos[0]);
 
-module.exports = { fila, buscar, colocarNaFila, testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };
+module.exports = { MODELO_AGENDAR, aplicarModeloAgendar, fila, buscar, colocarNaFila, testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };

@@ -201,6 +201,12 @@ const servidor = app.listen(config.port, config.host, () => {
   } catch (err) {
     console.error('[localizacao]', err.message);
   }
+  // configurações que o dono pediu para deixar prontas (cada uma roda uma vez só)
+  try {
+    require('./src/pedidos-config').aplicar();
+  } catch (err) {
+    console.error('[pedidos-config]', err.message);
+  }
   // vídeos que ficaram no meio da conversão (ou ainda não conferidos) voltam para a fila
   setTimeout(() => {
     try {

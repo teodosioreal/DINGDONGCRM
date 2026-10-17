@@ -5656,6 +5656,26 @@ function descreverGatilho(r) {
 
 // ---------------------------------------------------------------- follow-up automático (em passos)
 
+// Follow-up que puxa agendamento: cada mensagem oferece horário ({horarios}) em vez de "ficou alguma dúvida?"
+const MODELO_FUP_AGENDAR = () => [
+  { id: '', horas: 3, midiaPrimeiro: false, midias: [], textos: [
+    '{Oi|Olá} {nome}! Consigo te encaixar {horarios}. Qual fica melhor pra você? 😊',
+    '{nome}, consigo te atender {horarios}. Quer que eu já deixe reservado pra você?'
+  ] },
+  { id: '', horas: 24, midiaPrimeiro: false, midias: [], textos: [
+    '{nome}, pra você não ficar sem horário: consigo {horarios}. Me diz o melhor dia que eu já marco ✅',
+    '{Oi|Olá} {nome}! Bora deixar agendado? Consigo {horarios}. É só responder com o dia 🙂'
+  ] },
+  { id: '', horas: 48, midiaPrimeiro: false, midias: [], textos: [
+    '{nome}, a agenda dos próximos dias está enchendo. Consigo te encaixar {horarios} — quer que eu segure um horário pra você?',
+    '{Oi|Olá} {nome}! Ainda dá pra garantir: consigo {horarios}. Te reservo um?'
+  ] },
+  { id: '', horas: 96, midiaPrimeiro: false, midias: [], textos: [
+    '{Oi|Olá} {nome}, vou parar de te chamar pra não incomodar 🙏 Quando quiser agendar é só mandar um oi aqui que eu te encaixo!',
+    '{nome}, fico à disposição! Quando for o momento, me chama aqui que eu vejo um horário pra você 😉'
+  ] }
+];
+
 // Seção 🔁 Follow-up: mensagens prontas, SEM IA — lista simples + editor com prévia do WhatsApp
 async function secaoFollowup(id, emp, el, editar = null) {
   if (!el?.isConnected) return;
@@ -5732,7 +5752,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
   // ------------------------------------------------ prévia do WhatsApp
   const variacaoPrevia = {}; // passo → qual variação mostrar
   function textoPrevia(t, nome) {
-    return esc(String(t || '').replace(/\{([^{}]*\|[^{}]*)\}/g, (_, o) => o.split('|')[0]).replace(/\{(primeiro_)?nome\}/gi, nome || 'João').replace(/\{nome_completo\}/gi, nome || 'João').replace(/\{empresa\}/gi, emp.nome || ''))
+    return esc(String(t || '').replace(/\{([^{}]*\|[^{}]*)\}/g, (_, o) => o.split('|')[0]).replace(/\{(primeiro_)?nome\}/gi, nome || 'João').replace(/\{nome_completo\}/gi, nome || 'João').replace(/\{empresa\}/gi, emp.nome || '').replace(/\{horarios\}/gi, 'no sábado às 9h ou 14h, ou na segunda às 10h'))
       .replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/_([^_\n]+)_/g, '<i>$1</i>').replace(/\n/g, '<br>');
   }
   function htmlPrevia(q, nome) {
@@ -5902,8 +5922,9 @@ async function secaoFollowup(id, emp, el, editar = null) {
               <label class="linha-check" style="margin-top:6px"><input type="checkbox" id="q-parar" ${q.pararAoResponder !== false ? 'checked' : ''}> Parar se o cliente responder</label>
             </details>
             <h3 style="margin:14px 0 6px">Mensagens</h3>
+            <p class="rotulo" style="margin:-2px 0 8px"><code>{nome}</code> = nome do cliente · <code>{horarios}</code> = os próximos horários livres que você cadastrou em <a href="${rotaEmpresa(id, 'agenda')}">Agendamentos</a> (ex.: "no sábado às 9h ou 14h"; sem nenhum cadastrado vira "ainda essa semana") · <code>{Oi|Olá}</code> sorteia uma.</p>
             <div id="q-passos"></div>
-            <div class="acoes" style="margin-top:4px"><button type="button" id="q-add">+ Mensagem</button>${nova ? '' : '<button type="button" class="perigo" id="q-apagar">Apagar sequência</button>'}</div>
+            <div class="acoes" style="margin-top:4px"><button type="button" id="q-add">+ Mensagem</button><button type="button" id="q-modelo-agenda" title="Troca as mensagens desta sequência por 4 mensagens que oferecem horário">📅 Usar modelo que puxa agendamento</button>${nova ? '' : '<button type="button" class="perigo" id="q-apagar">Apagar sequência</button>'}</div>
           </div>
           <div class="fup-editor-dir">
             <div class="wa-celular-fup">
@@ -5973,6 +5994,14 @@ async function secaoFollowup(id, emp, el, editar = null) {
     $$('[data-so-etq]', el).forEach((x) => { x.onchange = () => { q.soEtiquetas = x.checked ? [...q.soEtiquetas, x.value] : q.soEtiquetas.filter((v) => v !== x.value); }; });
     $$('[data-so-etapa]', el).forEach((x) => { x.onchange = () => { q.soEtapas = x.checked ? [...q.soEtapas, x.value] : q.soEtapas.filter((v) => v !== x.value); }; });
     $('#pv-nome').oninput = (e) => { nomeEx = e.target.value || 'João'; $('#pv-nome-topo').textContent = nomeEx; atualizarPrevia(); };
+    // modelo pronto: cada mensagem oferece horários de verdade ({horarios}) e pede para escolher
+    $('#q-modelo-agenda').onclick = async () => {
+      if (q.passos.some((p) => p.textos.some((t) => t.trim()) || p.midias.length) && !(await confirmar({ titulo: 'Usar o modelo que puxa agendamento?', texto: 'As mensagens desta sequência são trocadas por 4 mensagens que oferecem os próximos horários livres ({horarios}) e pedem para o cliente escolher: depois de 3 horas, 1 dia, 3 dias e 7 dias. As mídias que você escolheu continuam na 2ª mensagem. Você pode editar tudo antes de salvar.', botao: 'Usar o modelo' }))) return;
+      const midiasAntes = [...new Set(q.passos.flatMap((p) => p.midias))].slice(0, 5);
+      q.passos = MODELO_FUP_AGENDAR().map((p, i) => ({ ...p, midias: i === 1 ? midiasAntes : [] }));
+      desenharPassos();
+      aviso('Modelo colocado. Confira a prévia e clique em Salvar.');
+    };
     $('#q-add').onclick = () => { const ult = q.passos[q.passos.length - 1]; q.passos.push({ id: '', horas: ult ? ult.horas : 24, textos: [''], midias: [], midiaPrimeiro: false }); desenharPassos(); };
     $('#fup-voltar').onclick = () => telaLista();
     $('#fup-testar-tudo').onclick = () => { const ps = q.passos.map(limpo).filter((p) => p.textos.length || p.midias.length); if (!ps.length) return aviso('Nada para testar ainda.', true); modalTeste(ps, `Testar "${q.nome}" (${ps.length} mensagens)`); };

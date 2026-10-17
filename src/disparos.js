@@ -90,6 +90,11 @@ function montarMensagem(modelo, lead, empresa) {
     return lista[Math.floor(Math.random() * lista.length)];
   });
   t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa|link_avaliacao|link_anuncio)\}/gi, (_, v) => valores[v.toLowerCase()]);
+  // {horarios}: os próximos horários livres de Agendamentos (sem nenhum: "ainda essa semana")
+  if (/\{horarios\}/i.test(t)) {
+    const h = require('./horarios-ia').textoHorarios(empresa, lead?.id ? lead : null);
+    t = t.replace(/\{horarios\}/gi, h);
+  }
   // "Oi , tudo bem?" quando não sabemos o nome
   return t.replace(/ +([,!?.])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
