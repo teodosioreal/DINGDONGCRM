@@ -1777,3 +1777,11 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
   .pagina-audios .audio-card .acoes button, .pagina-audios .audio-card .acoes-fala button { min-height: 42px; }
   .pagina-audios .audio-card .midia-audio { height: 44px; }
 }
+
+/* 🔎 busca do painel: resultados e destaque da seção encontrada */
+.busca-resultados { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 60vh; overflow-y: auto; }
+.busca-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%; border: 0; background: transparent; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--texto); font-size: 13px; }
+.busca-item small { color: var(--suave); font-size: 11px; }
+.busca-item:hover, .busca-item.ativo { background: var(--hover); }
+.destaque-busca { outline: 3px solid var(--primario); outline-offset: 3px; transition: outline-color .4s; scroll-margin-top: 16px; }
+@media (max-width: 768px) { .busca-item { padding: 11px 10px; font-size: 15px; } .busca-menu input { font-size: 16px; } }

@@ -297,7 +297,8 @@ function montarMenu(ativo) {
         ['chave', 'chave', 'IAs e chaves', 'chave api claude gemini gpt openai tokens reserva']
       ]]
     ];
-    html += '<div class="busca-menu"><input type="search" id="busca-menu" placeholder="🔎 Buscar (ex.: clone, pix, etiqueta)" aria-label="Buscar no painel" autocomplete="off"></div>';
+    html += '<div class="busca-menu"><input type="search" id="busca-menu" placeholder="🔎 Buscar configuração (ex.: follow-up, horário, pixel)" aria-label="Buscar no painel" autocomplete="off" enterkeyhint="search"><div id="busca-resultados" class="busca-resultados" role="listbox" hidden></div></div>';
+    paginasBusca = grupos.flatMap(([, itens]) => itens.map(([k, , rotulo, palavras]) => ({ k, rotulo, palavras })));
     for (const [titulo, itens] of grupos) {
       html += `<div class="grupo-menu"><p class="titulo-grupo">${titulo}</p>`;
       for (const [k, icone, rotulo, palavras] of itens) {
@@ -313,21 +314,42 @@ function montarMenu(ativo) {
     html += item('#/configuracoes', 'config', 'Configurações do sistema');
   }
   $('#menu').innerHTML = html;
-  // busca no menu: filtra pelo nome e por palavras (ex.: "clone", "pix", "qr code"); Enter abre a primeira
+  // busca: acha a página E a configuração (sem acento, palavras parecidas, erro de digitação);
+  // ↑ ↓ escolhem, Enter abre e rola até a seção
   const busca = $('#busca-menu');
+  const caixa = $('#busca-resultados');
+  let achados = [];
+  let sel = 0;
+  const abrir = (it) => {
+    busca.value = '';
+    caixa.hidden = true;
+    $$('#menu .grupo-menu').forEach((g) => { g.hidden = false; });
+    fecharMenu();
+    irParaBusca(empresaAtual.id, it);
+  };
+  const desenharAchados = () => {
+    caixa.innerHTML = achados.length
+      ? achados.map((it, i) => `<button type="button" role="option" class="busca-item ${i === sel ? 'ativo' : ''}" data-i="${i}"><b>${esc(it.titulo)}</b><small>${it.onde === 'Página' ? 'abre a página' : `em ${esc(it.onde)}`}</small></button>`).join('')
+      : '<p class="rotulo" style="margin:6px 8px">Nada encontrado. Tente outra palavra (ex.: "horário", "pix", "QR code").</p>';
+    $$('.busca-item', caixa).forEach((b) => { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => abrir(achados[Number(b.dataset.i)]); });
+  };
   busca?.addEventListener('input', () => {
-    const q = sem(busca.value).trim();
-    $$('#menu .grupo-menu').forEach((g) => {
-      let algum = false;
-      $$('a[data-busca]', g).forEach((a) => { const ok = !q || q.split(/\s+/).every((p) => a.dataset.busca.includes(p)); a.hidden = !ok; if (ok) algum = true; });
-      g.hidden = !algum;
-    });
+    const q = busca.value.trim();
+    $$('#menu .grupo-menu').forEach((g) => { g.hidden = Boolean(q); });
+    if (!q) { caixa.hidden = true; return; }
+    achados = buscarNoPainel(q, paginasBusca);
+    sel = 0;
+    caixa.hidden = false;
+    desenharAchados();
   });
   busca?.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { busca.value = ''; busca.dispatchEvent(new Event('input')); }
-    if (e.key !== 'Enter') return;
-    const a = $$('#menu a[data-busca]').find((x) => !x.hidden);
-    if (a) { location.hash = a.getAttribute('href'); busca.value = ''; fecharMenu(); }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && achados.length) {
+      e.preventDefault();
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : achados.length - 1)) % achados.length;
+      desenharAchados();
+    }
+    if (e.key === 'Enter' && achados[sel] && busca.value.trim()) { e.preventDefault(); abrir(achados[sel]); }
   });
   $$('.lateral a').forEach((a) => {
     if (a.classList.contains('item-menu') && a.closest('.rodape-menu')) a.classList.toggle('ativo', a.getAttribute('href') === ativo);
@@ -335,6 +357,156 @@ function montarMenu(ativo) {
   });
 }
 
+// ---------------------------------------------------------------- busca do painel
+// Cada configuração do painel: [título, página da empresa, texto do título da seção para rolar
+// até ela (| = alternativas), palavras que as pessoas usam, aba ([chave do sessionStorage, valor])]
+const INDICE_BUSCA = [
+  ['Follow-up automático (ligar / desligar)', 'followup', 'Follow-up automático', 'retomar cliente sumiu parou de responder mensagem pronta sequencia recuperar insistir cobrar ligar desligar'],
+  ['Mensagens do follow-up (editar)', 'followup', 'Follow-up automático', 'editar texto mensagem follow variação sequencia passos horas dias'],
+  ['Follow-up que puxa agendamento (modelo pronto)', 'followup', 'Follow-up automático', 'modelo agendar agendamento oferecer horario horarios puxar marcar'],
+  ['Clientes na fila do follow-up', 'followup', 'Clientes na fila', 'fila quem vai receber colocar na fila'],
+  ['Horários livres para agendar ({horarios})', 'agenda', 'Horários que a IA pode agendar', 'horarios livres vagas disponibilidade agenda da ia dias horario cadastrar horario'],
+  ['Agendamento automático (só com endereço)', 'agenda', 'Agendamento automático', 'endereco agendar sozinho detectar automatico perceber'],
+  ['Valor do agendamento e previsão de faturamento', 'agenda', 'Valor do agendamento|Previsão de faturamento', 'valor previsao faturamento quanto vai entrar'],
+  ['Cancelar ou excluir agendamento', 'agenda', '', 'excluir apagar cancelar desmarcar agendamento errado remover'],
+  ['Conectar o WhatsApp (QR code)', 'whatsapp', 'WhatsApp conectado|Conecte o WhatsApp|Falta conectar', 'conectar qr code numero celular desconectado reconectar parear'],
+  ['A IA não está respondendo? (diagnóstico)', 'whatsapp', 'A IA não está respondendo', 'nao responde parou travou erro diagnostico problema'],
+  ['Buscar mensagens do celular (sincronizar)', 'whatsapp', 'Mensagens do WhatsApp no painel', 'sincronizar historico importar mensagens antigas buscar puxar celular'],
+  ['Velocidade das respostas da IA', 'whatsapp', 'Velocidade das respostas', 'rapido devagar humano tempo resposta demora digitando'],
+  ['Primeira mensagem de cliente novo (espera)', 'whatsapp', 'Primeira mensagem de um cliente novo', 'esperar minutos primeira resposta cliente novo demora'],
+  ['Pausas entre as partes da resposta', 'whatsapp', 'Pausas entre as partes', 'pausa partes mensagens separadas quebrar'],
+  ['Avisos de erro no seu WhatsApp', 'whatsapp', 'Avisos de erro no seu WhatsApp', 'alerta numero avisos notificacao erro me avisar'],
+  ['Fotos dos clientes', 'whatsapp', 'Fotos dos clientes', 'foto perfil avatar'],
+  ['IA para depois da minha mensagem manual', 'whatsapp', 'IA para de responder depois', 'pausar ia quando eu responder manual equipe assumir parar'],
+  ['Não atropelar o cliente', 'whatsapp', 'Não atropelar', 'esperar cliente terminar digitar varias mensagens juntas'],
+  ['Modo econômico (gastar menos tokens)', 'whatsapp', 'Modo econômico', 'economizar tokens gastar menos barato economia'],
+  ['IA atende quem já comprou / quem agendou', 'whatsapp', 'Quem já comprou e quem agendou', 'compradores agendados ia desligada comprou agendou cliente antigo'],
+  ['Modo teste', 'whatsapp', 'Modo teste', 'testar teste sem enviar numero de teste simular'],
+  ['Instruções da IA do WhatsApp (prompt)', 'whatsapp', 'Como a IA do WhatsApp atende', 'prompt instrucoes roteiro script como responder treinar comportamento regras'],
+  ['Aviso de agendamento (técnico / dono)', 'whatsapp', 'Aviso de agendamento', 'avisar tecnico numero agendamento novo mensagem para mim notificar'],
+  ['Etiquetas do WhatsApp Business', 'whatsapp', 'Etiquetas do WhatsApp Business', 'etiqueta label celular sincronizar etiquetas'],
+  ['Lista negra (bloquear número)', 'whatsapp', 'Lista negra', 'bloquear numero ignorar contato nao responder bloqueio'],
+  ['Horário da IA responder', 'whatsapp', 'Horário da IA responder', 'horario atendimento comercial noite fim de semana madrugada'],
+  ['Avisos internos para a IA', 'whatsapp', 'Avisos internos para a IA', 'eventos lembrete interno aviso ia'],
+  ['Log das respostas da IA', 'whatsapp', 'Log das respostas da IA', 'historico erros o que a ia respondeu log registro'],
+  ['Enviar fotos, vídeos e arquivos', 'midias', 'Suas fotos, vídeos e arquivos', 'upload adicionar foto video pdf arquivo subir imagem enviar midia'],
+  ['Gravar áudio pelo CRM', 'midias', 'Novo áudio', 'audio gravar voz microfone regravar ouvir', ['midias_aba', 'audios']],
+  ['Trocar o arquivo de uma mídia', 'midias', 'Suas fotos, vídeos e arquivos', 'trocar substituir arquivo foto video mesma midia mesmo codigo'],
+  ['Ativar ou desligar mídia ("a configurar")', 'midias', 'Suas fotos, vídeos e arquivos', 'desativar ativar pronta a configurar desligar midia nao enviar', ['midias_aba', 'configurar']],
+  ['Álbuns de fotos', 'midias', 'Suas fotos, vídeos e arquivos', 'album varias fotos juntas', ['midias_aba', 'albuns']],
+  ['Mídias só do follow-up', 'midias', 'Suas fotos, vídeos e arquivos', 'so follow-up midia follow', ['midias_aba', 'followup']],
+  ['Revezar mídias e teste A/B de áudio', 'midias', 'Suas fotos, vídeos e arquivos', 'revezar alternar ab teste audio texto revezamento'],
+  ['Mídias citadas no prompt da IA', 'midias', 'Mídias no prompt da IA', 'codigo midia prompt #midia conectar'],
+  ['Respostas rápidas (/atalho)', 'midias', 'Respostas rápidas', 'atalho /preco resposta pronta barra rapida'],
+  ['Links (site, Instagram, catálogo)', 'midias', 'Links', 'link site instagram catalogo url endereco'],
+  ['Serviços e preços (catálogo)', 'catalogo', 'Cadastre o que você vende', 'preco valor tabela produto servico catalogo quanto custa'],
+  ['Sobre a empresa (o que a IA sabe)', 'ia', '', 'informacoes empresa endereco conhecimento treinar nome atendente horario de funcionamento'],
+  ['Clone (responder igual a mim)', 'aprendizado', 'Clone', 'clone aprender responder igual a mim copiar meu jeito'],
+  ['O que a IA aprendeu', 'aprendizado', 'O que a IA aprendeu', 'aprendizado aprendeu correcoes'],
+  ['Site da empresa (a IA lê o site)', 'aprendizado', 'Seu site', 'site ler pagina conteudo'],
+  ['Anúncios e campanhas (de onde vem o cliente)', 'aprendizado', 'Anúncios e campanhas', 'anuncio campanha utm palavras reconhecer origem'],
+  ['Código do chat no site', 'site', 'Coloque o chat no seu site', 'instalar script widget codigo site colar'],
+  ['Aparência do chat do site', 'site', 'Aparência', 'cor botao posicao visual'],
+  ['Passagem do site para o WhatsApp', 'site', 'Passagem para o WhatsApp', 'botao whatsapp site levar mensagem pronta'],
+  ['Domínios liberados do chat (segurança)', 'site', 'Segurança', 'dominio permitido seguranca'],
+  ['Meta Ads: Pixel e token', 'meta-ads', '', 'pixel token api conversoes facebook instagram configurar meta', ['meta_aba', 'config']],
+  ['Meta Ads: código do site (rastrear anúncio)', 'meta-ads', 'Código do site', 'codigo site fbclid rastrear script meta', ['meta_aba', 'config']],
+  ['Meta Ads: vendas enviadas', 'meta-ads', 'Vendas para a Meta', 'vendas enviadas meta conversao compra', ['meta_aba', 'vendas']],
+  ['Meta Ads: do anúncio ao WhatsApp', 'meta-ads', '', 'fbclid clique anuncio caminho funil perdidos', ['meta_aba', 'caminho']],
+  ['Máquina de vendas (receitas prontas)', 'automacoes', 'Receitas prontas', 'automacao receita pos venda reativar avaliacao lembrete'],
+  ['Link de avaliação do Google', 'automacoes', 'Link de avaliação do Google', 'google avaliacao review estrelas comentario'],
+  ['Link do anúncio (Instagram/Facebook)', 'automacoes', 'Link do anúncio', 'link anuncio instagram facebook'],
+  ['Disparo em massa', 'disparos', '', 'campanha enviar para todos lista promocao broadcast massa'],
+  ['Vendas e comprovantes (Pix)', 'faturamento', 'Vendas', 'venda pix comprovante faturamento recibo'],
+  ['Gastos e lucro', 'faturamento', 'Gastos por categoria|Faturamento e gastos', 'gasto despesa custo lucro categoria'],
+  ['Etiquetas', 'organizar', 'Etiquetas do WhatsApp', 'etiqueta tag marcar cliente'],
+  ['Etapas do funil', 'organizar', 'Etapas do funil', 'etapa funil kanban coluna'],
+  ['Chave do Gemini (IA)', 'chave', 'Gemini', 'api key chave google gemini ia sem credito'],
+  ['Chaves reserva', 'chave', 'Chaves reserva', 'reserva backup outra chave limite'],
+  ['Gasto de tokens', 'chave', 'Gasto de hoje|Para onde foram os tokens', 'token custo gasto consumo quanto gastei'],
+  ['Adicionar leads', 'leads', '', 'importar contatos adicionar lead novo cliente'],
+  ['Conversas', 'conversas', '', 'chat responder cliente mensagem whatsapp'],
+  ['Trocar senha', '#/conta', 'Trocar senha', 'senha conta login']
+];
+const PALAVRAS_VAZIAS = new Set(['de', 'do', 'da', 'dos', 'das', 'o', 'a', 'os', 'as', 'e', 'para', 'pra', 'pro', 'como', 'que', 'no', 'na', 'nos', 'um', 'uma', 'meu', 'minha', 'onde', 'fica', 'quero', 'ver', 'em', 'com', 'se', 'eu', 'por']);
+const raizBusca = (w) => (w.length > 4 ? w.replace(/(oes|aes|ais|eis|res|es|s)$/, '') : w);
+function palavrasBusca(t) {
+  const base = sem(t);
+  // "follow-up" vale como "follow up" e como "followup" (e "QR code" como "qrcode")
+  const juntas = [...base.matchAll(/([a-z0-9]+)[-\s]([a-z0-9]+)/g)].map((m) => m[1] + m[2]).filter((w) => w.length >= 6);
+  return [...base.replace(/[^a-z0-9#/{} ]+/g, ' ').split(/\s+/), ...juntas].filter((w) => w.length > 1 && !PALAVRAS_VAZIAS.has(w)).map(raizBusca);
+}
+// distância de edição pequena (erros de digitação: "folowup", "agendameto")
+function quasiIgual(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const lim = a.length >= 7 ? 2 : 1;
+  let ant = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(ant[j] + 1, cur[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > lim) return false;
+    ant = cur;
+  }
+  return ant[b.length] <= lim;
+}
+function pontoPalavra(q, lista) {
+  let melhor = 0;
+  for (const w of lista) {
+    if (w === q) return 3;
+    if (q.length >= 3 && (w.startsWith(q) || (q.startsWith(w) && w.length >= 4))) melhor = Math.max(melhor, 2);
+    else if (q.length >= 4 && w.includes(q)) melhor = Math.max(melhor, 1.5);
+    else if (q.length >= 4 && w.length >= 4 && quasiIgual(q, w)) melhor = Math.max(melhor, 1.2);
+  }
+  return melhor;
+}
+// [{ titulo, onde, href, alvo, aba, pontos }] do mais certo ao menos certo
+function buscarNoPainel(texto, paginas) {
+  const q = palavrasBusca(texto);
+  if (!q.length) return [];
+  const itens = [
+    ...paginas.map((p) => ({ titulo: p.rotulo, onde: 'Página', pagina: p.k, palavras: p.palavras, alvo: '' })),
+    ...INDICE_BUSCA.map(([titulo, pagina, alvo, palavras, aba]) => ({ titulo, onde: (paginas.find((p) => p.k === pagina) || {}).rotulo || 'Minha conta', pagina, palavras, alvo, aba }))
+  ];
+  const r = [];
+  for (const it of itens) {
+    const doTitulo = palavrasBusca(it.titulo);
+    const resto = palavrasBusca(`${it.palavras} ${it.onde}`);
+    let pontos = 0;
+    let achou = 0;
+    for (const w of q) {
+      const p = Math.max(pontoPalavra(w, doTitulo) * 1.5, pontoPalavra(w, resto));
+      if (p) achou++;
+      pontos += p;
+    }
+    if (!achou || achou < Math.ceil(q.length / 2)) continue;
+    if (achou === q.length) pontos += 2;
+    if (it.onde === 'Página') pontos += 0.5;
+    r.push({ ...it, pontos });
+  }
+  return r.sort((a, b) => b.pontos - a.pontos).slice(0, 8);
+}
+// abre a página e rola até a seção (destacada); abre <details> fechado no caminho
+async function irParaBusca(empresaId, it) {
+  if (it.aba) { try { sessionStorage.setItem(`${it.aba[0]}_${empresaId}`, it.aba[1]); } catch { /* ok */ } }
+  const destino = it.pagina.startsWith('#') ? it.pagina : rotaEmpresa(empresaId, it.pagina || undefined);
+  if (location.hash === destino) await rotear();
+  else location.hash = destino;
+  if (!it.alvo) return;
+  const alvos = it.alvo.split('|').map(sem);
+  for (let i = 0; i < 40; i++) {
+    await new Promise((ok) => setTimeout(ok, 200));
+    const el = [...document.querySelectorAll('#conteudo h1, #conteudo h2, #conteudo h3, #conteudo summary, #conteudo legend')].find((x) => x.offsetParent !== null && alvos.some((a) => sem(x.textContent).includes(a)));
+    if (!el) continue;
+    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
+    const bloco = el.closest('.card') || el;
+    bloco.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    bloco.classList.add('destaque-busca');
+    setTimeout(() => bloco.classList.remove('destaque-busca'), 2600);
+    return;
+  }
+}
+
+let paginasBusca = [];
 async function definirEmpresaAtual(id) {
   if (!id) {
     empresaAtual = ehAdmin() ? null : empresaAtual;
