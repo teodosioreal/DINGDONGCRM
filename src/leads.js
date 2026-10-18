@@ -274,9 +274,9 @@ function aoConversar(lead, empresa) {
 }
 
 // ---------------------------------------------------------------- etiquetas
-// As etiquetas são SÓ as do WhatsApp Business: o CRM não cria etiqueta própria.
-// Criou/renomeou/apagou no celular → aparece/muda/some aqui (etiquetas-zap.js).
-// O lead guarda só os ids; a equipe e as IAs podem marcar (e o CRM marca no celular).
+// Etiquetas do próprio CRM (criar, renomear e apagar em Etiquetas e etapas).
+// Não têm nada a ver com as etiquetas do WhatsApp Business do celular.
+// O lead guarda só os ids; a equipe e as IAs podem marcar.
 
 const CORES_ETIQUETA = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
@@ -284,30 +284,6 @@ function etiquetasDa(empresa) {
   if (!empresa) return [];
   if (!Array.isArray(empresa.etiquetas)) empresa.etiquetas = [];
   return empresa.etiquetas;
-}
-
-// Tira as etiquetas que não vieram do WhatsApp (as antigas "Quente", "Morno",
-// "Frio", "Cliente", "Indeciso" e as criadas no painel) e desmarca dos leads.
-function soEtiquetasDoZap() {
-  let tiradas = 0;
-  for (const empresa of estado.empresas) {
-    const lista = etiquetasDa(empresa);
-    const locais = new Set(lista.filter((t) => !t.zapId).map((t) => t.id));
-    if (!locais.size) continue;
-    empresa.etiquetas = lista.filter((t) => !locais.has(t.id));
-    for (const c of estado.conversas) {
-      if (c.empresaId !== empresa.id) continue;
-      if (c.etiquetas?.some((id) => locais.has(id))) c.etiquetas = c.etiquetas.filter((id) => !locais.has(id));
-      if (c.etiquetasZap?.some((id) => locais.has(id))) c.etiquetasZap = c.etiquetasZap.filter((id) => !locais.has(id));
-    }
-    for (const r of Array.isArray(empresa.automacoes) ? empresa.automacoes : []) if (r.filtro?.etiquetas?.length) r.filtro.etiquetas = r.filtro.etiquetas.filter((id) => !locais.has(id));
-    tiradas += locais.size;
-  }
-  if (tiradas) {
-    salvar();
-    console.log(`[etiquetas] ${tiradas} etiqueta(s) do CRM removida(s): agora só as do WhatsApp`);
-  }
-  return tiradas;
 }
 
 // O que a IA lê desta conversa: depois de "Reiniciar aprendizado da conversa", só as
@@ -409,7 +385,6 @@ module.exports = {
   CORES_ETIQUETA,
   etiquetasDa,
   historicoParaIa,
-  soEtiquetasDoZap,
   aplicarEtiqueta,
   etapasDa,
   acharEtapa,

@@ -303,12 +303,11 @@ function finalizarPassados(empresa) {
   if (n) salvar();
   return n;
 }
-// a etiqueta "Agendado" da empresa (a ligada ao WhatsApp, se tiver)
+// a etiqueta "Agendado" da empresa (criada no CRM)
 function etiquetaAgendado(empresa) {
-  const lista = leads.etiquetasDa(empresa).filter((t) => /^agendad/.test(semAcento(t.nome).trim()));
-  return lista.find((t) => t.zapId) || lista[0] || null;
+  return leads.etiquetasDa(empresa).find((t) => /^agendad/.test(semAcento(t.nome).trim())) || null;
 }
-// põe a etiqueta Agendado no cliente (o espelho manda para o WhatsApp em segundos); true se pôs
+// põe a etiqueta Agendado no cliente; true se pôs
 function colocarEtiquetaAgendado(empresa, lead) {
   const t = etiquetaAgendado(empresa);
   if (!t || (lead.etiquetas || []).includes(t.id)) return false;

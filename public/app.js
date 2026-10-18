@@ -386,7 +386,6 @@ const INDICE_BUSCA = [
   ['Modo teste', 'whatsapp', 'Modo teste', 'testar teste sem enviar numero de teste simular'],
   ['Instruções da IA do WhatsApp (prompt)', 'whatsapp', 'Como a IA do WhatsApp atende', 'prompt instrucoes roteiro script como responder treinar comportamento regras'],
   ['Aviso de agendamento (técnico / dono)', 'whatsapp', 'Aviso de agendamento', 'avisar tecnico numero agendamento novo mensagem para mim notificar'],
-  ['Etiquetas do WhatsApp Business', 'whatsapp', 'Etiquetas do WhatsApp Business', 'etiqueta label celular sincronizar etiquetas'],
   ['Lista negra (bloquear número)', 'whatsapp', 'Lista negra', 'bloquear numero ignorar contato nao responder bloqueio'],
   ['Horário da IA responder', 'whatsapp', 'Horário da IA responder', 'horario atendimento comercial noite fim de semana madrugada'],
   ['Avisos internos para a IA', 'whatsapp', 'Avisos internos para a IA', 'eventos lembrete interno aviso ia'],
@@ -421,7 +420,7 @@ const INDICE_BUSCA = [
   ['Disparo em massa', 'disparos', '', 'campanha enviar para todos lista promocao broadcast massa'],
   ['Vendas e comprovantes (Pix)', 'faturamento', 'Vendas', 'venda pix comprovante faturamento recibo'],
   ['Gastos e lucro', 'faturamento', 'Gastos por categoria|Faturamento e gastos', 'gasto despesa custo lucro categoria'],
-  ['Etiquetas', 'organizar', 'Etiquetas do WhatsApp', 'etiqueta tag marcar cliente'],
+  ['Etiquetas', 'organizar', 'Etiquetas do CRM', 'etiqueta etiquetas tag label marcar cliente criar etiqueta renomear cor'],
   ['Etapas do funil', 'organizar', 'Etapas do funil', 'etapa funil kanban coluna'],
   ['Chave do Gemini (IA)', 'chave', 'Gemini', 'api key chave google gemini ia sem credito'],
   ['Chaves reserva', 'chave', 'Chaves reserva', 'reserva backup outra chave limite'],
@@ -2019,7 +2018,7 @@ async function paginaWhatsapp(id) {
       <h2 style="margin:0 0 6px">📷 Fotos dos clientes</h2>
       <p class="rotulo" style="margin:0 0 10px">Quando o cliente manda uma foto, uma IA barata descreve numa linha (o que é, estado, se é foto real, print ou da internet) e a IA do WhatsApp responde com base nisso. Várias fotos seguidas: só a 1ª é descrita; a mesma foto de novo não gasta IA; foto encaminhada ou print de tela são avisados sem IA.</p>
       <div class="campo"><label>Nas fotos, repare também em (opcional) ${ajuda('O que importa no seu ramo. Ex.: oficina — "estado do volante, material, se tem comandos"; estética — "região e tipo de pele"; reforma — "tamanho do ambiente e material".')}</label><input name="fotosObservar" maxlength="300" value="${esc(w.fotosObservar || '')}" placeholder="Ex.: estado de conservação, material, marca e modelo"></div>
-      <div class="campo"><label>Etiqueta quando o cliente manda foto (opcional) ${ajuda('Marca o cliente no CRM e no WhatsApp na 1ª foto que ele mandar. Se a equipe tirar a etiqueta, ela não volta.')}</label><select name="etiquetaFoto"><option value="">— nenhuma —</option>${(emp.etiquetas || []).map((t) => `<option value="${esc(t.id)}" ${t.id === w.etiquetaFoto ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
+      <div class="campo"><label>Etiqueta quando o cliente manda foto (opcional) ${ajuda('Marca o cliente no CRM na 1ª foto que ele mandar. Se a equipe tirar a etiqueta, ela não volta.')}</label><select name="etiquetaFoto"><option value="">— nenhuma —</option>${(emp.etiquetas || []).map((t) => `<option value="${esc(t.id)}" ${t.id === w.etiquetaFoto ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
       <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
     </form>
     <div class="card" data-cfg="ia-manual" data-pronto="ok" data-resumo="${!w.iaAposManual ? 'Ligado: a IA para quando você responde' : 'Desligado: a IA continua atendendo'}">
@@ -2055,7 +2054,7 @@ async function paginaWhatsapp(id) {
     <div class="card" id="card-horario-ia"><p class="rotulo">Carregando horário da IA…</p></div>
     <div class="card" id="card-eventos-ia"><p class="rotulo">Carregando avisos internos…</p></div>
     <div class="card" id="card-log-ia-caixa" data-pronto="ok" data-abrir="Ver" data-titulo="Log das respostas da IA" data-resumo="o que a IA escreveu, as mídias e os erros de cada resposta"><div id="card-log-ia"><p class="rotulo">Carregando log das respostas…</p></div></div>
-    ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-etq-zap"><p class="rotulo">Carregando etiquetas…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
+    ${w.configurado ? '<div class="card" id="card-aviso-agenda"><p class="rotulo">Carregando aviso de agendamento…</p></div><div class="card" id="card-lista-negra"><p class="rotulo">Carregando lista negra…</p></div>' : ''}
     <div class="card modo-teste ${w.modoTeste ? 'ligado' : ''}" data-cfg="modo-teste" ${w.modoTeste ? '' : 'data-pronto="off" data-resumo="Desligado: a IA responde todos os clientes"'}>
       <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🧪 Modo teste</h2>${interruptor('modo-teste', w.modoTeste, w.modoTeste ? 'Ligado' : 'Desligado')}</div>
       ${balao('Teste a IA sem ela falar com seus clientes', 'Com o modo teste ligado, a IA do WhatsApp (e as automações) <b>só respondem os números abaixo</b>. As mensagens dos outros clientes continuam chegando no CRM, mas ninguém recebe resposta automática. Quando estiver tudo certo, é só desligar.')}
@@ -2264,7 +2263,7 @@ async function paginaWhatsapp(id) {
     } catch (err) { aviso(err.message, true); }
   };
   $('#zap-sincronizar')?.addEventListener('click', () => modalSincronizar(id, recarregar));
-  if (w.configurado) { cartaoAvisoAgendamento(id); cartaoEtiquetasZap(id); cartaoListaNegra(id); }
+  if (w.configurado) { cartaoAvisoAgendamento(id); cartaoListaNegra(id); }
   $('#ia-para-manual').onchange = (e) => trocarIaParaManual(id, e.target, recarregar);
   cartaoHorarioIa(id);
   cartaoEventosIa(id);
@@ -3370,18 +3369,19 @@ async function paginaMidias(id) {
 async function paginaOrganizar(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
-  let etiquetas = emp.etiquetas.slice();
+  let etiquetas = emp.etiquetas.map((t) => ({ ...t }));
   let etapas = emp.etapas.slice();
+  const CORES = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Etiquetas e etapas</h1><p class="sub">Como os seus leads ficam organizados</p></div></div>
     <div class="duas-colunas">
       <div class="card">
-        <h2>Etiquetas do WhatsApp</h2>
-        ${balao('Vêm do seu WhatsApp Business', 'As etiquetas são as mesmas do celular conectado: <b>crie, renomeie ou apague no WhatsApp Business</b> e elas mudam aqui sozinhas. Marcou um cliente no celular, aparece aqui; marcou aqui, aparece no celular. Você filtra os leads por elas e escolhe <b>para quem fazer disparos</b>.')}
-        <div id="lista-etiquetas" class="chips" style="margin-bottom:8px"></div>
-        <div class="acoes"><button type="button" id="atualizar-etiquetas">🔄 Atualizar do WhatsApp</button><a class="botao" href="${rotaEmpresa(id, 'whatsapp')}">Ver no WhatsApp</a></div>
+        <h2>Etiquetas</h2>
+        ${balao('Para que servem?', 'Marcam o cliente com uma característica: <i>Agendado</i>, <i>Orçamento enviado</i>, <i>Cliente VIP</i>… Você filtra os leads por elas e escolhe <b>para quem fazer disparos</b>. As IAs também podem colocar etiquetas sozinhas. São só do CRM: as etiquetas do WhatsApp do celular não mudam.')}
+        <div id="lista-etiquetas" class="lista-editavel"></div>
+        <div class="acoes"><button type="button" id="add-etiqueta">+ Nova etiqueta</button><button type="button" class="primario" id="salvar-etiquetas">Salvar etiquetas</button></div>
       </div>
       <div class="card">
         <h2>Etapas do funil</h2>
@@ -3392,8 +3392,15 @@ async function paginaOrganizar(id) {
     </div>`;
 
   function desenharEtiquetas() {
-    $('#lista-etiquetas').innerHTML = etiquetas.map((t) => `<span class="chip-etq" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</span>`).join('') ||
-      '<p class="rotulo" style="margin:0">Nenhuma etiqueta chegou do WhatsApp ainda. Crie etiquetas no WhatsApp Business do celular conectado e clique em <b>Atualizar do WhatsApp</b>.</p>';
+    $('#lista-etiquetas').innerHTML = etiquetas.map((t, i) => `
+      <div class="linha-editavel">
+        <input type="color" value="${esc(t.cor || '#64748b')}" data-cor="${i}" title="Cor">
+        <input value="${esc(t.nome)}" data-nome="${i}" placeholder="Nome da etiqueta" maxlength="40">
+        <button type="button" class="pequeno perigo" data-tirar="${i}" title="Apagar">✕</button>
+      </div>`).join('') || '<p class="rotulo">Nenhuma etiqueta. Clique em <b>+ Nova etiqueta</b>.</p>';
+    $$('[data-cor]').forEach((el) => { el.oninput = () => { etiquetas[el.dataset.cor].cor = el.value; }; });
+    $$('[data-nome]').forEach((el) => { el.oninput = () => { etiquetas[el.dataset.nome].nome = el.value; }; });
+    $$('[data-tirar]').forEach((el) => { el.onclick = () => { etiquetas.splice(Number(el.dataset.tirar), 1); desenharEtiquetas(); }; });
   }
   function desenharEtapas() {
     $('#lista-etapas').innerHTML = etapas.map((e, i) => `
@@ -3417,15 +3424,22 @@ async function paginaOrganizar(id) {
     desenharEtapas();
     $$('[data-etapa]').pop()?.focus();
   };
-  $('#atualizar-etiquetas').onclick = async (e) => {
-    e.target.disabled = true;
+  $('#add-etiqueta').onclick = () => {
+    etiquetas.push({ nome: '', cor: CORES[etiquetas.length % CORES.length] });
+    desenharEtiquetas();
+    $$('[data-nome]').pop()?.focus();
+  };
+  $('#salvar-etiquetas').onclick = async (e) => {
+    const ficam = etiquetas.filter((t) => t.nome.trim());
+    const apagadas = emp.etiquetas.filter((t) => !ficam.some((x) => x.id === t.id));
+    if (apagadas.length && !(await confirmar({ titulo: 'Apagar etiquetas?', texto: `<b>${apagadas.map((t) => esc(t.nome)).join(', ')}</b> some(m) do CRM e dos clientes marcados com ela(s).`, botao: 'Salvar', perigo: true }))) return;
     try {
-      const r = await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} });
-      etiquetas = (await api(`empresas/${id}`)).etiquetas.slice();
+      const r = await comEspera(e.target, () => api(`empresas/${id}/etiquetas`, { method: 'PUT', body: { etiquetas: ficam } }));
+      emp.etiquetas = r.etiquetas;
+      etiquetas = r.etiquetas.map((t) => ({ ...t }));
       desenharEtiquetas();
-      aviso(r.erro ? r.erro : `${etiquetas.length} etiqueta(s) do WhatsApp.`, !!r.erro);
+      aviso('Etiquetas salvas.');
     } catch (err) { aviso(err.message, true); }
-    e.target.disabled = false;
   };
   $('#salvar-etapas').onclick = async () => {
     const limpas = etapas.map((e) => e.trim()).filter(Boolean);
@@ -4079,7 +4093,7 @@ async function paginaLead(leadId) {
         <div class="card">
           <div class="campo"><label>Etapa</label><select id="etapa">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></div>
           <div class="campo" style="margin-top:12px"><label>Etiquetas</label>
-            <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || '<span class="rotulo">Nenhuma etiqueta — crie no WhatsApp Business do celular.</span>'}</div>
+            <div class="chips escolher-etiquetas">${l.etiquetasEmpresa.map((t) => `<button type="button" class="chip-filtro ${etiquetasLead.has(t.id) ? 'ativo' : ''}" data-tag="${esc(t.id)}" style="--cor:${esc(t.cor)}"><span class="bolinha-cor"></span>${esc(t.nome)}</button>`).join('') || `<a class="rotulo" href="${rotaEmpresa(l.empresaId, 'organizar')}">Criar etiquetas</a>`}</div>
           </div>
           <div class="campo" style="margin-top:12px"><label>Nome</label><input id="nome" value="${esc(l.nome)}" placeholder="Nome do cliente"></div>
           <div class="campo" style="margin-top:12px"><label>📍 Localização ${ajuda('O CRM lê a conversa: quando o cliente diz de onde é ("sou de Petrópolis", "moro em Itaipava"), aparece aqui sozinho. Pode corrigir à mão; vazio = volta a ler da conversa.')}</label><input id="localizacao" value="${esc(l.local?.texto || '')}" placeholder="Ex.: Petrópolis - RJ (aparece quando o cliente disser)"></div>
@@ -4259,7 +4273,7 @@ async function paginaNovoDisparo(id) {
           <h2><span class="passo-num">1</span> Quem vai receber</h2>
           ${leadIds.length ? `${balao(`${leadIds.length} leads escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : `
           <div class="campo"><label>Etapas ${ajuda('Nenhuma marcada = todas as etapas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}"><span>${esc(e)}</span></label>`).join('')}</div></div>
-          <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta do WhatsApp ainda.</span>'}</div></div>
+          <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta criada.</span>'}</div></div>
           <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>`}
           <div class="contagem" id="contagem">Calculando…</div>
         </div>
@@ -4681,80 +4695,6 @@ async function subirEmPedacos(arquivo, ini, aoAvancar) {
 }
 
 // Buscar no WhatsApp as mensagens que não chegaram ao painel
-// 🏷️ etiquetas do WhatsApp Business ⇄ CRM (página IA do WhatsApp)
-async function cartaoEtiquetasZap(id) {
-  const el = $('#card-etq-zap');
-  if (!el) return;
-  let r;
-  try { r = await api(`empresas/${id}/etiquetas-zap`); } catch (err) { el.innerHTML = `<p class="erro-caixa">${esc(err.message)}</p>`; return; }
-  if (!el.isConnected) return;
-  const semNome = r.noZap.filter((l) => l.provisoria && !l.nomeDadoNoCrm).length;
-  // etiqueta nova sem nome: o cartão fica aberto até dar o nome
-  const parado = r.noZap.length && (!r.ultimoEventoEm || Date.now() - new Date(r.ultimoEventoEm).getTime() > 3 * 86400000);
-  setTimeout(() => marcarPronto(el, !r.ativo ? 'off' : semNome || parado ? null : r.noZap.length ? 'ok' : null, !r.ativo ? 'Desligado' : parado ? 'O celular parou de mandar as etiquetas — reconecte' : semNome ? `${semNome} etiqueta(s) nova(s) sem nome — dê o nome` : `${r.noZap.length} etiqueta(s) ligadas ao celular`));
-  el.innerHTML = `
-    <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">🏷️ Etiquetas do WhatsApp Business</h2>${interruptor('etq-zap-ativo', r.ativo, r.ativo ? 'Ligado' : 'Desligado')}</div>
-    <p class="rotulo" style="margin:0 0 10px">As etiquetas do CRM são <b>só as do WhatsApp Business</b>: criou, renomeou ou apagou no celular, muda aqui. Marcou <b>Agendado</b> num cliente no celular → aparece aqui. Marcou aqui → aparece no celular. Funciona só em número <b>WhatsApp Business</b>.</p>
-    ${r.ativo ? `
-    <div class="chips" style="margin-bottom:8px">${r.noZap.length ? r.noZap.map((l) => `<span class="chip-etq" style="--cor:${esc(l.cor)}"><span class="bolinha-cor"></span>${esc(l.nome)} ${l.provisoria && !l.nomeDadoNoCrm ? '⚠️' : '✓'}</span>`).join('') : '<span class="rotulo">Nenhuma etiqueta lida do WhatsApp ainda.</span>'}</div>
-    ${r.noZap.filter((l) => l.provisoria).map((l) => `<form class="etq-nomear balao balao-aviso" data-etq-nomear="${esc(l.id)}" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div style="flex:1"><strong>${l.nomeDadoNoCrm ? `Etiqueta “${esc(l.nome)}”` : 'Etiqueta nova sem nome'}</strong><div class="balao-texto">O celular avisou que um cliente foi marcado com uma etiqueta nova (nº ${esc(l.id)}), mas não mandou o nome dela. Escreva o nome <b>igual ao do celular</b> — se o nome certo chegar depois, o CRM troca sozinho.</div><div class="linha-form" style="margin-top:8px"><input name="nome" value="${l.nomeDadoNoCrm ? esc(l.nome) : ''}" placeholder="ex.: Orçamento enviado" maxlength="40"><button type="submit" class="primario">Salvar nome</button></div></div></form>`).join('')}
-    ${r.erro ? `<p class="rotulo aviso-texto" style="margin:0 0 8px">⚠️ ${esc(r.erro)}</p>` : ''}
-    ${parado ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">⚠️</span><div><strong>O celular parou de mandar as etiquetas${r.ultimoEventoEm ? ` (a última chegou em ${esc(data(r.ultimoEventoEm))})` : ''}</strong><div class="balao-texto">Isso acontece às vezes depois que o WhatsApp desconecta e conecta de novo: o celular deixa de avisar quando você cria uma etiqueta ou marca um cliente. Para voltar: clique em <b>Reconectar para trazer as etiquetas</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas de novo. Leva 1 minuto; nenhuma conversa se perde (o CRM busca as mensagens desse intervalo). Faça num horário calmo: enquanto não escanear, a IA não responde.</div><div class="balao-texto" style="margin-top:6px"><b>Tente primeiro sem QR code:</b> o botão <b>Reiniciar sem QR</b> reconecta o mesmo aparelho em segundos (a IA para só uns segundos). Depois, marque um cliente com uma etiqueta no celular: se a "última etiqueta recebida" mudar, destravou. Se não mudar em 5 minutos, use <b>Reconectar com QR code</b>.</div><div class="acoes" style="margin:8px 0 0"><button type="button" id="etq-zap-reiniciar">⚡ Reiniciar sem QR</button><button type="button" class="primario" id="etq-zap-reconectar3">🔄 Reconectar com QR code</button></div>${r.reiniciadoEm ? `<p class="rotulo" style="margin:6px 0 0">Último reinício sem QR: ${esc(data(r.reiniciadoEm))}</p>` : ''}</div></div>` : ''}
-    ${!r.noZap.length ? `<div class="balao balao-aviso" style="margin:0 0 10px"><span class="balao-icone">🏷️</span><div><strong>Suas etiquetas do celular ainda não chegaram</strong><div class="balao-texto">O WhatsApp só manda todas as etiquetas quando o celular é conectado. Clique em <b>Trazer etiquetas do celular</b> e escaneie o QR code com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados). Leva 1 minuto; nenhuma conversa se perde e o CRM busca as mensagens desse intervalo.</div><div class="acoes" style="margin:8px 0 0"><button type="button" class="primario" id="etq-zap-reconectar">🔄 Trazer etiquetas do celular</button></div></div></div>` : ''}
-    <p class="rotulo" style="margin:0 0 10px">📱 Celular ligado a esta empresa: <b>${r.numero ? `${esc(telefoneBonito(r.numero))} (final ${esc(r.numero.slice(-4))})` : 'número não lido ainda'}</b> · última etiqueta recebida do celular: <b>${r.ultimoEventoEm ? esc(data(r.ultimoEventoEm)) : 'nenhuma até agora'}</b>.<br>Para testar: neste celular, abra uma conversa e coloque uma etiqueta — ela aparece aqui em segundos. Se você coloca as etiquetas em <b>outro celular</b>, é ele que precisa estar conectado aqui.</p>
-    <div class="acoes" style="margin:0"><button type="button" id="etq-zap-ler">🔄 Ler etiquetas do WhatsApp agora</button><span class="rotulo">${r.carregadoEm ? `Última leitura: ${esc(data(r.carregadoEm))}` : ''}</span></div>
-    ${r.noZap.length ? `<details style="margin-top:10px"><summary class="rotulo"><b>Criei uma etiqueta nova no celular e ela não apareceu</b></summary><div class="rotulo" style="margin-top:6px">O WhatsApp nem sempre avisa quando uma etiqueta é <b>criada</b> (só quando você <b>marca</b> um cliente com ela). Duas saídas:<ol style="margin:6px 0;padding-left:18px"><li><b>Mais rápido:</b> no celular, marque um cliente com a etiqueta nova. Ela aparece aqui em segundos como "Etiqueta nova sem nome" — escreva o nome uma vez e pronto.</li><li><b>Trazer todas com o nome certo:</b> reconecte o WhatsApp (escanear o QR code de novo com o mesmo celular). O celular manda todas as etiquetas. Leva 1 minuto; nenhuma conversa se perde.</li></ol><button type="button" id="etq-zap-reconectar2">🔄 Reconectar para trazer as etiquetas</button></div></details>` : ''}` : ''}`;
-  // enquanto a tela está aberta, confere se chegou etiqueta nova (teste ao vivo)
-  clearTimeout(cartaoEtiquetasZap.vigia);
-  const vigiar = async () => {
-    if (!el.isConnected) return;
-    const n = await api(`empresas/${id}/etiquetas-zap`).catch(() => null);
-    if (n && (n.ultimoEventoEm !== r.ultimoEventoEm || n.noZap.length !== r.noZap.length)) { aviso('Etiqueta recebida do celular.'); cartaoEtiquetasZap(id); } else if (el.isConnected) cartaoEtiquetasZap.vigia = setTimeout(vigiar, 8000);
-  };
-  if (r.ativo) cartaoEtiquetasZap.vigia = setTimeout(vigiar, 8000);
-  $('#etq-zap-ativo').onchange = async (e) => {
-    try { await api(`empresas/${id}/etiquetas-zap`, { method: 'PUT', body: { ativo: e.target.checked } }); if (e.target.checked) await api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
-  };
-  $$('[data-etq-nomear]').forEach((f) => {
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await comEspera(f.querySelector('button'), () => api(`empresas/${id}/etiquetas-zap/${encodeURIComponent(f.dataset.etqNomear)}/nome`, { method: 'PUT', body: { nome: f.elements.nome.value } }));
-        aviso('Nome salvo. A etiqueta já aparece com esse nome nos clientes.');
-        cartaoEtiquetasZap(id);
-      } catch (err) { aviso(err.message, true); }
-    };
-  });
-  const reconectar = async (e) => {
-    if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
-    try {
-      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/sair-numero`, { method: 'POST' }));
-      aviso('Agora escaneie o QR code com o mesmo celular.');
-      paginaWhatsapp(id).then(() => window.scrollTo(0, 0));
-    } catch (err) { aviso(err.message, true); }
-  };
-  $('#etq-zap-reconectar2')?.addEventListener('click', reconectar);
-  $('#etq-zap-reconectar3')?.addEventListener('click', reconectar);
-  $('#etq-zap-reiniciar')?.addEventListener('click', async (e) => {
-    try {
-      await comEspera(e.currentTarget, () => api(`empresas/${id}/etiquetas-zap/reiniciar`, { method: 'POST' }), 'Reiniciando…');
-      aviso('Conexão reiniciada. Agora marque um cliente com uma etiqueta no celular e veja se "última etiqueta recebida" muda (o CRM também relê as etiquetas em 1 e em 3 minutos).');
-      cartaoEtiquetasZap(id);
-    } catch (err) { aviso(err.message, true); }
-  });
-  $('#etq-zap-reconectar')?.addEventListener('click', async (e) => {
-    if (!(await confirmar({ titulo: 'Reconectar o WhatsApp?', texto: 'O CRM desconecta este número da conexão e mostra um QR code novo. Escaneie com o <b>mesmo celular</b> (WhatsApp Business → Aparelhos conectados → Conectar um aparelho). O celular manda todas as etiquetas e marcações. Enquanto não escanear, a IA não responde por aqui.', botao: 'Reconectar agora' }))) return;
-    try {
-      await comEspera(e.target, () => api(`empresas/${id}/whatsapp/sair-numero`, { method: 'POST' }));
-      aviso('Agora escaneie o QR code com o mesmo celular.');
-      paginaWhatsapp(id).then(() => window.scrollTo(0, 0));
-    } catch (err) { aviso(err.message, true); }
-  });
-  $('#etq-zap-ler')?.addEventListener('click', async (e) => {
-    try { await comEspera(e.target, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Lendo…'); aviso('Etiquetas lidas.'); cartaoEtiquetasZap(id); } catch (err) { aviso(err.message, true); }
-  });
-}
-
 // 📅 aviso de agendamento para um número cadastrado (página IA do WhatsApp)
 async function cartaoAvisoAgendamento(id) {
   const el = $('#card-aviso-agenda');
@@ -5250,7 +5190,7 @@ async function paginaConversas(id, params) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = `
-    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? `<div class="barra"><span class="interruptor-topo" title="Quando você manda uma mensagem manual (painel ou celular), a IA para de responder aquele cliente">${interruptor('conv-ia-para-manual', !emp.whatsapp?.iaAposManual, 'IA para quando eu respondo')}</span><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button><button type="button" id="atualizar-etq-conv" title="Lê de novo as etiquetas do WhatsApp Business e as marcações dos clientes">🏷️ Atualizar etiquetas</button></div>` : ''}</div>
+    <div class="cabecalho cab-conversas"><div><h1>Conversas</h1><p class="sub">Converse com seus clientes pelo computador — a IA atende junto com você</p></div>${emp.whatsapp?.configurado ? `<div class="barra"><span class="interruptor-topo" title="Quando você manda uma mensagem manual (painel ou celular), a IA para de responder aquele cliente">${interruptor('conv-ia-para-manual', !emp.whatsapp?.iaAposManual, 'IA para quando eu respondo')}</span><button type="button" id="buscar-mensagens" title="Traz do WhatsApp as mensagens que não apareceram aqui (ex.: depois de reconectar)">🔄 Buscar mensagens do WhatsApp</button></div>` : ''}</div>
     ${faixaPausada(emp)}
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp para conversar por aqui', `<a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${emp.whatsapp?.modoTeste ? `<p class="faixa-teste">🧪 Modo teste: a IA só responde ${esc((emp.whatsapp.numerosTeste || '').split(/,\s*/).filter(Boolean).map(telefoneBonito).join(', '))} · <button type="button" class="link-botao" data-desligar-teste="${esc(id)}">desligar</button></p>` : ''}
@@ -5733,21 +5673,6 @@ async function paginaConversas(id, params) {
     if (emp.whatsapp) emp.whatsapp.iaAposManual = !e.target.checked;
   }));
   $('#buscar-mensagens')?.addEventListener('click', () => modalSincronizar(id, () => { assinaturaAberta = ''; carregarLista(); recarregarAberto().catch(() => {}); }));
-  // 🏷️ Atualizar etiquetas: lê de novo do WhatsApp e redesenha a lista
-  $('#atualizar-etq-conv')?.addEventListener('click', async (e) => {
-    try {
-      const antes = await api(`empresas/${id}/etiquetas-zap`).catch(() => null);
-      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/etiquetas-zap/carregar`, { method: 'POST', body: {} }), 'Atualizando…');
-      const novas = antes ? r.noZap.filter((l) => !antes.noZap.some((x) => x.id === l.id)).length : 0;
-      assinaturaAberta = '';
-      carregarLista();
-      recarregarAberto().catch(() => {});
-      const parado = r.noZap.length && (!r.ultimoEventoEm || Date.now() - new Date(r.ultimoEventoEm).getTime() > 3 * 86400000);
-      if (r.erro) aviso(r.erro, true);
-      else if (parado) aviso(`Etiquetas lidas (${r.noZap.length}${novas ? `, ${novas} nova(s)` : ''}). ⚠️ O celular não manda etiquetas desde ${r.ultimoEventoEm ? data(r.ultimoEventoEm) : 'a conexão'} — veja em IA do WhatsApp → Etiquetas do WhatsApp Business.`, true);
-      else aviso(`Etiquetas atualizadas: ${r.noZap.length} do WhatsApp${novas ? ` · ${novas} nova(s)` : ' · nenhuma nova'}.`);
-    } catch (err) { aviso(err.message, true); }
-  });
   // mensagem apagada no chat aberto: redesenha a conversa e a prévia da lista
   $('#inbox-chat').addEventListener('mensagem-apagada', () => {
     assinaturaAberta = '';

@@ -832,22 +832,16 @@ async function receberWebhook(empresa, corpo) {
       }
       // voltou a conectar: busca o que chegou enquanto estava fora
       if (st === 'open' && antes !== 'open') {
-        empresa.whatsappConfig.reconectouEm = agora(); // o celular reenvia as etiquetas logo depois
+        empresa.whatsappConfig.reconectouEm = agora();
         require('./alertas').resolverTipo(empresa, 'whatsapp-desconectado');
         require('./reconexao').registrarVolta(empresa);
         require('./sincronizar').aoReconectar(empresa);
-        require('./etiquetas-zap').carregar(empresa).catch(() => {});
-        // ao conectar, o celular manda as etiquetas aos poucos: lê de novo depois
-        setTimeout(() => require('./etiquetas-zap').carregar(empresa).catch(() => {}), 90 * 1000).unref?.();
       }
     }
     return;
   }
-  // etiquetas do WhatsApp Business (criou/renomeou, marcou/desmarcou um cliente)
-  if (eventoDe(corpo) === 'labels.edit' || eventoDe(corpo) === 'labels.association') {
-    require('./etiquetas-zap').receberWebhook(empresa, eventoDe(corpo), corpo?.data);
-    return;
-  }
+  // etiquetas do WhatsApp Business: o CRM não usa (só as etiquetas do próprio CRM)
+  if (eventoDe(corpo) === 'labels.edit' || eventoDe(corpo) === 'labels.association') return;
   // histórico que o celular manda ao reconectar: entra nas conversas, sem a IA responder
   if (eventoDe(corpo) === 'messages.set') {
     const d = corpo?.data;
@@ -1269,7 +1263,6 @@ function etiquetaDaFoto(empresa, lead) {
   if ((lead.etiquetas || []).includes(id)) return;
   lead.etiquetas = [...(lead.etiquetas || []), id];
   salvar();
-  require('./etiquetas-zap').espelharLead(empresa, lead).catch(() => {});
 }
 
 // a descrição da foto parece pagamento? (aí vale ler o comprovante com a IA)

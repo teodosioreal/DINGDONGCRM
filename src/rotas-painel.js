@@ -833,10 +833,29 @@ router.put('/empresas/:id/canais', (req, res) => {
   res.json(empresaComExtras(empresa, req));
 });
 
-// Etiquetas: só as do WhatsApp Business (criar, renomear e apagar é no celular)
+// Etiquetas do CRM: lista completa { id?, nome, cor }. As que saírem da lista
+// somem dos leads e dos filtros de automação também.
 router.put('/empresas/:id/etiquetas', (req, res) => {
-  if (!acharEmpresa(req, res)) return;
-  res.status(400).json({ erro: 'As etiquetas vêm do WhatsApp Business: crie, renomeie ou apague no celular que elas mudam aqui.' });
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const atuais = leads.etiquetasDa(empresa);
+  const entrada = Array.isArray(req.body?.etiquetas) ? req.body.etiquetas : [];
+  const nova = [];
+  for (const t of entrada.slice(0, 60)) {
+    const nome = texto(t?.nome, 40);
+    if (!nome || nova.some((x) => x.nome.toLowerCase() === nome.toLowerCase())) continue;
+    const cor = /^#[0-9a-f]{6}$/i.test(t?.cor || '') ? t.cor : leads.CORES_ETIQUETA[nova.length % leads.CORES_ETIQUETA.length];
+    const existente = atuais.find((x) => x.id === t?.id);
+    nova.push({ ...(existente || {}), id: existente ? existente.id : novoId('tag'), nome, cor });
+  }
+  empresa.etiquetas = nova;
+  const validas = new Set(nova.map((x) => x.id));
+  for (const c of estado.conversas) {
+    if (c.empresaId === empresa.id && c.etiquetas?.some((id) => !validas.has(id))) c.etiquetas = c.etiquetas.filter((id) => validas.has(id));
+  }
+  for (const r of Array.isArray(empresa.automacoes) ? empresa.automacoes : []) if (r.filtro?.etiquetas?.length) r.filtro.etiquetas = r.filtro.etiquetas.filter((id) => validas.has(id));
+  salvar();
+  res.json(empresaComExtras(empresa, req));
 });
 
 // ---------------------------------------------------------------- disparos em massa
@@ -2429,49 +2448,9 @@ router.delete('/leads/:id/lista-negra', (req, res) => {
 });
 
 // ---------------------------------------------------------------- etiquetas do WhatsApp Business
-router.get('/empresas/:id/etiquetas-zap', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  res.json(require('./etiquetas-zap').resumo(empresa));
-});
-
-router.post('/empresas/:id/etiquetas-zap/carregar', async (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
-  res.json(await require('./etiquetas-zap').carregar(empresa));
-});
-
-// Tenta destravar as etiquetas sem QR: reinicia a conexão do mesmo aparelho e lê de novo depois
-router.post('/empresas/:id/etiquetas-zap/reiniciar', async (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  if (!whatsapp.configurado(empresa)) return res.status(400).json({ erro: 'Conecte o WhatsApp primeiro.' });
-  const ez = require('./etiquetas-zap');
-  ez.configDa(empresa).reiniciadoEm = agora();
-  empresa.whatsappConfig.reiniciandoAte = Date.now() + 2 * 60 * 1000; // sem alarme de "desconectou" nesse intervalo
-  await whatsapp.reiniciarSocket(empresa);
-  // o celular manda as etiquetas aos poucos depois de reconectar: lê em 1 e em 3 minutos
-  for (const ms of [60 * 1000, 3 * 60 * 1000]) setTimeout(() => ez.carregar(empresa).catch(() => {}), ms).unref?.();
-  salvar();
-  res.json({ ok: true });
-});
-
-router.put('/empresas/:id/etiquetas-zap/:labelId/nome', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  try {
-    res.json(require('./etiquetas-zap').nomear(empresa, req.params.labelId, req.body?.nome));
-  } catch (err) {
-    res.status(err.status || 500).json({ erro: err.message });
-  }
-});
-
-router.put('/empresas/:id/etiquetas-zap', (req, res) => {
-  const empresa = acharEmpresa(req, res);
-  if (!empresa) return;
-  require('./etiquetas-zap').ligar(empresa, req.body?.ativo === true);
-  res.json(require('./etiquetas-zap').resumo(empresa));
+// Removido: o CRM usa só as próprias etiquetas (as do celular não entram nem saem daqui)
+router.all(/^\/empresas\/[^/]+\/etiquetas-zap(\/.*)?$/, (req, res) => {
+  res.status(410).json({ erro: 'As etiquetas do WhatsApp foram tiradas do CRM. Use as etiquetas do CRM em Etiquetas e etapas.' });
 });
 
 router.get('/empresas/:id/followup', (req, res) => {

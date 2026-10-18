@@ -7,7 +7,7 @@ const { garantirAdmin } = require('./src/auth');
 const { salvarAgora } = require('./src/db');
 const rotasPublicas = require('./src/rotas-publicas');
 const rotasPainel = require('./src/rotas-painel');
-const { migrarLeads, soEtiquetasDoZap } = require('./src/leads');
+const { migrarLeads } = require('./src/leads');
 const midias = require('./src/midias');
 const { tipoDeArquivoSeguro } = require('./src/util');
 const disparos = require('./src/disparos');
@@ -15,7 +15,6 @@ const automacoes = require('./src/automacoes');
 
 garantirAdmin();
 migrarLeads();
-soEtiquetasDoZap(); // etiquetas: só as do WhatsApp Business
 require('./src/comprovantes').arrumarVendidosAgendados(); // venda recente + ainda "agendado" → lugar certo
 require('./src/detector-agenda').revisarRecentes(); // agendamentos combinados enquanto o CRM estava fora
 
@@ -151,7 +150,6 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/fotos-clientes').iniciar();
   require('./src/lixeira').iniciar();
   require('./src/sincronizar').iniciar();
-  require('./src/etiquetas-zap').iniciar();
   require('./src/varredura-vendas').iniciar(); // de hora em hora: vendas pela frase da equipe e comprovantes que ficaram para trás (sem gastar IA)
   require('./src/gastos').iniciar(); // grupo de gastos do WhatsApp: busca o que não chegou pelo webhook
   require('./src/ia-desligada').iniciar();
