@@ -36,6 +36,8 @@ function configDa(empresa) {
 }
 
 const ativo = (empresa) => configDa(empresa).ativo === true;
+// o Clone está ATENDENDO (não só aprendendo): só aí as mídias que ele guardou saem sozinhas
+const respondendo = (empresa) => configDa(empresa).ativo === true && configDa(empresa).responder === true;
 const nomeDo = (empresa) => configDa(empresa).nome || 'o dono';
 
 const PARADAS = new Set('a o os as um uma de da do das dos e é eu voce vc vcs que pra para por com sem no na nos nas em me te se ja já mais muito tem ter tá ta to tô sim nao não ok oi ola olá bom boa dia tarde noite tudo bem obrigado obrigada'.split(' '));
@@ -132,6 +134,8 @@ function aprenderArquivo(empresa, lead, { buffer, nome, mimetype }) {
   if (!ativo(empresa) || !buffer?.length) return null;
   const midias = require('./midias');
   const hash = crypto.createHash('sha1').update(buffer).digest('hex');
+  // você apagou esse arquivo da biblioteca: o Clone não guarda de novo
+  if ((empresa.midiasApagadasHash || []).includes(hash)) return null;
   const ja = midias.midiasDa(empresa).find((m) => m.hash === hash);
   if (ja) return ja.codigo;
   const contexto = contextoDoCliente(lead);
@@ -278,4 +282,4 @@ function configurar(empresa, b = {}) {
 }
 const ligar = (empresa, sim) => configurar(empresa, { ativo: sim });
 
-module.exports = { aprenderAnexo, ativo, registrar, aprenderArquivo, relevantes, paraIa, resumo, apagarExemplo, limpar, ligar, configurar, contextoDoCliente, arquivo, progresso, META };
+module.exports = { respondendo, aprenderAnexo, ativo, registrar, aprenderArquivo, relevantes, paraIa, resumo, apagarExemplo, limpar, ligar, configurar, contextoDoCliente, arquivo, progresso, META };

@@ -3011,7 +3011,9 @@ async function paginaMidias(id) {
   // desligada pelo dono: não sai de jeito nenhum (nem citada no prompt) — igual ao servidor
   const desligada = (m) => m.pausada === true || (m.pronta === false && Boolean((m.descricao || '').trim()));
   const citada = (m) => !desligada(m) && (citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo)));
-  const statusIa = (m) => desligada(m)
+  const statusIa = (m) => m.aprendidaDoClone && !m.donoConfirmou && !desligada(m)
+    ? '<span class="midia-uso fup">🧬 Cópia guardada pelo Clone (de um arquivo que você mandou à mão) — a IA só usa quando o Clone estiver atendendo. Para a IA usar sempre, abra Editar e salve como Ativa.</span>'
+    : desligada(m)
     ? '<span class="midia-uso off">⛔ Desligada — não sai de jeito nenhum (nem pela IA, nem pelo follow-up/automações). Só se você mandar à mão.</span>'
     : m.soFollowup
     ? '<span class="midia-uso fup">🔁 Só no follow-up</span>'

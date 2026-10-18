@@ -349,10 +349,29 @@ function caminhoDoArquivo(midia) {
   return path.join(config.midiasDir, `${midia.id}${path.extname(midia.arquivo).toLowerCase()}`);
 }
 
-function apagarMidia(empresa, midiaId) {
+// sha1 do arquivo da mídia (até 60 MB), para achar cópias do mesmo arquivo
+function hashDoArquivo(midia) {
+  if (midia.hash) return midia.hash;
+  try {
+    const arq = caminhoDoArquivo(midia);
+    if (fs.statSync(arq).size > 60 * 1024 * 1024) return null;
+    return crypto.createHash('sha1').update(fs.readFileSync(arq)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function apagarMidia(empresa, midiaId, { copias = true, lembrar = true } = {}) {
   const i = midiasDa(empresa).findIndex((m) => m.id === midiaId);
   if (i < 0) return false;
-  const [midia] = empresa.midias.splice(i, 1);
+  // o mesmo arquivo: o Clone não guarda de novo, e a cópia que ele guardou some junto
+  const hash = lembrar ? hashDoArquivo(empresa.midias[i]) : null;
+  if (hash) {
+    empresa.midiasApagadasHash = [...(empresa.midiasApagadasHash || []).filter((h) => h !== hash), hash].slice(-300);
+    if (copias) for (const c of midiasDa(empresa).filter((m) => m.id !== midiaId && m.aprendidaDoClone && m.hash === hash)) apagarMidia(empresa, c.id, { copias: false });
+  }
+  const j = midiasDa(empresa).findIndex((m) => m.id === midiaId);
+  const [midia] = empresa.midias.splice(j, 1);
   if (midia.codigo) require('./catalogo').esquecerMidia(empresa, midia.codigo);
   try {
     fs.unlinkSync(caminhoDoArquivo(midia));
@@ -505,6 +524,12 @@ function prontaParaIa(m) {
   return m.pronta !== false && !m.processando;
 }
 
+// Cópia que o Clone guardou (de um arquivo que você mandou à mão): a IA só usa sozinha quando
+// o Clone está ATENDENDO — ou quando você mesmo ativou/editou a mídia no painel
+function cloneSoAprendendo(empresa, m) {
+  return Boolean(m?.aprendidaDoClone) && !m.donoConfirmou && !require('./clone').respondendo(empresa);
+}
+
 // O dono DESLIGOU esta mídia ("não está pronta"): não sai de jeito nenhum — nem pela IA (mesmo
 // citada no prompt), nem pelo follow-up, automações ou respostas automáticas. Só a equipe,
 // mandando à mão, ainda consegue. Vale quando desmarcou "Ativa"/"Voltar para a configurar"
@@ -527,12 +552,13 @@ function liberadasParaEnvio(empresa, pedido, { manual = false, daIa = false } = 
   const ehAlbum = Boolean(alvo && !alvo.arquivo && itens.length && itens.every((m) => m.albumId === alvo.id));
   let ok;
   if (ehAlbum) {
-    const semDesligadas = itens.filter((m) => !desligadaPeloDono(m) && !(daIa && m.processando));
+    const semDesligadas = itens.filter((m) => !desligadaPeloDono(m) && !(daIa && m.processando) && !(daIa && cloneSoAprendendo(empresa, m)));
     const prontas = semDesligadas.filter((m) => prontaParaIa(m));
     ok = prontas.length ? prontas : !daIa || autorizada(alvo.codigo) ? semDesligadas : [];
   } else {
     ok = itens.filter((m) => {
       if (desligadaPeloDono(m)) return false;
+      if (daIa && cloneSoAprendendo(empresa, m)) return false;
       if (!daIa || m.pastaId) return !(daIa && m.processando);
       return prontaParaIa(m) || (autorizada(m.codigo) && !m.processando) || (autorizada(alvo?.codigo) && !m.processando);
     });
@@ -546,7 +572,7 @@ function paraIa(empresa, { followup = false } = {}) {
   const ligadas = require('./catalogo').midiasLigadas(empresa);
   const doPrompt = codigosDoPrompt(empresa);
   const albunsDoPrompt = new Set(albunsDa(empresa).filter((a) => doPrompt.has(a.codigo)).map((a) => a.id));
-  const todas = midiasDa(empresa).filter((m) => !desligadaPeloDono(m) && (prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando)));
+  const todas = midiasDa(empresa).filter((m) => !desligadaPeloDono(m) && !cloneSoAprendendo(empresa, m) && (prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando)));
   const valeAqui = (x) => followup || !x.soFollowup;
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
@@ -1194,6 +1220,7 @@ module.exports = {
   tipoDoMime,
   prontaParaIa,
   desligadaPeloDono,
+  cloneSoAprendendo,
   liberadasParaEnvio,
   trocarArquivo,
   arquivoDaGravacao,

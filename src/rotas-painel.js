@@ -959,7 +959,7 @@ router.post('/empresas/:id/midias', express.raw({ type: 'application/octet-strea
       extra: req.query.codigo ? { codigo: texto(req.query.codigo, 60), pronta: Boolean(descricao) } : {}
     });
     if (midias.midiasDa(empresa).filter((m) => m.nome.toLowerCase() === midia.nome.toLowerCase()).length > 1) {
-      midias.apagarMidia(empresa, midia.id);
+      midias.apagarMidia(empresa, midia.id, { lembrar: false }); // só recusou o nome repetido
       return res.status(400).json({ erro: `Já existe uma mídia chamada "${midia.nome}". Use outro nome.` });
     }
     res.status(201).json({ ...midia, url: midias.urlPublica(midia), codigoVisivel: midias.codigoNumerico(midia) });
@@ -1028,6 +1028,8 @@ router.put('/empresas/:id/midias/:midiaId', (req, res) => {
     if (b.umaVezPorConversa !== undefined) midia.umaVezPorConversa = b.umaVezPorConversa !== false;
     if (b.etapas !== undefined) midia.etapas = midias.listaEtapas(b.etapas);
     if (b.albumId !== undefined) midia.albumId = midias.albunsDa(empresa).some((a) => a.id === b.albumId) ? b.albumId : null;
+    // você mexeu nesta mídia (ativou ou escreveu o "quando enviar"): vale como sua, mesmo que o Clone tenha guardado
+    if (midia.aprendidaDoClone && (b.pronta === true || b.descricao !== undefined)) midia.donoConfirmou = true;
     if (b.pronta !== undefined) {
       // desligou uma mídia que estava ativa: fica DESLIGADA de verdade (não sai nem pelo prompt)
       if (b.pronta !== true && midia.pronta !== false) midia.pausada = true;
@@ -1075,7 +1077,10 @@ router.post('/empresas/:id/midias/lote', (req, res) => {
   else if (acao === 'pronta' || acao === 'aConfigurar') {
     for (const m of alvo) {
       m.pronta = acao === 'pronta';
-      if (acao === 'pronta') delete m.pausada;
+      if (acao === 'pronta') {
+        delete m.pausada;
+        if (m.aprendidaDoClone) m.donoConfirmou = true;
+      }
       else m.pausada = true; // "Voltar para a configurar": não sai de jeito nenhum
     }
   }
