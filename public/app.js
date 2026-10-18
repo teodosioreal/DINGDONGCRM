@@ -5949,12 +5949,21 @@ async function secaoFollowup(id, emp, el, editar = null) {
     el.innerHTML = `
       <div class="card fup-secao ${d.ativo ? 'ligada' : ''}">
         <div class="cabecalho" style="margin-bottom:4px;padding-right:0"><div><h2 style="margin:0">🔁 Follow-up automático</h2><p class="rotulo" style="margin:2px 0 0">Mensagens prontas — sem IA, não gasta tokens. ${d.ativo ? `<b>${d.naFila}</b> na fila · <b>${d.enviadosHoje}</b> enviado(s) hoje` : '<b>Desligado.</b>'}</p></div>${interruptor('fup-ativo', d.ativo, d.ativo ? 'Ligado' : 'Desligado')}</div>
-        <div class="lista-seq-fup">${(d.sequencias || []).map((q, si) => `
-          <div class="seq-fup-linha ${q.ativa ? '' : 'desligada'}">
-            <div class="seq-fup-info"><b>${q.ativa ? '🟢' : '⚪'} ${esc(q.nome)}</b><span class="rotulo">${esc(quandoTxt(q))} · ${q.passos.length} ${q.passos.length === 1 ? 'mensagem' : 'mensagens'}: ${q.passos.map((p) => tempoTxt(p.horas)).join(' → ')}${d.porSequencia?.[q.id] ? ` · ${d.porSequencia[q.id]} na fila` : ''}</span></div>
+        ${(d.sequencias || []).filter((q) => q.ativa && q.inicio?.tipo === 'sem_resposta').length > 1 ? '<p class="aviso-texto" style="margin:6px 0">⚠️ Há mais de uma sequência de "parou de responder" ligada: o cliente recebe as mensagens das duas. Deixe ligada só a que você quer usar.</p>' : ''}
+        <div class="lista-seq-fup">${(d.sequencias || []).map((q, si) => {
+          const mt = d.metricas?.[q.id] || { receberam: 0, responderam: 0, agendaram: 0, compraram: 0, porPasso: {} };
+          const pct = (a) => (mt.receberam ? ` (${Math.round((a / mt.receberam) * 100)}%)` : '');
+          const passosQueTrouxeram = Object.entries(mt.porPasso || {}).filter(([, v]) => v.agendaram || v.compraram).map(([n, v]) => `msg ${n}: ${v.agendaram ? `${v.agendaram} agendou` : ''}${v.agendaram && v.compraram ? ' · ' : ''}${v.compraram ? `${v.compraram} comprou` : ''}`).join(' · ');
+          return `
+          <div class="seq-fup-linha seq-fup-cartao ${q.ativa ? '' : 'desligada'}">
+            <div class="seq-fup-topo">${interruptor(`seq-ativa-${si}`, q.ativa, q.ativa ? 'Ligada' : 'Desligada')}<b>${esc(q.nome)}</b></div>
+            <div class="seq-fup-info"><span class="rotulo">${esc(quandoTxt(q))} · ${q.passos.length} ${q.passos.length === 1 ? 'mensagem' : 'mensagens'}: ${q.passos.map((p) => tempoTxt(p.horas)).join(' → ')}${d.porSequencia?.[q.id] ? ` · ${d.porSequencia[q.id]} na fila` : ''}</span>
+              <span class="seq-fup-numeros" title="Últimos 30 dias. Agendou/comprou conta para a última mensagem de follow-up que o cliente recebeu antes.">📊 30 dias: <b>${mt.receberam}</b> receberam · <b>${mt.responderam}</b> responderam${pct(mt.responderam)} · <b>${mt.agendaram}</b> agendaram${pct(mt.agendaram)} · <b>${mt.compraram}</b> compraram${pct(mt.compraram)}</span>
+              ${passosQueTrouxeram ? `<span class="rotulo">🎯 Quem trouxe: ${esc(passosQueTrouxeram)}</span>` : ''}</div>
             <div class="seq-fup-midias">${[...new Set(q.passos.flatMap((p) => p.midias))].slice(0, 4).map((c) => miniatura(porCodigo[c], `title="${esc(porCodigo[c]?.nome || c)}"`)).join('')}</div>
             <div class="acoes" style="margin:0"><button type="button" class="pequeno" data-testar-seq="${si}">📤 Testar</button><button type="button" class="pequeno primario" data-editar-seq="${si}">Editar</button></div>
-          </div>`).join('')}</div>
+          </div>`;
+        }).join('')}</div>
         <div class="acoes" style="margin-top:8px"><button type="button" id="add-seq">+ Nova sequência</button></div>
         <details style="margin-top:8px"><summary>⚙️ Regras gerais</summary>
           <label class="linha-check" style="margin-top:8px"><input type="checkbox" id="fup-pausados" ${d.incluirPausados ? 'checked' : ''}> Mandar também para quem a equipe está atendendo</label>
@@ -5974,6 +5983,20 @@ async function secaoFollowup(id, emp, el, editar = null) {
       } catch (err) { e.target.checked = !e.target.checked; aviso(err.message, true); }
     };
     $$('[data-editar-seq]', el).forEach((b) => { b.onclick = () => telaEditor(Number(b.dataset.editarSeq)); });
+    // ligar/desligar cada sequência direto no cartão (igual às automações)
+    (d.sequencias || []).forEach((q, si) => {
+      const chave = $(`#seq-ativa-${si}`, el);
+      if (!chave) return;
+      chave.onchange = async () => {
+        const seqs = (d.sequencias || []).map(copiar);
+        seqs[si].ativa = chave.checked;
+        try {
+          await api(`empresas/${id}/followup`, { method: 'PUT', body: { sequencias: seqs } });
+          aviso(chave.checked ? `"${q.nome}" ligada.` : `"${q.nome}" desligada: ninguém recebe até você ligar de novo.`);
+          secaoFollowup(id, emp, el);
+        } catch (err) { chave.checked = !chave.checked; aviso(err.message, true); }
+      };
+    });
     $$('[data-testar-seq]', el).forEach((b) => { b.onclick = () => { const q = d.sequencias[b.dataset.testarSeq]; modalTeste(q.passos, `Testar "${q.nome}" (${q.passos.length} mensagens)`); }; });
     $('#add-seq').onclick = () => telaEditor(-1);
     $('#salvar-regras').onclick = async (e) => {

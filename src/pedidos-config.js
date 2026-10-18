@@ -11,7 +11,12 @@ const PEDIDOS = [
   { id: 'prompt-troca-midia-22-54-2026-10-18', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => trocarCodigoNoPrompt(e, 22, 54) },
   // 18/10 (todas as empresas): revezamento com uma das mídias "a configurar" passa a funcionar —
   // ela fica ativa com as informações da outra (a que você desligou de propósito continua desligada)
-  { id: 'revezamento-pronto-2026-10-18', empresaId: '*', fazer: (e) => require('./midias').ajustarRevezamentos(e) || null }
+  { id: 'revezamento-pronto-2026-10-18', empresaId: '*', fazer: (e) => require('./midias').ajustarRevezamentos(e) || null },
+  // 18/10: o dono quer o follow-up antigo (com vídeos) de volta, para ligar/desligar quando quiser
+  { id: 'fup-antigo-de-volta-2026-10-18', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => require('./followup').restaurarFollowupAntigo(e) },
+  // 18/10 (todas): mídias escolhidas no follow-up/automações que estavam "a configurar" voltam a sair
+  // por lá (com a regra nova, "a configurar" não sairia mais) — viram "só no follow-up" se não têm descrição
+  { id: 'midias-do-fup-prontas-2026-10-18', empresaId: '*', fazer: (e) => require('./followup').prepararMidiasEscolhidas(e) || null }
 ];
 
 // Troca, nas instruções do WhatsApp da empresa, o código de uma mídia antiga pelo da nova. Só se a

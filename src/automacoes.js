@@ -226,6 +226,8 @@ function normalizarRegra(empresa, b, atual = {}) {
   };
   if (modo === 'texto' && !regra.acao.texto) throw Object.assign(new Error('Escreva a mensagem.'), { status: 400 });
   if (modo === 'ia' && !regra.acao.instrucao) throw Object.assign(new Error('Diga para a IA o que ela deve escrever.'), { status: 400 });
+  // a mídia fixa escolhida fica pronta para sair na automação
+  if (regra.acao.midiaId) require('./midias').prepararEscolhidas(empresa, [regra.acao.midiaId]);
   return regra;
 }
 

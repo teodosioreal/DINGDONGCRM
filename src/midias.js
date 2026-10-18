@@ -547,6 +547,26 @@ function ajustarGrupoRevezamento(empresa, grupo, { forcar = false } = {}) {
   return mudou;
 }
 
+// Você escolheu a mídia numa mensagem do follow-up ou como mídia fixa de uma automação: ela fica
+// pronta para isso. Se ainda não tem "quando enviar", vira "só no follow-up" (a IA não manda na
+// conversa). A que você desligou de propósito (pausada) continua desligada. refs: códigos ou ids.
+function prepararEscolhidas(empresa, refs) {
+  let mudou = 0;
+  const todas = midiasDa(empresa);
+  for (const ref of refs || []) {
+    if (!ref) continue;
+    const itens = todas.some((m) => m.id === ref) ? todas.filter((m) => m.id === ref) : resolverPedido(empresa, ref).itens;
+    for (const m of itens) {
+      if (m.pronta !== false || m.pausada) continue;
+      m.pronta = true;
+      if (!String(m.descricao || '').trim()) m.soFollowup = true;
+      mudou++;
+    }
+  }
+  if (mudou) salvar();
+  return mudou;
+}
+
 // Revezamentos que já existiam com uma das mídias "a configurar" (antes desta regra): ficam prontos
 function ajustarRevezamentos(empresa) {
   let n = 0;
@@ -1249,6 +1269,7 @@ module.exports = {
   liberadasParaEnvio,
   trocarArquivo,
   ajustarRevezamentos,
+  prepararEscolhidas,
   arquivoDaGravacao,
   assuntosDa,
   salvarAssuntos,

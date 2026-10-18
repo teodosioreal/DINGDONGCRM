@@ -104,6 +104,37 @@ function aplicarModeloAgendar(empresa) {
   return seq;
 }
 
+// Mídias já escolhidas no follow-up e nas automações ficam prontas (de antes desta regra)
+function prepararMidiasEscolhidas(empresa) {
+  const refs = [
+    ...configDa(empresa).sequencias.flatMap((q) => (q.passos || []).flatMap((p) => p.midias || [])),
+    ...(empresa.automacoes || []).map((r) => r.acao?.midiaId).filter(Boolean)
+  ];
+  return require('./midias').prepararEscolhidas(empresa, refs);
+}
+
+// Devolve, como sequência SEPARADA e desligada, o follow-up que existia antes do modelo que puxa
+// agendamento (a cópia guardada em sequenciasAntesDoModeloAgenda). Você liga uma ou a outra.
+function restaurarFollowupAntigo(empresa) {
+  const f = configDa(empresa);
+  const copia = f.sequenciasAntesDoModeloAgenda?.sequencias || [];
+  const antiga = copia.find((q) => q.id === 'seq_padrao') || copia.find((q) => q.inicio?.tipo === 'sem_resposta');
+  if (!antiga || f.sequencias.some((q) => q.restauradaDe === antiga.id)) return null;
+  if (f.sequencias.length >= MAX_SEQUENCIAS) return null;
+  const seq = JSON.parse(JSON.stringify(antiga));
+  seq.id = novoId('seq');
+  seq.nome = 'Follow-up antigo (com vídeos)';
+  seq.ativa = false;
+  seq.ativadaEm = agora();
+  seq.restauradaDe = antiga.id;
+  for (const p of seq.passos || []) p.id = novoId('fup');
+  f.sequencias.push(seq);
+  f.editadoEm = agora();
+  require('./midias').prepararEscolhidas(empresa, (seq.passos || []).flatMap((p) => p.midias || []));
+  salvar();
+  return seq;
+}
+
 // mensagens de reserva que vinham prontas na versão com IA (não foram escritas pela empresa)
 const RESERVAS_ANTIGAS = [
   '{Oi|Olá} {nome}! Tudo bem? Passando para saber se ficou alguma dúvida. Posso te ajudar a agendar? 😊',
@@ -239,11 +270,16 @@ function salvarConfig(empresa, b = {}) {
         soEtiquetas: (Array.isArray(s.soEtiquetas) ? s.soEtiquetas : []).filter((id) => etiquetas.has(id)),
         soEtapas: (Array.isArray(s.soEtapas) ? s.soEtapas : []).filter((e) => etapas.has(e)),
         pararAoResponder: s.pararAoResponder !== false,
-        passos
+        passos,
+        // de onde veio (follow-up antigo devolvido / modelo de agendamento): para os números por sequência
+        ...(antiga?.restauradaDe ? { restauradaDe: antiga.restauradaDe } : {}),
+        ...(antiga?.modeloAgenda ? { modeloAgenda: antiga.modeloAgenda } : {})
       };
     });
   }
   f.editadoEm = agora();
+  // mídias escolhidas nas mensagens ficam prontas para o follow-up (senão não sairiam)
+  require('./midias').prepararEscolhidas(empresa, f.sequencias.flatMap((q) => (q.passos || []).flatMap((p) => p.midias || [])));
   salvar();
   return f;
 }
@@ -599,6 +635,46 @@ async function processar(empresa) {
   return enviados;
 }
 
+// Resultado de cada sequência (últimos `dias`): quantos clientes receberam, responderam,
+// agendaram e compraram DEPOIS. Agendamento/venda vai para a última mensagem de follow-up
+// que o cliente recebeu antes dele (foi ela que trouxe o cliente de volta), e para o passo dela.
+function metricasPorSequencia(empresa, dias = 30) {
+  const f = configDa(empresa);
+  const corte = Date.now() - dias * 86400000;
+  const ms = (x) => new Date(x || 0).getTime();
+  // mensagens do "seq_padrao" de antes do modelo de agendamento eram do follow-up antigo (o devolvido)
+  const restaurada = f.sequencias.find((q) => q.restauradaDe);
+  const trocaEm = ms(f.sequenciasAntesDoModeloAgenda?.em);
+  const seqDa = (m) => (restaurada && m.followupSequencia === restaurada.restauradaDe && trocaEm && ms(m.em) < trocaEm ? restaurada.id : m.followupSequencia || '');
+  const r = {};
+  const linha = (id) => (r[id] = r[id] || { receberam: 0, responderam: 0, agendaram: 0, compraram: 0, porPasso: {} });
+  const vendas = (estado.vendas || []).filter((v) => v.empresaId === empresa.id && v.status === 'confirmada');
+  for (const lead of estado.conversas.filter((c) => c.empresaId === empresa.id)) {
+    const fups = (lead.mensagens || []).filter((m) => m.followupPasso && ms(m.em) >= corte);
+    if (!fups.length) continue;
+    const seqs = new Set(fups.map(seqDa).filter(Boolean));
+    for (const id of seqs) {
+      const l = linha(id);
+      l.receberam++;
+      const primeira = fups.find((m) => seqDa(m) === id);
+      if ((lead.mensagens || []).some((m) => m.papel === 'visitante' && ms(m.em) > ms(primeira.em))) l.responderam++;
+    }
+    const creditar = (emIso, campo) => {
+      const antes = fups.filter((m) => ms(m.em) < ms(emIso)).pop();
+      if (!antes || !seqDa(antes)) return;
+      const l = linha(seqDa(antes));
+      l[campo]++;
+      const p = (l.porPasso[antes.followupPasso] = l.porPasso[antes.followupPasso] || { agendaram: 0, compraram: 0 });
+      p[campo]++;
+    };
+    const ag = (lead.agendamentos || []).filter((a) => ms(a.criadoEm) > ms(fups[0].em)).sort((a, b) => ms(a.criadoEm) - ms(b.criadoEm))[0];
+    if (ag) creditar(ag.criadoEm, 'agendaram');
+    const vd = vendas.filter((v) => v.leadId === lead.id && ms(v.criadoEm) > ms(fups[0].em)).sort((a, b) => ms(a.criadoEm) - ms(b.criadoEm))[0];
+    if (vd) creditar(vd.criadoEm, 'compraram');
+  }
+  return r;
+}
+
 function paraPainel(empresa) {
   const f = configDa(empresa);
   const naFila = estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => ({ c, s: situacao(empresa, c) })).filter((x) => !x.s.motivo);
@@ -613,7 +689,8 @@ function paraPainel(empresa) {
       .sort((a, b) => (a.s.quando < b.s.quando ? -1 : 1))
       .slice(0, 20)
       .map(({ c, s }) => ({ leadId: c.id, nome: c.nome || c.telefone || 'Cliente', passo: s.indice + 1, sequencia: s.seq.nome, quando: s.quando })),
-    enviadosHoje: estado.conversas.filter((c) => c.empresaId === empresa.id).reduce((n, c) => n + (c.mensagens || []).filter((m) => m.followupPasso && m.em >= hoje).length, 0)
+    enviadosHoje: estado.conversas.filter((c) => c.empresaId === empresa.id).reduce((n, c) => n + (c.mensagens || []).filter((m) => m.followupPasso && m.em >= hoje).length, 0),
+    metricas: metricasPorSequencia(empresa, 30)
   };
 }
 
@@ -651,4 +728,4 @@ async function testar(empresa, { numero, passos, variacao = null, nome = '' } = 
 const PADRAO = RECOMENDADO;
 const RESERVAS = RECOMENDADO().map((p) => p.textos[0]);
 
-module.exports = { MODELO_AGENDAR, aplicarModeloAgendar, fila, buscar, colocarNaFila, testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };
+module.exports = { metricasPorSequencia, MODELO_AGENDAR, aplicarModeloAgendar, restaurarFollowupAntigo, prepararMidiasEscolhidas, fila, buscar, colocarNaFila, testar, jaAgendou, RESERVAS, configDa, salvarConfig, situacao, proximo, processar, paraPainel, pular, ligarParaLead, anotarEtiquetas, PADRAO, RECOMENDADO };

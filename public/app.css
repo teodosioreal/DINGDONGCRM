@@ -1785,3 +1785,8 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .busca-item:hover, .busca-item.ativo { background: var(--hover); }
 .destaque-busca { outline: 3px solid var(--primario); outline-offset: 3px; transition: outline-color .4s; scroll-margin-top: 16px; }
 @media (max-width: 768px) { .busca-item { padding: 11px 10px; font-size: 15px; } .busca-menu input { font-size: 16px; } }
+
+/* 🔁 follow-up: cada sequência como cartão com interruptor e números */
+.seq-fup-cartao { display: grid; gap: 6px; }
+.seq-fup-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.seq-fup-numeros { display: block; font-size: 13px; margin-top: 2px; }
