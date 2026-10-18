@@ -89,17 +89,22 @@ jobs:
             || { echo "::error::A VPS_SSH_KEY cadastrada está incompleta ou corrompida. Cole de novo, da linha BEGIN até a END."; exit 1; }
           # impressão digital pública (não é segredo): tem que ser igual à mostrada na VPS pelo ssh-keygen
           echo "Chave carregada. Impressão digital: $(ssh-keygen -lf ~/.ssh/id_deploy.pub)"
-          # a VPS às vezes demora a aceitar conexão: tenta 4 vezes antes de desistir (e diz o porquê)
-          ok=""
-          for tentativa in 1 2 3 4; do
-            if ssh-keyscan -T 15 -p "$PORTA" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null && [ -s ~/.ssh/known_hosts ]; then ok=1; break; fi
-            echo "A VPS não respondeu na porta SSH (tentativa $tentativa de 4). Tentando de novo em 15 s…"
-            sleep 15
-          done
-          [ -n "$ok" ] || { echo "::error::A VPS não aceitou conexão SSH (porta $PORTA) em 4 tentativas. O CRM não foi mexido. Veja se a VPS está ligada e se a porta SSH está liberada (firewall/fail2ban)."; exit 1; }
+          # UMA conexão só por deploy (o servidor bloqueia o GitHub quando vê muitas seguidas):
+          # sem ssh-keyscan (ele abria várias); a chave do servidor é aceita na 1ª conexão.
           # O script vai por um arquivo temporário privado (chmod 600) que é apagado
           # no fim — assim o token não aparece na linha de comando da VPS.
-          { printf 'GITHUB_TOKEN=%q\n' "$TOKEN_LEITURA"; cat deploy/atualizar.sh; } \
-            | ssh -i ~/.ssh/id_deploy -p "$PORTA" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
-                "$VPS_USER@$VPS_HOST" \
-                'f=$(mktemp); trap "rm -f $f" EXIT; cat > "$f"; bash "$f" </dev/null'
+          # Só tenta de novo se NÃO conectou (código 255), com 1 minuto de espera, até 3 vezes.
+          for tentativa in 1 2 3; do
+            set +e
+            { printf 'GITHUB_TOKEN=%q\n' "$TOKEN_LEITURA"; cat deploy/atualizar.sh; } \
+              | ssh -i ~/.ssh/id_deploy -p "$PORTA" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=25 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+                  "$VPS_USER@$VPS_HOST" \
+                  'f=$(mktemp); trap "rm -f $f" EXIT; cat > "$f"; bash "$f" </dev/null'
+            codigo=$?
+            set -e
+            [ "$codigo" -ne 255 ] && exit "$codigo"
+            echo "Não consegui conectar na VPS (tentativa $tentativa de 3)."
+            [ "$tentativa" -lt 3 ] && sleep 60
+          done
+          echo "::error::A VPS não aceitou conexão SSH (porta $PORTA) em 3 tentativas, com 1 min entre elas. O CRM não foi mexido. Se o CRM abre normal, o servidor está barrando o GitHub por algum tempo: rode o deploy de novo mais tarde."
+          exit 1
