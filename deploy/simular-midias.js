@@ -46,17 +46,19 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
     // espera: { midias: [...códigos que DEVEM ir] , semMidia, pausar, pergunta (termina com pergunta), naoPergunta, tem: [regex], naoTem: [regex] }
     const clientes = [
       { nome: '1 site completo · Onix 2020 · Petrópolis', msgs: [[SITE_C('Onix 2020', 'Petrópolis'), { midias: ['#MIDIA_20'], pergunta: true }], ['show, gostei', { semMidia: true, pergunta: true, tem: [/foto/i] }]] },
-      { nome: '2 site aro · Fiesta · Miguel Pereira', msgs: [[SITE_A('Fiesta', 'Miguel Pereira'), { midias: ['#MIDIA_22'], pergunta: true }]] },
+      { nome: '2 site aro · Fiesta · Miguel Pereira', msgs: [[SITE_A('Fiesta', 'Miguel Pereira'), { midias: ['#MIDIA_54'], pergunta: true }]] },
       { nome: '3 site completo · cidade NÃO atendida (Rio)', msgs: [[SITE_C('HB20', 'Rio de Janeiro'), { semMidia: true, tem: [/Petr[óo]polis/, /Vassouras/] }]] },
       { nome: '4 sem pré-mensagem · pergunta preço', msgs: [['oi, quanto custa pra reformar o volante?', { semMidia: true, pergunta: true, tem: [/cidade/i] }], ['Paty do Alferes', { semMidia: true, pergunta: true, tem: [/carro|modelo/i] }], ['é um Corolla', { midias: ['#MIDIA_20'], tem: [/250/] }]] },
       { nome: '5 couro legítimo', msgs: [['Boa tarde, vocês fazem em couro legítimo? sou de Petrópolis', { midias: ['#MIDIA_11', '#MIDIA_10'], tem: [/liso/i] }]] },
       { nome: '6 instalação de capa do cliente', msgs: [['já comprei a capa de volante, vocês só instalam? moro em Vassouras', { semMidia: true, tem: [/180/] }]] },
       { nome: '7 pede atendente', msgs: [[SITE_C('Versa', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['quero falar com um atendente', { semMidia: true, pausar: true, tem: [/já te chamo/i] }]] },
       { nome: '8 pergunta se é robô', msgs: [[SITE_C('Kia Sportage', 'Vassouras'), { midias: ['#MIDIA_20'] }], ['vc é robô?', { pausar: false, tem: [/autom[áa]tico/i] }]] },
-      { nome: '9 completo · achou caro', msgs: [[SITE_C('Cerato', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['achei caro', { midias: ['#MIDIA_22'], tem: [/150/] }]] },
+      { nome: '9 completo · achou caro', msgs: [[SITE_C('Cerato', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['achei caro', { midias: ['#MIDIA_54'], tem: [/150/] }]] },
       { nome: '10 completo · diferença pro aro', msgs: [[SITE_C('Onix 2023', 'Paulo de Frontin'), { midias: ['#MIDIA_20'] }], ['qual a diferença pro aro?', { midias: ['#MIDIA_12'], pergunta: true }]] },
       { nome: '11 completo · pede foto no carro (fora da tabela)', msgs: [[SITE_C('Gol', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['tem foto de um gol que vcs fizeram?', { semMidia: true }]] },
-      { nome: '12 completo · pede foto no carro (na tabela)', msgs: [[SITE_C('Renegade', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['tem foto de um renegade?', { midias: ['#MIDIA_13'] }]] }
+      { nome: '12 completo · pede foto no carro (na tabela)', msgs: [[SITE_C('Renegade', 'Petrópolis'), { midias: ['#MIDIA_20'] }], ['tem foto de um renegade?', { midias: ['#MIDIA_13'] }]] },
+      // revezamento: clientes novos seguidos pedindo o completo — as mídias do completo têm que se alternar
+      ...['Onix 2021', 'HB20 2019', 'Polo 2022', 'Argo 2020', 'T-Cross 2021'].map((carro, i) => ({ nome: `${13 + i} revezamento · cliente novo ${i + 1} · completo · ${carro}`, msgs: [[SITE_C(carro, 'Petrópolis'), { midias: ['#MIDIA_20'] }]] }))
     ];
     // conversa pedida no deploy/simular.pedido (linhas começando com "> "): roda só ela, sem regras fixas
     try {
@@ -112,6 +114,7 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
       }
     }
     console.log(`    RESULTADO: ${totalOk} resposta(s) ok · ${totalAtencao} com atenção`);
+    console.log(`    revezamento depois da simulação (próximo da vez): ${JSON.stringify(e.revezamento || {})}`);
   }
   await new Promise((r) => setTimeout(r, 1500)); // deixa a cópia terminar de salvar antes de apagar
   fs.rmSync(pasta, { recursive: true, force: true });
