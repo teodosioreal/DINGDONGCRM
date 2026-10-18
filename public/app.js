@@ -365,6 +365,8 @@ const INDICE_BUSCA = [
   ['Mensagens do follow-up (editar)', 'followup', 'Follow-up automático', 'editar texto mensagem follow variação sequencia passos horas dias'],
   ['Follow-up que puxa agendamento (modelo pronto)', 'followup', 'Follow-up automático', 'modelo agendar agendamento oferecer horario horarios puxar marcar'],
   ['Clientes na fila do follow-up', 'followup', 'Clientes na fila', 'fila quem vai receber colocar na fila'],
+  ['Follow-up só para clientes quentes (alta chance de venda)', 'followup', 'Follow-up automático', 'quente quentes chance de venda probabilidade alta morno filtrar para quem'],
+  ['Ver clientes 🔥 quentes', 'conversas', '', 'quente quentes chance de venda probabilidade alta prontos para fechar'],
   ['Horários livres para agendar ({horarios})', 'agenda', 'Horários que a IA pode agendar', 'horarios livres vagas disponibilidade agenda da ia dias horario cadastrar horario'],
   ['Agendamento automático (só com endereço)', 'agenda', 'Agendamento automático', 'endereco agendar sozinho detectar automatico perceber'],
   ['Valor do agendamento e previsão de faturamento', 'agenda', 'Valor do agendamento|Previsão de faturamento', 'valor previsao faturamento quanto vai entrar'],
@@ -3771,6 +3773,12 @@ function chipLocal(l, classe = '', etiquetas = null) {
   return `<span class="etiqueta chip-local ${classe}" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>`;
 }
 
+// 🔥 chance de venda (sem IA): selo com os motivos no "title"
+function seloTemperatura(t, curto = false) {
+  if (!t || !['quente', 'morno'].includes(t.nivel)) return '';
+  return `<span class="etiqueta selo-temp ${t.nivel}" title="${esc(`Chance de venda: ${t.rotulo} (${t.pontos} pontos)\n${(t.motivos || []).join('\n')}`)}">${curto ? t.rotulo.split(' ')[0] : esc(t.rotulo)}</span>`;
+}
+
 function chipsDoLead(l, etiquetas) {
   return (l.etiquetas || []).map((tid) => etiquetas.find((t) => t.id === tid)).filter(Boolean).map((t) => chipEtiqueta(t)).join('');
 }
@@ -3779,7 +3787,7 @@ function cartaoLead(l, etiquetas) {
   const ultima = l.ultimaMensagem ? `${l.ultimaMensagem.papel === 'visitante' ? '' : l.ultimaMensagem.papel === 'equipe' ? 'Equipe: ' : 'IA: '}${l.ultimaMensagem.texto}` : '';
   return `
     <a class="cartao-lead" href="#/leads/${esc(l.id)}" draggable="true" data-lead="${esc(l.id)}">
-      <span class="cartao-topo"><span class="cartao-quem">${avatarLead(l, 'mini')}<strong>${esc(nomeDoLead(l))}</strong></span>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
+      <span class="cartao-topo"><span class="cartao-quem">${avatarLead(l, 'mini')}<strong>${esc(nomeDoLead(l))}</strong> ${seloTemperatura(l.temperatura, true)}</span>${l.precisaHumano ? '<span class="etiqueta off">chamou a equipe</span>' : ''}</span>
       ${l.etiquetas?.length || l.local?.texto ? `<span class="chips">${chipLocal(l, '', etiquetas)}${chipsDoLead(l, etiquetas)}</span>` : ''}
       <span class="rotulo cartao-texto">${esc(ultima)}</span>
       <span class="cartao-rodape">
@@ -5252,6 +5260,7 @@ async function paginaConversas(id, params) {
         <div class="inbox-filtros">
           <button type="button" class="chip-filtro ativo" data-filtro="todas">Todas</button>
           <button type="button" class="chip-filtro" data-filtro="naoLidas">Não lidas</button>
+          <button type="button" class="chip-filtro" data-filtro="quentes" title="Alta chance de venda (sem IA): perguntou de horário/preço, mandou endereço, disse que quer…">🔥 Quentes</button>
           <button type="button" class="chip-filtro" data-filtro="vendas">✅ Vendas concluídas</button>
           <button type="button" class="chip-filtro" data-filtro="iaAtiva" title="Conversas em que a IA está respondendo">🤖 IA ativa</button>
           <button type="button" class="chip-filtro" data-filtro="iaPausada" title="Conversas em que a IA está pausada (a equipe atende)">✋ IA pausada</button>
@@ -5295,7 +5304,7 @@ async function paginaConversas(id, params) {
         <button type="button" class="item-conversa ${c.id === abertoId ? 'ativo' : ''}" data-lead="${esc(c.id)}">
           ${avatarLead(c)}
           <span class="item-meio">
-            <span class="item-linha"><strong>${esc(nomeDoLead(c))}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
+            <span class="item-linha"><strong>${esc(nomeDoLead(c))} ${seloTemperatura(c.temperatura, true)}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
             <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipLocal(c)}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
@@ -5320,7 +5329,7 @@ async function paginaConversas(id, params) {
       <header class="chat-topo">
         <button type="button" class="pequeno voltar-lista" id="voltar-lista" aria-label="Voltar">←</button>
         ${l.fotoUrl ? `<a href="${esc(l.fotoUrl)}" target="_blank" rel="noopener" title="Ver a foto">${avatarLead(l)}</a>` : avatarLead(l)}
-        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a><span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto && !localJaEtiqueta(l, emp.etiquetas) ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
+        <div class="chat-quem"><a class="chat-nome" href="#/leads/${esc(l.id)}" title="Ver o perfil do lead"><strong>${esc(nomeDoLead(l))}</strong></a> ${seloTemperatura(l.temperatura)}<span class="rotulo">${esc(telefoneBonito(l.telefone)) || (l.noWhatsapp ? 'número oculto pelo WhatsApp' : 'sem WhatsApp')}</span>${l.local?.texto && !localJaEtiqueta(l, emp.etiquetas) ? `<span class="rotulo chat-local" title="Localização: ${esc(l.local.origem || '')}">📍 ${esc(l.local.texto)}</span>` : ''}</div>
         <select id="chat-etapa" title="Etapa do funil">${l.etapas.map((e) => `<option ${e === l.etapa ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
         ${interruptor('chat-ia', !l.iaPausada, 'IA')}
         ${l.noWhatsapp ? `<span title="Follow-up automático deste cliente (mensagens prontas, sem IA)">${interruptor('chat-fup', !l.followupDesligado, '🔁 Follow-up')}</span>` : ''}
@@ -5957,7 +5966,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
           return `
           <div class="seq-fup-linha seq-fup-cartao ${q.ativa ? '' : 'desligada'}">
             <div class="seq-fup-topo">${interruptor(`seq-ativa-${si}`, q.ativa, q.ativa ? 'Ligada' : 'Desligada')}<b>${esc(q.nome)}</b></div>
-            <div class="seq-fup-info"><span class="rotulo">${esc(quandoTxt(q))} · ${q.passos.length} ${q.passos.length === 1 ? 'mensagem' : 'mensagens'}: ${q.passos.map((p) => tempoTxt(p.horas)).join(' → ')}${d.porSequencia?.[q.id] ? ` · ${d.porSequencia[q.id]} na fila` : ''}</span>
+            <div class="seq-fup-info"><span class="rotulo">${esc(quandoTxt(q))}${q.paraQuem === 'quente' ? ' · <b>só 🔥 quentes</b>' : q.paraQuem === 'morno' ? ' · <b>🔥 quentes e 🌤️ mornos</b>' : ''} · ${q.passos.length} ${q.passos.length === 1 ? 'mensagem' : 'mensagens'}: ${q.passos.map((p) => tempoTxt(p.horas)).join(' → ')}${d.porSequencia?.[q.id] ? ` · ${d.porSequencia[q.id]} na fila` : ''}</span>
               <span class="seq-fup-numeros" title="Últimos 30 dias. Agendou/comprou conta para a última mensagem de follow-up que o cliente recebeu antes.">📊 30 dias: <b>${mt.receberam}</b> receberam · <b>${mt.responderam}</b> responderam${pct(mt.responderam)} · <b>${mt.agendaram}</b> agendaram${pct(mt.agendaram)} · <b>${mt.compraram}</b> compraram${pct(mt.compraram)}</span>
               ${passosQueTrouxeram ? `<span class="rotulo">🎯 Quem trouxe: ${esc(passosQueTrouxeram)}</span>` : ''}</div>
             <div class="seq-fup-midias">${[...new Set(q.passos.flatMap((p) => p.midias))].slice(0, 4).map((c) => miniatura(porCodigo[c], `title="${esc(porCodigo[c]?.nome || c)}"`)).join('')}</div>
@@ -6115,6 +6124,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
                 <option value="etiqueta" ${q.inicio.tipo === 'etiqueta' ? 'selected' : ''} ${etiquetas.length ? '' : 'disabled'}>quando recebe uma etiqueta</option>
                 <option value="etapa" ${q.inicio.tipo === 'etapa' ? 'selected' : ''}>quando entra numa etapa</option></select></div>
               <div class="campo" id="q-alvo"></div>
+              <div class="campo"><label>Para quem ${ajuda('Chance de venda calculada sem IA: soma pontos quando o cliente pergunta de horário/dia (+3), preço (+2), diz que quer (+2), manda endereço (+2), foto (+1), fala de um serviço seu (+1), conversa bastante (+1), veio de anúncio (+1); perde quando diz que vai pensar/achou caro (−2), some por dias ou cancelou. 🔥 Quente = 6 pontos ou mais · 🌤️ Morno = 3 a 5. Quem já agendou ou comprou não entra.')}</label><select id="q-para"><option value="todos" ${(q.paraQuem || 'todos') === 'todos' ? 'selected' : ''}>Todos os clientes</option><option value="quente" ${q.paraQuem === 'quente' ? 'selected' : ''}>🔥 Só os quentes (alta chance de venda)</option><option value="morno" ${q.paraQuem === 'morno' ? 'selected' : ''}>🔥 Quentes e 🌤️ mornos</option></select></div>
             </div>
             <label class="linha-check" style="margin-top:4px"><input type="checkbox" id="q-ativa" ${q.ativa ? 'checked' : ''}> Ligada</label>
             <details style="margin-top:6px"><summary class="rotulo">Mais opções</summary>
@@ -6190,6 +6200,7 @@ async function secaoFollowup(id, emp, el, editar = null) {
     desenharPassos();
     $('#q-nome').oninput = (e) => { q.nome = e.target.value; };
     $('#q-tipo').onchange = (e) => { q.inicio = { tipo: e.target.value }; desenharAlvo(); };
+    $('#q-para').onchange = (e) => { q.paraQuem = e.target.value; };
     $('#q-ativa').onchange = (e) => { q.ativa = e.target.checked; };
     $('#q-parar').onchange = (e) => { q.pararAoResponder = e.target.checked; };
     $$('[data-so-etq]', el).forEach((x) => { x.onchange = () => { q.soEtiquetas = x.checked ? [...q.soEtiquetas, x.value] : q.soEtiquetas.filter((v) => v !== x.value); }; });

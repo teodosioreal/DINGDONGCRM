@@ -269,6 +269,7 @@ function salvarConfig(empresa, b = {}) {
         inicio,
         soEtiquetas: (Array.isArray(s.soEtiquetas) ? s.soEtiquetas : []).filter((id) => etiquetas.has(id)),
         soEtapas: (Array.isArray(s.soEtapas) ? s.soEtapas : []).filter((e) => etapas.has(e)),
+        paraQuem: ['quente', 'morno'].includes(s.paraQuem) ? s.paraQuem : 'todos',
         pararAoResponder: s.pararAoResponder !== false,
         passos,
         // de onde veio (follow-up antigo devolvido / modelo de agendamento): para os números por sequência
@@ -355,6 +356,8 @@ function situacaoNa(empresa, lead, seq, f, agoraMs) {
   const manual = lead.followupManual?.seqId === seq.id ? lead.followupManual : null;
   if (!manual && seq.soEtiquetas?.length && !(lead.etiquetas || []).some((id) => seq.soEtiquetas.includes(id))) return { motivo: 'fora das etiquetas da sequência' };
   if (!manual && seq.soEtapas?.length && !seq.soEtapas.includes(lead.etapa)) return { motivo: 'fora das etapas da sequência' };
+  // "Para quem": só os clientes com alta chance de venda (🔥 quentes, ou quentes e 🌤️ mornos)
+  if (!manual && seq.paraQuem && seq.paraQuem !== 'todos' && !require('./temperatura').passa(empresa, lead, seq.paraQuem)) return { motivo: seq.paraQuem === 'quente' ? 'só para clientes 🔥 quentes' : 'só para clientes quentes e mornos' };
   const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada);
   const ultima = msgs[msgs.length - 1];
   const ultimaDoCliente = [...msgs].reverse().find((m) => m.papel === 'visitante');

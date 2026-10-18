@@ -1790,3 +1790,12 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .seq-fup-cartao { display: grid; gap: 6px; }
 .seq-fup-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .seq-fup-numeros { display: block; font-size: 13px; margin-top: 2px; }
+
+/* 🔥 chance de venda (sem IA) */
+.selo-temp { font-size: 11px; padding: 0 6px; border-radius: 99px; vertical-align: middle; cursor: help; }
+.selo-temp.quente { background: #fee2e2; color: #b91c1c; }
+.selo-temp.morno { background: #fef3c7; color: #92400e; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .selo-temp.quente { background: #4c1d1d; color: #fca5a5; } :root:not([data-theme="light"]) .selo-temp.morno { background: #45310b; color: #fcd34d; } }
+:root[data-theme="dark"] .selo-temp.quente { background: #4c1d1d; color: #fca5a5; }
+:root[data-theme="dark"] .selo-temp.morno { background: #45310b; color: #fcd34d; }
+.chat-quem .selo-temp { align-self: flex-start; width: auto; display: inline-block; }

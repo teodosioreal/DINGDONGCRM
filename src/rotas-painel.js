@@ -1770,6 +1770,8 @@ function resumoLead(c) {
     arquivadoPor: c.arquivadoPor || '',
     fonte: c.origemSite?.classificacao?.fonte || '',
     destaque: tickets.destaqueDoLead(c),
+    // chance de venda sem IA (🔥 quente / 🌤️ morno / ❄️ frio)
+    temperatura: (() => { try { return require('./temperatura').paraPainel(estado.empresas.find((e) => e.id === c.empresaId), c); } catch { return null; } })(),
     iaPausada: Boolean(c.iaPausada),
     precisaHumano: Boolean(c.precisaHumano),
     mensagens: c.mensagens.length,
@@ -1879,6 +1881,7 @@ router.get('/leads/:id', (req, res) => {
     fotoUrl: fotosClientes.urlDaFoto(c),
     local: localizacao.paraPainel(c),
     origemSite: origem.resumoOrigem(c, empresa),
+    temperatura: require('./temperatura').paraPainel(empresa, c),
     metaAds: require('./meta-ads').paraConversa(empresa, c),
     pedidos: automacoes.pedidosFeitos(c, empresa),
     temLinkAvaliacao: Boolean(whatsapp.botDoWhatsapp(empresa)?.linkAvaliacao),
@@ -2229,6 +2232,7 @@ router.get('/empresas/:id/conversas', (req, res) => {
     .filter((c) => filtro !== 'iaAtiva' || !c.iaPausada)
     .filter((c) => filtro !== 'iaPausada' || c.iaPausada)
     .filter((c) => filtro !== 'whatsapp' || c.whatsappJid)
+    .filter((c) => filtro !== 'quentes' || require('./temperatura').calcular(empresa, c).nivel === 'quente')
     .filter((c) => !busca || [c.nome, c.telefone, c.codigo, ...c.mensagens.slice(-30).map((m) => m.texto)].join(' ').toLowerCase().includes(busca))
     .map((c) => ({ ...resumoLead(c), naoLidas: c.naoLidas || 0, ultimaEm: c.mensagens[c.mensagens.length - 1]?.em || c.atualizadoEm, proximoEnvio: automacoes.proximosEnvios(c, empresa).find((p) => p.quando) || null }))
     .sort((a, b) => (a.ultimaEm < b.ultimaEm ? 1 : -1))
