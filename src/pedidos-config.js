@@ -8,7 +8,10 @@ const PEDIDOS = [
   { id: 'fup-modelo-agenda-2026-10-17', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => require('./followup').aplicarModeloAgendar(e) },
   // 18/10: na Madara o prompt ainda mandava a mídia antiga do aro (#MIDIA_22 "aro 206", desativada);
   // a atual é a #MIDIA_54 — o prompt passa a citar a nova (pedido do dono no chat)
-  { id: 'prompt-troca-midia-22-54-2026-10-18', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => trocarCodigoNoPrompt(e, 22, 54) }
+  { id: 'prompt-troca-midia-22-54-2026-10-18', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => trocarCodigoNoPrompt(e, 22, 54) },
+  // 18/10 (todas as empresas): revezamento com uma das mídias "a configurar" passa a funcionar —
+  // ela fica ativa com as informações da outra (a que você desligou de propósito continua desligada)
+  { id: 'revezamento-pronto-2026-10-18', empresaId: '*', fazer: (e) => require('./midias').ajustarRevezamentos(e) || null }
 ];
 
 // Troca, nas instruções do WhatsApp da empresa, o código de uma mídia antiga pelo da nova. Só se a
@@ -38,13 +41,15 @@ function aplicar() {
   const feitos = (estado.config.pedidosAplicados = estado.config.pedidosAplicados || {});
   for (const p of PEDIDOS) {
     if (feitos[p.id]) continue;
-    const empresa = estado.empresas.find((e) => e.id === p.empresaId);
-    if (!empresa) continue;
+    // '*': em todas as empresas
+    const empresas = p.empresaId === '*' ? estado.empresas : estado.empresas.filter((e) => e.id === p.empresaId);
+    if (!empresas.length) continue;
     try {
-      const r = p.fazer(empresa);
-      feitos[p.id] = { em: agora(), ok: Boolean(r) };
+      let ok = false;
+      for (const empresa of empresas) if (p.fazer(empresa)) ok = true;
+      feitos[p.id] = { em: agora(), ok };
       salvar();
-      console.log(`[pedidos-config] ${p.id}: ${r ? 'aplicado' : 'nada para mudar'}`);
+      console.log(`[pedidos-config] ${p.id}: ${ok ? 'aplicado' : 'nada para mudar'}`);
     } catch (err) {
       console.error(`[pedidos-config] ${p.id}:`, err.message);
     }

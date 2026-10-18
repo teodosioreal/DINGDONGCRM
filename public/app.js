@@ -3252,7 +3252,7 @@ async function paginaMidias(id) {
         ${(() => {
           const outras = lista.filter((x) => x.id !== m.id && x.tipo === m.tipo);
           const par = m.revezar ? lista.find((x) => x.id !== m.id && x.revezar === m.revezar) : null;
-          return outras.length ? `<div class="campo" style="margin-top:12px"><label>🔁 Revezar com ${ajuda('Quando a IA pedir esta mídia (ou a outra), o CRM alterna entre as duas: o 1º cliente recebe uma, o próximo cliente recebe a outra, e assim por diante. O mesmo cliente nunca recebe as duas.')}</label><select name="revezarCom"><option value="">— não revezar —</option>${outras.map((x) => `<option value="${esc(x.id)}" ${par && par.id === x.id ? 'selected' : ''}>${esc(codNum(x))} · ${esc(x.nome)}</option>`).join('')}</select><small>Ex.: dois vídeos do serviço completo — cada cliente novo recebe um, alternando.</small></div>` : '';
+          return outras.length ? `<div class="campo" style="margin-top:12px"><label>🔁 Revezar com ${ajuda('Quando a IA pedir esta mídia (ou a outra), o CRM alterna entre as duas: o 1º cliente recebe uma, o próximo cliente recebe a outra, e assim por diante. O mesmo cliente nunca recebe as duas.')}</label><select name="revezarCom"><option value="">— não revezar —</option>${outras.map((x) => `<option value="${esc(x.id)}" ${par && par.id === x.id ? 'selected' : ''}>${esc(codNum(x))} · ${esc(x.nome)}</option>`).join('')}</select><small>Ex.: dois vídeos do serviço completo — cada cliente novo recebe um, alternando. Ao ligar, as duas ficam <b>ativas</b> e a que estava sem configurar copia o "quando enviar", etapas e assuntos da outra.</small></div>` : '';
         })()}
         <div class="campo" style="margin-top:12px"><label>Álbum</label><select name="albumId"><option value="">— nenhum —</option>${albuns.map((a) => `<option value="${esc(a.id)}" ${a.id === m.albumId ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
         <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pronta" ${m.pronta === false ? '' : 'checked'}> <b>Ativa</b> — a IA já pode enviar (desmarcada = desligada: não sai de jeito nenhum, nem pelo prompt, follow-up ou automações)</label>
@@ -3267,7 +3267,8 @@ async function paginaMidias(id) {
         try {
           await api(`empresas/${id}/midias/${m.id}`, { method: 'PUT', body: { nome: f.elements.nome.value, codigo: f.elements.codigo.value, descricao: f.elements.descricao.value, etapas: lerEtapas(f), ...lerAssuntos(f), albumId: f.elements.albumId.value, pronta: f.elements.pronta.checked, umaVezPorConversa: f.elements.umaVez.checked, ...(f.elements.legenda ? { legenda: f.elements.legenda.value } : {}), ...(f.elements.revezarCom ? { revezarCom: f.elements.revezarCom.value } : {}) } });
           fechar();
-          aviso('Mídia salva.');
+          const novoPar = f.elements.revezarCom?.value && !(m.revezar && lista.some((x) => x.id === f.elements.revezarCom.value && x.revezar === m.revezar));
+          aviso(novoPar ? 'Revezamento ligado: as duas mídias estão ativas e com as mesmas regras de envio.' : 'Mídia salva.');
           paginaMidias(id);
         } catch (err) { aviso(err.message, true); }
       };

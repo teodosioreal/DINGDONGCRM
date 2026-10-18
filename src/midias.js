@@ -503,15 +503,55 @@ function definirRevezamento(empresa, midia, outroId) {
     const outra = midiasDa(empresa).find((m) => m.id === outroId && m.id !== midia.id && !m.pastaId);
     if (!outra) throw Object.assign(new Error('Escolha a outra mídia do revezamento.'), { status: 400 });
     if (outra.tipo !== midia.tipo) throw Object.assign(new Error('As mídias do revezamento precisam ser do mesmo tipo (vídeo com vídeo, foto com foto).'), { status: 400 });
+    const entrouAgora = !midia.revezar || midia.revezar !== outra.revezar;
     const grupo = outra.revezar || midia.revezar || `rev${Date.now().toString(36)}`;
     outra.revezar = grupo;
     midia.revezar = grupo;
+    // entrou no revezamento agora: o grupo todo fica pronto para funcionar
+    if (entrouAgora) ajustarGrupoRevezamento(empresa, grupo, { forcar: true });
   }
   // sobrou uma sozinha no grupo antigo: deixa de revezar
   if (antigo && antigo !== midia.revezar) {
     const restantes = midiasDa(empresa).filter((m) => m.revezar === antigo);
     if (restantes.length === 1) delete restantes[0].revezar;
   }
+}
+
+// Revezamento pronto para funcionar: quem está "a configurar" vira ATIVA e recebe da mídia mais
+// configurada do grupo o que faltar — "quando enviar", etapas, assuntos, legenda, "só no
+// follow-up" e "uma vez por conversa". forcar: também a que você tinha desligado (pausada) —
+// só quando você acabou de ligar o revezamento. Devolve quantas mudaram.
+function ajustarGrupoRevezamento(empresa, grupo, { forcar = false } = {}) {
+  const membros = midiasDa(empresa).filter((m) => m.revezar === grupo && !m.pastaId);
+  if (membros.length < 2) return 0;
+  const pontos = (m) => (prontaParaIa(m) ? 4 : 0) + (String(m.descricao || '').trim() ? 2 : 0) + ((m.etapas || []).length ? 1 : 0) + ((m.assuntos || []).length ? 1 : 0);
+  const modelo = [...membros].sort((a, b) => pontos(b) - pontos(a))[0];
+  let mudou = 0;
+  for (const m of membros) {
+    if (m.pronta !== false && !m.pausada) continue;
+    if (m.pausada && !forcar) continue; // você desligou de propósito: fica como está
+    if (m !== modelo) {
+      if (!String(m.descricao || '').trim() && modelo.descricao) m.descricao = modelo.descricao;
+      if (!(m.etapas || []).length && (modelo.etapas || []).length) m.etapas = [...modelo.etapas];
+      if (!(m.assuntos || []).length && (modelo.assuntos || []).length) m.assuntos = [...modelo.assuntos];
+      if (!m.legenda && modelo.legenda) m.legenda = modelo.legenda;
+      m.soFollowup = modelo.soFollowup === true;
+      m.umaVezPorConversa = modelo.umaVezPorConversa !== false;
+    }
+    m.pronta = true;
+    delete m.pausada;
+    if (m.aprendidaDoClone) m.donoConfirmou = true;
+    mudou++;
+  }
+  if (mudou) salvar();
+  return mudou;
+}
+
+// Revezamentos que já existiam com uma das mídias "a configurar" (antes desta regra): ficam prontos
+function ajustarRevezamentos(empresa) {
+  let n = 0;
+  for (const g of new Set(midiasDa(empresa).map((m) => m.revezar).filter(Boolean))) n += ajustarGrupoRevezamento(empresa, g);
+  return n;
 }
 
 function acharParaEnviar(empresa, ref) {
@@ -1208,6 +1248,7 @@ module.exports = {
   cloneSoAprendendo,
   liberadasParaEnvio,
   trocarArquivo,
+  ajustarRevezamentos,
   arquivoDaGravacao,
   assuntosDa,
   salvarAssuntos,
