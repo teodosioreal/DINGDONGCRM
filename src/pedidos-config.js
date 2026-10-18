@@ -16,8 +16,19 @@ const PEDIDOS = [
   { id: 'fup-antigo-de-volta-2026-10-18', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => require('./followup').restaurarFollowupAntigo(e) },
   // 18/10 (todas): mídias escolhidas no follow-up/automações que estavam "a configurar" voltam a sair
   // por lá (com a regra nova, "a configurar" não sairia mais) — viram "só no follow-up" se não têm descrição
-  { id: 'midias-do-fup-prontas-2026-10-18', empresaId: '*', fazer: (e) => require('./followup').prepararMidiasEscolhidas(e) || null }
+  { id: 'midias-do-fup-prontas-2026-10-18', empresaId: '*', fazer: (e) => require('./followup').prepararMidiasEscolhidas(e) || null },
+  // 18/10 (todas): o dono pediu para tirar as etiquetas antigas que vieram do WhatsApp e deixar só as
+  // criadas no CRM (cópia em empresa.etiquetasApagadas; quem tinha etiqueta de venda segue "já comprou")
+  { id: 'tirar-etiquetas-do-zap-2026-10-18', empresaId: '*', fazer: (e) => tirarEtiquetasDoZap(e) }
 ];
+
+function tirarEtiquetasDoZap(empresa) {
+  const leads = require('./leads');
+  const ids = leads.etiquetasDa(empresa).filter((t) => t.zapId).map((t) => t.id);
+  const r = ids.length ? leads.apagarEtiquetas(empresa, ids, { motivo: 'importadas do WhatsApp' }) : null;
+  if (r) console.log(`[pedidos-config] ${empresa.id}: ${r.etiquetas.length} etiqueta(s) do WhatsApp tirada(s) de ${Object.keys(r.marcados).length} cliente(s)${r.desligadas.length ? ` · desligado: ${r.desligadas.join(', ')}` : ''}`);
+  return r;
+}
 
 // Troca, nas instruções do WhatsApp da empresa, o código de uma mídia antiga pelo da nova. Só se a
 // antiga não está ativa e a nova está. Guarda o prompt de antes no próprio assistente.

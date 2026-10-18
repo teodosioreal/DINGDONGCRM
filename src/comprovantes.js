@@ -477,6 +477,7 @@ function jaVendeuAgora(empresa, lead) {
   const nomes = new Map(leads.etiquetasDa(empresa).map((t) => [t.id, t.nome]));
   for (const c of conversas) {
     if (c.vendaConcluidaManual && recente(c.vendaConcluidaEm)) sinais.push({ por: 'venda concluída marcada à mão', em: c.vendaConcluidaEm || '' });
+    if (c.vendeuPorEtiqueta) sinais.push({ por: `etiqueta "${c.vendeuPorEtiqueta.nome}" (apagada)`, em: c.vendeuPorEtiqueta.em || '' });
     for (const id of c.etiquetas || []) if (ehEtiquetaDeVenda(nomes.get(id) || '')) sinais.push({ por: `etiqueta "${nomes.get(id)}"`, em: c.etiquetasDesde?.[id] || '' });
     if (c.etapa && ehEtapaDeVenda(c.etapa)) sinais.push({ por: `etapa "${c.etapa}"`, em: [...(c.etapaHistorico || [])].reverse().find((h) => h.para === c.etapa)?.em || '' });
   }

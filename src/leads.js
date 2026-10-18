@@ -286,6 +286,46 @@ function etiquetasDa(empresa) {
   return empresa.etiquetas;
 }
 
+// Apaga etiquetas da empresa e tira dos clientes. O que dependia delas não fica "aberto para
+// todos": automação ou sequência de follow-up que filtrava/começava por ela é DESLIGADA.
+// Quem tinha uma etiqueta de venda continua contando como "já comprou" (vendeuPorEtiqueta).
+function apagarEtiquetas(empresa, ids, { motivo = 'apagada' } = {}) {
+  const fora = new Set(ids);
+  const apagadas = etiquetasDa(empresa).filter((t) => fora.has(t.id));
+  if (!apagadas.length) return null;
+  const ehVenda = require('./comprovantes').ehEtiquetaDeVenda;
+  const nomes = new Map(apagadas.map((t) => [t.id, t.nome]));
+  const r = { em: agora(), motivo, etiquetas: apagadas, marcados: {}, desligadas: [] };
+  empresa.etiquetas = etiquetasDa(empresa).filter((t) => !fora.has(t.id));
+  for (const c of estado.conversas) {
+    if (c.empresaId !== empresa.id) continue;
+    const tinha = (c.etiquetas || []).filter((id) => fora.has(id));
+    if (tinha.length) {
+      r.marcados[c.id] = tinha;
+      const venda = tinha.find((id) => ehVenda(nomes.get(id) || ''));
+      if (venda && !c.vendeuPorEtiqueta) c.vendeuPorEtiqueta = { nome: nomes.get(venda), em: c.etiquetasDesde?.[venda] || '' };
+      c.etiquetas = c.etiquetas.filter((id) => !fora.has(id));
+    }
+    if (c.etiquetasZap?.some((id) => fora.has(id))) c.etiquetasZap = c.etiquetasZap.filter((id) => !fora.has(id));
+  }
+  for (const regra of Array.isArray(empresa.automacoes) ? empresa.automacoes : []) {
+    if (!regra.filtro?.etiquetas?.some((id) => fora.has(id))) continue;
+    regra.filtro.etiquetas = regra.filtro.etiquetas.filter((id) => !fora.has(id));
+    if (!regra.filtro.etiquetas.length && regra.ativa !== false) { regra.ativa = false; r.desligadas.push(`automação "${regra.nome || regra.id}"`); }
+  }
+  for (const seq of empresa.followup?.sequencias || []) {
+    const comecava = seq.inicio?.tipo === 'etiqueta' && fora.has(seq.inicio.etiqueta);
+    const filtrava = seq.soEtiquetas?.some((id) => fora.has(id));
+    if (!comecava && !filtrava) continue;
+    if (filtrava) seq.soEtiquetas = seq.soEtiquetas.filter((id) => !fora.has(id));
+    if ((comecava || !seq.soEtiquetas.length) && seq.ativa) { seq.ativa = false; r.desligadas.push(`follow-up "${seq.nome || seq.id}"`); }
+  }
+  if (fora.has(empresa.whatsappConfig?.etiquetaFoto)) empresa.whatsappConfig.etiquetaFoto = '';
+  empresa.etiquetasApagadas = [...(empresa.etiquetasApagadas || []), r].slice(-10); // cópia para desfazer
+  salvar();
+  return r;
+}
+
 // O que a IA lê desta conversa: depois de "Reiniciar aprendizado da conversa", só as
 // mensagens a partir dali (o histórico continua aparecendo para a equipe)
 function historicoParaIa(lead) {
@@ -384,6 +424,7 @@ module.exports = {
   migrarFunilPadrao,
   CORES_ETIQUETA,
   etiquetasDa,
+  apagarEtiquetas,
   historicoParaIa,
   aplicarEtiqueta,
   etapasDa,

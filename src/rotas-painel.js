@@ -834,7 +834,7 @@ router.put('/empresas/:id/canais', (req, res) => {
 });
 
 // Etiquetas do CRM: lista completa { id?, nome, cor }. As que saírem da lista
-// somem dos leads e dos filtros de automação também.
+// somem dos leads; automação/follow-up que dependia delas é desligado.
 router.put('/empresas/:id/etiquetas', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
@@ -848,12 +848,9 @@ router.put('/empresas/:id/etiquetas', (req, res) => {
     const existente = atuais.find((x) => x.id === t?.id);
     nova.push({ ...(existente || {}), id: existente ? existente.id : novoId('tag'), nome, cor });
   }
-  empresa.etiquetas = nova;
   const validas = new Set(nova.map((x) => x.id));
-  for (const c of estado.conversas) {
-    if (c.empresaId === empresa.id && c.etiquetas?.some((id) => !validas.has(id))) c.etiquetas = c.etiquetas.filter((id) => validas.has(id));
-  }
-  for (const r of Array.isArray(empresa.automacoes) ? empresa.automacoes : []) if (r.filtro?.etiquetas?.length) r.filtro.etiquetas = r.filtro.etiquetas.filter((id) => validas.has(id));
+  leads.apagarEtiquetas(empresa, atuais.filter((x) => !validas.has(x.id)).map((x) => x.id));
+  empresa.etiquetas = nova;
   salvar();
   res.json(empresaComExtras(empresa, req));
 });
@@ -2422,6 +2419,7 @@ router.post('/leads/:id/venda-concluida', async (req, res) => {
     }
     delete c.vendaConcluidaManual;
     delete c.vendaConcluidaEm;
+    delete c.vendeuPorEtiqueta; // etiqueta de venda antiga (apagada): tirou daqui, libera também
     if (c.etapaAntesDaVenda && comprovantes.ehEtapaDeVenda(c.etapa || '')) leads.moverEtapa(c, empresa, c.etapaAntesDaVenda, 'equipe');
     delete c.etapaAntesDaVenda;
     comprovantes.desfazerVendido(empresa, c); // volta Agendado (CRM e WhatsApp) e o agendamento
