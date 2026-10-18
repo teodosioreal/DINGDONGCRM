@@ -2051,7 +2051,7 @@ async function enviarMidiasPedidas(empresa, lead, nomes, papel = 'assistente', {
     if (pedido.itens.length && !achadas.length) {
       const quem = papel === 'assistente' ? 'A IA quis' : 'O sistema (follow-up/automação) quis';
       resultado.itens.push({ codigo: codigoPedido, nome: pedido.alvo.nome, status: 'inativa', motivo: 'a mídia está desativada (não está pronta)' });
-      require('./alertas').registrar(empresa, 'midia', `${quem} enviar "${codigoPedido}", mas a mídia está desativada. Nada foi enviado — ative em Mídias.`, { nivel: 'aviso', leadId: lead.id });
+      require('./alertas').registrar(empresa, 'midia', `${quem} enviar "${codigoPedido}", mas a mídia não está ativa ("a configurar"). Nada foi enviado — ative em Mídias ou troque o código no prompt.`, { nivel: 'aviso', leadId: lead.id });
       continue;
     }
     // mídia "só no follow-up": a IA não manda numa conversa normal

@@ -545,24 +545,10 @@ function desligadaPeloDono(m) {
 function liberadasParaEnvio(empresa, pedido, { manual = false, daIa = false } = {}) {
   const itens = pedido?.itens || [];
   if (manual) return { itens, bloqueadas: [] };
-  const alvo = pedido.alvo;
-  const doPrompt = daIa ? codigosDoPrompt(empresa) : new Set();
-  const ligadas = daIa ? require('./catalogo').midiasLigadas(empresa) : new Map();
-  const autorizada = (c) => Boolean(c) && (doPrompt.has(c) || ligadas.has(c));
-  const ehAlbum = Boolean(alvo && !alvo.arquivo && itens.length && itens.every((m) => m.albumId === alvo.id));
-  let ok;
-  if (ehAlbum) {
-    const semDesligadas = itens.filter((m) => !desligadaPeloDono(m) && !(daIa && m.processando) && !(daIa && cloneSoAprendendo(empresa, m)));
-    const prontas = semDesligadas.filter((m) => prontaParaIa(m));
-    ok = prontas.length ? prontas : !daIa || autorizada(alvo.codigo) ? semDesligadas : [];
-  } else {
-    ok = itens.filter((m) => {
-      if (desligadaPeloDono(m)) return false;
-      if (daIa && cloneSoAprendendo(empresa, m)) return false;
-      if (!daIa || m.pastaId) return !(daIa && m.processando);
-      return prontaParaIa(m) || (autorizada(m.codigo) && !m.processando) || (autorizada(alvo?.codigo) && !m.processando);
-    });
-  }
+  // pedido do dono: mídia que não está ATIVA ("a configurar"/desligada) não sai de jeito nenhum
+  // sozinha — nem citada no prompt, nem ligada ao catálogo, nem no follow-up/automação.
+  // Álbum: vão só as fotos ativas dele. Mídia ainda sendo preparada (vídeo) também espera.
+  const ok = itens.filter((m) => prontaParaIa(m) && !desligadaPeloDono(m) && !(daIa && cloneSoAprendendo(empresa, m)));
   return { itens: ok, bloqueadas: itens.filter((m) => !ok.includes(m)) };
 }
 
@@ -570,9 +556,8 @@ function liberadasParaEnvio(empresa, pedido, { manual = false, daIa = false } = 
 function paraIa(empresa, { followup = false } = {}) {
   // mídia ligada a um serviço/produto do catálogo já está "configurada": vai quando se fala dele
   const ligadas = require('./catalogo').midiasLigadas(empresa);
-  const doPrompt = codigosDoPrompt(empresa);
-  const albunsDoPrompt = new Set(albunsDa(empresa).filter((a) => doPrompt.has(a.codigo)).map((a) => a.id));
-  const todas = midiasDa(empresa).filter((m) => !desligadaPeloDono(m) && !cloneSoAprendendo(empresa, m) && (prontaParaIa(m) || ((ligadas.has(m.codigo) || doPrompt.has(m.codigo) || albunsDoPrompt.has(m.albumId)) && !m.processando) || (m.albumId && !m.processando)));
+  // só as ATIVAS (a "a configurar" não aparece para a IA, mesmo citada no prompt)
+  const todas = midiasDa(empresa).filter((m) => prontaParaIa(m) && !desligadaPeloDono(m) && !cloneSoAprendendo(empresa, m));
   const valeAqui = (x) => followup || !x.soFollowup;
   const servicos = (codigo) => ligadas.get(codigo) || [];
   const avulsas = todas
@@ -580,7 +565,7 @@ function paraIa(empresa, { followup = false } = {}) {
     .map((m) => ({ codigo: m.codigo, numero: m.numero, nome: m.nome, quando: m.descricao, etapas: m.etapas || [], assuntos: m.assuntos || [], tipo: m.tipo, umaVez: m.umaVezPorConversa !== false, servicos: servicos(m.codigo), ...(m.tipo === 'audio' && m.fala ? { fala: String(m.fala).slice(0, 500) } : {}) }));
   const albuns = albunsDa(empresa)
     .filter(valeAqui)
-    .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: (() => { const fs_ = todas.filter((m) => m.albumId === a.id); return fs_.some((m) => prontaParaIa(m)) ? fs_.filter((m) => prontaParaIa(m)).length : ligadas.has(a.codigo) || doPrompt.has(a.codigo) ? fs_.length : 0; })(), servicos: servicos(a.codigo) }))
+    .map((a) => ({ codigo: a.codigo, numero: a.numero, nome: a.nome, quando: a.descricao, etapas: a.etapas || [], assuntos: a.assuntos || [], album: true, quantidade: todas.filter((m) => m.albumId === a.id).length, servicos: servicos(a.codigo) }))
     .filter((a) => a.quantidade > 0);
   const pastas = pastasDa(empresa)
     .map((p) => ({ codigo: p.codigo, numero: p.numero, nome: p.nome, quando: p.descricao, etapas: p.etapas || [], album: true, quantidade: todas.filter((m) => m.pastaId === p.id).length, servicos: servicos(p.codigo) }))
@@ -827,7 +812,7 @@ function instrucoesComMidias(empresa, texto, botId = '') {
 }
 
 // Códigos (mídia, álbum ou pasta) que as instruções do WhatsApp citam (com as conexões
-// automáticas): o dono mandou enviar, então a IA pode mandar mesmo "a configurar"
+// automáticas). Só para avisos e conexões: mídia "a configurar" citada aqui NÃO sai (só as ativas)
 function codigosDoPrompt(empresa) {
   const set = new Set();
   for (const bot of estado.bots.filter((b) => b.empresaId === empresa.id)) {

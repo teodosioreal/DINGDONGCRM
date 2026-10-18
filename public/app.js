@@ -1852,7 +1852,7 @@ async function paginaSite(id) {
 // ---------------------------------------------------------------- empresa: IA do WhatsApp
 
 // Lista as mídias e álbuns com foto; ao clicar, o código entra no prompt onde está o cursor.
-// Mídia "a configurar" citada no prompt também vale: o dono mandou enviar.
+// Mídia "a configurar" NÃO sai, mesmo citada no prompt (só as ativas).
 async function escolherMidiaParaPrompt(id, area) {
   let todas, albuns;
   try { [todas, albuns] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`).catch(() => [])]); } catch (err) { return aviso(err.message, true); }
@@ -3010,7 +3010,8 @@ async function paginaMidias(id) {
   const citadas = new Set((noPrompt?.citados || []).filter((c) => c.existe).map((c) => c.codigo));
   // desligada pelo dono: não sai de jeito nenhum (nem citada no prompt) — igual ao servidor
   const desligada = (m) => m.pausada === true || (m.pronta === false && Boolean((m.descricao || '').trim()));
-  const citada = (m) => !desligada(m) && (citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo)));
+  const citada = (m) => !desligada(m) && m.pronta !== false && (citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo)));
+  const citadaInativa = (m) => m.pronta === false && (citadas.has(codNum(m)) || citadas.has(codMidia(m.codigo)));
   const statusIa = (m) => m.aprendidaDoClone && !m.donoConfirmou && !desligada(m)
     ? '<span class="midia-uso fup">🧬 Cópia guardada pelo Clone (de um arquivo que você mandou à mão) — a IA só usa quando o Clone estiver atendendo. Para a IA usar sempre, abra Editar e salve como Ativa.</span>'
     : desligada(m)
@@ -3021,7 +3022,9 @@ async function paginaMidias(id) {
       ? '<span class="midia-uso ok">📌 Está no prompt — a IA manda quando o prompt pedir</span>'
       : m.pronta !== false
         ? `<span class="midia-uso ok">✅ A IA manda ${m.descricao ? 'quando combinar com a descrição' : 'quando ajudar o cliente'}</span>`
-        : `<span class="midia-uso off">⚪ A IA ainda não usa — cite <b>${esc(codNum(m))}</b> no prompt ou escreva uma descrição</span>`;
+        : citadaInativa(m)
+          ? `<span class="midia-uso off">⚠️ O prompt cita <b>${esc(codNum(m))}</b>, mas ela está "a configurar": <b>não sai</b>. Ative (Editar → Ativa) ou troque o código no prompt.</span>`
+          : '<span class="midia-uso off">⚪ A configurar — não sai. Escreva o "quando enviar" e marque Ativa.</span>';
   const cartao = (m) => `
     <div class="card midia ${selecionadas.has(m.id) ? 'selecionada' : ''} ${m.pronta === false && !citada(m) && !m.soFollowup ? 'a-configurar' : ''}">
       <label class="midia-check" title="Selecionar"><input type="checkbox" data-sel="${esc(m.id)}" ${selecionadas.has(m.id) ? 'checked' : ''}></label>

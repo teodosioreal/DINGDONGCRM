@@ -30,7 +30,7 @@ const curto = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
     const problemas = av.citados.filter((c) => !c.existe).map((c) => `${c.codigo} NÃO EXISTE`);
     for (const c of av.citados.filter((x) => x.existe)) {
       const m = midias.resolverPedido(e, c.codigo).alvo;
-      if (m && m.pronta === false) problemas.push(`${c.codigo} está "a configurar" (vale porque o prompt cita, mas fica fora do revezamento)`);
+      if (m && m.pronta === false) problemas.push(`${c.codigo} está "a configurar": o prompt cita, mas ela NÃO sai (ative ou troque o código no prompt)`);
       if (m?.revezar) for (const x of todas.filter((y) => y !== m && y.revezar === m.revezar && !midias.prontaParaIa(y))) problemas.push(`${cod(x)} reveza com ${c.codigo} mas NÃO está ativa → fica fora do revezamento`);
     }
     console.log(`    prompt cita: ${av.citados.map((c) => c.codigo).join(' ')}`);
