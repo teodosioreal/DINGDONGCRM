@@ -1906,6 +1906,9 @@ router.get('/leads/:id', (req, res) => {
     ultimaVenda: (() => { const v = (estado.vendas || []).filter((x) => x.leadId === c.id && x.status !== 'cancelada').pop(); return v ? { id: v.id, valor: v.valor, status: v.status, data: v.data, descricao: v.descricao || '' } : null; })(),
     tickets: tickets.ticketsDoLead(c),
     proximosEnvios: automacoes.proximosEnvios(c, empresa),
+    // por que o follow-up NÃO vai sair para este cliente (null = vai sair: aparece na contagem)
+    followupMotivo: (() => { try { return require('./followup').situacao(empresa, c).motivo || null; } catch { return null; } })(),
+    followupManual: Boolean(c.followupManual),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     listaNegra: leads.naListaNegra(empresa, c),

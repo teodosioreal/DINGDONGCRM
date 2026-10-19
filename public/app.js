@@ -4975,9 +4975,19 @@ function ligarRelogio() {
 const estaOlhando = () => document.visibilityState === 'visible' && document.hasFocus();
 
 // Faixa na conversa: o que vai sair para o cliente e quando (com cronômetro)
+// Por que o follow-up não sai para este cliente (fica visível na conversa em vez de "sumir")
+function linhaFollowupParado(l) {
+  const m = l.followupMotivo;
+  if (!m || (l.proximosEnvios || []).some((p) => p.tipo === 'followup')) return '';
+  const desligadoGeral = m === 'desligado';
+  const texto = desligadoGeral ? 'o follow-up está <b>desligado</b> na empresa — nada é programado (nem o automático, nem o colocado à mão)' : esc(m);
+  return `<div class="proximo fup-parado"><span class="relogio">⏸️</span><span class="proximo-texto"><b>Follow-up${l.followupManual ? ' (à mão)' : ''}:</b> não vai sair · <span class="rotulo">${texto}</span></span>${desligadoGeral ? `<a class="pequeno botao" href="${rotaEmpresa(l.empresaId, 'followup')}">Ligar o follow-up</a>` : ''}</div>`;
+}
+
 function htmlProximos(l) {
   const lista = l.proximosEnvios || [];
-  if (!lista.length) return '';
+  const parado = linhaFollowupParado(l);
+  if (!lista.length) return parado ? `<div class="proximos-envios">${parado}</div>` : '';
   // avaliação no Google / comentário no anúncio: "Enviar agora" (a contagem para e a automação não manda de novo)
   const pedido = (p) => (p.receita === 'avaliacao' || p.receita === 'comentario' ? p.receita : '');
   return `<div class="proximos-envios">${lista.map((p) => `
@@ -4987,7 +4997,7 @@ function htmlProximos(l) {
       <span class="proximo-texto"><b>${esc(p.titulo)}</b>${p.detalhe ? ` · <span class="rotulo">${esc(p.detalhe.slice(0, 90))}</span>` : ''}${p.quando ? ` <span class="rotulo">(${esc(new Date(p.quando).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))})</span>` : ''}</span>
       ${pedido(p) ? `<button type="button" class="pequeno primario" data-pedido-agora="${esc(pedido(p))}">Enviar agora</button>` : ''}
       ${p.tipo === 'pedido' ? '' : `<button type="button" class="link-botao" ${p.tipo === 'agendada' ? `data-cancelar="${esc(p.id)}"` : `data-pular-automacao="${esc(p.id)}"`}>${p.tipo === 'agendada' ? 'cancelar' : 'não enviar'}</button>`}
-    </div>`).join('')}</div>`;
+    </div>`).join('')}${parado}</div>`;
 }
 
 function ligarProximos(raiz, leadId, depois) {
