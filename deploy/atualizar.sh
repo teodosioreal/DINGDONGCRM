@@ -105,6 +105,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-ultimo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
   echo "    Meta Ads (anônimo: configuração, código do atendimento, fbclid e o site):"
   CRM_DB_PATH="$DB_CRM" timeout 90 node deploy/diagnostico-meta.js 2>&1 | head -n 40 || true
+  echo "    Custo por lead (cópia do banco, só contagens e somas):"
+  CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-custo-lead.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 30 || true
   echo "    Mídias do Clone e mídias enviadas (3 dias, só códigos e nomes de arquivo):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-clone-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 45 || true
   echo "    Agendamentos e funil (28 dias, só contagens e tempos):"
