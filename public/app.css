@@ -1810,4 +1810,3 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
   .gastos-numeros .numero-card .numero { font-size: clamp(16px, 4.8vw, 24px); white-space: nowrap; overflow-wrap: normal; }
   .gastos-numeros .numero-card { padding: 12px; min-width: 0; }
 }
-.chat-custo { white-space: normal; }

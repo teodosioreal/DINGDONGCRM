@@ -420,7 +420,6 @@ const INDICE_BUSCA = [
   ['Link do anúncio (Instagram/Facebook)', 'automacoes', 'Link do anúncio', 'link anuncio instagram facebook'],
   ['Disparo em massa', 'disparos', '', 'campanha enviar para todos lista promocao broadcast massa'],
   ['Vendas e comprovantes (Pix)', 'faturamento', 'Vendas', 'venda pix comprovante faturamento recibo'],
-  ['Custo por lead e por venda (anúncios)', 'faturamento', 'Anúncios: quanto custou', 'custo por lead cpl cac custo por venda quanto custou cliente anuncio retorno roas investimento trafego'],
   ['Gastos e lucro', 'faturamento', 'Gastos por categoria|Faturamento e gastos', 'gasto despesa custo lucro categoria'],
   ['Etiquetas', 'organizar', 'Etiquetas do CRM', 'etiqueta etiquetas tag label marcar cliente criar etiqueta renomear cor'],
   ['Etapas do funil', 'organizar', 'Etapas do funil', 'etapa funil kanban coluna'],
@@ -555,16 +554,6 @@ function linhaOrigem(o) {
   if (atual) partes.push(`estava vendo ${linkPagina(atual)}`);
   if (o.manual) partes.push(`📝 ${esc(o.manual)}`);
   return `<div class="chat-origem" title="${esc(partes.join(' · ').replace(/<[^>]+>/g, ''))}">${partes.join(' · ')}</div>`;
-}
-
-// 💰 Quanto este cliente custou (média do anúncio no mês em que chegou) e quanto comprou
-function linhaCustoLead(c) {
-  if (!c) return '';
-  const nomeMes = new Date(`${c.mes}-15T12:00:00`).toLocaleDateString('pt-BR', { month: 'long' });
-  const custou = c.custou != null ? `custou <b>~${esc(brl(c.custou))}</b>` : `<span class="rotulo">custo: lance o gasto com anúncios de ${esc(nomeMes)} (categoria Marketing) no Faturamento</span>`;
-  const comprou = c.comprou ? `comprou <b>${esc(brl(c.comprou))}</b>` : 'ainda não comprou';
-  const lucro = c.lucro != null ? ` · lucro <b class="${c.lucro >= 0 ? 'margem-ok' : 'margem-ruim'}">${esc(brl(c.lucro))}</b>` : '';
-  return `<div class="chat-origem chat-custo" title="Custo do lead = gasto com anúncios do mês em que ele chegou ÷ leads de anúncio desse mês">💰 Veio de anúncio · ${custou} · ${comprou}${lucro}</div>`;
 }
 
 // 📣 Meta Ads na conversa: o cliente veio de anúncio (o CRM pegou o fbclid do clique)
@@ -4117,7 +4106,6 @@ async function paginaLead(leadId) {
     ${l.precisaHumano ? balao('Este cliente está esperando alguém da equipe', 'A IA passou o atendimento para vocês. Responda aqui embaixo ou pelo celular.', 'aviso') : ''}
     <div class="lead-grade">
       <div>
-        ${linhaCustoLead(l.custoLead)}
         ${htmlPedidos(l)}
         ${htmlProximos(l)}
         <div class="conversa" id="linha-tempo">
@@ -5335,7 +5323,6 @@ async function paginaConversas(id, params) {
       ${l.arquivado ? `<div class="chat-aviso">🗄️ Conversa ${esc(l.arquivadoPor || 'arquivada')}. Se o cliente mandar mensagem, ela volta sozinha para a lista.</div>` : ''}
       ${linhaOrigem(l.origemSite)}
       ${linhaMeta(l.metaAds)}
-      ${linhaCustoLead(l.custoLead)}
       ${htmlPedidos(l)}
       ${l.iaReiniciadaEm ? `<div class="chat-aviso">🔄 Aprendizado desta conversa reiniciado em ${esc(data(l.iaReiniciadaEm))}: a IA só lê as mensagens daqui para frente. <button type="button" class="link-botao" id="chat-reiniciar-desfazer">Desfazer</button></div>` : ''}
       ${l.iaDesligadaPor ? `<div class="chat-aviso">${{ venda: '💰', agenda: '📅', empresa: '🏢' }[l.iaDesligadaPor] || '🤖'} ${esc(l.iaPausadaMotivo || 'IA desligada nesta conversa.')}${l.iaDesligadaPor === 'empresa' ? '' : ' <button type="button" class="pequeno" id="ligar-ia-desligada">Ligar a IA</button>'}</div>` : ''}
@@ -7023,32 +7010,12 @@ function htmlGastos(gd) {
         ${numeroCard('Gastos', brl(r.gastos), 'gasto')}
         ${numeroCard(r.lucro >= 0 ? 'Sobrou (lucro)' : 'Faltou (prejuízo)', brl(r.lucro), r.lucro >= 0 ? 'lucro' : 'prejuizo')}
       </div>
-      ${htmlAnuncios(gd.anuncios)}
       ${r.porCategoria.length ? `<h3 style="margin:14px 0 8px">Gastos por categoria</h3><div class="gastos-categorias">${r.porCategoria.map((x) => `<div class="cat-gasto"><span class="cat-nome">${esc(x.categoria)}</span><span class="cat-barra"><span style="width:${maior ? Math.max(3, (x.total / maior) * 100) : 0}%"></span></span><b>${brl(x.total)}</b><span class="rotulo">${r.gastos ? Math.round((x.total / r.gastos) * 100) : 0}%</span></div>`).join('')}</div>` : '<p class="rotulo" style="margin:12px 0 0">Nenhum gasto neste mês ainda.</p>'}
       ${gd.gastos.length ? `<details class="gastos-lista" style="margin-top:12px"><summary>Ver os ${gd.gastos.length} gasto(s) do mês</summary>
         <table><thead><tr><th>Data</th><th>Gasto</th><th>Categoria</th><th>Valor</th><th class="esconde-mobile">Como entrou</th><th></th></tr></thead><tbody>
         ${gd.gastos.map((g) => `<tr><td style="white-space:nowrap">${data(g.data)}</td><td>${esc(g.descricao || '—')}${g.autor ? `<br><span class="rotulo">por ${esc(g.autor)}</span>` : ''}</td><td>${esc(g.categoria)}</td><td style="white-space:nowrap"><b>${brl(g.valor)}</b></td><td class="esconde-mobile rotulo">${ORIGEM[g.lidoPor] || esc(g.lidoPor || '')}${g.comprovanteUrl ? `<br><a href="${esc(g.comprovanteUrl)}" target="_blank" rel="noopener">ver comprovante</a>` : ''}</td><td><button type="button" class="pequeno" data-editar-gasto="${esc(g.id)}">Editar</button></td></tr>`).join('')}
         </tbody></table></details>` : ''}
     </div>`;
-}
-
-// 📣 Quanto custou cada lead e cada venda que veio de anúncio (no mês)
-function htmlAnuncios(a) {
-  if (!a || (!a.investimento && !a.leadsAnuncio)) return '';
-  const ou = (v, t = '—') => (v == null ? t : v);
-  return `
-    <h3 style="margin:14px 0 4px">📣 Anúncios: quanto custou cada cliente</h3>
-    <p class="rotulo" style="margin:0 0 8px">Investimento = gastos do mês na categoria <b>Marketing</b>. ${a.leadsAnuncio} de ${a.leadsNovos} lead(s) novos vieram de anúncio.</p>
-    ${a.investimento ? '' : '<p class="rotulo aviso-texto" style="margin:0 0 8px">Lance quanto gastou com anúncios no mês (+ Lançar gasto → Marketing, ou no grupo: "gastei 300 anúncio") para ver o custo por lead e por venda.</p>'}
-    <div class="grade-resumo gastos-numeros">
-      ${numeroCard('Investido em anúncios', brl(a.investimento), 'gasto')}
-      ${numeroCard('Custo por lead', a.custoPorLead != null ? brl(a.custoPorLead) : '—')}
-      ${numeroCard('Custo por venda', a.custoPorVenda != null ? brl(a.custoPorVenda) : '—')}
-      ${numeroCard(`Vendeu (${a.clientesAnuncio} cliente${a.clientesAnuncio === 1 ? '' : 's'})`, brl(a.faturamentoAnuncio), 'lucro')}
-      ${numeroCard('Retorno', a.retorno != null ? `${String(a.retorno).replace('.', ',')}x` : '—', a.retorno != null && a.retorno < 1 ? 'prejuizo' : '')}
-      ${a.investimento ? numeroCard(a.lucroAnuncio >= 0 ? 'Lucro dos anúncios' : 'Prejuízo dos anúncios', brl(a.lucroAnuncio), a.lucroAnuncio >= 0 ? 'lucro' : 'prejuizo') : ''}
-    </div>
-    <p class="rotulo" style="margin:6px 0 0">Retorno ${ou(a.retorno != null ? `${String(a.retorno).replace('.', ',')}x` : null)} = cada R$ 1 em anúncio virou ${a.retorno != null ? esc(brl(a.retorno)) : '—'} em vendas. O lucro desconta o investimento e o custo dos produtos vendidos.</p>`;
 }
 
 function ligarGastos(id, gd, recarregar) {

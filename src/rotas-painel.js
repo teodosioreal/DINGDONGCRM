@@ -1909,7 +1909,6 @@ router.get('/leads/:id', (req, res) => {
     // por que o follow-up NÃO vai sair para este cliente (null = vai sair: aparece na contagem)
     followupMotivo: (() => { try { return require('./followup').situacao(empresa, c).motivo || null; } catch { return null; } })(),
     followupManual: Boolean(c.followupManual),
-    custoLead: (() => { try { return require('./custo-lead').doLead(empresa, c); } catch { return null; } })(),
     anunciosEmpresa: origem.anunciosDa(empresa).map((a) => ({ id: a.id, nome: a.nome })),
     etiquetas: c.etiquetas || [],
     listaNegra: leads.naListaNegra(empresa, c),
@@ -3432,7 +3431,7 @@ router.get('/empresas/:id/gastos', (req, res) => {
     .filter((g) => gastos.mesDe(g.data) === mes)
     .sort((a, b) => (a.data < b.data ? 1 : -1))
     .map(gastoPublico);
-  res.json({ resumo: gastos.resumo(empresa, mes), anuncios: require('./custo-lead').doMes(empresa, mes), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
+  res.json({ resumo: gastos.resumo(empresa, mes), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
 });
 
 router.get('/empresas/:id/gastos/grupos', async (req, res) => {
