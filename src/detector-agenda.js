@@ -369,4 +369,4 @@ function revisarRecentes() {
   }
 }
 
-module.exports = { pelaFrase, horarioDaConversa, pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE, ACEITE_FIRME, TEM_HORA, EMPRESA_CONFIRMA, DUVIDA };
+module.exports = { porIa, pelaFrase, horarioDaConversa, pelaEtiqueta, etiquetaTirada, ehEtiquetaAgendado, observar, conferir, aplicar, porCodigo, revisarRecentes, ACEITE, ACEITE_FIRME, TEM_HORA, EMPRESA_CONFIRMA, DUVIDA };
