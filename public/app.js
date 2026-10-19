@@ -401,6 +401,7 @@ const INDICE_BUSCA = [
   ['Respostas rápidas (/atalho)', 'midias', 'Respostas rápidas', 'atalho /preco resposta pronta barra rapida'],
   ['Links (site, Instagram, catálogo)', 'midias', 'Links', 'link site instagram catalogo url endereco'],
   ['Serviços e preços (catálogo)', 'catalogo', 'Cadastre o que você vende', 'preco valor tabela produto servico catalogo quanto custa'],
+  ['Custo e margem de lucro do produto', 'catalogo', 'Custo para você', 'custo margem lucro produto quanto ganho por venda custo fixo material'],
   ['Sobre a empresa (o que a IA sabe)', 'ia', '', 'informacoes empresa endereco conhecimento treinar nome atendente horario de funcionamento'],
   ['Clone (responder igual a mim)', 'aprendizado', 'Clone', 'clone aprender responder igual a mim copiar meu jeito'],
   ['O que a IA aprendeu', 'aprendizado', 'O que a IA aprendeu', 'aprendizado aprendeu correcoes'],
@@ -1525,6 +1526,22 @@ function miniaturaMidia(o, extra = '') {
   return `<span class="mini-midia ${extra}" title="${esc(o.nome)} · ${esc(o.numero ? `#MIDIA_${o.numero}` : codMidia(o.codigo))}">${o.capa ? `<img src="${esc(o.capa)}" alt="" loading="lazy">` : `<span>${icone}</span>`}${o.tipo === 'video' ? '<i>▶</i>' : o.tipo === 'album' ? `<i>${o.quantidade || ''}</i>` : ''}</span>`;
 }
 
+// "1.234,50" → 1234.5 (vazio → null)
+function lerValorBr(s) {
+  let v = String(s ?? '').replace(/[^\d.,]/g, '');
+  if (!v) return null;
+  if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.');
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+// "Custo R$ 45,00 · Margem R$ 105,00 (70%)"
+function textoMargem(x) {
+  const preco = x.preco ?? x.precoAte;
+  const valor = Math.round((preco - x.custo) * 100) / 100;
+  const pct = preco > 0 ? Math.round((valor / preco) * 100) : 0;
+  return `<span class="rotulo">Custo ${esc(brl(x.custo))} · Margem </span><b class="${valor >= 0 ? 'margem-ok' : 'margem-ruim'}">${esc(brl(valor))} (${pct}%)</b>`;
+}
+
 async function paginaCatalogo(id) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -1566,6 +1583,7 @@ async function paginaCatalogo(id) {
               <div class="cat-linha1"><span class="etiqueta ${x.tipo === 'produto' ? 'aviso' : 'ok'}">${TIPO_CATALOGO[x.tipo]}</span>${x.categoria ? `<span class="rotulo">${esc(x.categoria)}</span>` : ''}</div>
               <strong class="cat-nome">${esc(x.nome)}</strong>
               <div class="cat-preco">${esc(precoBonito(x))}${x.precoObs && (x.preco != null || x.precoAte != null) ? ` <span class="rotulo">${esc(x.precoObs)}</span>` : ''}</div>
+              ${x.custo != null ? `<div class="cat-margem">${textoMargem(x)}</div>` : ''}
               ${x.duracao ? `<div class="rotulo">⏱ ${esc(x.duracao)}</div>` : ''}
               ${x.descricao ? `<p class="cat-desc">${esc(x.descricao)}</p>` : ''}
             </div>
@@ -1597,7 +1615,7 @@ async function paginaCatalogo(id) {
 }
 
 function editorCatalogo(id, emp, opcoes, item, depois) {
-  const x = item || { tipo: 'servico', nome: '', categoria: '', preco: null, precoAte: null, precoObs: '', duracao: '', descricao: '', midias: [], ativo: true };
+  const x = item || { tipo: 'servico', nome: '', categoria: '', preco: null, precoAte: null, precoObs: '', custo: null, duracao: '', descricao: '', midias: [], ativo: true };
   const escolhidas = new Set(x.midias);
   const num = (v) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const categorias = [...new Set((emp.catalogoCategorias || []))];
@@ -1610,6 +1628,7 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
         <div class="campo"><label>Preço (R$)</label><input name="preco" inputmode="decimal" value="${esc(num(x.preco))}" placeholder="350,00"></div>
         <div class="campo"><label>Até (R$) <span class="rotulo">— se for faixa</span></label><input name="precoAte" inputmode="decimal" value="${esc(num(x.precoAte))}" placeholder="opcional"></div>
         <div class="campo"><label>Sobre o preço</label><input name="precoObs" maxlength="120" value="${esc(x.precoObs)}" placeholder="a partir de · no Pix · em até 3x"></div>
+        <div class="campo"><label>Custo para você (R$) ${ajuda('Quanto você gasta para entregar 1 unidade (material, capa, linha…). Só aparece aqui no painel: a IA e o cliente nunca veem. Entra no lucro do Faturamento.')}</label><input name="custo" inputmode="decimal" value="${esc(num(x.custo))}" placeholder="Ex.: 45,00"><span class="rotulo" id="cat-margem-viva"></span></div>
         <div class="campo"><label>${x.tipo === 'produto' ? 'Prazo de entrega' : 'Duração / prazo'}</label><input name="duracao" maxlength="80" value="${esc(x.duracao)}" placeholder="Ex.: 2 horas · fica pronto no mesmo dia"></div>
         <div class="campo"><label>Categoria <span class="rotulo">— opcional</span></label><input name="categoria" maxlength="60" value="${esc(x.categoria)}" list="cat-categorias" placeholder="Ex.: Serviços, Produtos, Pacotes"><datalist id="cat-categorias">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
         <div class="campo largo"><label>Detalhes para a IA usar ${ajuda('O que está incluso, materiais, cores, garantia, condições. Só o que for verdade: a IA usa isto para responder.')}</label><textarea name="descricao" maxlength="1500" style="min-height:90px" placeholder="Ex.: Couro legítimo, costura à mão, cores preto e caramelo, garantia de 1 ano.">${esc(x.descricao)}</textarea></div>
@@ -1625,6 +1644,15 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
     </form>`, (m, fechar) => {
     const qtd = () => { const q = $('#cat-qtd', m); if (q) q.textContent = escolhidas.size ? `· ${escolhidas.size} escolhida(s)` : ''; };
     qtd();
+    // margem na hora, enquanto digita o preço e o custo
+    const f = $('#f-cat', m);
+    const margemViva = () => {
+      const el = $('#cat-margem-viva', m);
+      const v = { preco: lerValorBr(f.elements.preco.value), precoAte: lerValorBr(f.elements.precoAte.value), custo: lerValorBr(f.elements.custo.value) };
+      el.innerHTML = v.custo != null && (v.preco ?? v.precoAte) != null ? textoMargem(v) : '';
+    };
+    ['preco', 'precoAte', 'custo'].forEach((n) => f.elements[n].addEventListener('input', margemViva));
+    margemViva();
     $$('.opcao-midia', m).forEach((b) => {
       b.onclick = () => { const c = b.dataset.codigo; if (escolhidas.has(c)) escolhidas.delete(c); else escolhidas.add(c); b.classList.toggle('marcada', escolhidas.has(c)); qtd(); };
     });
@@ -6844,6 +6872,7 @@ async function paginaFaturamento(id, params) {
           <div><span class="rotulo">${per.de ? (per.de === per.ate ? per.de.split('-').reverse().join('/') : `${per.de.split('-').reverse().join('/')} a ${per.ate.split('-').reverse().join('/')}`) : 'Todo o período'}</span><b>${brl(d.periodo.total)}</b></div>
           <div><span class="rotulo">Vendas confirmadas</span><b>${d.periodo.vendas}</b></div>
           <div><span class="rotulo">Ticket médio</span><b>${brl(d.periodo.ticket)}</b></div>
+          ${d.periodo.custo ? `<div><span class="rotulo">Custo dos produtos</span><b>${brl(d.periodo.custo)}</b></div><div><span class="rotulo">Lucro das vendas</span><b class="margem-ok">${brl(d.periodo.lucro)}</b>${d.periodo.semCusto ? `<span class="rotulo">${d.periodo.semCusto} venda(s) sem custo</span>` : ''}</div>` : ''}
           ${d.periodo.aConferir ? `<div><span class="rotulo">A conferir</span><b class="aviso-texto">${d.periodo.aConferir}</b></div>` : ''}
         </div>
       </div>
@@ -6854,7 +6883,7 @@ async function paginaFaturamento(id, params) {
             <tr class="${v.status === 'cancelada' ? 'cancelada' : ''}">
               <td style="white-space:nowrap">${data(v.data)}</td>
               <td>${v.leadId ? `<a href="#/leads/${esc(v.leadId)}">${esc(v.cliente || v.leadNome || 'Cliente')}</a>` : esc(v.cliente || v.pagador || '—')}${v.descricao ? `<br><span class="rotulo">${esc(v.descricao)}</span>` : ''}</td>
-              <td style="white-space:nowrap"><b>${brl(v.valor)}</b><br><span class="rotulo">${esc(v.forma)}</span></td>
+              <td style="white-space:nowrap"><b>${brl(v.valor)}</b><br><span class="rotulo">${esc(v.forma)}</span>${v.custoInfo ? `<br><span class="rotulo" title="${esc(v.custoInfo.item ? `Custo de ${v.custoInfo.item}` : 'Custo da venda')}${v.custoInfo.estimado ? ' (estimado pelo preço — escolha o produto em Editar para confirmar)' : ''}">custo ${brl(v.custoInfo.custo)}${v.custoInfo.estimado ? '*' : ''} · lucro <b class="${v.valor - v.custoInfo.custo >= 0 ? 'margem-ok' : 'margem-ruim'}">${brl(Math.round((v.valor - v.custoInfo.custo) * 100) / 100)}</b></span>` : ''}</td>
               <td class="esconde-mobile rotulo">${ROTULO_ORIGEM[v.lidoPor] || esc(v.lidoPor || '—')}${v.comprovanteUrl ? `<br><a href="${esc(v.comprovanteUrl)}" target="_blank" rel="noopener">ver comprovante</a>` : ''}</td>
               <td>${v.status === 'confirmada' ? '<span class="etiqueta ok">✓ Confirmada</span>' : v.status === 'conferir' ? `<span class="etiqueta aviso">⚠ A conferir</span><br><span class="rotulo">${esc(v.motivoConferir)}</span>` : '<span class="etiqueta off">✕ Cancelada</span>'}</td>
               <td style="white-space:nowrap">
@@ -6967,6 +6996,7 @@ function htmlGastos(gd) {
       ${grupo}
       <div class="grade-resumo gastos-numeros">
         ${numeroCard('Faturamento', brl(r.faturamento))}
+        ${r.custoVendas ? numeroCard('Custo dos produtos', brl(r.custoVendas), 'gasto') : ''}
         ${numeroCard('Gastos', brl(r.gastos), 'gasto')}
         ${numeroCard(r.lucro >= 0 ? 'Sobrou (lucro)' : 'Faltou (prejuízo)', brl(r.lucro), r.lucro >= 0 ? 'lucro' : 'prejuizo')}
       </div>
@@ -7198,10 +7228,39 @@ function modalVenda(emp, v, leadId, depois, padrao = {}) {
         <div class="campo"><label>Forma de pagamento</label><select name="forma">${['Pix', 'Dinheiro', 'Cartão', 'Boleto', 'Transferência', 'Outro'].map((f) => `<option ${f === (v?.forma || 'Pix') ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
         <div class="campo"><label>Data</label><input type="datetime-local" name="data" value="${local}"></div>
         <div class="campo"><label>Cliente</label><input name="cliente" value="${esc(v?.cliente || padrao.cliente || '')}" placeholder="Nome do cliente"></div>
+        <div class="campo"><label>Produto/serviço ${ajuda('Escolha da sua lista de Serviços e preços: o custo dele entra no lucro.')}</label><select name="itemId"><option value="">— nenhum —</option>${v?.itemId ? `<option value="${esc(v.itemId)}" selected>${esc(v.itemNome || 'Produto escolhido')}</option>` : ''}</select></div>
+        <div class="campo"><label>Custo desta venda (R$) ${ajuda('Vem do produto escolhido. Pode mudar (ex.: vendeu 2 unidades). Vazio = usa o custo do produto.')}</label><input name="custo" inputmode="decimal" value="${v?.custo != null ? esc(String(v.custo).replace('.', ',')) : ''}" placeholder="${v?.custoInfo?.estimado ? esc(`${brl(v.custoInfo.custo)} (estimado)`) : 'opcional'}"></div>
         <div class="campo largo"><label>O que foi vendido (opcional)</label><input name="descricao" value="${esc(v?.descricao || '')}" placeholder="Ex.: o que foi vendido"></div>
       </div>
+      <p class="rotulo" id="venda-lucro" style="margin:4px 0 0"></p>
       <div class="acoes"><button class="primario" type="submit">Salvar</button><button type="button" data-fechar>Cancelar</button>${v ? '<button type="button" class="perigo" id="apagar-venda" style="margin-left:auto">Apagar</button>' : ''}</div>
     </form>`, (m, fechar) => {
+    // produtos/serviços do catálogo: escolher preenche o valor (se vazio) e o custo
+    const fv = $('#f-venda', m);
+    let itens = [];
+    const lucroVivo = () => {
+      const valor = lerValorBr(fv.elements.valor.value);
+      const item = itens.find((x) => x.id === fv.elements.itemId.value);
+      const custo = lerValorBr(fv.elements.custo.value) ?? item?.custo ?? null;
+      $('#venda-lucro', m).innerHTML = valor != null && custo != null ? `Lucro desta venda: <b class="${valor - custo >= 0 ? 'margem-ok' : 'margem-ruim'}">${esc(brl(Math.round((valor - custo) * 100) / 100))}</b>` : '';
+    };
+    api(`empresas/${emp.id}/catalogo`).then((d) => {
+      itens = d.itens || [];
+      const sel = fv.elements.itemId;
+      sel.insertAdjacentHTML('beforeend', itens.filter((x) => x.id !== v?.itemId || !sel.querySelector(`option[value="${CSS.escape(x.id)}"]`)).map((x) => `<option value="${esc(x.id)}" ${x.id === v?.itemId ? 'selected' : ''}>${esc(x.nome)}${x.custo != null ? ` · custo ${esc(brl(x.custo))}` : ''}</option>`).join(''));
+      lucroVivo();
+    }).catch(() => {});
+    fv.elements.itemId.addEventListener('change', () => {
+      const item = itens.find((x) => x.id === fv.elements.itemId.value);
+      if (item) {
+        if (!fv.elements.valor.value && (item.preco ?? item.precoAte) != null) fv.elements.valor.value = String(item.preco ?? item.precoAte).replace('.', ',');
+        fv.elements.custo.value = item.custo != null ? String(item.custo).replace('.', ',') : '';
+        if (!fv.elements.descricao.value) fv.elements.descricao.value = item.nome;
+      }
+      lucroVivo();
+    });
+    fv.elements.valor.addEventListener('input', lucroVivo);
+    fv.elements.custo.addEventListener('input', lucroVivo);
     $('#f-venda', m).onsubmit = async (e) => {
       e.preventDefault();
       const f = formParaObjeto(e.target);

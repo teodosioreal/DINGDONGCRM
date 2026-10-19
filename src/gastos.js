@@ -363,11 +363,15 @@ function resumo(empresa, mes) {
     .filter((v) => v.status === 'confirmada' && mesDe(v.data) === alvo);
   const faturamento = soma(vendasMes);
   const gastos = soma(doMes);
+  // custo dos produtos/serviços vendidos (cadastrado em Serviços e preços)
+  const custos = require('./catalogo').somarCustos(empresa, vendasMes);
   return {
     mes: alvo,
     faturamento,
     gastos,
-    lucro: Math.round((faturamento - gastos) * 100) / 100,
+    custoVendas: custos.custo,
+    vendasSemCusto: custos.semCusto,
+    lucro: Math.round((faturamento - custos.custo - gastos) * 100) / 100,
     quantidade: doMes.length,
     porCategoria: Object.entries(porCategoria)
       .map(([categoria, total]) => ({ categoria, total: Math.round(total * 100) / 100 }))

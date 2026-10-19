@@ -1271,6 +1271,11 @@ html.dark .pi-tag.aviso { color: #fbbf24; }
 .cat-linha1 { display: flex; gap: 8px; align-items: center; }
 .cat-nome { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
 .cat-preco { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.cat-margem { font-size: 13px; }
+.margem-ok { color: var(--ok-texto); }
+.margem-ruim { color: var(--perigo); }
+#cat-margem-viva { display: block; margin-top: 4px; font-size: 13px; }
+.periodo-vendas > div > .rotulo + b + .rotulo { display: block; font-size: 11px; }
 .cat-desc { margin: 4px 0 0; font-size: 13px; color: var(--suave); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cat-rodape { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--borda); background: color-mix(in srgb, var(--borda) 15%, transparent); }
 .cat-acoes { display: inline-flex; gap: 6px; }
@@ -1799,3 +1804,9 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 :root[data-theme="dark"] .selo-temp.quente { background: #4c1d1d; color: #fca5a5; }
 :root[data-theme="dark"] .selo-temp.morno { background: #45310b; color: #fcd34d; }
 .chat-quem .selo-temp { align-self: flex-start; width: auto; display: inline-block; }
+
+/* faturamento e gastos (cartão dentro do cartão): valor numa linha só no celular */
+@media (max-width: 640px) {
+  .gastos-numeros .numero-card .numero { font-size: clamp(16px, 4.8vw, 24px); white-space: nowrap; overflow-wrap: normal; }
+  .gastos-numeros .numero-card { padding: 12px; min-width: 0; }
+}

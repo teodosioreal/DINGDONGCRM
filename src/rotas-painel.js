@@ -3203,6 +3203,7 @@ function vendaPublica(v) {
     ...resto,
     cliente: v.cliente || lead?.nome || '',
     leadNome: lead ? lead.nome || (lead.telefone ? `+${lead.telefone}` : 'Lead') : '',
+    custoInfo: require('./catalogo').custoDaVenda(estado.empresas.find((e) => e.id === v.empresaId) || {}, v),
     comprovanteUrl: v.anexo ? `api/empresas/${v.empresaId}/vendas/${v.id}/comprovante` : ''
   };
 }
@@ -3241,6 +3242,8 @@ router.get('/empresas/:id/faturamento', (req, res) => {
     aConferir: noPeriodo.filter((v) => v.status === 'conferir').length,
     canceladas: noPeriodo.filter((v) => v.status === 'cancelada').length
   };
+  const custos = require('./catalogo').somarCustos(empresa, confirmadas);
+  Object.assign(periodo, { custo: custos.custo, lucro: custos.lucro, semCusto: custos.semCusto });
   res.json({ resumo: comprovantes.resumo(empresa), vendas: noPeriodo.slice(0, 1000).map(vendaPublica), periodo, config: comprovantes.configDa(empresa) });
 });
 
@@ -3270,6 +3273,24 @@ router.put('/empresas/:id/faturamento/config', (req, res) => {
   res.json(comprovantes.configDa(empresa));
 });
 
+// produto/serviço do catálogo e custo da venda ("" tira; custo vazio = usa o do item)
+function custoVendaDe(empresa, v, b) {
+  if (b.itemId !== undefined) {
+    const item = require('./catalogo').itensDa(empresa).find((x) => x.id === b.itemId);
+    if (item) Object.assign(v, { itemId: item.id, itemNome: item.nome });
+    else { delete v.itemId; delete v.itemNome; }
+  }
+  if (b.custo !== undefined) {
+    const c = b.custo === '' || b.custo === null ? null : require('./catalogo').lerPreco(b.custo);
+    if (c === null) delete v.custo; else v.custo = c;
+  }
+  // escolheu o item e não disse o custo: guarda o custo de hoje (mudar o custo depois não reescreve o passado)
+  if (b.itemId !== undefined && (b.custo === undefined || b.custo === '') && v.itemId) {
+    const item = require('./catalogo').itensDa(empresa).find((x) => x.id === v.itemId);
+    if (item?.custo != null) v.custo = item.custo;
+  }
+}
+
 function dadosVenda(b) {
   const valor = comprovantes.paraNumero(String(b.valor ?? '').replace('R$', '')) ?? Number(b.valor);
   if (!Number.isFinite(valor) || valor <= 0) throw Object.assign(new Error('Informe o valor da venda.'), { status: 400 });
@@ -3293,6 +3314,7 @@ router.post('/empresas/:id/vendas', (req, res) => {
     const lead = req.body?.leadId ? estado.conversas.find((c) => c.id === req.body.leadId && c.empresaId === empresa.id) : null;
     const { venda } = comprovantes.registrar(empresa, lead, { ...d, pagador: d.cliente }, { origem: 'manual', lidoPor: 'manual', descricao: d.descricao });
     venda.cliente = d.cliente || venda.cliente;
+    custoVendaDe(empresa, venda, req.body || {});
     salvar();
     res.status(201).json(vendaPublica(venda));
   } catch (err) {
@@ -3352,6 +3374,7 @@ router.put('/empresas/:id/vendas/:vendaId', (req, res) => {
       if (b.cliente !== undefined) v.cliente = texto(b.cliente, 120);
       if (b.descricao !== undefined) v.descricao = texto(b.descricao, 300);
     }
+    custoVendaDe(empresa, v, b);
     if (['confirmada', 'conferir', 'cancelada'].includes(b.status) && b.status !== v.status) {
       if (b.status === 'confirmada' && v.status !== 'confirmada') v.confirmadaEm = agora();
       v.status = b.status;

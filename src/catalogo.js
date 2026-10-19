@@ -31,12 +31,14 @@ const brl = (n) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL
 function normalizar(b, antigo = {}) {
   const item = {
     id: antigo.id || novoId('cat'),
-    tipo: b.tipo === 'produto' ? 'produto' : 'servico',
+    tipo: (b.tipo ?? antigo.tipo) === 'produto' ? 'produto' : 'servico',
     nome: limpar(b.nome ?? antigo.nome, 100),
     categoria: limpar(b.categoria ?? antigo.categoria ?? '', 60),
     preco: b.preco !== undefined ? lerPreco(b.preco) : antigo.preco ?? null,
     precoAte: b.precoAte !== undefined ? lerPreco(b.precoAte) : antigo.precoAte ?? null,
     precoObs: limpar(b.precoObs ?? antigo.precoObs ?? '', 120), // "a partir de", "no Pix", "em até 3x"…
+    // quanto custa para a empresa (material, capa…): só no painel — a IA e o cliente nunca veem
+    custo: b.custo !== undefined ? lerPreco(b.custo) : antigo.custo ?? null,
     descricao: String(b.descricao ?? antigo.descricao ?? '').trim().slice(0, 1500),
     duracao: limpar(b.duracao ?? antigo.duracao ?? '', 80),
     midias: Array.isArray(b.midias) ? [...new Set(b.midias.map((c) => limpar(c, 40)).filter(Boolean))].slice(0, 20) : antigo.midias || [],
@@ -100,6 +102,43 @@ function midiasLigadas(empresa) {
   return mapa;
 }
 
+// ---------------------------------------------------------------- custo, margem e lucro das vendas
+// Margem de um item: preço (o menor, se for faixa) menos o custo
+function margem(x) {
+  const preco = x?.preco ?? x?.precoAte;
+  if (preco == null || x?.custo == null) return null;
+  const valor = Math.round((preco - x.custo) * 100) / 100;
+  return { valor, pct: preco > 0 ? Math.round((valor / preco) * 100) : 0 };
+}
+
+// Custo de uma venda: o que foi escolhido nela (produto/serviço ou custo à mão) ou, se não tem,
+// o item do catálogo com custo cujo preço é exatamente o valor da venda (só se for um só: estimado)
+function custoDaVenda(empresa, v) {
+  const itens = itensDa(empresa);
+  if (v.custo != null) return { custo: v.custo, item: itens.find((x) => x.id === v.itemId)?.nome || v.itemNome || '', estimado: false };
+  if (v.itemId) {
+    const x = itens.find((i) => i.id === v.itemId);
+    return x?.custo != null ? { custo: x.custo, item: x.nome, estimado: false } : null;
+  }
+  const valor = Number(v.valor);
+  const iguais = itens.filter((x) => x.custo != null && (x.preco === valor || x.precoAte === valor));
+  return iguais.length === 1 ? { custo: iguais[0].custo, item: iguais[0].nome, estimado: true } : null;
+}
+
+// Soma de uma lista de vendas: faturamento, custo conhecido, lucro e quantas ficaram sem custo
+function somarCustos(empresa, vendas) {
+  let faturamento = 0;
+  let custo = 0;
+  let semCusto = 0;
+  for (const v of vendas) {
+    faturamento += Number(v.valor) || 0;
+    const c = custoDaVenda(empresa, v);
+    if (c) custo += c.custo; else semCusto++;
+  }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return { faturamento: r2(faturamento), custo: r2(custo), lucro: r2(faturamento - custo), semCusto };
+}
+
 // Bloco que vai para a IA (fonte da verdade de serviços, produtos e preços)
 function paraIa(empresa) {
   const ativos = itensDa(empresa).filter((x) => x.ativo);
@@ -144,4 +183,4 @@ async function sugerirDoTexto(empresa, bot) {
     .slice(0, 50);
 }
 
-module.exports = { itensDa, criar, atualizar, apagar, esquecerMidia, paraIa, midiasLigadas, resumo, sugerirDoTexto, lerPreco, textoPreco };
+module.exports = { itensDa, criar, atualizar, apagar, esquecerMidia, paraIa, midiasLigadas, resumo, sugerirDoTexto, lerPreco, textoPreco, margem, custoDaVenda, somarCustos };
