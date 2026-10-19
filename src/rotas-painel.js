@@ -3426,12 +3426,16 @@ router.get('/empresas/:id/gastos', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
   const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : gastos.mesDe(new Date().toISOString());
+  // período escolhido no Faturamento (dias de Brasília); "tudo=1" = desde sempre
+  const dia = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
+  const periodo = req.query.tudo === '1' ? { de: '', ate: '' } : dia(req.query.de) ? { de: dia(req.query.de), ate: dia(req.query.ate) || dia(req.query.de) } : null;
+  const noPeriodo = (iso) => (periodo ? (() => { if (!periodo.de && !periodo.ate) return true; const d = gastos.diaDe(iso); return Boolean(d) && (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate); })() : gastos.mesDe(iso) === mes);
   const lista = gastos
     .gastosDa(empresa)
-    .filter((g) => gastos.mesDe(g.data) === mes)
+    .filter((g) => noPeriodo(g.data))
     .sort((a, b) => (a.data < b.data ? 1 : -1))
     .map(gastoPublico);
-  res.json({ resumo: gastos.resumo(empresa, mes), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
+  res.json({ resumo: gastos.resumo(empresa, mes, periodo), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
 });
 
 router.get('/empresas/:id/gastos/grupos', async (req, res) => {

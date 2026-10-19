@@ -6817,13 +6817,14 @@ async function paginaFaturamento(id, params) {
   const per = mes
     ? (() => { const [a, m] = mes.split('-').map(Number); return { de: `${mes}-01`, ate: `${mes}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, '0')}` }; })()
     : periodoVendas(chavePer, params.get('de') || lembrado.de, params.get('ate') || lembrado.ate);
-  const [d, gd] = await Promise.all([api(`empresas/${id}/faturamento?${new URLSearchParams({ de: per.de, ate: per.ate })}`), api(`empresas/${id}/gastos?${new URLSearchParams({ mes })}`).catch(() => null)]);
+  const [d, gd] = await Promise.all([api(`empresas/${id}/faturamento?${new URLSearchParams({ de: per.de, ate: per.ate })}`), api(`empresas/${id}/gastos?${new URLSearchParams(mes ? { mes } : per.de ? { de: per.de, ate: per.ate } : { tudo: '1' })}`).catch(() => null)]);
   const r = d.resumo;
   const cfg = d.config;
   const variacao = r.mesAnterior ? Math.round(((r.mes - r.mesAnterior) / r.mesAnterior) * 100) : null;
   const maxDia = Math.max(...r.porDia.map((x) => x.total), 0);
   const topo = maxDia ? Math.ceil(maxDia / 10 ** Math.floor(Math.log10(maxDia))) * 10 ** Math.floor(Math.log10(maxDia)) : 100;
   const iMaior = r.porDia.findIndex((x) => x.total === maxDia && maxDia > 0);
+  const rotuloPeriodo = per.de ? (per.de === per.ate ? per.de.split('-').reverse().join('/') : `${per.de.split('-').reverse().join('/')} a ${per.ate.split('-').reverse().join('/')}`) : 'Todo o período';
   const ROTULO_ORIGEM = { texto: '📄 lido do PDF', ocr: '📷 lido da foto', ia: '✨ lido pela IA', manual: '✍️ lançada à mão', 'ia-conversa': '🤖 fechada pela IA na conversa', equipe: '👤 marcada pela equipe', frase: '💬 frase de venda da equipe' };
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
@@ -6839,6 +6840,13 @@ async function paginaFaturamento(id, params) {
     ${balao('As vendas entram sozinhas', `Quando o cliente manda o <b>comprovante do Pix</b> (print ou PDF) no WhatsApp, o CRM lê o valor, a data e quem pagou <b>sem usar IA</b> (não gasta crédito), registra a venda aqui, move o lead para "Vendi" e a IA agradece o cliente. ${cfg.usarIa ? 'Só quando a foto está ruim de ler a IA ajuda.' : 'A IA não é usada para ler comprovantes.'}`)}
     ${cfg.recebedores ? '' : balao('Proteja-se de comprovante falso', 'Informe abaixo, em <b>Configurações</b>, o nome, CNPJ/CPF ou chave Pix de quem recebe. Comprovante feito para outra pessoa fica marcado "A conferir".', 'aviso')}
     ${r.aConferir ? balao(`${r.aConferir} ${r.aConferir === 1 ? 'venda precisa' : 'vendas precisam'} ser conferida${r.aConferir === 1 ? '' : 's'}`, 'Veja na lista abaixo (marcadas com ⚠). Confira no extrato do banco e clique em Confirmar ou Cancelar.', 'aviso') : ''}
+
+    <div class="card filtro-periodo" id="filtro-periodo">
+      <h2 style="margin:0 0 8px">📅 Período</h2>
+        <div class="chips">${PERIODOS_VENDAS.map(([k, t]) => `<button type="button" class="chip-filtro ${chavePer === k ? 'ativo' : ''}" data-per-venda="${k}">${t}</button>`).join('')}</div>
+        ${chavePer === 'datas' ? `<div class="campos" style="margin-top:10px"><div class="campo"><label>De</label><input type="date" id="venda-de" value="${esc(per.de)}"></div><div class="campo"><label>Até</label><input type="date" id="venda-ate" value="${esc(per.ate)}"></div></div>` : ''}
+      <p class="rotulo" style="margin:8px 0 0">Vale para o quadro de faturamento, gastos e lucro e para a lista de vendas. Os números de Hoje / 7 dias / Este mês e o gráfico ficam sempre iguais.</p>
+    </div>
 
     <div class="grade-resumo">
       ${numeroCard('Hoje', brl(r.hoje))}
@@ -6870,16 +6878,14 @@ async function paginaFaturamento(id, params) {
       </div>
     </div>
 
-    ${gd ? htmlGastos(gd) : ''}
+    ${gd ? htmlGastos(gd, mes ? null : rotuloPeriodo) : ''}
 
     <p class="rotulo">📈 Vendas de quem veio de anúncio do Facebook/Instagram vão para a Meta pela aba <a href="${rotaEmpresa(id, 'meta-ads')}">Meta Ads</a>.</p>
     <div class="card tabela-wrap">
       <div style="padding:16px 16px 0">
         <h2 style="margin:0 0 8px">Vendas</h2>
-        <div class="chips">${PERIODOS_VENDAS.map(([k, t]) => `<button type="button" class="chip-filtro ${chavePer === k ? 'ativo' : ''}" data-per-venda="${k}">${t}</button>`).join('')}</div>
-        ${chavePer === 'datas' ? `<div class="campos" style="margin-top:10px"><div class="campo"><label>De</label><input type="date" id="venda-de" value="${esc(per.de)}"></div><div class="campo"><label>Até</label><input type="date" id="venda-ate" value="${esc(per.ate)}"></div></div>` : ''}
         <div class="periodo-vendas">
-          <div><span class="rotulo">${per.de ? (per.de === per.ate ? per.de.split('-').reverse().join('/') : `${per.de.split('-').reverse().join('/')} a ${per.ate.split('-').reverse().join('/')}`) : 'Todo o período'}</span><b>${brl(d.periodo.total)}</b></div>
+          <div><span class="rotulo">${esc(rotuloPeriodo)}</span><b>${brl(d.periodo.total)}</b></div>
           <div><span class="rotulo">Vendas confirmadas</span><b>${d.periodo.vendas}</b></div>
           <div><span class="rotulo">Ticket médio</span><b>${brl(d.periodo.ticket)}</b></div>
           ${d.periodo.custo ? `<div><span class="rotulo">Custo dos produtos</span><b>${brl(d.periodo.custo)}</b></div><div><span class="rotulo">Lucro das vendas</span><b class="margem-ok">${brl(d.periodo.lucro)}</b>${d.periodo.semCusto ? `<span class="rotulo">${d.periodo.semCusto} venda(s) sem custo</span>` : ''}</div>` : ''}
@@ -6990,7 +6996,7 @@ async function paginaFaturamento(id, params) {
 }
 
 // 💸 Gastos da empresa (lançados pelo grupo do WhatsApp ou à mão) + lucro do mês
-function htmlGastos(gd) {
+function htmlGastos(gd, rotuloPeriodo = null) {
   const r = gd.resumo;
   const c = gd.config;
   const nomeMes = new Date(`${r.mes}-15T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -7001,7 +7007,7 @@ function htmlGastos(gd) {
     : `<div class="grupo-gastos"><span>💬 <b>Lance os gastos pelo WhatsApp:</b> conecte um grupo onde o número da empresa participa. Tudo o que vocês mandarem lá (<i>"gastei 50 gasolina"</i>, <i>"120 aluguel"</i> ou a foto do comprovante do Pix) entra aqui sozinho, por categoria.</span>${gd.whatsappConectado ? '<button type="button" class="primario pequeno" id="gastos-grupo">Conectar grupo</button>' : '<span class="rotulo">Conecte o WhatsApp da empresa primeiro.</span>'}</div>`;
   return `
     <div class="card" id="card-gastos">
-      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">💸 Faturamento e gastos · ${esc(nomeMes)}</h2>
+      <div class="cabecalho" style="margin-bottom:8px;padding-right:0"><h2 style="margin:0">💸 Faturamento e gastos · ${esc(rotuloPeriodo || nomeMes)}</h2>
         <div class="barra"><button type="button" class="pequeno" id="gastos-categorias">Categorias</button><button type="button" class="primario pequeno" id="novo-gasto">+ Lançar gasto</button></div></div>
       ${grupo}
       <div class="grade-resumo gastos-numeros">
@@ -7010,8 +7016,8 @@ function htmlGastos(gd) {
         ${numeroCard('Gastos', brl(r.gastos), 'gasto')}
         ${numeroCard(r.lucro >= 0 ? 'Sobrou (lucro)' : 'Faltou (prejuízo)', brl(r.lucro), r.lucro >= 0 ? 'lucro' : 'prejuizo')}
       </div>
-      ${r.porCategoria.length ? `<h3 style="margin:14px 0 8px">Gastos por categoria</h3><div class="gastos-categorias">${r.porCategoria.map((x) => `<div class="cat-gasto"><span class="cat-nome">${esc(x.categoria)}</span><span class="cat-barra"><span style="width:${maior ? Math.max(3, (x.total / maior) * 100) : 0}%"></span></span><b>${brl(x.total)}</b><span class="rotulo">${r.gastos ? Math.round((x.total / r.gastos) * 100) : 0}%</span></div>`).join('')}</div>` : '<p class="rotulo" style="margin:12px 0 0">Nenhum gasto neste mês ainda.</p>'}
-      ${gd.gastos.length ? `<details class="gastos-lista" style="margin-top:12px"><summary>Ver os ${gd.gastos.length} gasto(s) do mês</summary>
+      ${r.porCategoria.length ? `<h3 style="margin:14px 0 8px">Gastos por categoria</h3><div class="gastos-categorias">${r.porCategoria.map((x) => `<div class="cat-gasto"><span class="cat-nome">${esc(x.categoria)}</span><span class="cat-barra"><span style="width:${maior ? Math.max(3, (x.total / maior) * 100) : 0}%"></span></span><b>${brl(x.total)}</b><span class="rotulo">${r.gastos ? Math.round((x.total / r.gastos) * 100) : 0}%</span></div>`).join('')}</div>` : `<p class="rotulo" style="margin:12px 0 0">Nenhum gasto ${rotuloPeriodo ? 'neste período' : 'neste mês'} ainda.</p>`}
+      ${gd.gastos.length ? `<details class="gastos-lista" style="margin-top:12px"><summary>Ver os ${gd.gastos.length} gasto(s) ${rotuloPeriodo ? 'do período' : 'do mês'}</summary>
         <table><thead><tr><th>Data</th><th>Gasto</th><th>Categoria</th><th>Valor</th><th class="esconde-mobile">Como entrou</th><th></th></tr></thead><tbody>
         ${gd.gastos.map((g) => `<tr><td style="white-space:nowrap">${data(g.data)}</td><td>${esc(g.descricao || '—')}${g.autor ? `<br><span class="rotulo">por ${esc(g.autor)}</span>` : ''}</td><td>${esc(g.categoria)}</td><td style="white-space:nowrap"><b>${brl(g.valor)}</b></td><td class="esconde-mobile rotulo">${ORIGEM[g.lidoPor] || esc(g.lidoPor || '')}${g.comprovanteUrl ? `<br><a href="${esc(g.comprovanteUrl)}" target="_blank" rel="noopener">ver comprovante</a>` : ''}</td><td><button type="button" class="pequeno" data-editar-gasto="${esc(g.id)}">Editar</button></td></tr>`).join('')}
         </tbody></table></details>` : ''}

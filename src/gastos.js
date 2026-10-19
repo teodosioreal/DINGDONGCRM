@@ -352,21 +352,32 @@ const mesDe = (iso) => {
   return Number.isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 7) : '';
 };
 
-function resumo(empresa, mes) {
+// dia de Brasília (AAAA-MM-DD); data inválida fica fora de qualquer período
+const diaDe = (iso) => {
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? new Date(t - 3 * 3600 * 1000).toISOString().slice(0, 10) : '';
+};
+
+// periodo: { de, ate } (dias de Brasília; os dois vazios = tudo). Sem período: o mês "mes" (ou o atual)
+function resumo(empresa, mes, periodo = null) {
   const alvo = mes || mesDe(new Date().toISOString());
-  const doMes = gastosDa(empresa).filter((g) => mesDe(g.data) === alvo);
+  const dentro = periodo
+    ? (iso) => { if (!periodo.de && !periodo.ate) return true; const d = diaDe(iso); return Boolean(d) && (!periodo.de || d >= periodo.de) && (!periodo.ate || d <= periodo.ate); }
+    : (iso) => mesDe(iso) === alvo;
+  const doMes = gastosDa(empresa).filter((g) => dentro(g.data));
   const soma = (l) => Math.round(l.reduce((s, g) => s + (g.valor || 0), 0) * 100) / 100;
   const porCategoria = {};
   for (const g of doMes) porCategoria[g.categoria] = (porCategoria[g.categoria] || 0) + g.valor;
   const vendasMes = require('./comprovantes')
     .vendasDa(empresa)
-    .filter((v) => v.status === 'confirmada' && mesDe(v.data) === alvo);
+    .filter((v) => v.status === 'confirmada' && dentro(v.data));
   const faturamento = soma(vendasMes);
   const gastos = soma(doMes);
   // custo dos produtos/serviços vendidos (cadastrado em Serviços e preços)
   const custos = require('./catalogo').somarCustos(empresa, vendasMes);
   return {
     mes: alvo,
+    periodo: periodo || null,
     faturamento,
     gastos,
     custoVendas: custos.custo,
@@ -394,5 +405,6 @@ module.exports = {
   buscarNoGrupo,
   iniciar,
   resumo,
-  mesDe
+  mesDe,
+  diaDe
 };
