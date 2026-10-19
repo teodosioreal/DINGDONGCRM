@@ -29,7 +29,9 @@ const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: '
       const papel = (m) => ({ visitante: 'C', equipe: 'E', assistente: 'IA' }[m.papel] || '?');
       const seq = msgs.map((m) => {
         const t = semAcento(m.texto);
-        return `${papel(m)}${det.TEM_HORA.test(t) ? '⏰' : ''}${det.EMPRESA_CONFIRMA.test(t) ? '✔' : ''}${det.ACEITE.test(t.trim()) ? '👍' : ''}${t.includes('?') ? '?' : ''}${m.agendaFrase ? '📌' : ''}`;
+        const dia = /\b(hoje|amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana que vem|\d{1,2}\/\d{1,2}|dia \d{1,2})\b/.test(t);
+        const periodo = /\b(de manha|pela manha|cedo|de tarde|a tarde|pela tarde|de noite|a noite|depois do almoco|meio dia|meio-dia|horario de almoco)\b/.test(t);
+        return `${papel(m)}${dia ? '📆' : ''}${periodo ? '🌓' : ''}${det.TEM_HORA.test(t) ? '⏰' : ''}${det.EMPRESA_CONFIRMA.test(t) ? '✔' : ''}${det.ACEITE.test(t.trim()) ? '👍' : ''}${t.includes('?') ? '?' : ''}${m.agendaFrase ? '📌' : ''}`;
       }).join(' ');
       const ags = (c.agendamentos || []).map((a) => `${a.status}${a.quando ? ' ' + hora(a.quando) : ''} por ${a.por}${a.detectadoPor ? '/' + a.detectadoPor : ''} criado ${hora(a.criadoEm)}`).join(' | ') || 'nenhum';
       let codigo = null;
@@ -39,12 +41,13 @@ const hora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: '
       const iaResponde = require('../src/whatsapp').iaVaiResponder(e, c);
       const deslig = require('../src/ia-desligada').motivo(e, c);
       const conf = /\b(pode ser|pode sim|fechado|fechou|combinado|confirmad\w*|confirmo|agendad\w*|agendei|marcad\w*|marquei|te espero|estarei|vou sim|beleza|blz|perfeito|ta bom|ta certo|certo|ok|sim)\b/.test(semAcento(msgs.slice(-2).map((m) => m.texto).join(' ')));
-      console.log(`    conversa ${i + 1}: últimas msgs [${seq}] · última ${hora(msgs.slice(-1)[0]?.em)}`);
+      console.log(`    conversa ${i + 1}: etapa "${c.etapa}" · últimas msgs [${seq}] · última ${hora(msgs.slice(-1)[0]?.em)}`);
       console.log(`      agendamentos: ${ags}`);
       console.log(`      código achou: ${codigo ? (codigo.erro ? 'ERRO ' + codigo.erro : `${codigo.acao} ${hora(codigo.quando)}`) : 'nada'} · endereço na conversa: ${temEnd ? 'sim' : 'NÃO'} · IA atendendo esta conversa: ${iaResponde ? 'sim (aí o CRM confia na tag da IA e não confere)' : 'não'} · IA desligada por: ${deslig?.por || '-'} · confirmação nas 2 últimas: ${conf ? 'sim' : 'não'} · já conferida pela IA até a última msg: ${c.agendaConferidaAte && c.agendaConferidaAte === msgs.slice(-1)[0]?.id ? 'sim' : 'não'}`);
       // o que a IA diria agora (só a decisão, nunca o texto)
       try {
-        const d = await det.porIa(e, c);
+        if (i > 0) throw new Error('(só lê a 1ª conversa com a IA)');
+        const d = await Promise.race([det.porIa(e, c), new Promise((_, nao) => setTimeout(() => nao(new Error('IA demorou mais de 25 s')), 25000))]);
         if (d) console.log(`      leitura da IA agora: ${d.acao}${d.quando ? ' ' + hora(d.quando) : ''}`);
       } catch (err) { console.log(`      leitura da IA: erro ${String(err.message).slice(0, 80)}`); }
     }
