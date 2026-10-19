@@ -2058,7 +2058,7 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
       const grupo = a.status === 'concluido' || a.status === 'realizado' ? 'passados' : a.status !== 'agendado' ? 'cancelados' : t !== null && t < agora_ - 2 * 3600 * 1000 ? 'passados' : 'proximos';
       lista.push({
         id: a.id, leadId: c.id, nome: c.nome || '', telefone: c.telefone || '', etapa: c.etapa, foto: fotosClientes.urlDaFoto(c) || '',
-        quando: a.quando, quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
+        quando: a.quando, semHora: Boolean(a.semHora), quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
         avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm,
         fotos, local: c.localizacao?.texto || '',
         // quanto vai entrar (lido sem IA: valor digitado, descrição ou conversa)

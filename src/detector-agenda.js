@@ -93,12 +93,12 @@ async function porIa(empresa, lead) {
   const sistema =
     'Você confere conversas de WhatsApp de uma empresa e diz se um AGENDAMENTO (visita, serviço, consulta, instalação, entrega, horário) foi MARCADO, REMARCADO ou CANCELADO. Responda SOMENTE com JSON, sem texto antes ou depois.\n' +
     'Regras:\n' +
-    '- "agendar": os dois lados combinaram um DIA E UM HORÁRIO certos — a empresa propôs e o cliente aceitou, ou o cliente pediu e a empresa confirmou ("agendado", "fica marcado"). Proposta ainda sem resposta, "vou ver", "talvez" ou sem horário = "nada".\n' +
+    '- "agendar": os dois lados combinaram um DIA certo (com ou sem horário exato) — a empresa propôs e o cliente aceitou, ou o cliente pediu e a empresa confirmou ("agendado", "fica marcado", "pode ser", "combinado"). Proposta ainda sem resposta, "vou ver", "talvez" ou sem dia = "nada".\n' +
     '- PERGUNTA não é agendamento: "atende hoje?", "tem horário amanhã?", "esse serviço te atende hoje?", "consegue sábado?" e a resposta "sim/atende/tem" = "nada" (só falaram de disponibilidade, ninguém marcou um horário).\n' +
     '- "remarcar": já havia agendamento e combinaram outro dia/horário.\n' +
     '- "cancelar": o cliente ou a empresa desmarcou/cancelou um agendamento existente (sem marcar outro).\n' +
     '- "nada": qualquer outra situação (inclusive "te chamo amanhã", que é só retorno de contato, não horário marcado).\n' +
-    '- "quando": data e hora no formato dd/mm/aaaa hh:mm, calculada a partir da data/hora de cada mensagem (ex.: "sábado" dito numa quinta = o sábado seguinte). Sem horário combinado, use 09:00 e diga em "semHora": true.\n' +
+    '- "quando": data e hora no formato dd/mm/aaaa hh:mm, calculada a partir da data/hora de cada mensagem (ex.: "sábado" dito numa quinta = o sábado seguinte). Combinaram o dia mas não a hora exata: "semHora": true e use 09:00 (de manhã), 14:00 (de tarde) ou 18:00 (à noite); sem período, 09:00.\n' +
     '- Não invente: só o que está na conversa.';
   const pedido =
     `Agora: ${agora} (horário de Brasília).\n` +
@@ -113,9 +113,10 @@ async function porIa(empresa, lead) {
   const j = JSON.parse(m[0]);
   if (!['agendar', 'remarcar', 'cancelar'].includes(j.acao) || !(Number(j.confianca) >= CONFIANCA_MINIMA)) return { acao: 'nada' };
   const quando = j.quando ? require('./tickets').quandoDe(j.quando) : null;
-  // marcar sem horário combinado não vale (era assim que "atende hoje?" + "sim" virava agendamento às 9h)
-  if ((j.acao === 'agendar' || j.acao === 'remarcar') && (!quando || j.semHora === true)) return { acao: 'nada' };
-  return { acao: j.acao, quando, descricao: String(j.descricao || '').slice(0, 200), agendamentoId: String(j.agendamentoId || ''), trecho: String(j.trecho || '').slice(0, 200), fonte: 'ia' };
+  // dia combinado sem a hora exata vale (fica "horário a combinar"); sem dia nenhum, não
+  // ("atende hoje?" + "sim" continua sendo só pergunta: as regras acima mandam responder "nada")
+  if ((j.acao === 'agendar' || j.acao === 'remarcar') && !quando) return { acao: 'nada' };
+  return { acao: j.acao, quando, semHora: j.semHora === true, descricao: String(j.descricao || '').slice(0, 200), agendamentoId: String(j.agendamentoId || ''), trecho: String(j.trecho || '').slice(0, 200), fonte: 'ia' };
 }
 
 // ---------------------------------------------------------------- aplicar
@@ -160,12 +161,13 @@ function aplicar(empresa, lead, d) {
     }
   }
   if (jaMarcado) return null;
-  const r = tickets.registrarAgendamento(empresa, lead, { quando: d.quando, descricao: d.descricao, por: 'detectado' });
+  const r = tickets.registrarAgendamento(empresa, lead, { quando: d.quando, descricao: d.descricao, por: 'detectado', semHora: d.semHora === true });
   if (!r?.novo) return null;
   r.agendamento.detectadoPor = d.fonte;
   if (d.trecho) r.agendamento.trecho = d.trecho;
   salvar();
-  avisar(`📅 ${d.acao === 'remarcar' ? 'Agendamento remarcado' : 'Novo agendamento'} detectado na conversa: ${nome} — ${fmt(d.quando)}${d.descricao ? ` (${d.descricao})` : ''}. Se não for isso, desfaça na conversa.`);
+  const quandoTxt = d.semHora ? `${new Date(d.quando).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit' })} (horário a combinar)` : fmt(d.quando);
+  avisar(`📅 ${d.acao === 'remarcar' ? 'Agendamento remarcado' : 'Novo agendamento'} detectado na conversa: ${nome} — ${quandoTxt}${d.descricao ? ` (${d.descricao})` : ''}. Se não for isso, desfaça na conversa.`);
   return { acao: d.acao, agendamento: r.agendamento };
 }
 
@@ -258,7 +260,7 @@ function horarioDaConversa(lead, ate = null) {
       if (DUVIDA.test(t) || HORARIO_DE_FUNCIONAMENTO.test(t) || /\bou\b.*\d/.test(t)) continue;
       if (comHora && !TEM_HORA.test(t)) continue;
       const q = tickets.quandoNoTexto(msgs[i].texto, new Date(msgs[i].em || Date.now()));
-      if (q && new Date(q).getTime() > Date.now() - 3600 * 1000) return { quando: q, descricao: String(msgs[i].texto).replace(/\s+/g, ' ').trim().slice(0, 120) };
+      if (q && new Date(q).getTime() > Date.now() - 3600 * 1000) return { quando: q, descricao: String(msgs[i].texto).replace(/\s+/g, ' ').trim().slice(0, 120), semHora: !comHora };
     }
   }
   return null;
@@ -277,7 +279,7 @@ function pelaFrase(empresa, lead) {
   };
   const valor = precos.length ? precos[precos.length - 1].valor : solto();
   const daMensagem = tickets.quandoNoTexto(m.texto, new Date(m.em || Date.now()));
-  const achado = daMensagem && new Date(daMensagem).getTime() > Date.now() - 3600 * 1000 ? { quando: daMensagem, descricao: '' } : horarioDaConversa(lead, m);
+  const achado = daMensagem && new Date(daMensagem).getTime() > Date.now() - 3600 * 1000 ? { quando: daMensagem, descricao: '', semHora: !TEM_HORA.test(semAcento(m.texto)) } : horarioDaConversa(lead, m);
   const nome = lead.nome || 'Cliente';
   const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -295,7 +297,7 @@ function pelaFrase(empresa, lead) {
     if (valor || achado) avisar(`📅 Agendamento confirmado por você: ${nome}${a.quando ? ` — ${fmt(a.quando)}` : ''}${valor ? ` · ${brl(valor)}` : ''}.`);
     return a;
   }
-  const r = tickets.registrarAgendamento(empresa, lead, { quando: achado?.quando || 'Data a combinar', descricao: achado?.descricao || '', por: 'equipe', valor });
+  const r = tickets.registrarAgendamento(empresa, lead, { quando: achado?.quando || 'Data a combinar', descricao: achado?.descricao || '', por: 'equipe', valor, semHora: achado?.semHora === true });
   if (!r?.agendamento) return null;
   r.agendamento.detectadoPor = 'frase';
   salvar();

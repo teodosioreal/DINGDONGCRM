@@ -161,7 +161,7 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = '
   return { venda, nova: true };
 }
 
-function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false, valor = null }) {
+function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false, valor = null, semHora = false }) {
   const valorOk = Number.isFinite(Number(valor)) && Number(valor) > 0 ? Math.round(Number(valor) * 100) / 100 : null;
   const iso = quandoDe(quando);
   const desc = String(descricao || '').trim().slice(0, 200);
@@ -174,7 +174,8 @@ function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', se
     salvar();
     return { agendamento: mesmo, novo: false };
   }
-  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora(), ...(valorOk ? { valor: valorOk } : {}) };
+  // semHora: combinaram o dia, mas não a hora exata ("sábado de manhã") — mostra "horário a combinar"
+  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora(), ...(valorOk ? { valor: valorOk } : {}), ...(iso && semHora ? { semHora: true } : {}) };
   lead.agendamentos.push(ag);
   colocarEtiquetaAgendado(empresa, lead); // agendou no CRM → etiqueta Agendado aqui e no WhatsApp
   const etapa = acharEtapaAgendamento(empresa);
@@ -330,7 +331,7 @@ function ticketsDoLead(lead) {
   const vendas = (estado.vendas || [])
     .filter((v) => v.leadId === lead.id && v.status !== 'cancelada')
     .map((v) => ({ id: v.id, tipo: 'venda', em: v.criadoEm, valor: v.valor, descricao: v.descricao || '', forma: v.forma, status: v.status, origem: v.origem, lidoPor: v.lidoPor }));
-  const ags = (lead.agendamentos || []).map((a) => ({ id: a.id, tipo: 'agendamento', em: a.criadoEm, quando: a.quando, quandoTexto: a.quandoTexto, descricao: a.descricao, por: a.por, status: a.status, detectadoPor: a.detectadoPor || '', trecho: a.trecho || '', canceladoPor: a.canceladoPor || '', motivoCancelamento: a.motivoCancelamento || '' }));
+  const ags = (lead.agendamentos || []).map((a) => ({ id: a.id, tipo: 'agendamento', em: a.criadoEm, quando: a.quando, semHora: Boolean(a.semHora), quandoTexto: a.quandoTexto, descricao: a.descricao, por: a.por, status: a.status, detectadoPor: a.detectadoPor || '', trecho: a.trecho || '', canceladoPor: a.canceladoPor || '', motivoCancelamento: a.motivoCancelamento || '' }));
   return [...vendas, ...ags].sort((a, b) => (a.em < b.em ? -1 : 1));
 }
 
@@ -340,7 +341,7 @@ function destaqueDoLead(lead) {
   const proximo = (lead.agendamentos || [])
     .filter((a) => a.status === 'agendado' && a.quando && new Date(a.quando).getTime() > agora_ - 3600 * 1000)
     .sort((a, b) => (a.quando < b.quando ? -1 : 1))[0];
-  if (proximo) return { tipo: 'agendamento', quando: proximo.quando };
+  if (proximo) return { tipo: 'agendamento', quando: proximo.quando, semHora: Boolean(proximo.semHora) };
   const venda = (estado.vendas || []).filter((v) => v.leadId === lead.id && v.status !== 'cancelada').sort((a, b) => (a.criadoEm < b.criadoEm ? 1 : -1))[0];
   if (venda) return { tipo: 'venda', valor: venda.valor };
   return null;

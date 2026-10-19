@@ -1287,7 +1287,7 @@ async function paginaAgenda(id, params) {
     <article class="ag-card ${x.grupo} st-${cls}" data-ag="${esc(x.id)}">
       <header class="ag-card-topo">
         <div class="ag-card-hora">
-          <b>${x.quando ? sp(x.quando, { hour: '2-digit', minute: '2-digit' }) : '--:--'}</b>
+          <b>${x.quando ? (x.semHora ? '<span title="Combinaram o dia, mas não a hora">a combinar</span>' : sp(x.quando, { hour: '2-digit', minute: '2-digit' })) : '--:--'}</b>
           <span>${x.quando ? esc(maiuscula(sp(x.quando, { weekday: 'short', day: '2-digit', month: 'short' }).replace(/ de /g, ' ').replace(/\./g, ''))) : 'Data a combinar'}${x.grupo === 'proximos' && x.quando && falta(x.quando) ? ` · ${falta(x.quando)}` : ''}</span>
         </div>
         <span class="ag-status ${cls}">${esc(rotulo)}</span>
@@ -4883,10 +4883,10 @@ document.addEventListener('click', (e) => {
 
 // A conversa inteira, com o separador de dia do WhatsApp
 // "sáb. 03/10 às 09:00" — agendamentos sempre no horário de Brasília
-function quandoBrasilia(iso, comDia = true) {
+function quandoBrasilia(iso, comDia = true, semHora = false) {
   const d = new Date(iso);
   const f = (o) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', ...o });
-  return `${comDia ? `${f({ weekday: 'short' })} ` : ''}${f({ day: '2-digit', month: '2-digit' })} às ${f({ hour: '2-digit', minute: '2-digit' })}`;
+  return `${comDia ? `${f({ weekday: 'short' })} ` : ''}${f({ day: '2-digit', month: '2-digit' })}${semHora ? ' · horário a combinar' : ` às ${f({ hour: '2-digit', minute: '2-digit' })}`}`;
 }
 
 // Aviso no meio da conversa: VENDA CONCLUÍDA ou AGENDADO
@@ -4909,7 +4909,7 @@ function htmlTicket(t) {
   const titulo = t.status === 'remarcado' ? 'HORÁRIO TROCADO' : cancelado ? 'AGENDAMENTO CANCELADO' : concluido ? 'AGENDAMENTO CONCLUÍDO (VENDA)' : realizado ? 'AGENDAMENTO REALIZADO' : 'AGENDADO';
   return `<div class="wa-ticket agendamento${cancelado ? ' cancelado' : ''}" role="note">
     <span class="ticket-icone" aria-hidden="true">${cancelado ? '🗓️' : '📅'}</span>
-    <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quando(t.quando)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
+    <div class="ticket-corpo"><b>${titulo}</b><span class="ticket-info">${t.quando ? esc(quandoBrasilia(t.quando, true, t.semHora)) : esc(t.quandoTexto || 'data a combinar')}${t.descricao ? ` · ${esc(t.descricao)}` : ''}</span>
     ${!cancelado && t.trecho ? `<span class="ticket-trecho">“${esc(t.trecho)}”</span>` : ''}
     <small>${cancelado ? esc(QUEM_CANCELOU[t.canceladoPor] || 'cancelado') + (t.motivoCancelamento && !/^(remarcado|cancelado pela equipe)$/.test(t.motivoCancelamento) ? ` · ${esc(t.motivoCancelamento)}` : '') : esc(QUEM[t.por] || 'marcado pela equipe')} · ${hora}${cancelado || concluido || realizado ? '' : ` · <button type="button" class="link-botao" data-cancelar-ag="${esc(t.id)}" data-detectado="${t.por === 'detectado' ? '1' : ''}">${t.por === 'detectado' ? 'não era isso, desfazer' : 'cancelar'}</button>`} · <button type="button" class="link-botao" data-excluir-ag="${esc(t.id)}" title="O agendamento está errado: some de tudo">excluir</button></small></div>
   </div>`;
@@ -5284,7 +5284,7 @@ async function paginaConversas(id, params) {
           <span class="item-meio">
             <span class="item-linha"><strong>${esc(nomeDoLead(c))} ${seloTemperatura(c.temperatura, true)}</strong><span class="rotulo item-hora">${horaCurta(c.ultimaEm)}</span></span>
             <span class="item-linha"><span class="rotulo item-previa">${c.ultimaMensagem ? `${c.ultimaMensagem.papel === 'visitante' ? '' : c.ultimaMensagem.papel === 'equipe' ? 'Você: ' : 'IA: '}${esc(c.ultimaMensagem.texto)}` : ''}</span>${c.naoLidas ? `<span class="bolha-nao-lida">${c.naoLidas}</span>` : ''}</span>
-            <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipLocal(c)}${chipsDoLead(c, emp.etiquetas)}</span>
+            <span class="item-linha item-tags">${c.proximoEnvio ? `<span class="etiqueta ticket-chip contagem-chip" title="${esc(c.proximoEnvio.titulo)}">⏳ <span data-contagem="${esc(c.proximoEnvio.quando)}" data-curto="1">${textoContagem(c.proximoEnvio.quando, true)}</span></span>` : ''}${c.destaque?.tipo === 'agendamento' ? `<span class="etiqueta ticket-chip ag">📅 ${esc(quandoBrasilia(c.destaque.quando, false, c.destaque.semHora))}</span>` : c.destaque?.tipo === 'venda' ? '<span class="etiqueta ticket-chip venda">✅ Venda</span>' : ''}${c.precisaHumano ? '<span class="etiqueta off">esperando você</span>' : c.iaPausada ? '<span class="etiqueta">IA pausada</span>' : ''}${chipLocal(c)}${chipsDoLead(c, emp.etiquetas)}</span>
           </span>
         </button>
         </div>`).join('')

@@ -19,8 +19,30 @@ const PEDIDOS = [
   { id: 'midias-do-fup-prontas-2026-10-18', empresaId: '*', fazer: (e) => require('./followup').prepararMidiasEscolhidas(e) || null },
   // 18/10 (todas): o dono pediu para tirar as etiquetas antigas que vieram do WhatsApp e deixar só as
   // criadas no CRM (cópia em empresa.etiquetasApagadas; quem tinha etiqueta de venda segue "já comprou")
-  { id: 'tirar-etiquetas-do-zap-2026-10-18', empresaId: '*', fazer: (e) => tirarEtiquetasDoZap(e) }
+  { id: 'tirar-etiquetas-do-zap-2026-10-18', empresaId: '*', fazer: (e) => tirarEtiquetasDoZap(e) },
+  // 19/10: na Madara combinaram o DIA sem a hora exata e o CRM não lançou (só lançava com hora).
+  // Agora lança como "horário a combinar": relê com a IA as conversas das últimas 24 h que ficaram
+  { id: 'reler-agenda-sem-hora-2026-10-19', empresaId: 'emp_2bb32fe7c84e097b', fazer: (e) => relerAgendaSemHora(e) }
 ];
+
+function relerAgendaSemHora(empresa) {
+  const det = require('./detector-agenda');
+  const sem = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const DIA = /\b(hoje|amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana que vem|\d{1,2}\/\d{1,2}|dia \d{1,2})\b/;
+  const CONFIRMA = /\b(pode ser|pode sim|fechado|fechou|combinado|confirmad\w*|confirmo|agendad\w*|marcad\w*|beleza|blz|perfeito|ta bom|certo|ok|sim)\b/;
+  const limite = Date.now() - 24 * 3600e3;
+  const lista = estado.conversas
+    .filter((c) => c.empresaId === empresa.id && !(c.agendamentos || []).some((a) => a.status === 'agendado'))
+    .filter((c) => (c.mensagens || []).some((m) => new Date(m.em || 0).getTime() > limite))
+    .filter((c) => { const t = sem((c.mensagens || []).filter((m) => m.texto).slice(-8).map((m) => m.texto).join(' ')); return DIA.test(t) && CONFIRMA.test(t); })
+    .slice(-10);
+  lista.forEach((c, i) => {
+    delete c.agendaConferidaAte;
+    setTimeout(() => det.conferir(empresa.id, c.id).then((r) => r && console.log(`[pedidos-config] agenda relida: ${r.acao}`)).catch(() => {}), 90 * 1000 + i * 8000).unref?.();
+  });
+  console.log(`[pedidos-config] agenda sem hora: relendo ${lista.length} conversa(s)`);
+  return lista.length ? { relidas: lista.length } : null;
+}
 
 function tirarEtiquetasDoZap(empresa) {
   const leads = require('./leads');

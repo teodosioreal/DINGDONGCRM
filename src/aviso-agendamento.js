@@ -60,6 +60,7 @@ function telefoneBonito(d) {
 
 function quandoBonito(ag) {
   if (!ag.quando) return ag.quandoTexto || 'a combinar';
+  if (ag.semHora) return `${new Date(ag.quando).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit' })} (horário a combinar)`;
   return new Date(ag.quando).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -103,7 +104,7 @@ function diaEHora(ag) {
   if (!ag.quando) return { dia: ag.quandoTexto || 'Data a combinar', hora: '' };
   const d = new Date(ag.quando);
   const dia = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit' });
-  const hora = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  const hora = ag.semHora ? 'horário a combinar' : d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
   return { dia: dia.charAt(0).toUpperCase() + dia.slice(1), hora };
 }
 
