@@ -564,7 +564,7 @@ function linhaCustoLead(c) {
   const custou = c.custou != null ? `custou <b>~${esc(brl(c.custou))}</b>` : `<span class="rotulo">custo: lance o gasto com anúncios de ${esc(nomeMes)} (categoria Marketing) no Faturamento</span>`;
   const comprou = c.comprou ? `comprou <b>${esc(brl(c.comprou))}</b>` : 'ainda não comprou';
   const lucro = c.lucro != null ? ` · lucro <b class="${c.lucro >= 0 ? 'margem-ok' : 'margem-ruim'}">${esc(brl(c.lucro))}</b>` : '';
-  return `<div class="chat-origem chat-custo" title="Custo médio do lead = gasto com anúncios do mês em que ele chegou ÷ leads desse mês">💰 ${c.deAnuncio ? 'Veio de anúncio' : 'Lead'} · ${custou} · ${comprou}${lucro}</div>`;
+  return `<div class="chat-origem chat-custo" title="Custo do lead = gasto com anúncios do mês em que ele chegou ÷ leads de anúncio desse mês">💰 Veio de anúncio · ${custou} · ${comprou}${lucro}</div>`;
 }
 
 // 📣 Meta Ads na conversa: o cliente veio de anúncio (o CRM pegou o fbclid do clique)
@@ -7038,9 +7038,7 @@ function htmlAnuncios(a) {
   const ou = (v, t = '—') => (v == null ? t : v);
   return `
     <h3 style="margin:14px 0 4px">📣 Anúncios: quanto custou cada cliente</h3>
-    <p class="rotulo" style="margin:0 0 8px">Investimento = gastos do mês na categoria <b>Marketing</b>. ${a.leadsNovos} lead(s) novos no mês · o CRM viu o clique do anúncio em ${a.reconhecidos}.</p>
-    <div class="campo" style="margin:0 0 10px;max-width:420px"><label>Quais leads contam no custo ${ajuda('Todos os leads novos: igual ao Gerenciador de Anúncios (muita gente que clica no anúncio chega sem a marca do clique). Só os reconhecidos: só quem chegou com a marca do clique — o custo sai maior se o site não passa o clique.')}</label>
-      <select id="custo-lead-contar"><option value="todos" ${a.contar !== 'reconhecidos' ? 'selected' : ''}>Todos os leads novos do mês (como o Gerenciador)</option><option value="reconhecidos" ${a.contar === 'reconhecidos' ? 'selected' : ''}>Só os que o CRM viu o clique do anúncio (${a.reconhecidos})</option></select></div>
+    <p class="rotulo" style="margin:0 0 8px">Investimento = gastos do mês na categoria <b>Marketing</b>. ${a.leadsAnuncio} de ${a.leadsNovos} lead(s) novos vieram de anúncio.</p>
     ${a.investimento ? '' : '<p class="rotulo aviso-texto" style="margin:0 0 8px">Lance quanto gastou com anúncios no mês (+ Lançar gasto → Marketing, ou no grupo: "gastei 300 anúncio") para ver o custo por lead e por venda.</p>'}
     <div class="grade-resumo gastos-numeros">
       ${numeroCard('Investido em anúncios', brl(a.investimento), 'gasto')}
@@ -7054,9 +7052,6 @@ function htmlAnuncios(a) {
 }
 
 function ligarGastos(id, gd, recarregar) {
-  $('#custo-lead-contar')?.addEventListener('change', async (e) => {
-    try { await api(`empresas/${id}/custo-lead`, { method: 'PUT', body: { contar: e.target.value, mes: gd.resumo.mes } }); aviso('Custo por lead recalculado.'); recarregar(); } catch (err) { aviso(err.message, true); }
-  });
   $('#novo-gasto').onclick = () => modalGasto(id, gd, null, recarregar);
   $$('[data-editar-gasto]').forEach((b) => { b.onclick = () => modalGasto(id, gd, gd.gastos.find((g) => g.id === b.dataset.editarGasto), recarregar); });
   $('#gastos-grupo')?.addEventListener('click', () => modalGrupoGastos(id, gd, recarregar));
