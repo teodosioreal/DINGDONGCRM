@@ -3435,6 +3435,14 @@ router.get('/empresas/:id/gastos', (req, res) => {
   res.json({ resumo: gastos.resumo(empresa, mes), anuncios: require('./custo-lead').doMes(empresa, mes), gastos: lista, config: gastos.configDa(empresa), whatsappConectado: whatsapp.configurado(empresa) });
 });
 
+// Custo por lead: quais leads contam (todos os novos do mês | só os reconhecidos pelo clique)
+router.put('/empresas/:id/custo-lead', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  require('./custo-lead').configurar(empresa, req.body || {});
+  res.json(require('./custo-lead').doMes(empresa, /^\d{4}-\d{2}$/.test(String(req.body?.mes || '')) ? req.body.mes : undefined));
+});
+
 router.get('/empresas/:id/gastos/grupos', async (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
