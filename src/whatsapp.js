@@ -1279,7 +1279,8 @@ async function enviarAnexoPorUrl(empresa, destino, leadId, anexo, legenda = '') 
   if (tipo === 'video' && (anexo.mimetype !== 'video/mp4' || anexo.tamanho > require('./video').LIMITE_WHATSAPP)) tipo = 'document';
   let r;
   if (tipo === 'audio') {
-    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url }, { tempo });
+    // encoding: a Evolution converte para o áudio de voz do WhatsApp (mp3/m4a/wav tocam como "gravado na hora")
+    r = await evolution(empresa, 'POST', '/message/sendWhatsAppAudio/{instancia}', { number: destinoDe(destino), audio: url, encoding: true }, { tempo });
   } else {
     try {
       r = await evolution(empresa, 'POST', '/message/sendMedia/{instancia}', corpo(tipo), { tempo });
