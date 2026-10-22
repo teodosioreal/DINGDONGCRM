@@ -35,7 +35,8 @@ function normalizarFiltro(f = {}) {
     etiquetas: lista(f.etiquetas),
     origem: ['site', 'whatsapp', 'manual'].includes(f.origem) ? f.origem : 'todos',
     leadIds: lista(f.leadIds),
-    listaId: texto(f.listaId, 60) // lista de contatos importada na aba Disparos
+    listaId: texto(f.listaId, 60), // lista de contatos importada na aba Disparos
+    pularJaDisparados: f.pularJaDisparados === true // não manda de novo para quem já recebeu disparo em massa
   };
 }
 
@@ -48,6 +49,8 @@ function destinatariosPara(empresa, filtroBruto) {
     .sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1));
   let semNumero = 0;
   let sairam = 0;
+  let jaDisparados = 0;
+  const { disparosRecebidos } = require('./prospeccao');
   for (const c of lista) {
     if (filtro.leadIds.length && !filtro.leadIds.includes(c.id)) continue;
     if (filtro.etapas.length && !filtro.etapas.includes(c.etapa)) continue;
@@ -64,10 +67,13 @@ function destinatariosPara(empresa, filtroBruto) {
       continue;
     }
     if (vistos.has(destino)) continue;
+    const recebeu = disparosRecebidos(c).length > 0;
+    if (recebeu) jaDisparados++;
+    if (recebeu && filtro.pularJaDisparados) continue;
     vistos.add(destino);
     saida.push({ leadId: c.id, nome: c.nome || '', destino });
   }
-  return { filtro, destinatarios: saida, semNumero, sairam };
+  return { filtro, destinatarios: saida, semNumero, sairam, jaDisparados };
 }
 
 // ---------------------------------------------------------------- texto
@@ -298,8 +304,8 @@ function criar(empresa, corpo, usuario) {
   for (const mid of pedidos) {
     if (!midias.midiasDa(empresa).some((m) => m.id === mid) && !midias.albunsDa(empresa).some((a) => a.id === mid)) throw erro('Mídia não encontrada. Atualize a página e escolha de novo.');
   }
-  const { filtro, destinatarios } = destinatariosPara(empresa, corpo.filtro);
-  if (!destinatarios.length) throw erro('Nenhum lead com WhatsApp nesse filtro.');
+  const { filtro, destinatarios, jaDisparados } = destinatariosPara(empresa, corpo.filtro);
+  if (!destinatarios.length) throw erro(jaDisparados && filtro.pularJaDisparados ? 'Todos desse filtro já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.' : 'Nenhum lead com WhatsApp nesse filtro.');
   if (destinatarios.length > MAX_DESTINATARIOS) throw erro(`No máximo ${MAX_DESTINATARIOS} contatos por disparo. Filtre por etapa ou etiqueta.`);
   const prospeccao = corpo.prospeccao === true;
   const cfgPros = prospeccao ? require('./prospeccao').configDa(empresa) : null;

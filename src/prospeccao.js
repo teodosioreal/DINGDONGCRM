@@ -1,9 +1,10 @@
 // prospeccao.js — listas de contatos para disparo (ex.: empresas que não conhecem a sua ainda)
 // e as proteções do "modo prospecção" dos disparos.
 //
-// Lista importada (planilha/CSV colado): cada contato vira um lead com lead.prospeccao
-// { listaId, empresa, cidade, ramo }. Telefone fixo fica de fora (não tem WhatsApp) e
-// repetidos não entram de novo. Quando alguém responde, cai no atendimento normal.
+// Lista importada (PDF do Google Maps, planilha ou CSV colado): cada contato vira um lead com
+// lead.prospeccao { listaId, empresa, cidade, ramo, endereço, nota, site… }. Telefone fixo fica
+// de fora (a não ser que peça para incluir) e repetidos não entram de novo; a prévia avisa quem
+// já recebeu disparo em massa. Quando alguém responde, cai no atendimento normal.
 //
 // Modo prospecção no disparo: limite por dia com aquecimento (começa baixo e sobe um pouco a
 // cada dia), confere se o número tem WhatsApp antes de mandar, intervalo maior e freio
@@ -61,25 +62,116 @@ function resumoLista(empresa, l) {
   const responderam = contatos.filter((c) => (c.mensagens || []).some((m) => m.papel === 'visitante')).length;
   const semWhatsapp = contatos.filter((c) => c.temWhatsapp === false).length;
   const sairam = contatos.filter((c) => c.naoDisparar).length;
-  return { ...l, contatos: contatos.length, responderam, semWhatsapp, sairam };
+  const disparados = contatos.filter((c) => disparosRecebidos(c).length).length;
+  return { ...l, contatos: contatos.length, responderam, semWhatsapp, sairam, disparados };
 }
 
-// contatos: [{ nome, telefone, empresa, cidade, ramo }]
-function importar(empresa, { nome, contatos, etiquetaId, principal }) {
+// ---------------------------------------------------------------- já está no CRM? já recebeu disparo?
+
+// o mesmo celular pode estar guardado com ou sem o 9 extra (o WhatsApp devolve sem em números antigos)
+function chavesDoNumero(numero) {
+  const d = String(numero || '').replace(/\D/g, '');
+  if (!d) return [];
+  const k = [d];
+  if (d.startsWith('55') && d.length === 13 && d[4] === '9') k.push(d.slice(0, 4) + d.slice(5));
+  if (d.startsWith('55') && d.length === 12 && /^[6-9]/.test(d[4])) k.push(`${d.slice(0, 4)}9${d.slice(4)}`);
+  return k;
+}
+const chaveDoLead = (c) => (c.whatsappJid ? c.whatsappJid.split('@')[0] : c.telefone);
+const nomeLimpo = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// leads da empresa por número (todas as variações) e por nome da empresa + cidade
+function indiceDosLeads(empresa) {
+  const porNumero = new Map();
+  const porNome = new Map();
+  for (const c of estado.conversas) {
+    if (c.empresaId !== empresa.id) continue;
+    for (const k of chavesDoNumero(chaveDoLead(c))) if (!porNumero.has(k)) porNumero.set(k, c);
+    if (c.telefone) for (const k of chavesDoNumero(c.telefone)) if (!porNumero.has(k)) porNumero.set(k, c);
+    const n = nomeLimpo(c.prospeccao?.empresa || c.nome);
+    if (n.length >= 5) porNome.set(`${n}|${nomeLimpo(c.prospeccao?.cidade)}`, c);
+  }
+  const acharNumero = (numero) => chavesDoNumero(numero).map((k) => porNumero.get(k)).find(Boolean) || null;
+  const acharNome = (nome, cidade) => {
+    const n = nomeLimpo(nome);
+    if (n.length < 5) return null;
+    return porNome.get(`${n}|${nomeLimpo(cidade)}`) || porNome.get(`${n}|`) || null;
+  };
+  return { acharNumero, acharNome, porNumero };
+}
+
+// disparos em massa que o lead já recebeu (pelas mensagens marcadas), o mais recente primeiro
+function disparosRecebidos(lead) {
+  const porId = new Map();
+  for (const m of lead?.mensagens || []) if (m.disparoId && !porId.has(m.disparoId)) porId.set(m.disparoId, m.em);
+  const lista = [...porId].map(([id, em]) => ({ id, em, nome: (estado.disparos || []).find((d) => d.id === id)?.nome || 'Disparo em massa' }));
+  // mensagens antigas podem ter saído do histórico: a data do último disparo continua no lead
+  if (!lista.length && lead?.ultimoDisparoEm) lista.push({ id: null, em: lead.ultimoDisparoEm, nome: 'Disparo em massa' });
+  return lista.sort((a, b) => (a.em < b.em ? 1 : -1));
+}
+
+const resumoDoLead = (empresa, c) => ({
+  id: c.id,
+  nome: c.nome || '',
+  etapa: c.etapa || '',
+  lista: c.prospeccao?.listaId ? listasDa(empresa).find((l) => l.id === c.prospeccao.listaId)?.nome || 'lista apagada' : '',
+  respondeu: (c.mensagens || []).some((m) => m.papel === 'visitante'),
+  naoDisparar: Boolean(c.naoDisparar)
+});
+
+// Antes de importar: para cada contato diz se é novo, fixo, sem número, repetido no arquivo ou
+// já está no CRM — e se já recebeu disparo em massa (quando e qual).
+function analisar(empresa, contatos, { incluirFixos = false } = {}) {
+  const idx = indiceDosLeads(empresa);
+  const noArquivo = new Set();
+  return (Array.isArray(contatos) ? contatos.slice(0, 5000) : []).map((x) => {
+    const numero = numeroWhatsapp(x?.telefone);
+    const lead = numero.length >= 10 ? idx.acharNumero(numero) : null;
+    const parecido = lead ? null : idx.acharNome(x?.empresa || x?.nome, x?.cidade);
+    let situacao = 'novo';
+    if (numero.length < 10) situacao = 'invalido';
+    else if (lead) situacao = 'existe';
+    else if (chavesDoNumero(numero).some((k) => noArquivo.has(k))) situacao = 'repetido';
+    else if (ehFixo(numero) && !incluirFixos) situacao = 'fixo';
+    if (numero.length >= 10) chavesDoNumero(numero).forEach((k) => noArquivo.add(k));
+    const quem = lead || parecido;
+    return {
+      ...x,
+      analise: {
+        numero,
+        fixo: numero.length >= 10 && ehFixo(numero),
+        situacao,
+        lead: lead ? resumoDoLead(empresa, lead) : null,
+        // mesmo nome de empresa (e cidade) com outro telefone: pode ser a mesma empresa
+        parecido: parecido ? resumoDoLead(empresa, parecido) : null,
+        disparos: quem ? disparosRecebidos(quem).slice(0, 5) : []
+      }
+    };
+  });
+}
+
+// dados extras de cada empresa (do PDF do Google Maps ou da planilha)
+const EXTRAS = { nota: 10, avaliacoes: 12, endereco: 200, bairro: 80, estado: 40, cep: 20, pais: 40, site: 300, email: 160, categorias: 200, mapsUrl: 600 };
+
+// contatos: [{ nome, telefone, empresa, cidade, ramo, endereco, nota… }]
+function importar(empresa, { nome, contatos, etiquetaId, principal, incluirFixos = false }) {
   const { criarLead } = require('./leads');
   const lista = Array.isArray(contatos) ? contatos.slice(0, 5000) : [];
   if (!lista.length) throw Object.assign(new Error('Cole ou envie pelo menos um contato com telefone.'), { status: 400 });
-  const l = { id: novoId('lst'), nome: texto(nome, 80) || `Lista de ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, criadoEm: agora(), importados: 0, repetidos: 0, fixos: 0, invalidos: 0 };
-  const existentes = new Set(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => (c.whatsappJid ? c.whatsappJid.split('@')[0] : c.telefone)).filter(Boolean));
+  const l = { id: novoId('lst'), nome: texto(nome, 80) || `Lista de ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, criadoEm: agora(), importados: 0, repetidos: 0, fixos: 0, invalidos: 0, jaDisparados: 0 };
   const etiquetaOk = etiquetaId && require('./leads').etiquetasDa(empresa).some((t) => t.id === etiquetaId) ? etiquetaId : null;
-  for (const x of lista) {
-    const telefone = numeroWhatsapp(x?.telefone);
-    if (telefone.length < 10) { l.invalidos++; continue; }
-    if (ehFixo(telefone)) { l.fixos++; continue; }
-    if (existentes.has(telefone)) { l.repetidos++; continue; }
-    existentes.add(telefone);
-    const lead = criarLead({ empresa, bot: principal, canal: 'manual', nome: texto(x?.nome || x?.empresa, 120), telefone });
-    lead.prospeccao = { listaId: l.id, empresa: texto(x?.empresa, 120), cidade: texto(x?.cidade, 80), ramo: texto(x?.ramo, 80), importadoEm: agora() };
+  for (const x of analisar(empresa, lista, { incluirFixos })) {
+    const a = x.analise;
+    if (a.situacao === 'invalido') { l.invalidos++; continue; }
+    if (a.situacao === 'fixo') { l.fixos++; continue; }
+    if (a.situacao === 'existe' || a.situacao === 'repetido') { l.repetidos++; if (a.disparos.length) l.jaDisparados++; continue; }
+    const lead = criarLead({ empresa, bot: principal, canal: 'manual', nome: texto(x?.nome || x?.empresa, 120), telefone: a.numero });
+    lead.prospeccao = { listaId: l.id, empresa: texto(x?.empresa, 120), cidade: texto(x?.cidade, 80), ramo: texto(x?.ramo || x?.categorias, 80), importadoEm: agora() };
+    for (const [k, max] of Object.entries(EXTRAS)) { const v = texto(x?.[k], max); if (v) lead.prospeccao[k] = v; }
+    if (a.fixo) lead.prospeccao.fixo = true;
+    const cortados = (Array.isArray(x?.cortados) ? x.cortados : []).filter((k) => ['empresa', 'endereco', 'site', 'categorias', 'email'].includes(k));
+    if (cortados.length) lead.prospeccao.cortados = cortados; // texto que veio cortado no PDF ("…")
+    if (a.parecido) lead.prospeccao.parecidoCom = a.parecido.id; // mesma empresa com outro número?
     if (etiquetaOk) lead.etiquetas = [...new Set([...(lead.etiquetas || []), etiquetaOk])];
     l.importados++;
   }
@@ -87,6 +179,29 @@ function importar(empresa, { nome, contatos, etiquetaId, principal }) {
   listasDa(empresa).push(l);
   salvar();
   return resumoLista(empresa, l);
+}
+
+// Ficha de cada contato da lista: dados da empresa + o que já aconteceu com ele
+function detalheLista(empresa, listaId) {
+  const l = listasDa(empresa).find((x) => x.id === listaId);
+  if (!l) throw Object.assign(new Error('Lista não encontrada.'), { status: 404 });
+  const contatos = contatosDaLista(empresa, listaId).map((c) => {
+    const p = c.prospeccao || {};
+    const parecido = p.parecidoCom && estado.conversas.find((x) => x.id === p.parecidoCom && x.empresaId === empresa.id);
+    return {
+      id: c.id,
+      nome: c.nome || '',
+      telefone: c.telefone || '',
+      etapa: c.etapa || '',
+      ...Object.fromEntries(['empresa', 'cidade', 'ramo', ...Object.keys(EXTRAS), 'fixo', 'cortados'].filter((k) => p[k]).map((k) => [k, p[k]])),
+      temWhatsapp: c.temWhatsapp ?? null,
+      respondeu: (c.mensagens || []).some((m) => m.papel === 'visitante'),
+      naoDisparar: Boolean(c.naoDisparar),
+      disparos: disparosRecebidos(c).slice(0, 5),
+      parecido: parecido ? { ...resumoDoLead(empresa, parecido), disparos: disparosRecebidos(parecido).slice(0, 3) } : null
+    };
+  });
+  return { lista: resumoLista(empresa, l), contatos };
 }
 
 // Apaga a lista; os contatos que nunca responderam saem junto (quem conversou fica como lead)
@@ -142,4 +257,4 @@ async function temWhatsapp(empresa, destino) {
   }
 }
 
-module.exports = { PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, importar, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };
+module.exports = { PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };

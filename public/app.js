@@ -4333,6 +4333,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta criada.</span>'}</div></div>
           <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>
           <div class="campo" style="margin-top:12px"><label>Lista de contatos ${ajuda('Listas importadas em 📋 Listas de contatos (aqui na aba Disparos).')}</label><select name="listaId"><option value="">— qualquer —</option>${listas.map((l) => `<option value="${esc(l.id)}" ${l.id === listaPedida ? 'selected' : ''}>${esc(l.nome)} (${l.contatos})</option>`).join('')}</select>${prospeccao && !listas.length ? `<small>Nenhuma lista ainda. <a href="${rotaEmpresa(id, 'disparos/listas?aba=importar')}">Importar uma lista</a></small>` : ''}</div>`}
+          <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pularJaDisparados" ${prospeccao ? 'checked' : ''}> Não mandar para quem já recebeu disparo em massa ${ajuda('Quem já recebeu qualquer disparo antes fica de fora deste. Desmarcado, o CRM só avisa quantos já receberam.')}</label>
           <div class="contagem" id="contagem">Calculando…</div>
         </div>
         <div class="card">
@@ -4384,9 +4385,11 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
 
   const form = $('#f-disparo');
   const filtro = () => {
-    if (leadIds.length) return { leadIds };
+    const pularJaDisparados = Boolean($('input[name=pularJaDisparados]', form)?.checked);
+    if (leadIds.length) return { leadIds, pularJaDisparados };
     const f = formParaObjeto(form);
     return {
+      pularJaDisparados,
       etapas: $$('input[name=etapa]:checked', form).map((c) => c.value),
       etiquetas: $$('input[name=etiqueta]:checked', form).map((c) => c.value),
       origem: f.origem,
@@ -4403,8 +4406,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       if (!form.isConnected) return;
       total = r.total;
       $('#contagem').innerHTML = r.total
-        ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber ou estão na lista negra` : ''} (ficam de fora)</span>` : ''}`
-        : '<strong>Ninguém nesse filtro</strong><span class="rotulo">Mude as etapas ou etiquetas.</span>';
+        ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber ou estão na lista negra` : ''} (ficam de fora)</span>` : ''}${r.jaDisparados ? `<span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} ${r.jaDisparados === 1 ? 'já recebeu' : 'já receberam'} disparo em massa antes${r.pulouJaDisparados ? (r.jaDisparados === 1 ? ' (fica de fora)' : ' (ficam de fora)') : (r.jaDisparados === 1 ? ' e vai receber de novo' : ' e vão receber de novo')}</span>` : ''}`
+        : `<strong>Ninguém nesse filtro</strong><span class="rotulo">${r.jaDisparados && r.pulouJaDisparados ? `Todos os ${r.jaDisparados} já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.` : 'Mude as etapas ou etiquetas.'}</span>`;
       const itens = escolhidas.map(itemDe).filter(Boolean);
       $('#previa').innerHTML = r.exemplo
         ? `${itens.map((m) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
@@ -4512,7 +4515,56 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   };
 }
 
-// 📋 Listas de contatos (aba Disparos): importar planilha/CSV e ver as listas
+// Cartão de uma empresa da lista: dados (nota, endereço, site, mapa…) e os avisos
+const dataCurta = (iso) => (iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
+function linkDoMapa(c) {
+  if (c.mapsUrl && /^https:\/\//.test(c.mapsUrl)) return c.mapsUrl;
+  const onde = [c.empresa || c.nome, c.endereco, c.bairro, c.cidade, c.estado].filter(Boolean).join(', ');
+  return onde ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(onde)}` : '';
+}
+function avisoDisparos(disparos, quem = 'Já recebeu') {
+  if (!disparos?.length) return '';
+  const [d] = disparos;
+  return `<span class="etiqueta aviso" title="${esc(disparos.map((x) => `${x.nome} (${dataCurta(x.em)})`).join(' · '))}">⚠️ ${quem} disparo em ${esc(dataCurta(d.em))}: ${esc(d.nome)}${disparos.length > 1 ? ` +${disparos.length - 1}` : ''}</span>`;
+}
+function cartaoContato(c, chips = '') {
+  const cortado = (k) => (c.cortados || []).includes(k);
+  const site = c.site ? (cortado('site') || !/^https?:\/\//i.test(c.site)
+    ? `<span title="Veio cortado no PDF">🌐 ${esc(c.site.replace(/^https?:\/\/(www\.)?/i, ''))}…</span>`
+    : `<a href="${esc(c.site)}" target="_blank" rel="noopener noreferrer">🌐 ${esc(c.site.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''))}</a>`) : '';
+  const mapa = linkDoMapa(c);
+  const local = [c.endereco ? `${esc(c.endereco)}${cortado('endereco') ? '…' : ''}` : '', esc(c.bairro || ''), [c.cidade, c.estado].filter(Boolean).map(esc).join(' - ')].filter(Boolean).join(', ');
+  return `<div class="contato-card">
+    <div class="contato-topo"><strong>${esc(c.empresa || c.nome || 'Sem nome')}${cortado('empresa') ? '…' : ''}</strong>${c.nota ? `<span class="contato-nota">⭐ ${esc(String(c.nota).replace('.', ','))}${c.avaliacoes ? ` <span class="rotulo">(${esc(Number(c.avaliacoes).toLocaleString('pt-BR'))})</span>` : ''}</span>` : ''}</div>
+    ${c.nome && c.empresa && c.nome !== c.empresa ? `<div class="rotulo">👤 ${esc(c.nome)}</div>` : ''}
+    <div class="contato-linha">📞 <b>${esc((c.analise ? c.telefone : telefoneBonito(c.telefone)) || '—')}</b>${c.fixo || c.analise?.fixo ? ' <span class="rotulo">(fixo)</span>' : ''}</div>
+    ${local ? `<div class="contato-linha">📍 ${local}</div>` : ''}
+    ${c.ramo || c.categorias ? `<div class="contato-linha rotulo">🏷️ ${esc(c.categorias || c.ramo)}</div>` : ''}
+    ${c.email ? `<div class="contato-linha">✉️ ${esc(c.email)}</div>` : ''}
+    ${site || mapa ? `<div class="contato-linha contato-links">${site}${mapa ? `<a href="${esc(mapa)}" target="_blank" rel="noopener noreferrer">🗺️ Ver no mapa</a>` : ''}</div>` : ''}
+    ${chips ? `<div class="chips contato-chips">${chips}</div>` : ''}
+  </div>`;
+}
+// avisos da prévia (antes de importar)
+function chipsDaAnalise(a) {
+  const lead = a.lead ? `<a href="#/leads/${esc(a.lead.id)}">${esc(a.lead.nome || 'lead')}</a>` : '';
+  const SIT = {
+    novo: '<span class="etiqueta ok">✅ novo — vai entrar</span>',
+    existe: `<span class="etiqueta">👤 já está no CRM: ${lead}${a.lead?.lista ? ` (lista ${esc(a.lead.lista)})` : a.lead?.etapa ? ` (${esc(a.lead.etapa)})` : ''} — não entra de novo</span>`,
+    repetido: '<span class="etiqueta">🔁 repetido no arquivo</span>',
+    fixo: '<span class="etiqueta off">☎️ telefone fixo — fica de fora</span>',
+    invalido: '<span class="etiqueta off">sem telefone válido</span>'
+  };
+  return [
+    SIT[a.situacao] || '',
+    avisoDisparos(a.disparos, a.parecido && !a.lead ? 'Mesma empresa já recebeu' : 'Já recebeu'),
+    a.parecido ? `<span class="etiqueta aviso">⚠️ empresa com o mesmo nome já no CRM com outro número: <a href="#/leads/${esc(a.parecido.id)}">${esc(a.parecido.nome || 'ver')}</a></span>` : '',
+    a.lead?.respondeu ? '<span class="etiqueta">💬 já conversou</span>' : '',
+    a.lead?.naoDisparar ? '<span class="etiqueta off">🚫 pediu para não receber</span>' : ''
+  ].join('');
+}
+
+// 📋 Listas de contatos (aba Disparos): importar PDF/planilha/CSV e ver as listas
 // Lê a planilha colada (Excel/Google: separada por tab) ou CSV (; ou ,). Com cabeçalho, acha as
 // colunas pelo nome; sem cabeçalho, acha o telefone pelos números e o resto vira nome/empresa.
 function lerPlanilhaContatos(texto) {
@@ -4521,7 +4573,7 @@ function lerPlanilhaContatos(texto) {
   const sep = [/\t/, /;/, /,/].find((re) => linhas.slice(0, 5).some((l) => re.test(l))) || /\t/;
   const celulas = (l) => l.split(sep).map((x) => x.trim().replace(/^"|"$/g, '').trim());
   const sem = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const COLUNAS = { telefone: /^(telefone|celular|whats|whatsapp|fone|numero|n[uú]mero|phone|contato)/, nome: /^(nome|responsavel|contato nome|name)/, empresa: /^(empresa|razao|nome fantasia|fantasia|estabelecimento|loja|negocio|company)/, cidade: /^(cidade|municipio|city|localidade)/, ramo: /^(ramo|segmento|categoria|atividade|tipo|nicho|category)/ };
+  const COLUNAS = { telefone: /^(telefone|celular|whats|whatsapp|fone|numero|n[uú]mero|phone|contato)/, nome: /^(nome|responsavel|contato nome|name)/, empresa: /^(empresa|razao|nome fantasia|fantasia|estabelecimento|loja|negocio|company|title)/, cidade: /^(cidade|municipio|city|localidade)/, ramo: /^(ramo|segmento|categoria|atividade|tipo|nicho|category)/, endereco: /^(endereco|rua|logradouro|address|street)/, bairro: /^(bairro|neighborhood)/, estado: /^(estado|uf|state)$/, site: /^(site|website)/, email: /^(e-?mail)/, nota: /^(nota|avaliacao|rating|totalscore)$/, avaliacoes: /^(avaliacoes|reviews|reviewscount)$/ };
   const cab = celulas(linhas[0]).map(sem);
   const mapa = {};
   cab.forEach((c, i) => { for (const [k, re] of Object.entries(COLUNAS)) if (mapa[k] === undefined && re.test(c)) { mapa[k] = i; break; } });
@@ -4529,7 +4581,7 @@ function lerPlanilhaContatos(texto) {
   const ehTel = (s) => String(s).replace(/\D/g, '').length >= 10;
   return (temCabecalho ? linhas.slice(1) : linhas).map((l) => {
     const c = celulas(l);
-    if (temCabecalho) return { telefone: c[mapa.telefone] || '', nome: c[mapa.nome] ?? '', empresa: c[mapa.empresa] ?? '', cidade: c[mapa.cidade] ?? '', ramo: c[mapa.ramo] ?? '' };
+    if (temCabecalho) return Object.fromEntries(Object.keys(COLUNAS).map((k) => [k, mapa[k] === undefined ? '' : c[mapa[k]] || '']));
     const iTel = c.findIndex(ehTel);
     const resto = c.filter((_, i) => i !== iTel);
     return { telefone: iTel >= 0 ? c[iTel] : '', nome: resto[0] || '', empresa: resto[1] || '', cidade: resto[2] || '', ramo: resto[3] || '' };
@@ -4540,37 +4592,44 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const d = await api(`empresas/${id}/disparos-listas`);
+  const ver = params.get('ver');
+  if (ver) return paginaDetalheLista(id, ver, d, params);
   const aba = params.get('aba') === 'importar' || !d.listas.length ? 'importar' : 'listas';
   const abas = [[rotaEmpresa(id, 'disparos/listas'), `Minhas listas <span class="rotulo">${d.listas.length}</span>`, aba === 'listas'], [`${rotaEmpresa(id, 'disparos/listas')}?aba=importar`, '⬆️ Importar lista', aba === 'importar']];
   if (location.hash !== hashDaPagina) return;
   const htmlListas = d.listas.length ? `
     <div class="card tabela-wrap"><table>
-      <thead><tr><th>Lista</th><th>Contatos</th><th class="esconde-mobile">Responderam</th><th class="esconde-mobile">Sem WhatsApp / saíram</th><th></th></tr></thead>
-      <tbody>${d.listas.map((l) => `<tr>
+      <thead><tr><th>Lista</th><th>Contatos</th><th class="esconde-mobile">Já receberam disparo</th><th class="esconde-mobile">Responderam</th><th class="esconde-mobile">Sem WhatsApp / saíram</th><th></th></tr></thead>
+      <tbody>${d.listas.map((l) => `<tr class="clicavel" data-ver-lista="${esc(l.id)}">
         <td><strong>${esc(l.nome)}</strong><br><span class="rotulo">${esc(data(l.criadoEm))} · ${l.importados} importados${l.fixos ? ` · ${l.fixos} fixos de fora` : ''}${l.repetidos ? ` · ${l.repetidos} já existiam` : ''}</span></td>
         <td>${l.contatos}</td>
+        <td class="esconde-mobile">${l.disparados || 0}</td>
         <td class="esconde-mobile">${l.responderam}</td>
         <td class="esconde-mobile">${l.semWhatsapp} / ${l.sairam}</td>
-        <td style="white-space:nowrap"><a class="botao pequeno primario" href="${rotaEmpresa(id, `disparos/novo?modo=prospeccao&lista=${encodeURIComponent(l.id)}`)}">🛡️ Disparar</a> <button type="button" class="pequeno perigo" data-apagar-lista="${esc(l.id)}" title="Apagar lista">✕</button></td>
+        <td style="white-space:nowrap"><a class="botao pequeno" href="${rotaEmpresa(id, `disparos/listas?ver=${encodeURIComponent(l.id)}`)}">👁️ Ver</a> <a class="botao pequeno primario" href="${rotaEmpresa(id, `disparos/novo?modo=prospeccao&lista=${encodeURIComponent(l.id)}`)}">🛡️ Disparar</a> <button type="button" class="pequeno perigo" data-apagar-lista="${esc(l.id)}" title="Apagar lista">✕</button></td>
       </tr>`).join('')}</tbody>
     </table></div>` : '<div class="card vazio">Nenhuma lista ainda.</div>';
   const htmlImportar = `
     <div class="card">
       <h2 style="margin-top:0">⬆️ Importar lista de contatos</h2>
-      ${balao('Como trazer a lista', 'Copie da planilha (Excel ou Google Planilhas) e cole aqui, <b>com a linha de títulos</b> — ex.: <code>Empresa | Nome | Telefone | Cidade | Ramo</code>. Também dá para escolher um arquivo <b>.csv</b>. O CRM acha as colunas sozinho. <b>Telefone fixo fica de fora</b> (não tem WhatsApp) e quem já é lead não entra de novo.')}
+      ${balao('Como trazer a lista', 'Envie o <b>PDF</b> com a tabela de empresas (ex.: o do Google Maps Scraper) e o CRM separa cada empresa com nome, telefone, nota, endereço, cidade e site. Ou copie da planilha (Excel/Google Planilhas) e cole aqui <b>com a linha de títulos</b>, ou escolha um <b>.csv</b>. Antes de importar você vê cada contato separado e o aviso de quem <b>já recebeu disparo</b>.')}
       <div class="campos">
-        <div class="campo"><label>Nome da lista *</label><input id="lista-nome" maxlength="80" placeholder="Ex.: Lava-jatos de Niterói"></div>
+        <div class="campo"><label>Nome da lista *</label><input id="lista-nome" maxlength="80" placeholder="Ex.: Restaurantes de Miguel Pereira"></div>
         <div class="campo"><label>Etiqueta (opcional)</label><select id="lista-etiqueta"><option value="">Nenhuma</option>${(emp.etiquetas || []).map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></div>
       </div>
-      <div class="campo" style="margin-top:10px"><label>Cole a planilha aqui</label><textarea id="lista-texto" style="min-height:180px;font-family:ui-monospace,monospace;font-size:13px" placeholder="Empresa	Nome	Telefone	Cidade	Ramo&#10;Lava Rápido Sol	João	(21) 98888-0001	Niterói	lava-jato"></textarea></div>
-      <div class="acoes" style="margin-top:6px"><label class="botao">📄 Escolher arquivo .csv<input type="file" id="lista-arquivo" hidden accept=".csv,.txt,text/csv,text/plain"></label></div>
+      <div class="acoes" style="margin-top:10px"><label class="botao primario">📄 Enviar PDF<input type="file" id="lista-pdf" hidden accept="application/pdf,.pdf"></label><label class="botao">📑 Escolher arquivo .csv<input type="file" id="lista-arquivo" hidden accept=".csv,.txt,text/csv,text/plain"></label></div>
+      <details style="margin-top:10px" id="lista-colar"><summary>📋 Ou colar a planilha</summary>
+        <textarea id="lista-texto" style="margin-top:8px;min-height:160px;font-family:ui-monospace,monospace;font-size:13px;width:100%" placeholder="Empresa	Nome	Telefone	Cidade	Ramo&#10;Lava Rápido Sol	João	(21) 98888-0001	Niterói	lava-jato"></textarea>
+      </details>
+      <label class="linha-check" style="margin-top:10px"><input type="checkbox" id="lista-fixos"> Incluir telefone fixo ${ajuda('Algumas empresas usam WhatsApp Business no número fixo. No disparo de prospecção o CRM confere antes de mandar: quem não tem WhatsApp fica de fora.')}</label>
       <div id="lista-previa"></div>
       <p class="rotulo" style="margin:10px 0 0">Use listas de <b>contato comercial de empresas</b>, com uma oferta que faça sentido para elas. Quem responder SAIR não recebe mais. Para lista fria, prefira um número separado do principal.</p>
       <div class="acoes"><button type="button" class="primario" id="lista-importar" disabled>Importar</button></div>
     </div>`;
   conteudo.innerHTML = cascaDisparos(id, 'listas', `
-    <div class="cabecalho"><div><h1>📋 Listas de contatos</h1><p class="sub">Contatos para disparo de prospecção — cada lista vira leads com empresa, cidade e ramo</p></div></div>
+    <div class="cabecalho"><div><h1>📋 Listas de contatos</h1><p class="sub">Contatos para disparo de prospecção — cada empresa vira um lead com telefone, endereço, nota e site</p></div></div>
     ${aba === 'importar' ? htmlImportar : htmlListas}`, abas);
+  $$('tr[data-ver-lista]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('a,button')) return; location.hash = rotaEmpresa(id, `disparos/listas?ver=${encodeURIComponent(tr.dataset.verLista)}`); }; });
   $$('[data-apagar-lista]').forEach((b) => {
     b.onclick = async () => {
       const l = d.listas.find((x) => x.id === b.dataset.apagarLista);
@@ -4579,33 +4638,137 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
     };
   });
   if (aba !== 'importar') return;
-  let contatos = [];
-  const previa = () => {
-    contatos = lerPlanilhaContatos($('#lista-texto').value);
-    $('#lista-importar').disabled = !contatos.length;
-    $('#lista-importar').textContent = contatos.length ? `Importar ${contatos.length} contato${contatos.length === 1 ? '' : 's'}` : 'Importar';
-    $('#lista-previa').innerHTML = contatos.length ? `<div class="tabela-wrap" style="margin-top:10px;max-height:260px;overflow:auto"><table><thead><tr><th>Empresa</th><th>Nome</th><th>Telefone</th><th class="esconde-mobile">Cidade</th><th class="esconde-mobile">Ramo</th></tr></thead><tbody>${contatos.slice(0, 8).map((c) => `<tr><td>${esc(c.empresa || '—')}</td><td>${esc(c.nome || '—')}</td><td style="white-space:nowrap">${esc(c.telefone)}</td><td class="esconde-mobile">${esc(c.cidade || '—')}</td><td class="esconde-mobile">${esc(c.ramo || '—')}</td></tr>`).join('')}</tbody></table></div><p class="rotulo" style="margin:6px 0 0">${contatos.length > 8 ? `Mostrando 8 de ${contatos.length}. ` : ''}Fixos e repetidos são tirados na hora de importar.</p>` : ($('#lista-texto').value.trim() ? '<p class="rotulo texto-erro">Não achei telefones. Confira se tem a coluna de telefone (com DDD).</p>' : '');
+
+  let contatos = []; // já analisados pelo servidor (novo, já existe, já recebeu disparo…)
+  let origem = '';
+  let filtroPrevia = 'todos';
+  const novos = () => contatos.filter((c) => c.analise.situacao === 'novo');
+  const desenhar = () => {
+    const box = $('#lista-previa');
+    if (!box) return;
+    const n = novos().length;
+    $('#lista-importar').disabled = !n;
+    $('#lista-importar').textContent = n ? `Importar ${n} contato${n === 1 ? '' : 's'} novo${n === 1 ? '' : 's'}` : 'Importar';
+    if (!contatos.length) { box.innerHTML = ''; return; }
+    const conta = (f) => contatos.filter(f).length;
+    const jaDisp = (c) => c.analise.disparos.length > 0;
+    const FILTROS = [['todos', 'Todos', () => true], ['novo', '✅ Novos', (c) => c.analise.situacao === 'novo'], ['disparo', '⚠️ Já receberam disparo', jaDisp], ['existe', '👤 Já no CRM', (c) => c.analise.situacao === 'existe'], ['fixo', '☎️ Fixos', (c) => c.analise.fixo], ['fora', 'Ficam de fora', (c) => c.analise.situacao !== 'novo']];
+    const nDisp = conta(jaDisp);
+    const visiveis = contatos.filter((FILTROS.find((f) => f[0] === filtroPrevia) || FILTROS[0])[2]);
+    box.innerHTML = `
+      <div class="previa-resumo">
+        <div><strong>${contatos.length}</strong><span class="rotulo">encontrados${origem ? ` no ${esc(origem)}` : ''}</span></div>
+        <div><strong>${n}</strong><span class="rotulo">novos (vão entrar)</span></div>
+        <div><strong>${conta((c) => c.analise.situacao === 'existe')}</strong><span class="rotulo">já no CRM</span></div>
+        <div class="${nDisp ? 'aviso-num' : ''}"><strong>${nDisp}</strong><span class="rotulo">já receberam disparo</span></div>
+        <div><strong>${conta((c) => c.analise.fixo)}</strong><span class="rotulo">telefone fixo</span></div>
+      </div>
+      ${nDisp ? balao(`${nDisp} ${nDisp === 1 ? 'empresa já recebeu' : 'empresas já receberam'} disparo em massa`, 'Elas estão marcadas com ⚠️ abaixo, com a data e o nome do disparo. Quem já está no CRM não entra de novo nesta lista, e no disparo você pode marcar para <b>não mandar de novo</b> para quem já recebeu.', 'aviso') : ''}
+      <div class="chips" style="margin:12px 0">${FILTROS.map(([k, nome, f]) => `<button type="button" class="chip-filtro ${k === filtroPrevia ? 'ativo' : ''}" data-filtro-previa="${k}">${nome} <span class="rotulo">${conta(f)}</span></button>`).join('')}</div>
+      <div class="contato-grid">${visiveis.slice(0, 300).map((c) => cartaoContato(c, chipsDaAnalise(c.analise))).join('') || '<p class="rotulo">Nenhum contato neste filtro.</p>'}</div>
+      ${visiveis.length > 300 ? `<p class="rotulo">Mostrando 300 de ${visiveis.length}.</p>` : ''}`;
+    $$('[data-filtro-previa]', box).forEach((b) => { b.onclick = () => { filtroPrevia = b.dataset.filtroPrevia; desenhar(); }; });
   };
-  $('#lista-texto').addEventListener('input', previa);
+  const analisarTexto = async () => {
+    const lidos = lerPlanilhaContatos($('#lista-texto').value);
+    origem = 'texto colado';
+    if (!lidos.length) {
+      contatos = [];
+      desenhar();
+      if ($('#lista-texto').value.trim()) $('#lista-previa').innerHTML = '<p class="rotulo texto-erro">Não achei telefones. Confira se tem a coluna de telefone (com DDD).</p>';
+      return;
+    }
+    const r = await api(`empresas/${id}/disparos-listas/analisar`, { method: 'POST', body: { contatos: lidos, incluirFixos: $('#lista-fixos').checked } });
+    contatos = r.contatos;
+    desenhar();
+  };
+  let pdfAtual = null;
+  const lerPdf = async (arq) => {
+    $('#lista-previa').innerHTML = '<p class="rotulo">📄 Lendo o PDF e separando as empresas…</p>';
+    const r = await fetch(`api/empresas/${id}/disparos-listas/pdf${$('#lista-fixos').checked ? '?fixos=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arq });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.erro || 'Não consegui ler o PDF.');
+    contatos = j.contatos;
+    origem = `PDF (${j.paginas} página${j.paginas === 1 ? '' : 's'})`;
+    desenhar();
+  };
+  let espera = null;
+  $('#lista-texto').addEventListener('input', () => { pdfAtual = null; clearTimeout(espera); espera = setTimeout(() => analisarTexto().catch((err) => aviso(err.message, true)), 400); });
+  $('#lista-fixos').onchange = () => (pdfAtual ? lerPdf(pdfAtual) : analisarTexto()).catch((err) => aviso(err.message, true));
+  $('#lista-pdf').onchange = async (e) => {
+    const arq = e.target.files[0];
+    e.target.value = '';
+    if (!arq) return;
+    if (arq.size > 15 * 1024 * 1024) return aviso('O PDF tem mais de 15 MB.', true);
+    pdfAtual = arq;
+    if (!$('#lista-nome').value) $('#lista-nome').value = arq.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').slice(0, 80);
+    try { await lerPdf(arq); } catch (err) { $('#lista-previa').innerHTML = `<p class="texto-erro">${esc(err.message)}</p>`; contatos = []; $('#lista-importar').disabled = true; }
+  };
   $('#lista-arquivo').onchange = async (e) => {
     const arq = e.target.files[0];
     e.target.value = '';
     if (!arq) return;
     let txt = await arq.text();
     if (/�/.test(txt)) { const buf = await arq.arrayBuffer(); txt = new TextDecoder('windows-1252').decode(buf); } // CSV do Excel antigo
+    pdfAtual = null;
+    $('#lista-colar').open = true;
     $('#lista-texto').value = txt;
     if (!$('#lista-nome').value) $('#lista-nome').value = arq.name.replace(/\.[^.]+$/, '').slice(0, 80);
-    previa();
+    analisarTexto().catch((err) => aviso(err.message, true));
   };
   $('#lista-importar').onclick = async (e) => {
     const nome = $('#lista-nome').value.trim();
     if (!nome) return aviso('Dê um nome para a lista.', true);
     try {
-      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/disparos-listas`, { method: 'POST', body: { nome, etiquetaId: $('#lista-etiqueta').value, contatos } }), 'Importando…');
+      const enviar = contatos.map(({ analise, ...c }) => c);
+      const r = await comEspera(e.currentTarget, () => api(`empresas/${id}/disparos-listas`, { method: 'POST', body: { nome, etiquetaId: $('#lista-etiqueta').value, incluirFixos: $('#lista-fixos').checked, contatos: enviar } }), 'Importando…');
       aviso(`${r.importados} importados${r.fixos ? ` · ${r.fixos} fixos de fora` : ''}${r.repetidos ? ` · ${r.repetidos} já existiam` : ''}${r.invalidos ? ` · ${r.invalidos} sem telefone válido` : ''}.`);
-      location.hash = rotaEmpresa(id, 'disparos/listas');
+      location.hash = rotaEmpresa(id, `disparos/listas?ver=${encodeURIComponent(r.id)}`);
     } catch (err) { aviso(err.message, true); }
   };
+}
+
+// 👁️ Uma lista: a ficha de cada empresa (dados + o que já aconteceu: disparo, resposta…)
+async function paginaDetalheLista(id, listaId, d, params) {
+  const hashDaPagina = location.hash;
+  const r = await api(`empresas/${id}/disparos-listas/${encodeURIComponent(listaId)}`);
+  if (location.hash !== hashDaPagina) return;
+  const l = r.lista;
+  const abas = [[rotaEmpresa(id, 'disparos/listas'), `Minhas listas <span class="rotulo">${d.listas.length}</span>`, true], [`${rotaEmpresa(id, 'disparos/listas')}?aba=importar`, '⬆️ Importar lista', false]];
+  const jaDisp = (c) => c.disparos.length > 0;
+  const FILTROS = [['todos', 'Todos', () => true], ['nao', '⏳ Não receberam disparo', (c) => !jaDisp(c) && !c.naoDisparar], ['ja', '📣 Já receberam', jaDisp], ['resp', '💬 Responderam', (c) => c.respondeu], ['semzap', '❌ Sem WhatsApp', (c) => c.temWhatsapp === false], ['sair', '🚫 Pediram para sair', (c) => c.naoDisparar]];
+  let filtro = FILTROS.some((f) => f[0] === params.get('f')) ? params.get('f') : 'todos';
+  let busca = '';
+  const chips = (c) => [
+    c.disparos.length ? avisoDisparos(c.disparos) : '<span class="etiqueta">⏳ ainda não recebeu disparo</span>',
+    c.temWhatsapp === true ? '<span class="etiqueta ok">✅ tem WhatsApp</span>' : c.temWhatsapp === false ? '<span class="etiqueta off">❌ sem WhatsApp</span>' : '',
+    c.respondeu ? '<span class="etiqueta ok">💬 respondeu</span>' : '',
+    c.naoDisparar ? '<span class="etiqueta off">🚫 pediu para não receber</span>' : '',
+    c.parecido ? `<span class="etiqueta aviso">⚠️ mesmo nome de empresa com outro número: <a href="#/leads/${esc(c.parecido.id)}">${esc(c.parecido.nome || 'ver')}</a>${c.parecido.disparos?.length ? ` (recebeu disparo em ${esc(dataCurta(c.parecido.disparos[0].em))})` : ''}</span>` : '',
+    `<a class="etiqueta" href="#/leads/${esc(c.id)}">abrir lead${c.etapa ? ` · ${esc(c.etapa)}` : ''} →</a>`
+  ].join('');
+  conteudo.innerHTML = cascaDisparos(id, 'listas', `
+    <div class="cabecalho"><div><a class="rotulo" href="${rotaEmpresa(id, 'disparos/listas')}">← Minhas listas</a><h1>📋 ${esc(l.nome)}</h1><p class="sub">${l.contatos} contatos · importada em ${esc(data(l.criadoEm))}</p></div><a class="botao primario" href="${rotaEmpresa(id, `disparos/novo?modo=prospeccao&lista=${encodeURIComponent(l.id)}`)}">🛡️ Disparar para esta lista</a></div>
+    <div class="previa-resumo">
+      <div><strong>${l.contatos}</strong><span class="rotulo">contatos</span></div>
+      <div class="${l.disparados ? 'aviso-num' : ''}"><strong>${l.disparados || 0}</strong><span class="rotulo">já receberam disparo</span></div>
+      <div><strong>${l.responderam}</strong><span class="rotulo">responderam</span></div>
+      <div><strong>${l.semWhatsapp}</strong><span class="rotulo">sem WhatsApp</span></div>
+      <div><strong>${l.sairam}</strong><span class="rotulo">pediram para sair</span></div>
+    </div>
+    <div class="linha-form" style="margin:12px 0;flex-wrap:wrap"><input id="busca-lista" placeholder="🔎 Buscar por nome, cidade, telefone…" style="flex:1;min-width:200px"></div>
+    <div class="chips" id="filtros-lista" style="margin-bottom:12px"></div>
+    <div class="contato-grid" id="grade-lista"></div>`, abas);
+  const desenhar = () => {
+    const q = busca.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const f = (FILTROS.find((x) => x[0] === filtro) || FILTROS[0])[2];
+    const lista = r.contatos.filter(f).filter((c) => !q || [c.empresa, c.nome, c.cidade, c.endereco, c.bairro, c.telefone, c.ramo, c.categorias].join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q) || String(c.telefone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§'));
+    $('#filtros-lista').innerHTML = FILTROS.map(([k, nome, fx]) => `<button type="button" class="chip-filtro ${k === filtro ? 'ativo' : ''}" data-filtro="${k}">${nome} <span class="rotulo">${r.contatos.filter(fx).length}</span></button>`).join('');
+    $$('[data-filtro]').forEach((b) => { b.onclick = () => { filtro = b.dataset.filtro; desenhar(); }; });
+    $('#grade-lista').innerHTML = lista.slice(0, 500).map((c) => cartaoContato(c, chips(c))).join('') || '<p class="rotulo">Nenhum contato aqui.</p>';
+  };
+  $('#busca-lista').addEventListener('input', (e) => { busca = e.target.value.trim(); desenhar(); });
+  desenhar();
 }
 
 // 🛡️ Segurança dos disparos de prospecção (padrões de cada novo disparo)

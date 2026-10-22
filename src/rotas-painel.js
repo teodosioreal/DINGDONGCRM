@@ -40,7 +40,7 @@ const falhasRecentes = (email) => (falhasLogin.get(email) || []).filter((t) => D
 // Toda escrita do painel precisa vir como JSON: junto com o cookie SameSite=Lax,
 // isso impede que outro site dispare ações em nome de quem está logado.
 router.use((req, res, next) => {
-  const upload = req.method === 'POST' && /\/(midias|arquivo|gravacao|logo|comprovante|parte)$/.test(req.path) && req.is('application/octet-stream');
+  const upload = req.method === 'POST' && /\/(midias|arquivo|gravacao|logo|comprovante|parte|pdf)$/.test(req.path) && req.is('application/octet-stream');
   if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json') && !upload) {
     return res.status(415).json({ erro: 'Envie os dados como JSON.' });
   }
@@ -889,7 +889,37 @@ router.post('/empresas/:id/disparos-listas', (req, res) => {
   if (!empresa) return;
   try {
     const b = req.body || {};
-    res.status(201).json(prospeccao.importar(empresa, { nome: b.nome, contatos: b.contatos, etiquetaId: b.etiquetaId, principal: principalDa(empresa) }));
+    res.status(201).json(prospeccao.importar(empresa, { nome: b.nome, contatos: b.contatos, etiquetaId: b.etiquetaId, incluirFixos: b.incluirFixos === true, principal: principalDa(empresa) }));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+// 📄 PDF com a tabela de empresas (ex.: Google Maps Scraper): separa cada empresa e já diz quem
+// é novo, quem já está no CRM e quem já recebeu disparo em massa. Ainda não importa nada.
+router.post('/empresas/:id/disparos-listas/pdf', express.raw({ type: 'application/octet-stream', limit: 15 * 1024 * 1024 }), async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ erro: 'Envie o arquivo PDF.' });
+  if (req.body.subarray(0, 5).toString('latin1') !== '%PDF-') return res.status(400).json({ erro: 'Esse arquivo não é um PDF.' });
+  try {
+    const r = await require('./leitor-pdf-contatos').lerContatosDoPdf(req.body);
+    if (!r.contatos.length) return res.status(400).json({ erro: r.colunas.length ? 'Achei a tabela, mas nenhuma empresa nela.' : 'Não achei uma tabela de contatos neste PDF (precisa ter as colunas com nome e telefone).' });
+    res.json({ ...r, contatos: prospeccao.analisar(empresa, r.contatos, { incluirFixos: req.query.fixos === '1' }) });
+  } catch (err) {
+    console.error('[pdf contatos]', err.message);
+    res.status(400).json({ erro: 'Não consegui ler esse PDF. Se ele for uma foto/escaneado, exporte a planilha em CSV e cole aqui.' });
+  }
+});
+router.post('/empresas/:id/disparos-listas/analisar', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ contatos: prospeccao.analisar(empresa, req.body?.contatos, { incluirFixos: req.body?.incluirFixos === true }) });
+});
+router.get('/empresas/:id/disparos-listas/:listaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(prospeccao.detalheLista(empresa, req.params.listaId));
   } catch (err) {
     res.status(err.status || 500).json({ erro: err.message });
   }
@@ -919,6 +949,8 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
     total: r.destinatarios.length,
     semNumero: r.semNumero,
     sairam: r.sairam,
+    jaDisparados: r.jaDisparados,
+    pulouJaDisparados: r.filtro.pularJaDisparados,
     nomes: r.destinatarios.slice(0, 8).map((x) => x.nome || `+${x.destino}`),
     exemplo: req.body?.mensagem
       ? disparos.montarMensagem(texto(req.body.mensagem, 3000), primeiro || { nome: 'Maria Silva' }, empresa) +

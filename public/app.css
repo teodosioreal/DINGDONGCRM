@@ -1836,3 +1836,19 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
   .disp-menu::-webkit-scrollbar { display: none; }
   .disp-item { white-space: nowrap; padding: 8px 12px; }
 }
+
+/* 📋 listas de contatos (aba Disparos): ficha de cada empresa */
+.previa-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.previa-resumo > div { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.previa-resumo strong { font-size: 22px; }
+.previa-resumo .aviso-num { background: var(--aviso-fundo); border-color: transparent; color: var(--aviso-texto); }
+.previa-resumo .aviso-num .rotulo { color: inherit; }
+.contato-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.contato-card { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 14px; }
+.contato-topo { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.contato-topo strong { font-size: 15px; overflow-wrap: anywhere; }
+.contato-nota { white-space: nowrap; font-weight: 600; }
+.contato-linha { overflow-wrap: anywhere; }
+.contato-links { display: flex; flex-wrap: wrap; gap: 12px; }
+.contato-chips { margin-top: 4px; }
+.contato-chips .etiqueta { white-space: normal; }
