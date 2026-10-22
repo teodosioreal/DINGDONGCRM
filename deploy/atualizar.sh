@@ -107,6 +107,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 90 node deploy/diagnostico-meta.js 2>&1 | head -n 40 || true
   echo "    Agendamento que não entrou (últimas 6 h, cópia do banco, sem texto):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 120 node deploy/diagnostico-agenda-agora.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 45 || true
+  echo "    IA que falhou com \"model turn\" (cópia do banco, só papéis e horários):"
+  CRM_DB_PATH_ORIGINAL="$DB_CRM" timeout 60 node deploy/diagnostico-turno-ia.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 30 || true
   echo "    Mídias do Clone e mídias enviadas (3 dias, só códigos e nomes de arquivo):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-clone-midias.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 45 || true
   echo "    Agendamentos e funil (28 dias, só contagens e tempos):"
