@@ -14,6 +14,12 @@ const { estado, salvar, novoId, agora } = require('./db');
 const { texto, numeroWhatsapp } = require('./util');
 
 const PADRAO = { limiteInicial: 20, aumentoDia: 10, tetoDia: 80, intervaloMin: 60, intervaloMax: 180, freioErros: 3 };
+// perfis prontos (aba Segurança e Novo disparo): o "recomendado" é o PADRAO
+const PERFIS = {
+  novo: { limiteInicial: 10, aumentoDia: 5, tetoDia: 40, intervaloMin: 120, intervaloMax: 300, freioErros: 2 },
+  recomendado: { ...PADRAO },
+  aquecido: { limiteInicial: 30, aumentoDia: 15, tetoDia: 150, intervaloMin: 45, intervaloMax: 120, freioErros: 3 }
+};
 const INTERVALO_MINIMO_PROSPECCAO = 45; // segundos
 
 function configDa(empresa) {
@@ -25,12 +31,15 @@ function configDa(empresa) {
     tetoDia: n(c.tetoDia, PADRAO.tetoDia, 5, 1000),
     intervaloMin: n(c.intervaloMin, PADRAO.intervaloMin, INTERVALO_MINIMO_PROSPECCAO, 900),
     intervaloMax: n(c.intervaloMax, PADRAO.intervaloMax, INTERVALO_MINIMO_PROSPECCAO, 1800),
-    freioErros: n(c.freioErros, PADRAO.freioErros, 2, 20)
+    freioErros: n(c.freioErros, PADRAO.freioErros, 2, 20),
+    perfil: ['novo', 'recomendado', 'aquecido', 'personalizado'].includes(c.perfil) ? c.perfil : 'recomendado'
   };
 }
 
 function salvarConfig(empresa, b = {}) {
-  empresa.prospeccao = { ...(empresa.prospeccao || {}), ...Object.fromEntries(Object.keys(PADRAO).filter((k) => b[k] !== undefined).map((k) => [k, b[k]])) };
+  const perfil = PERFIS[b.perfil] ? b.perfil : 'personalizado';
+  const valores = PERFIS[b.perfil] || b;
+  empresa.prospeccao = { ...(empresa.prospeccao || {}), ...Object.fromEntries(Object.keys(PADRAO).filter((k) => valores[k] !== undefined).map((k) => [k, valores[k]])), perfil };
   empresa.prospeccao = configDa(empresa);
   if (empresa.prospeccao.intervaloMax < empresa.prospeccao.intervaloMin) empresa.prospeccao.intervaloMax = empresa.prospeccao.intervaloMin;
   if (empresa.prospeccao.tetoDia < empresa.prospeccao.limiteInicial) empresa.prospeccao.tetoDia = empresa.prospeccao.limiteInicial;
@@ -108,6 +117,15 @@ function disparosRecebidos(lead) {
   // mensagens antigas podem ter saído do histórico: a data do último disparo continua no lead
   if (!lista.length && lead?.ultimoDisparoEm) lista.push({ id: null, em: lead.ultimoDisparoEm, nome: 'Disparo em massa' });
   return lista.sort((a, b) => (a.em < b.em ? 1 : -1));
+}
+
+// 🛡️ já recebeu disparo em massa? Vale o próprio número e a mesma empresa com outro número
+// (marcada na importação). excetoId: o disparo que está enviando agora não conta.
+function jaRecebeuDisparo(lead, excetoId = null) {
+  const outro = (c) => disparosRecebidos(c).some((x) => !excetoId || x.id !== excetoId);
+  if (outro(lead)) return true;
+  const par = lead?.prospeccao?.parecidoCom && estado.conversas.find((c) => c.id === lead.prospeccao.parecidoCom);
+  return Boolean(par && outro(par));
 }
 
 const resumoDoLead = (empresa, c) => ({
@@ -257,4 +275,4 @@ async function temWhatsapp(empresa, destino) {
   }
 }
 
-module.exports = { PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };
+module.exports = { jaRecebeuDisparo, PERFIS, PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };

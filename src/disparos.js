@@ -50,7 +50,7 @@ function destinatariosPara(empresa, filtroBruto) {
   let semNumero = 0;
   let sairam = 0;
   let jaDisparados = 0;
-  const { disparosRecebidos } = require('./prospeccao');
+  const { jaRecebeuDisparo } = require('./prospeccao');
   for (const c of lista) {
     if (filtro.leadIds.length && !filtro.leadIds.includes(c.id)) continue;
     if (filtro.etapas.length && !filtro.etapas.includes(c.etapa)) continue;
@@ -67,7 +67,7 @@ function destinatariosPara(empresa, filtroBruto) {
       continue;
     }
     if (vistos.has(destino)) continue;
-    const recebeu = disparosRecebidos(c).length > 0;
+    const recebeu = jaRecebeuDisparo(c);
     if (recebeu) jaDisparados++;
     if (recebeu && filtro.pularJaDisparados) continue;
     vistos.add(destino);
@@ -83,7 +83,8 @@ function montarMensagem(modelo, lead, empresa) {
   // "nome" que é número de telefone (cliente sem nome salvo) nunca entra na mensagem
   const bruto = String(lead?.nome || '').trim();
   const nomeCompleto = /\p{L}/u.test(bruto) && !/\d{4,}/.test(bruto.replace(/[\s()+-]/g, '')) ? bruto : '';
-  const primeiro = nomeCompleto.split(/\s+/)[0] || '';
+  // contato de lista importada sem nome de pessoa (o nome é o da empresa): {nome} vira o nome inteiro
+  const primeiro = lead?.prospeccao?.empresa && nomeCompleto === lead.prospeccao.empresa ? nomeCompleto : nomeCompleto.split(/\s+/)[0] || '';
   const bot = estado.bots.find((b) => b.empresaId === empresa.id && b.principal) || estado.bots.find((b) => b.empresaId === empresa.id);
   const valores = {
     nome: primeiro,
@@ -184,6 +185,16 @@ async function processar(id) {
   if (!lead || lead.naoDisparar || require('./leads').naListaNegra(null, lead)) {
     item.status = 'ignorado';
     item.erro = !lead ? 'Lead apagado' : lead.naoDisparar ? 'Pediu para não receber' : 'Na lista negra';
+    item.em = agora();
+    salvar();
+    return agendar(d, 500);
+  }
+
+  // 🛡️ não repete: a pessoa (ou a mesma empresa com outro número) recebeu outro disparo
+  // depois que este foi criado — ex.: duas listas com o mesmo contato disparando juntas
+  if (d.filtro?.pularJaDisparados && require('./prospeccao').jaRecebeuDisparo(lead, d.id)) {
+    item.status = 'ignorado';
+    item.erro = 'Já recebeu outro disparo';
     item.em = agora();
     salvar();
     return agendar(d, 500);
@@ -304,10 +315,11 @@ function criar(empresa, corpo, usuario) {
   for (const mid of pedidos) {
     if (!midias.midiasDa(empresa).some((m) => m.id === mid) && !midias.albunsDa(empresa).some((a) => a.id === mid)) throw erro('Mídia não encontrada. Atualize a página e escolha de novo.');
   }
-  const { filtro, destinatarios, jaDisparados } = destinatariosPara(empresa, corpo.filtro);
+  const prospeccao = corpo.prospeccao === true;
+  // prospecção: nunca manda de novo para quem já recebeu disparo em massa
+  const { filtro, destinatarios, jaDisparados } = destinatariosPara(empresa, prospeccao ? { ...(corpo.filtro || {}), pularJaDisparados: true } : corpo.filtro);
   if (!destinatarios.length) throw erro(jaDisparados && filtro.pularJaDisparados ? 'Todos desse filtro já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.' : 'Nenhum lead com WhatsApp nesse filtro.');
   if (destinatarios.length > MAX_DESTINATARIOS) throw erro(`No máximo ${MAX_DESTINATARIOS} contatos por disparo. Filtre por etapa ou etiqueta.`);
-  const prospeccao = corpo.prospeccao === true;
   const cfgPros = prospeccao ? require('./prospeccao').configDa(empresa) : null;
   // prospecção: os números da aba Segurança (dá para mudar neste disparo)
   const prosCfg = prospeccao ? require('./prospeccao').configDa({ prospeccao: { ...cfgPros, ...Object.fromEntries(['limiteInicial', 'aumentoDia', 'tetoDia'].filter((k) => corpo[k] !== undefined && corpo[k] !== '').map((k) => [k, corpo[k]])) } }) : null;

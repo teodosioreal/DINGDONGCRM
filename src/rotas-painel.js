@@ -882,7 +882,7 @@ const prospeccao = require('./prospeccao');
 router.get('/empresas/:id/disparos-listas', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
-  res.json({ listas: prospeccao.listasDa(empresa).slice().reverse().map((l) => prospeccao.resumoLista(empresa, l)), seguranca: prospeccao.configDa(empresa) });
+  res.json({ listas: prospeccao.listasDa(empresa).slice().reverse().map((l) => prospeccao.resumoLista(empresa, l)), seguranca: prospeccao.configDa(empresa), perfis: prospeccao.PERFIS });
 });
 router.post('/empresas/:id/disparos-listas', (req, res) => {
   const empresa = acharEmpresa(req, res);

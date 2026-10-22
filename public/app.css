@@ -1852,3 +1852,23 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .contato-links { display: flex; flex-wrap: wrap; gap: 12px; }
 .contato-chips { margin-top: 4px; }
 .contato-chips .etiqueta { white-space: normal; }
+
+/* ritmo de envio (perfis prontos) e termômetro de risco */
+.perfis-envio { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.perfil-envio { cursor: pointer; display: flex; }
+.perfil-envio input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.perfil-envio > span { flex: 1; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--borda-campo); border-radius: var(--raio); padding: 10px 12px; }
+.perfil-envio input:checked + span { border-color: var(--primario); box-shadow: 0 0 0 1px var(--primario) inset; background: color-mix(in srgb, var(--primario) 6%, transparent); }
+.perfil-envio input:focus-visible + span { outline: 2px solid #3b82f6; }
+.perfil-numeros { font-size: 12px; font-weight: 600; color: var(--texto); }
+.risco-selo { display: inline-block; font-weight: 700; padding: 6px 12px; border-radius: 999px; margin-bottom: 8px; }
+.risco-baixo { background: var(--ok-fundo); color: var(--ok-texto); }
+.risco-medio { background: var(--aviso-fundo); color: var(--aviso-texto); }
+.risco-alto { background: var(--perigo-fundo); color: var(--perigo); }
+.risco-itens li { font-size: 13px; }
+.filtros-empresa { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.filtros-empresa select { width: auto; min-width: 0; flex: 1 1 150px; max-width: 220px; padding: 6px 8px; font-size: 13px; }
+.risco-caixa { margin-top: 12px; border: 1px solid var(--borda); border-radius: var(--raio); padding: 10px 12px; }
+.risco-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.risco-topo .risco-selo { margin: 0; padding: 3px 10px; font-size: 13px; }
+.risco-vazio { background: var(--hover); color: var(--suave); }
