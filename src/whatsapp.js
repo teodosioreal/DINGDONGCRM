@@ -16,7 +16,7 @@
 
 const crypto = require('crypto');
 const config = require('./config');
-const { estado, salvar, agora } = require('./db');
+const { estado, salvar, agora, novoId } = require('./db');
 const { hoje, soDigitos, numeroWhatsapp } = require('./util');
 const ia = require('./ia');
 const leads = require('./leads');
@@ -730,6 +730,59 @@ function mesmoNumero(a, b) {
 }
 
 
+// ---------------------------------------------------------------- 1ª mensagem mandada pelo celular
+// A equipe escreveu primeiro (pelo celular) para alguém que ainda não é conversa no CRM: guarda
+// por 14 dias. Quando a pessoa responder, a conversa nasce já com essas mensagens no começo.
+const DIAS_ENVIO_SEM_CONVERSA = 14;
+function chavesDoEnvio(empresa, msg) {
+  const ident = require('./identidade');
+  const e = ident.enderecos(msg);
+  return [e.fone && ident.chaveFone(e.fone), e.lid].filter(Boolean).map((k) => `${empresa.id}|${k}`);
+}
+function guardarEnvioSemConversa(empresa, msg, texto) {
+  const chaves = chavesDoEnvio(empresa, msg);
+  if (!chaves.length) return;
+  const m = msg?.message || {};
+  const tipo = m.imageMessage ? 'uma foto' : m.videoMessage ? 'um vídeo' : m.audioMessage ? 'um áudio' : m.documentMessage || m.documentWithCaptionMessage ? 'um arquivo' : '';
+  const t = String(texto || '').replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '').trim() || (tipo ? `[enviou ${tipo}]` : '');
+  if (!t) return;
+  const ts = Number(msg?.messageTimestamp?.low ?? msg?.messageTimestamp) || 0;
+  const em = ts ? new Date(ts * 1000).toISOString() : agora();
+  estado.enviosSemConversa = estado.enviosSemConversa || {};
+  const guardados = estado.enviosSemConversa;
+  for (const k of chaves) {
+    const lista = (guardados[k] = guardados[k] || []);
+    if (msg?.key?.id && lista.some((x) => x.wid === msg.key.id)) continue;
+    lista.push({ texto: t.slice(0, 3000), em, wid: msg?.key?.id || null });
+    if (lista.length > 10) lista.splice(0, lista.length - 10);
+  }
+  // limpa os velhos e não deixa crescer sem fim
+  const corte = new Date(Date.now() - DIAS_ENVIO_SEM_CONVERSA * 86400000).toISOString();
+  for (const k of Object.keys(guardados)) {
+    guardados[k] = guardados[k].filter((x) => x.em >= corte);
+    if (!guardados[k].length) delete guardados[k];
+  }
+  const ks = Object.keys(guardados);
+  if (ks.length > 3000) for (const k of ks.slice(0, ks.length - 3000)) delete guardados[k];
+  salvar();
+}
+function tirarEnviosSemConversa(empresa, msg) {
+  const guardados = estado.enviosSemConversa;
+  if (!guardados) return [];
+  const vistos = new Set();
+  const saida = [];
+  for (const k of chavesDoEnvio(empresa, msg)) {
+    for (const x of guardados[k] || []) {
+      const id = x.wid || `${x.em}|${x.texto}`;
+      if (vistos.has(id)) continue;
+      vistos.add(id);
+      saida.push(x);
+    }
+    delete guardados[k];
+  }
+  return saida.sort((a, b) => (a.em < b.em ? -1 : 1));
+}
+
 function acharOuCriarLead(empresa, jid, texto, msg) {
   const doEmpresa = estado.conversas.filter((c) => c.empresaId === empresa.id);
   // 1) código do chat do site na mensagem → continua aquele atendimento
@@ -767,6 +820,14 @@ function acharOuCriarLead(empresa, jid, texto, msg) {
   const novo = leads.criarLead({ empresa, bot, canal: 'whatsapp', nome: msg.pushName || '', telefone: telefoneDe(msgCom), whatsappJid: identidade.jidPreferido(empresa, msgCom) });
   if (e.lid) novo.lidJid = e.lid;
   require('./localizacao').garantir(novo);
+  // a equipe tinha escrito primeiro pelo celular: essas mensagens abrem a conversa
+  const antes = tirarEnviosSemConversa(empresa, msgCom);
+  if (antes.length) {
+    novo.mensagens = [...antes.map((x) => ({ id: novoId('msg'), papel: 'equipe', canal: 'whatsapp', texto: x.texto, em: x.em, ...(x.wid ? { wid: x.wid } : {}), antesDaConversa: true })), ...(novo.mensagens || [])];
+    // mensagem manual: a IA para (como quando a equipe responde), a não ser que a empresa deixe ela continuar
+    if (!msg?.key?.fromMe) pausarPorMensagemManual(empresa, novo, 'A equipe mandou a primeira mensagem pelo WhatsApp');
+    salvar();
+  }
   if (visita) {
     novo.codigo = codigo; // o mesmo código da mensagem, para a equipe achar
     novo.veioDoSite = true;
@@ -913,7 +974,9 @@ async function receberWebhook(empresa, corpo) {
       }
       // a equipe respondeu pelo celular: acha a conversa por qualquer endereço do cliente
       const lead = require('./identidade').acharCliente(empresa, msg);
-      if (!lead) continue;
+      // 1ª mensagem para um número que ainda não é conversa: guarda; quando o cliente
+      // responder, ela entra no começo da conversa (a IA sabe o que a empresa mandou)
+      if (!lead) { guardarEnvioSemConversa(empresa, msg, texto); continue; }
       // eco da IA/automação que chegou antes da confirmação do envio: não é a equipe
       if (ehEcoDoCrm(msg, lead, texto)) {
         enviadosPeloCrm.set(msg.key.id, Date.now());

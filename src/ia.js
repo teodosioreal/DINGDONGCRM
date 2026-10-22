@@ -695,14 +695,27 @@ function medirPrompt(bot, canal, sistema, entrada) {
 // Converte o histórico salvo ({ papel: 'visitante'|'assistente'|'equipe', texto })
 // em turnos alternados. A primeira mensagem precisa ser do usuário, então pulamos
 // eventuais mensagens do assistente no começo (ex.: a saudação automática).
-function paraTurnos(historico) {
+// A empresa escreveu PRIMEIRO (mensagem manual, disparo em massa, follow-up): essas mensagens
+// do começo não podem sumir — senão a IA não sabe do que o cliente está falando. Elas entram
+// como contexto logo antes da 1ª mensagem do cliente. (Saudação automática da IA no começo,
+// como antes, continua de fora.)
+const AVISO_INICIO_PELA_EMPRESA = '[Contexto: esta conversa foi iniciada pela empresa. As mensagens a seguir foram enviadas ao cliente antes de ele responder — continue a partir delas.]';
+function paraTurnos(historico, { inicioReal = true } = {}) {
   const turnos = [];
+  const doComeco = []; // o que a empresa mandou antes da 1ª mensagem do cliente
   for (const m of historico) {
     if (m.apagada) continue; // mensagem apagada não entra no que a IA lê
     const role = m.papel === 'visitante' ? 'user' : 'assistant';
     const conteudo = m.papel === 'equipe' ? `(equipe) ${m.texto}` : m.texto;
     if (!conteudo) continue;
-    if (turnos.length === 0 && role !== 'user') continue;
+    if (turnos.length === 0 && role !== 'user') {
+      if (inicioReal && (m.papel === 'equipe' || m.disparoId || m.followupPasso || m.antesDaConversa)) doComeco.push(conteudo);
+      continue;
+    }
+    if (turnos.length === 0 && doComeco.length) {
+      turnos.push({ role: 'user', content: AVISO_INICIO_PELA_EMPRESA });
+      turnos.push({ role: 'assistant', content: doComeco.join('\n\n') });
+    }
     const ultimo = turnos[turnos.length - 1];
     if (ultimo && ultimo.role === role) ultimo.content += `\n\n${conteudo}`;
     else turnos.push({ role, content: conteudo });
@@ -1368,7 +1381,7 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
   // "Atualizar prompt": o que veio antes das instruções novas vira só contexto (não é modelo)
   const { historico, anterior } = canal === 'whatsapp' ? require('./prompt-novo').separarHistorico(empresa, historicoCompleto) : { historico: historicoCompleto, anterior: '' };
   if (anterior) opcoes = { ...opcoes, conversaAnterior: anterior };
-  const turnos = paraTurnos(historicoEnxuto(historico));
+  const turnos = paraTurnos(historicoEnxuto(historico), { inicioReal: historico.length <= 30 });
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
   const entrada = caberNaEntrada(sistema, turnos);
@@ -1587,6 +1600,7 @@ function descreverErroIa(err) {
 
 module.exports = {
   chaveReserva,
+  paraTurnos, // (testes)
   chavesReserva,
   CAMPOS_RESERVA,
   chaveVerificacoes,
