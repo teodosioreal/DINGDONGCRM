@@ -700,6 +700,8 @@ function medirPrompt(bot, canal, sistema, entrada) {
 // como contexto logo antes da 1ª mensagem do cliente. (Saudação automática da IA no começo,
 // como antes, continua de fora.)
 const AVISO_INICIO_PELA_EMPRESA = '[Contexto: esta conversa foi iniciada pela empresa. As mensagens a seguir foram enviadas ao cliente antes de ele responder — continue a partir delas.]';
+const AVISO_ULTIMA_DA_EMPRESA = '[AVISO INTERNO — não é mensagem do cliente e ele não vê isto]: a última mensagem acima já foi enviada pela empresa e o cliente ainda não respondeu. Escreva a próxima mensagem da empresa continuando a conversa, sem repetir o que já foi enviado.';
+
 function paraTurnos(historico, { inicioReal = true } = {}) {
   const turnos = [];
   const doComeco = []; // o que a empresa mandou antes da 1ª mensagem do cliente
@@ -1383,6 +1385,9 @@ async function responderNa(bot, empresa, historicoCompleto, opcoes = {}) {
   if (anterior) opcoes = { ...opcoes, conversaAnterior: anterior };
   const turnos = paraTurnos(historicoEnxuto(historico), { inicioReal: historico.length <= 30 });
   if (turnos.length === 0) throw new Error('Nenhuma mensagem do cliente para responder.');
+  // a conversa termina com mensagem da empresa (ex.: sugestão de resposta para a equipe): o
+  // Gemini (e o Claude) não aceitam terminar assim — fecha com um aviso interno
+  if (turnos[turnos.length - 1].role === 'assistant') turnos.push({ role: 'user', content: AVISO_ULTIMA_DA_EMPRESA });
   const sistema = montarPromptSistema(bot, empresa, canal, opcoes);
   const entrada = caberNaEntrada(sistema, turnos);
   const prompt = medirPrompt(bot, canal, sistema, entrada);

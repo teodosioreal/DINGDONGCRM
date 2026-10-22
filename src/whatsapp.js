@@ -1731,6 +1731,19 @@ async function enviarRespostaAutomatica(empresa, lead, r, vez, tentativa, ultima
   return false;
 }
 
+// depois da última mensagem do cliente a IA (resposta normal) ou a equipe já respondeu: nada
+// para responder. Mensagem automática (automação, follow-up, disparo, aviso do sistema) não conta.
+function jaRespondida(lead) {
+  const msgs = (lead.mensagens || []).filter((m) => (m.texto || m.anexo) && !m.apagada && !m.eventoInterno);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.papel === 'visitante') return false;
+    if (m.papel === 'equipe' && !m.disparoId) return true;
+    if (m.papel === 'assistente' && !m.automacaoId && !m.followupPasso && !m.disparoId && !m.sistema) return true;
+  }
+  return false;
+}
+
 // true = descartou a resposta porque o cliente mandou mensagem nova (precisa refazer)
 async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {}) {
   const empresa = estado.empresas.find((e) => e.id === empresaId);
@@ -1740,6 +1753,9 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   if (empresa.ativa === false) return registrarIa(empresa, lead, 'ignorou', MOTIVO_EMPRESA_PAUSADA);
   if (!liberadoNoModoTeste(empresa, lead)) return;
   if (!leads.iaPodeFalarCom(lead)) return; // só responde quem escreveu e está em Conversas
+  // a última mensagem do cliente já foi respondida (ex.: duas chamadas para as mesmas
+  // mensagens, uma logo depois da outra): não responde de novo. Evento (follow-up da IA etc.) segue.
+  if (!opcoes.evento && jaRespondida(lead)) return console.log(`[whatsapp ${empresa.id} ${lead.id}] já respondida: a IA não responde de novo`);
   const bot = botDoWhatsapp(empresa);
   if (!bot) return registrarIa(empresa, lead, 'erro', 'A empresa não tem assistente de IA.');
 
@@ -2279,6 +2295,7 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  jaRespondida,
   conferirEntregasPendentes,
   iniciarConferenciaEntregas,
   temposDeEnvio,
