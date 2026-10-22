@@ -4326,44 +4326,49 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   try { leadIds = JSON.parse(sessionStorage.getItem('disparo_leads') || '[]'); sessionStorage.removeItem('disparo_leads'); } catch { leadIds = []; }
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
-  const abasNovo = [[rotaEmpresa(id, 'disparos/novo'), '📣 Disparo comum', !prospeccao], [`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Prospecção (contatos que não conhecem você)', prospeccao]];
-  conteudo.innerHTML = cascaDisparos(id, 'novo', `
-    <div class="cabecalho"><div><h1>${prospeccao ? '🛡️ Disparo de prospecção' : 'Novo disparo'}</h1><p class="sub">${prospeccao ? 'Para uma lista de contatos que ainda não conhece a empresa: devagar, com limite por dia e conferindo o WhatsApp' : '3 passos: quem recebe, a mensagem e quando enviar'}</p></div></div>
-    ${prospeccao ? balao('Como a prospecção protege o seu número', `Manda no máximo <b>${seg.limiteInicial || 20} no 1º dia</b> e aumenta ${seg.aumentoDia ?? 10} por dia até ${seg.tetoDia || 80}/dia; o resto continua sozinho no dia seguinte. Antes de cada envio confere se o número tem WhatsApp (quem não tem fica de fora). Se ${seg.freioErros || 3} envios seguidos falharem, pausa sozinho. <b>Use um número separado</b> do principal da empresa. <a href="${rotaEmpresa(id, 'disparos/seguranca')}">Ajustar em Segurança</a>`, 'aviso') : ''}
-    <form id="f-disparo" class="editor">
-      <div>
-        <div class="card">
-          <h2><span class="passo-num">1</span> Quem vai receber</h2>
-          ${leadIds.length ? `${balao(`${leadIds.length} leads escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : `
+  const abasNovo = [[rotaEmpresa(id, 'disparos/novo'), '📣 Para meus clientes', !prospeccao], [`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Para contatos novos (prospecção)', prospeccao]];
+  const PASSOS = ['Quem recebe', 'Mensagem', 'Ritmo e horário', 'Revisar e enviar'];
+  const filtrosComuns = `
           <div class="campo"><label>Etapas ${ajuda('Nenhuma marcada = todas as etapas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}"><span>${esc(e)}</span></label>`).join('')}</div></div>
           <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta criada.</span>'}</div></div>
-          <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>
-          <div class="campo" style="margin-top:12px"><label>Lista de contatos ${ajuda('Listas importadas em 📋 Listas de contatos (aqui na aba Disparos).')}</label><select name="listaId"><option value="">— qualquer —</option>${listas.map((l) => `<option value="${esc(l.id)}" ${l.id === listaPedida ? 'selected' : ''}>${esc(l.nome)} (${l.contatos})</option>`).join('')}</select>${prospeccao && !listas.length ? `<small>Nenhuma lista ainda. <a href="${rotaEmpresa(id, 'disparos/listas?aba=importar')}">Importar uma lista</a></small>` : ''}</div>`}
+          <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>`;
+  const campoLista = `<div class="campo"><label>${prospeccao ? 'Qual lista de contatos?' : 'Lista de contatos'} ${ajuda('Listas importadas em 📋 Listas de contatos (aqui na aba Disparos).')}</label><select name="listaId"><option value="">${prospeccao ? '— escolha uma lista —' : '— qualquer —'}</option>${listas.map((l) => `<option value="${esc(l.id)}" ${l.id === listaPedida ? 'selected' : ''}>${esc(l.nome)} (${l.contatos} contatos)</option>`).join('')}</select>${prospeccao && !listas.length ? `<small>Nenhuma lista ainda. <a href="${rotaEmpresa(id, 'disparos/listas?aba=importar')}">Importar uma lista</a></small>` : ''}</div>`;
+  conteudo.innerHTML = cascaDisparos(id, 'novo', `
+    <div class="cabecalho"><div><h1>${prospeccao ? '🛡️ Disparo para contatos novos' : '📣 Disparo para meus clientes'}</h1><p class="sub">${prospeccao ? 'Para quem ainda não conhece a empresa: sai devagar, com limite por dia, para proteger o seu número' : 'Para leads e clientes que já conversaram com você'}. <b>Nada é enviado até o passo 4.</b></p></div></div>
+    <ol class="disp-passos" id="disp-passos">${PASSOS.map((nome, i) => `<li><button type="button" data-ir-passo="${i + 1}"><span class="passo-num">${i + 1}</span><span>${nome}</span></button></li>`).join('')}</ol>
+    <form id="f-disparo" class="editor">
+      <div>
+        <div class="card" data-passo="1">
+          <h2><span class="passo-num">1</span> Quem vai receber?</h2>
+          ${leadIds.length ? `${balao(`${leadIds.length} contatos escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : prospeccao ? `${campoLista}<details style="margin-top:12px"><summary>Mais filtros (etapa, etiqueta, origem)</summary><div style="margin-top:10px">${filtrosComuns}</div></details>` : `${filtrosComuns}<details style="margin-top:12px"><summary>Só de uma lista de contatos importada</summary><div style="margin-top:10px">${campoLista}</div></details>`}
           <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pularJaDisparados" checked ${prospeccao ? 'disabled' : ''}> Não mandar para quem já recebeu disparo em massa ${prospeccao ? '<span class="rotulo">(sempre ligado na prospecção)</span>' : ajuda('Quem já recebeu qualquer disparo antes fica de fora deste — vale também para contatos que aparecem de novo em outra lista. Desmarcado, o CRM só avisa quantos já receberam.')}</label>
           <div class="contagem" id="contagem">Calculando…</div>
+          <div class="disp-nav"><span></span><button type="button" class="primario" data-proximo>Continuar →</button></div>
         </div>
-        <div class="card">
-          <h2><span class="passo-num">2</span> A mensagem</h2>
-          <div class="campo"><label>Nome do disparo (só para você)</label><input name="nome" placeholder="Ex.: Promoção de março"></div>
-          <div class="campo" style="margin-top:12px">
+        <div class="card" data-passo="2">
+          <h2><span class="passo-num">2</span> O que vai ser enviado?</h2>
+          <div class="campo">
             <label>Mensagem *</label>
-            <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{nome}">+ Nome do cliente</button><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}">+ Variação de saudação</button><button type="button" class="pequeno" data-inserir="{empresa_contato}" title="Nome da empresa do contato (da lista importada)">+ Empresa do contato</button><button type="button" class="pequeno" data-inserir="{cidade}">+ Cidade</button></div>
-            <textarea name="mensagem" required style="min-height:140px" placeholder="{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?"></textarea>
-            <small><code>{nome}</code> vira o primeiro nome do cliente. <code>{Oi|Olá}</code> sorteia uma das opções — mensagens diferentes ajudam a não ser bloqueado. Da lista importada: <code>{empresa_contato}</code>, <code>{cidade}</code> e <code>{ramo}</code>.</small>
+            <p class="rotulo" style="margin:0 0 6px">Sai exatamente o que você escrever (o disparo não usa IA). Toque para colocar no texto:</p>
+            <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}" title="Cada pessoa recebe uma das opções">👋 Saudação variada</button><button type="button" class="pequeno" data-inserir="{nome}" title="Nome do contato (na lista do PDF, é o nome da empresa dele)">👤 Nome do contato</button>${prospeccao ? '<button type="button" class="pequeno" data-inserir="{empresa_contato}" title="Nome da empresa do contato (da lista importada)">🏢 Empresa do contato</button><button type="button" class="pequeno" data-inserir="{cidade}">📍 Cidade</button>' : ''}<button type="button" class="pequeno" data-inserir="{empresa}" title="O nome da SUA empresa">🏷️ Nome da minha empresa</button></div>
+            <textarea name="mensagem" required style="min-height:140px" placeholder="${prospeccao ? '{Oi|Olá|Boa tarde}! Vi que a {empresa_contato} ainda não tem site. Posso te mostrar uma ideia rápida?' : '{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?'}"></textarea>
+            <small>O nome de uma empresa só aparece se você colocar <code>{empresa}</code> (a sua) ou <code>{empresa_contato}</code> (a do contato).</small>
             ${prospeccao ? '<p class="rotulo aviso-texto" id="aviso-prospeccao" style="margin:6px 0 0">Para quem não conhece você, a 1ª mensagem deve ser <b>curta, sem link e sem foto</b> e terminar com uma pergunta (ex.: "posso te mandar os detalhes?"). É a que menos vira denúncia.</p>' : ''}
           </div>
-          <div class="campo" style="margin-top:12px"><label>Fotos, vídeos e arquivos (opcional, até 5) ${ajuda('A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois. Álbum manda as fotos dele.')}</label>
+          <details style="margin-top:12px"><summary>📎 Fotos, vídeos e arquivos (opcional)</summary><div class="campo" style="margin-top:8px"><label>Até 5 ${ajuda('A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois. Álbum manda as fotos dele.')}</label>
             <div class="midias-fup" id="disp-midias"></div>
             <div class="linha-form" style="margin-top:6px;flex-wrap:wrap">
               <select id="disp-add-midia"><option value="">+ Escolher da biblioteca…</option>${albuns.filter((a) => a.quantidade).length ? `<optgroup label="Álbuns">${albuns.filter((a) => a.quantidade).map((a) => `<option value="${esc(a.id)}">🗂️ ${esc(a.nome)} (${a.quantidade})</option>`).join('')}</optgroup>` : ''}<optgroup label="Mídias">${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}">${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</optgroup></select>
               <label class="botao pequeno">📤 Enviar arquivo novo<input type="file" id="disp-novo" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
             </div>
-            <div id="disp-envio" class="rotulo"></div>
-            <small>Arquivo novo fica guardado em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> (em "a configurar": a IA só usa depois que você configurar).</small></div>
+            <div id="disp-envio" class="rotulo"></div></div>
+            <small>Arquivo novo fica guardado em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> (em "a configurar": a IA só usa depois que você configurar).</small></details>
+          <div class="campo" style="margin-top:12px"><label>Nome do disparo (só para você, opcional)</label><input name="nome" placeholder="Ex.: ${prospeccao ? 'Restaurantes sem site' : 'Promoção de março'}"></div>
+          <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Continuar →</button></div>
         </div>
-        <div class="card">
-          <h2><span class="passo-num">3</span> Quando e como enviar</h2>
-          ${balao('Proteção contra bloqueio', 'O WhatsApp bloqueia números que mandam muitas mensagens iguais de uma vez. Por isso o CRM envia <b>uma por vez</b>, com um intervalo sorteado entre elas. <b>Escolha um ritmo pronto</b> — o recomendado já vem marcado.')}
+        <div class="card" data-passo="3">
+          <h2><span class="passo-num">3</span> Em que ritmo e quando?</h2>
+          <p class="rotulo" style="margin:0 0 10px">O CRM manda <b>uma mensagem por vez</b>, com uma pausa sorteada entre elas, para o WhatsApp não bloquear o número.${prospeccao ? ' Na prospecção também tem limite por dia: o resto continua sozinho nos dias seguintes.' : ''} Na dúvida, deixe o <b>Recomendado</b>.</p>
           <div class="campo"><label>Ritmo de envio</label><div class="perfis-envio">${perfisEnvio.map((pf) => `<label class="perfil-envio"><input type="radio" name="perfilEnvio" value="${pf.id}" ${pf.id === perfilInicial ? 'checked' : ''}><span><b>${pf.nome}</b>${pf.id === 'recomendado' ? ' <span class="etiqueta ok">recomendado</span>' : ''}<span class="rotulo">${pf.texto}</span><span class="perfil-numeros">${textoPerfil(pf, prospeccao)}</span></span></label>`).join('')}</div></div>
           <details id="disp-personalizar" style="margin-top:10px" ${perfilInicial === 'personalizado' ? 'open' : ''}><summary>⚙️ Personalizar os números</summary>
             ${prospeccao ? `<div class="campos" style="margin-top:8px">
@@ -4377,13 +4382,19 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
             </div>
           </details>
           <p class="rotulo" id="disp-estimativa" style="margin:8px 0 0"></p>
-          <div id="disp-risco" class="risco-caixa"></div>
           <div class="campos">
             <div class="campo"><label>Começar</label><select name="quando"><option value="agora">Agora</option><option value="agendar">Agendar…</option></select></div>
             <div class="campo" id="campo-agenda" hidden><label>Data e hora</label><input type="datetime-local" name="agendadoPara"></div>
           </div>
           <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="horarioComercial" checked> Enviar só em horário comercial (8h às 20h)</label>
           <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="rodapeSair" checked> Colocar "responda SAIR para não receber mais" no final</label>
+          <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Revisar →</button></div>
+        </div>
+        <div class="card" data-passo="4">
+          <h2><span class="passo-num">4</span> Confira antes de enviar</h2>
+          <div id="disp-revisao"></div>
+          <div id="disp-risco" class="risco-caixa"></div>
+          <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="submit" class="primario grande-botao" id="enviar-disparo" disabled>📣 Iniciar disparo</button></div>
         </div>
       </div>
       <div>
@@ -4391,7 +4402,6 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <div class="cab"><span>Prévia no WhatsApp</span></div>
           <div class="chat" id="previa"><div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div></div>
         </div>
-        <button type="submit" class="primario grande-botao" id="enviar-disparo" disabled>📣 Iniciar disparo</button>
       </div>
     </form>`, abasNovo);
 
@@ -4410,6 +4420,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   };
   let total = 0;
   let espera = null;
+  let passo = 1;
+  let ultimaPrevia = null; // a última conta de quem recebe (para a revisão)
   async function atualizarPrevia() {
     if (!form.isConnected) return;
     const f = formParaObjeto(form);
@@ -4417,6 +4429,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       const r = await api(`empresas/${id}/disparos/previa`, { method: 'POST', body: { filtro: filtro(), mensagem: f.mensagem, rodapeSair: f.rodapeSair } });
       if (!form.isConnected) return;
       total = r.total;
+      ultimaPrevia = r;
       $('#contagem').innerHTML = r.total
         ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber ou estão na lista negra` : ''} (ficam de fora)</span>` : ''}${r.jaDisparados ? `<span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} ${r.jaDisparados === 1 ? 'já recebeu' : 'já receberam'} disparo em massa antes${r.pulouJaDisparados ? (r.jaDisparados === 1 ? ' (fica de fora)' : ' (ficam de fora)') : (r.jaDisparados === 1 ? ' e vai receber de novo' : ' e vão receber de novo')}</span>` : ''}`
         : `<strong>Ninguém nesse filtro</strong><span class="rotulo">${r.jaDisparados && r.pulouJaDisparados ? `Todos os ${r.jaDisparados} já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.` : 'Mude as etapas ou etiquetas.'}</span>`;
@@ -4425,6 +4438,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         ? `${itens.map((m) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
         : '<div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div>';
       atualizarRisco();
+      if (passo === 4) desenharRevisao();
       $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim());
       $('#enviar-disparo').textContent = r.total ? `📣 Enviar para ${r.total} ${r.total === 1 ? 'pessoa' : 'pessoas'}` : '📣 Iniciar disparo';
     } catch (err) {
@@ -4462,7 +4476,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     add(form.elements.pularJaDisparados?.checked ? 0 : 1, form.elements.pularJaDisparados?.checked ? 'Não repete para quem já recebeu disparo' : 'Vai mandar de novo para quem já recebeu disparo');
     const pontos = itens.reduce((s, [n]) => s + n, 0);
     const [cor, nome] = !msg.trim() ? ['vazio', 'Escreva a mensagem para calcular'] : itens.some(([n]) => n === 2) || pontos >= 5 ? ['alto', '🔴 Risco alto de bloqueio'] : pontos >= 2 ? ['medio', '🟡 Risco médio'] : ['baixo', '🟢 Risco baixo'];
-    $('#disp-risco').innerHTML = `<div class="risco-topo"><b>🌡️ Risco de bloqueio</b> <span class="risco-selo risco-${cor}">${nome}</span></div><ul class="lista-simples risco-itens">${itens.map(([n, t]) => `<li>${['✅', '⚠️', '❌'][n]} ${t}</li>`).join('')}</ul>`;
+    $('#disp-risco').innerHTML = `<div class="risco-topo"><b>🌡️ Risco de bloqueio</b> <span class="risco-selo risco-${cor}">${nome}</span></div><details ${cor === 'baixo' ? '' : 'open'}><summary class="rotulo">${cor === 'baixo' ? 'Ver o que foi conferido' : 'O que melhorar'}</summary><ul class="lista-simples risco-itens">${itens.map(([n, t]) => `<li>${['✅', '⚠️', '❌'][n]} ${t}</li>`).join('')}</ul></details>`;
     // quanto tempo leva
     let est = '';
     if (total) {
@@ -4514,6 +4528,44 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   };
   form.addEventListener('input', agendarPrevia);
   form.addEventListener('change', agendarPrevia);
+  // 👣 um passo por vez: 1 quem recebe → 2 mensagem → 3 ritmo → 4 revisar e enviar
+  const irPara = (n) => {
+    passo = Math.min(4, Math.max(1, n));
+    $$('[data-passo]', form).forEach((c) => { c.hidden = Number(c.dataset.passo) !== passo; });
+    $$('#disp-passos li').forEach((li, i) => { li.classList.toggle('ativo', i + 1 === passo); li.classList.toggle('feito', i + 1 < passo); });
+    if (passo === 4) desenharRevisao();
+    const topo = $('#disp-passos');
+    if (topo && topo.getBoundingClientRect().top < 0) topo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const podeIr = (n) => {
+    if (n > 1 && !ultimaPrevia) { aviso('Ainda contando quem vai receber… tente de novo em um segundo.', true); return false; }
+    const fl = filtro();
+    if (n > 1 && prospeccao && !leadIds.length && !fl.listaId && !fl.etapas.length && !fl.etiquetas.length && fl.origem === 'todos') { aviso('Escolha a lista de contatos que vai receber.', true); form.elements.listaId?.focus(); return false; }
+    if (n > 1 && !total) { aviso('Ninguém vai receber assim: escolha a lista ou mude os filtros.', true); return false; }
+    if (n > 2 && !form.elements.mensagem.value.trim()) { aviso('Escreva a mensagem.', true); form.elements.mensagem.focus(); return false; }
+    return true;
+  };
+  $$('[data-proximo]', form).forEach((b) => { b.onclick = () => { if (podeIr(passo + 1)) irPara(passo + 1); }; });
+  $$('[data-voltar]', form).forEach((b) => { b.onclick = () => irPara(passo - 1); });
+  $$('[data-ir-passo]').forEach((b) => { b.onclick = () => { const n = Number(b.dataset.irPasso); if (n <= passo || podeIr(n)) irPara(n); }; });
+  function desenharRevisao() {
+    const f = formParaObjeto(form);
+    const pf = perfisEnvio.find((x) => x.id === f.perfilEnvio);
+    const mi = Number(f.intMin) || 0;
+    const ma = Math.max(mi, Number(f.intMax) || 0);
+    const itens = escolhidas.map(itemDe).filter(Boolean);
+    const r = ultimaPrevia || {};
+    const pular = form.elements.pularJaDisparados?.checked;
+    const protecoes = [pular && 'não repete para quem já recebeu disparo', f.rodapeSair && '"responda SAIR" no final', prospeccao && 'confere se o número tem WhatsApp', prospeccao && 'pausa sozinho se der erro seguido'].filter(Boolean);
+    $('#disp-revisao').innerHTML = `<dl class="revisao">
+      <dt>👥 Para</dt><dd><b>${total} ${total === 1 ? 'pessoa' : 'pessoas'}</b>${r.nomes?.length ? `<br><span class="rotulo">${r.nomes.map(esc).join(', ')}${total > r.nomes.length ? '…' : ''}</span>` : ''}${r.jaDisparados ? `<br><span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} já ${r.jaDisparados === 1 ? 'recebeu' : 'receberam'} disparo antes ${pular ? '(fica de fora)' : '(vai receber de novo)'}</span>` : ''}</dd>
+      <dt>💬 Mensagem</dt><dd><div class="revisao-msg">${esc(r.exemplo || f.mensagem).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><span class="rotulo">Exemplo com o 1º contato${itens.length ? ` · + ${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}: ${itens.map((m) => esc(m.nome)).join(', ')}` : ' · só texto'}</span></dd>
+      <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span></dd>
+      <dt>🕐 Quando</dt><dd>${f.quando === 'agendar' && f.agendadoPara ? `Agendado para <b>${esc(new Date(f.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</b>` : '<b>Começa quando você clicar em enviar</b>'}${f.horarioComercial ? ' · só em horário comercial (8h às 20h)' : ' · a qualquer hora'}</dd>
+      ${protecoes.length ? `<dt>🛡️ Proteções</dt><dd>${protecoes.join(' · ')}</dd>` : ''}
+    </dl><p class="rotulo" style="margin:8px 0 0">Depois de começar, dá para pausar ou cancelar a qualquer momento.</p>`;
+  }
+  irPara(1);
   $$('input[name=perfilEnvio]', form).forEach((r) => {
     r.onchange = () => {
       const pf = perfisEnvio.find((x) => x.id === r.value);

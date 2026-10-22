@@ -1872,3 +1872,27 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .risco-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
 .risco-topo .risco-selo { margin: 0; padding: 3px 10px; font-size: 13px; }
 .risco-vazio { background: var(--hover); color: var(--suave); }
+
+/* Novo disparo em passos */
+.disp-passos { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 14px; counter-reset: none; flex-wrap: wrap; }
+.disp-passos li { flex: 1 1 0; min-width: 0; }
+.disp-passos button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--raio); border: 1px solid var(--borda); background: var(--superficie); color: var(--suave); font-weight: 600; font-size: 13px; text-align: left; cursor: pointer; }
+.disp-passos li.ativo button { border-color: var(--primario); color: var(--texto); box-shadow: 0 0 0 1px var(--primario) inset; }
+.disp-passos li.feito button { color: var(--ok-texto); }
+.disp-passos li.feito .passo-num { background: var(--ok-fundo); color: var(--ok-texto); }
+.disp-passos button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disp-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--borda); }
+.disp-nav .grande-botao { width: auto; flex: 1; max-width: 360px; margin: 0; }
+.revisao { display: grid; grid-template-columns: max-content 1fr; gap: 10px 14px; margin: 0; }
+.revisao dt { font-weight: 600; white-space: nowrap; }
+.revisao dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.revisao-msg { white-space: pre-wrap; background: var(--hover); border-radius: 8px; padding: 8px 10px; margin-bottom: 4px; font-size: 14px; }
+@media (max-width: 640px) {
+  .disp-passos button { flex-direction: column; gap: 2px; padding: 6px 4px; font-size: 11px; text-align: center; }
+  .disp-passos button span:last-child { white-space: normal; }
+  .revisao { grid-template-columns: 1fr; gap: 2px; }
+  .revisao dd { margin-bottom: 8px; }
+}
+#f-disparo [data-passo][hidden] { display: none !important; }
+.disp-nav .grande-botao { white-space: nowrap; padding-left: 14px; padding-right: 14px; }
+.disp-nav button { white-space: nowrap; }
