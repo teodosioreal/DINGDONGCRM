@@ -34,7 +34,8 @@ function normalizarFiltro(f = {}) {
     etapas: lista(f.etapas),
     etiquetas: lista(f.etiquetas),
     origem: ['site', 'whatsapp', 'manual'].includes(f.origem) ? f.origem : 'todos',
-    leadIds: lista(f.leadIds)
+    leadIds: lista(f.leadIds),
+    listaId: texto(f.listaId, 60) // lista de contatos importada na aba Disparos
   };
 }
 
@@ -52,6 +53,7 @@ function destinatariosPara(empresa, filtroBruto) {
     if (filtro.etapas.length && !filtro.etapas.includes(c.etapa)) continue;
     if (filtro.etiquetas.length && !(c.etiquetas || []).some((t) => filtro.etiquetas.includes(t))) continue;
     if (filtro.origem !== 'todos' && (c.origem || 'site') !== filtro.origem) continue;
+    if (filtro.listaId && c.prospeccao?.listaId !== filtro.listaId) continue;
     if (c.naoDisparar || leads.naListaNegra(empresa, c)) {
       sairam++;
       continue;
@@ -83,13 +85,17 @@ function montarMensagem(modelo, lead, empresa) {
     nome_completo: nomeCompleto,
     empresa: empresa.nome || '',
     link_avaliacao: bot?.linkAvaliacao || '',
-    link_anuncio: bot?.linkAnuncio || ''
+    link_anuncio: bot?.linkAnuncio || '',
+    // contatos de lista importada: empresa, cidade e ramo do CONTATO ({empresa} é a sua)
+    empresa_contato: lead?.prospeccao?.empresa || '',
+    cidade: lead?.prospeccao?.cidade || '',
+    ramo: lead?.prospeccao?.ramo || ''
   };
   let t = String(modelo || '').replace(/\{([^{}]*\|[^{}]*)\}/g, (_, opcoes) => {
     const lista = opcoes.split('|');
     return lista[Math.floor(Math.random() * lista.length)];
   });
-  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa|link_avaliacao|link_anuncio)\}/gi, (_, v) => valores[v.toLowerCase()]);
+  t = t.replace(/\{(nome|primeiro_nome|nome_completo|empresa_contato|empresa|link_avaliacao|link_anuncio|cidade|ramo)\}/gi, (_, v) => valores[v.toLowerCase()]);
   // {horarios}: os próximos horários livres de Agendamentos (sem nenhum: "ainda essa semana")
   if (/\{horarios\}/i.test(t)) {
     const h = require('./horarios-ia').textoHorarios(empresa, lead?.id ? lead : null);
@@ -124,7 +130,7 @@ function agendar(d, ms) {
 }
 
 function sorteioIntervalo(d) {
-  const min = Math.max(INTERVALO_MINIMO, d.intervaloMin || 20);
+  const min = Math.max(d.prospeccao ? require('./prospeccao').INTERVALO_MINIMO_PROSPECCAO : INTERVALO_MINIMO, d.intervaloMin || 20);
   const max = Math.max(min, d.intervaloMax || 60);
   return (min + Math.random() * (max - min)) * 1000;
 }
@@ -177,6 +183,39 @@ async function processar(id) {
     return agendar(d, 500);
   }
 
+  // 🛡️ modo prospecção: limite do dia (com aquecimento) e só manda para quem tem WhatsApp
+  const pros = d.prospeccao ? require('./prospeccao') : null;
+  if (pros) {
+    const limite = pros.limiteDeHoje(d);
+    if (pros.enviadosHoje(d) >= limite) {
+      if (!d.aguardandoAmanha) { d.aguardandoAmanha = true; d.proximoEnvioEm = null; salvar(); }
+      return agendar(d, 30 * 60 * 1000); // confere de novo; amanhã continua sozinho
+    }
+    d.aguardandoAmanha = false;
+    if (lead.temWhatsapp === false) {
+      item.status = 'ignorado';
+      item.erro = 'Número sem WhatsApp';
+      item.em = agora();
+      salvar();
+      return agendar(d, 1500);
+    }
+    if (lead.temWhatsapp !== true) {
+      const tem = await pros.temWhatsapp(empresa, item.destino);
+      if (tem === false) {
+        lead.temWhatsapp = false;
+        item.status = 'ignorado';
+        item.erro = 'Número sem WhatsApp';
+        item.em = agora();
+        salvar();
+        return agendar(d, 3000 + Math.random() * 3000);
+      }
+      if (tem) {
+        lead.temWhatsapp = true;
+        if (typeof tem === 'string' && /@s\.whatsapp\.net$/.test(tem) && !lead.whatsappJid) { lead.whatsappJid = tem; item.destino = tem; }
+      }
+    }
+  }
+
   const mensagem = montarMensagem(d.mensagem, lead, empresa) + (d.rodapeSair ? `\n\n${RODAPE_SAIR}` : '');
   const anexos = midiasDoDisparo(empresa, d);
   const [primeira, ...resto] = anexos;
@@ -208,6 +247,7 @@ async function processar(id) {
       disparoId: d.id
     });
     lead.ultimoDisparoEm = agora();
+    if (pros) { pros.contarEnvio(d); d.errosSeguidos = 0; }
   } catch (err) {
     // queda de conexão / servidor fora: pausa sem gastar a fila
     if (!err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message)) {
@@ -216,6 +256,15 @@ async function processar(id) {
     item.status = 'erro';
     item.erro = /exists|not.*whatsapp|jid/i.test(err.message) ? 'Número sem WhatsApp' : err.message.slice(0, 200);
     item.em = agora();
+    // 🛡️ freio: vários envios seguidos falhando é sinal de que o WhatsApp está barrando o número
+    if (pros && item.erro !== 'Número sem WhatsApp') {
+      d.errosSeguidos = (d.errosSeguidos || 0) + 1;
+      if (d.errosSeguidos >= (d.prospeccaoCfg?.freioErros || 3)) {
+        d.errosSeguidos = 0;
+        require('./alertas').registrar(empresa, `disparo:${d.id}`, `🛡️ Disparo "${d.nome}" pausado pelo freio de segurança: ${d.prospeccaoCfg?.freioErros || 3} envios seguidos falharam. Espere algumas horas antes de continuar.`, { nivel: 'erro' });
+        return pausarPorErro(d, `Freio de segurança: ${d.prospeccaoCfg?.freioErros || 3} envios seguidos falharam (último: ${item.erro}). Isso pode ser o WhatsApp barrando o número — espere algumas horas antes de continuar.`);
+      }
+    }
   }
   const espera = sorteioIntervalo(d);
   d.proximoEnvioEm = new Date(Date.now() + espera).toISOString();
@@ -252,8 +301,13 @@ function criar(empresa, corpo, usuario) {
   const { filtro, destinatarios } = destinatariosPara(empresa, corpo.filtro);
   if (!destinatarios.length) throw erro('Nenhum lead com WhatsApp nesse filtro.');
   if (destinatarios.length > MAX_DESTINATARIOS) throw erro(`No máximo ${MAX_DESTINATARIOS} contatos por disparo. Filtre por etapa ou etiqueta.`);
-  const min = Math.max(INTERVALO_MINIMO, Number(corpo.intervaloMin) || 20);
-  const max = Math.max(min, Number(corpo.intervaloMax) || 60);
+  const prospeccao = corpo.prospeccao === true;
+  const cfgPros = prospeccao ? require('./prospeccao').configDa(empresa) : null;
+  // prospecção: os números da aba Segurança (dá para mudar neste disparo)
+  const prosCfg = prospeccao ? require('./prospeccao').configDa({ prospeccao: { ...cfgPros, ...Object.fromEntries(['limiteInicial', 'aumentoDia', 'tetoDia'].filter((k) => corpo[k] !== undefined && corpo[k] !== '').map((k) => [k, corpo[k]])) } }) : null;
+  const minBase = prospeccao ? require('./prospeccao').INTERVALO_MINIMO_PROSPECCAO : INTERVALO_MINIMO;
+  const min = Math.max(minBase, Number(corpo.intervaloMin) || (prospeccao ? cfgPros.intervaloMin : 20));
+  const max = Math.max(min, Number(corpo.intervaloMax) || (prospeccao ? cfgPros.intervaloMax : 60));
   let agendadoPara = null;
   if (corpo.agendadoPara) {
     const t = new Date(corpo.agendadoPara);
@@ -267,8 +321,9 @@ function criar(empresa, corpo, usuario) {
     mensagem,
     midiaIds: pedidos,
     filtro,
-    intervaloMin: Math.min(min, 600),
-    intervaloMax: Math.min(max, 900),
+    intervaloMin: Math.min(min, prospeccao ? 900 : 600),
+    intervaloMax: Math.min(max, prospeccao ? 1800 : 900),
+    ...(prospeccao ? { prospeccao: true, prospeccaoCfg: prosCfg, enviadosPorDia: {}, errosSeguidos: 0 } : {}),
     horarioComercial: corpo.horarioComercial !== false,
     rodapeSair: corpo.rodapeSair !== false,
     status: agendadoPara ? 'agendado' : 'enviando',
@@ -347,7 +402,9 @@ function resumo(d) {
     }
   }
   const { destinatarios, ...resto } = d;
-  return { ...resto, total: destinatarios.length, ...cont, responderam };
+  const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
+  const pros = d.prospeccao ? require('./prospeccao') : null;
+  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
@@ -372,5 +429,6 @@ module.exports = {
   apagar,
   apagarTodosDa,
   resumo,
-  retomarAoIniciar
+  retomarAoIniciar,
+  processar // (testes)
 };

@@ -1814,3 +1814,25 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 /* arrastar arquivos do computador para a conversa */
 .inbox-chat { position: relative; }
 .inbox-chat.soltando::after { content: attr(data-soltar); position: absolute; inset: 8px; z-index: 30; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; border: 3px dashed var(--zap); border-radius: 14px; background: color-mix(in srgb, var(--superficie) 88%, transparent); color: var(--texto); font-size: 20px; font-weight: 700; pointer-events: none; }
+
+/* Disparos em massa: menu do lado esquerdo (seções) + abas em cima */
+.disp-casca { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.disp-menu { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; }
+.disp-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--rotulo); text-decoration: none; font-weight: 600; font-size: 14px; }
+.disp-item:hover { background: var(--hover); color: var(--texto); }
+.disp-item.ativo { background: var(--primario); color: var(--primario-texto); }
+.disp-ic { width: 22px; text-align: center; }
+.disp-corpo { min-width: 0; }
+.disp-abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--borda); overflow-x: auto; scrollbar-width: none; }
+.disp-abas::-webkit-scrollbar { display: none; }
+.disp-aba { padding: 10px 14px; color: var(--suave); text-decoration: none; font-weight: 600; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.disp-aba:hover { color: var(--texto); }
+.disp-aba.ativo { color: var(--texto); border-bottom-color: var(--primario); }
+.disp-aba .rotulo { font-weight: 500; }
+.lista-simples { margin: 6px 0 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 860px) {
+  .disp-casca { grid-template-columns: 1fr; gap: 12px; }
+  .disp-menu { position: static; flex-direction: row; overflow-x: auto; padding: 6px; scrollbar-width: none; }
+  .disp-menu::-webkit-scrollbar { display: none; }
+  .disp-item { white-space: nowrap; padding: 8px 12px; }
+}

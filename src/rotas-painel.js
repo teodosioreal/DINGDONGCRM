@@ -877,6 +877,38 @@ router.get('/empresas/:id/disparos', (req, res) => {
   );
 });
 
+// 📋 Listas de contatos (aba Disparos) e 🛡️ segurança do modo prospecção
+const prospeccao = require('./prospeccao');
+router.get('/empresas/:id/disparos-listas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json({ listas: prospeccao.listasDa(empresa).slice().reverse().map((l) => prospeccao.resumoLista(empresa, l)), seguranca: prospeccao.configDa(empresa) });
+});
+router.post('/empresas/:id/disparos-listas', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const b = req.body || {};
+    res.status(201).json(prospeccao.importar(empresa, { nome: b.nome, contatos: b.contatos, etiquetaId: b.etiquetaId, principal: principalDa(empresa) }));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+router.delete('/empresas/:id/disparos-listas/:listaId', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(prospeccao.apagarLista(empresa, req.params.listaId));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+router.put('/empresas/:id/disparos-seguranca', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  res.json(prospeccao.salvarConfig(empresa, req.body || {}));
+});
+
 // Prévia: quantos vão receber e como fica a mensagem para o primeiro
 router.post('/empresas/:id/disparos/previa', (req, res) => {
   const empresa = acharEmpresa(req, res);
