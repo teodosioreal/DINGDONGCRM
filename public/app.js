@@ -967,6 +967,9 @@ function htmlDetalhesResposta(r) {
   </div>`;
 }
 
+// soltar um arquivo fora de uma área que aceita não abre o arquivo no lugar do CRM
+for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files') && !e.defaultPrevented) e.preventDefault(); });
+
 function ligarChatTeste({ botId, canal, rascunho, saudacao }) {
   const chat = $('#chat');
   let historico = [];
@@ -5334,7 +5337,7 @@ async function paginaConversas(id, params) {
       <form class="chat-envio" id="chat-envio">
         <div class="sugestoes-rapidas" id="sugestoes-rapidas" hidden></div>
         <div class="chat-ferramentas">
-          <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
+          <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador — ou arraste os arquivos para a conversa, ou cole com Ctrl+V">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-reiniciar-ia" title="A IA esquece o que leu desta conversa e começa do zero a partir da próxima mensagem">🔄 Reiniciar aprendizado da conversa</button>
@@ -5516,6 +5519,9 @@ async function paginaConversas(id, params) {
     });
     ligarProximos($('#inbox-chat'), abertoId, () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); });
     const form = $('#chat-envio');
+    // conversa sem WhatsApp: soltar arquivo aqui não manda nada (tira o que a conversa anterior ligou)
+    const ac = $('#inbox-chat');
+    if (ac) { ac.ondragenter = ac.ondragover = ac.ondragleave = ac.ondrop = null; ac.classList.remove('soltando'); }
     if (!form) return;
     const campo = $('#chat-texto');
     const ajustarAltura = () => { campo.style.height = 'auto'; campo.style.height = `${Math.min(160, campo.scrollHeight)}px`; };
@@ -5578,28 +5584,70 @@ async function paginaConversas(id, params) {
         aviso(err.message, true);
       }
     };
-    $('#chat-arquivo').onchange = async (e) => {
-      const arquivo = e.target.files[0];
-      e.target.value = '';
-      if (!arquivo) return;
-      if (arquivo.size > 200 * 1024 * 1024) return aviso(`"${arquivo.name}" tem ${(arquivo.size / 1048576).toFixed(0)} MB. O máximo é 200 MB — divida o vídeo em partes.`, true);
-      const legenda = arquivo.type.startsWith('audio/') ? '' : campo.value.trim();
+    // manda um arquivo do computador (botão 📎, arrastar e soltar ou Ctrl+V); a legenda vai só no 1º
+    const enviarDoPc = async (arquivo, { comLegenda = true, ultimo = true } = {}) => {
+      if (arquivo.size > 200 * 1024 * 1024) { aviso(`"${arquivo.name}" tem ${(arquivo.size / 1048576).toFixed(0)} MB. O máximo é 200 MB — divida o vídeo em partes.`, true); return false; }
+      const legenda = arquivo.type.startsWith('audio/') || !comLegenda ? '' : campo.value.trim();
       const botao = $('#chat-enviar');
       const leadId = abertoId;
       try {
-        let r;
         await comEspera(botao, async () => {
           // sobe em pedaços (arquivo grande, qualidade original) e depois manda pelo WhatsApp
           const ini = await api(`leads/${leadId}/arquivo/envio`, { method: 'POST', body: { arquivo: arquivo.name, tamanho: arquivo.size, tipo: arquivo.type || '' } });
           await subirEmPedacos(arquivo, ini, (pct) => { botao.innerHTML = `<span class="girando"></span> ${pct}%`; });
           botao.innerHTML = '<span class="girando"></span> Enviando…';
-          r = await api(`leads/${leadId}/arquivo/envio/${ini.envioId}/concluir`, { method: 'POST', body: { legenda, manterIa: $('#chat-manter-ia')?.checked } });
+          await api(`leads/${leadId}/arquivo/envio/${ini.envioId}/concluir`, { method: 'POST', body: { legenda, manterIa: $('#chat-manter-ia')?.checked } });
         }, 'Enviando…');
-        campo.value = '';
-        aviso('Arquivo recebido. Enviando pelo WhatsApp na qualidade original — aparece ✓ quando chegar.');
-        await recarregarAberto();
-        carregarLista();
-      } catch (err) { aviso(err.message, true); }
+        if (legenda) campo.value = '';
+        if (ultimo) {
+          aviso('Arquivo recebido. Enviando pelo WhatsApp na qualidade original — aparece ✓ quando chegar.');
+          await recarregarAberto();
+          carregarLista();
+        }
+        return true;
+      } catch (err) { aviso(`${arquivo.name}: ${err.message}`, true); return false; }
+    };
+    // vários de uma vez (arrastou ou colou): confirma antes e manda um por vez, na ordem
+    const enviarVarios = async (arquivos) => {
+      const lista = [...arquivos].filter((f) => f && f.size > 0);
+      if (!lista.length) return;
+      const nomeCliente = esc(nomeDoLead(leadAberto || {}));
+      const tam = (f) => (f.size >= 1048576 ? `${(f.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.size / 1024))} KB`);
+      const legenda = campo.value.trim();
+      if (!(await confirmar({
+        titulo: lista.length === 1 ? 'Enviar este arquivo?' : `Enviar ${lista.length} arquivos?`,
+        texto: `Para <b>${nomeCliente}</b> pelo WhatsApp:<br>${lista.slice(0, 10).map((f) => `• ${esc(f.name || 'imagem colada')} <span class="rotulo">(${tam(f)})</span>`).join('<br>')}${lista.length > 10 ? `<br>… e mais ${lista.length - 10}` : ''}${legenda ? `<br><br>Legenda: <i>${esc(legenda.slice(0, 120))}</i>` : ''}`,
+        botao: 'Enviar'
+      }))) return;
+      for (const [i, f] of lista.entries()) {
+        const ok = await enviarDoPc(f, { comLegenda: i === 0, ultimo: i === lista.length - 1 });
+        if (!ok && i < lista.length - 1) { await recarregarAberto().catch(() => {}); break; }
+      }
+    };
+    $('#chat-arquivo').onchange = async (e) => {
+      const arquivo = e.target.files[0];
+      e.target.value = '';
+      if (arquivo) await enviarDoPc(arquivo);
+    };
+    // 🖱️ arrastar arquivos do computador e soltar na conversa
+    const areaChat = $('#inbox-chat');
+    const temArquivo = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    areaChat.ondragenter = (e) => { if (temArquivo(e)) { e.preventDefault(); areaChat.classList.add('soltando'); } };
+    areaChat.ondragover = (e) => { if (temArquivo(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; areaChat.classList.add('soltando'); } };
+    areaChat.ondragleave = (e) => { if (!areaChat.contains(e.relatedTarget)) areaChat.classList.remove('soltando'); };
+    areaChat.ondrop = (e) => {
+      if (!temArquivo(e)) return;
+      e.preventDefault();
+      areaChat.classList.remove('soltando');
+      enviarVarios(e.dataTransfer.files);
+    };
+    areaChat.dataset.soltar = `Solte para enviar a ${nomeDoLead(leadAberto || {})}`;
+    // 📋 colar imagem/arquivo (Ctrl+V) na caixa de mensagem
+    campo.onpaste = (e) => {
+      const arquivos = [...(e.clipboardData?.files || [])];
+      if (!arquivos.length) return; // texto: cola normal
+      e.preventDefault();
+      enviarVarios(arquivos.map((f, i) => (f.name && f.name !== 'image.png' ? f : new File([f], `imagem-colada-${i + 1}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type }))));
     };
     $('#chat-biblioteca').onclick = async () => {
       const lista = await api(`empresas/${id}/midias`);
