@@ -294,7 +294,8 @@ function montarMenu(ativo) {
       ]],
       ['Ajustes', [
         ['organizar', 'etiquetas', 'Etiquetas e etapas', 'etiquetas tickets etapas funil'],
-        ['chave', 'chave', 'IAs e chaves', 'chave api claude gemini gpt openai tokens reserva']
+        ['chave', 'chave', 'IAs e chaves', 'chave api claude gemini gpt openai tokens reserva'],
+        ['lead-externo', 'chave', 'Lead externo', 'webhook api integracao lead externo cadastro automatico teste gratis outro sistema']
       ]]
     ];
     html += '<div class="busca-menu"><input type="search" id="busca-menu" placeholder="🔎 Buscar configuração (ex.: follow-up, horário, pixel)" aria-label="Buscar no painel" autocomplete="off" enterkeyhint="search"><div id="busca-resultados" class="busca-resultados" role="listbox" hidden></div></div>';
@@ -2494,6 +2495,71 @@ async function paginaWhatsapp(id) {
     painelInstrucoes(form, bot.id, 'whatsapp');
     ligarChatTeste({ botId: bot.id, canal: 'whatsapp', rascunho: () => formParaObjeto(form), saudacao: () => '' });
   }
+}
+
+// ---------------------------------------------------------------- lead externo (webhook)
+// Deixa outro sistema seu (ex.: o cadastro de teste grátis de outro produto)
+// criar um lead aqui direto, por um link com senha — sem precisar de código
+// novo a cada empresa. Qualquer empresa pode ligar isso na própria tela.
+async function paginaLeadExterno(id) {
+  const hashDaPagina = location.hash;
+  const emp = await definirEmpresaAtual(id);
+  const cfg = emp.leadExterno || {};
+  const ligado = !!cfg.habilitado;
+  const urlWebhook = cfg.segredo ? `${sessao.urlPublica}/api/public/lead-externo/${emp.id}/${cfg.segredo}` : '';
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
+  conteudo.innerHTML = `
+    <div class="cabecalho"><div><h1>Lead externo</h1><p class="sub">Outro sistema seu cria um lead aqui direto, por um link com senha</p></div>${interruptor('lead-ext-ligar', ligado, ligado ? 'Ligado' : 'Desligado')}</div>
+    ${balao('Para que serve', 'Se você tem outro site, app ou cadastro (ex.: um teste grátis de outro produto seu), ele pode chamar o link abaixo com nome, telefone e e-mail da pessoa — o CRM cria o lead na hora, já na etapa que você escolher, e manda a mensagem de boas-vindas pelo WhatsApp se você configurar uma. O resto (o que acontece depois, tipo lembrar de vender no dia 15) você configura normalmente em Automações.')}
+    ${ligado ? '' : balao('Desligado', 'Enquanto estiver desligado, o link não funciona (responde como se não existisse). Ligue no botão acima quando quiser usar.', 'aviso')}
+    ${ligado && urlWebhook ? `
+    <div class="card" data-cfg="lead-externo-link" data-pronto="ok" data-resumo="Link pronto pra usar">
+      <h2>Link do webhook</h2>
+      ${passos([
+        'Copie o link abaixo.',
+        'No seu outro sistema, configure pra mandar um <code>POST</code> pra esse link quando alguém se cadastrar, com um JSON <code>{"nome": "...", "telefone": "...", "email": "..."}</code> (telefone com DDD é obrigatório).',
+        'Pronto — cada cadastro de lá vira um lead aqui, na hora.'
+      ])}
+      <div class="codigo">${esc(urlWebhook)}</div>
+      <div class="acoes">
+        <button type="button" class="primario" id="lead-ext-copiar">Copiar link</button>
+        <button type="button" class="perigo" id="lead-ext-novo-segredo">Gerar novo link (invalida o antigo)</button>
+      </div>
+    </div>` : ''}
+    <form class="card" id="f-lead-externo" data-pronto="${cfg.etapaDestino ? 'ok' : ''}" data-resumo="${cfg.etapaDestino ? `Entra em "${esc(cfg.etapaDestino)}"` : 'Escolha a etapa de entrada'}">
+      <h2>Como o lead entra</h2>
+      <div class="campos">
+        <div class="campo"><label>Etapa de entrada ${ajuda('Em que etapa do funil o lead já chega. Ex.: uma etapa só pra "Teste grátis iniciado", separada das demais.')}</label>
+          <select name="etapaDestino"><option value="">— primeira etapa do funil —</option>${(emp.etapas || []).map((e) => `<option value="${esc(e)}" ${e === cfg.etapaDestino ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></div>
+      </div>
+      <div class="campo largo"><label>Mensagem de boas-vindas pelo WhatsApp (opcional) ${ajuda('Manda na hora, assim que o lead chega — não espera a automação (que só roda a partir de 1h). Deixe vazio pra não mandar nada.')}</label>
+        <textarea name="mensagemBoasVindas" placeholder="Ex.: Oi! Seu teste grátis de 15 dias já começou 🎉 Qualquer dúvida é só chamar aqui.">${esc(cfg.mensagemBoasVindas)}</textarea></div>
+      <div class="acoes"><button class="primario" type="submit">Salvar</button></div>
+    </form>`;
+  $('#lead-ext-ligar').onchange = async (e) => {
+    try {
+      await api(`empresas/${id}/lead-externo`, { method: 'PUT', body: { habilitado: e.target.checked } });
+      aviso(e.target.checked ? 'Lead externo ligado.' : 'Lead externo desligado.');
+      paginaLeadExterno(id).then(() => montarMenu(rotaEmpresa(id, 'lead-externo')));
+    } catch (err) { aviso(err.message, true); }
+  };
+  $('#lead-ext-copiar')?.addEventListener('click', () => copiar(urlWebhook));
+  $('#lead-ext-novo-segredo')?.addEventListener('click', async () => {
+    if (!confirm('O link atual para de funcionar. Confirma?')) return;
+    try {
+      await api(`empresas/${id}/lead-externo`, { method: 'PUT', body: { gerarNovoSegredo: true } });
+      aviso('Novo link gerado.');
+      paginaLeadExterno(id);
+    } catch (err) { aviso(err.message, true); }
+  });
+  $('#f-lead-externo').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api(`empresas/${id}/lead-externo`, { method: 'PUT', body: formParaObjeto(e.target) });
+      aviso('Salvo.');
+      paginaLeadExterno(id).then(() => montarMenu(rotaEmpresa(id, 'lead-externo')));
+    } catch (err) { aviso(err.message, true); }
+  };
 }
 
 // ---------------------------------------------------------------- empresa: mídias
@@ -8607,6 +8673,7 @@ async function rotear() {
         audios: () => paginaAudios(id),
         organizar: () => paginaOrganizar(id),
         chave: () => paginaChave(id),
+        'lead-externo': () => paginaLeadExterno(id),
         'meta-ads': () => paginaMetaAds(id)
       };
       if (!paginas[sub]) return void (location.hash = rotaEmpresa(id));

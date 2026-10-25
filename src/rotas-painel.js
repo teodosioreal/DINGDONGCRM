@@ -736,6 +736,35 @@ router.put('/empresas/:id/whatsapp', (req, res) => {
   res.json(situacaoWhatsapp(empresa, req));
 });
 
+// "Lead externo": qualquer empresa pode ligar isso pra deixar outro sistema
+// seu (ex.: o cadastro de um produto diferente) criar lead aqui direto, via
+// webhook com segredo na URL — ver POST /lead-externo/:empresaId/:segredo
+// em rotas-publicas.js. Não é um recurso exclusivo de nenhuma empresa.
+router.put('/empresas/:id/lead-externo', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  empresa.leadExterno = empresa.leadExterno || {};
+  const b = req.body || {};
+  if (b.habilitado !== undefined) {
+    empresa.leadExterno.habilitado = b.habilitado === true;
+    if (empresa.leadExterno.habilitado && !empresa.leadExterno.segredo) {
+      empresa.leadExterno.segredo = require('crypto').randomBytes(16).toString('hex');
+    }
+  }
+  if (b.etapaDestino !== undefined) {
+    const etapa = leads.acharEtapa(empresa, b.etapaDestino);
+    if (b.etapaDestino && !etapa) return res.status(400).json({ erro: 'Escolha uma etapa que exista.' });
+    empresa.leadExterno.etapaDestino = etapa || '';
+  }
+  if (b.mensagemBoasVindas !== undefined) empresa.leadExterno.mensagemBoasVindas = texto(b.mensagemBoasVindas, 2000);
+  if (b.gerarNovoSegredo === true) empresa.leadExterno.segredo = require('crypto').randomBytes(16).toString('hex');
+  salvar();
+  res.json({
+    ...empresa.leadExterno,
+    url: empresa.leadExterno.segredo ? `${config.urlPublica}/api/public/lead-externo/${empresa.id}/${empresa.leadExterno.segredo}` : ''
+  });
+});
+
 function erroWhatsapp(res, err) {
   if (err.status === 409) return res.status(409).json({ erro: err.message, webhookAtual: err.webhookAtual, precisaConfirmar: true });
   res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });

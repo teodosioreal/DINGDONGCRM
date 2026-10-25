@@ -15,6 +15,7 @@ const router = express.Router();
 
 const limitePorIp = criarLimitador(12, 60 * 1000); // 12 mensagens/minuto por IP
 const limiteVisitas = criarLimitador(30, 60 * 1000); // cliques em botões de WhatsApp
+const limiteLeadExterno = criarLimitador(20, 60 * 1000); // cadastros externos/minuto por IP
 
 function cors(req, res, next) {
   const origem = req.headers.origin;
@@ -224,6 +225,45 @@ router.post('/visita', (req, res) => {
     origem.guardarVisita(achado.empresa.id, achado.bot.id, String(req.body?.codigo || ''), rastro);
   }
   res.json({ ok: true });
+});
+
+// Lead externo: qualquer sistema de fora (ex.: o cadastro de teste grátis de
+// outro produto seu) pode criar um lead direto aqui, sem senha — só com o
+// segredo da URL, que cada empresa liga/gera na própria tela de configuração
+// (não é um recurso exclusivo de uma empresa só). Cria o lead já na etapa
+// escolhida e, se tiver mensagem de boas-vindas configurada, manda na hora —
+// automações de etapa só rodam a partir de 1h, isso aqui é instantâneo.
+router.post('/lead-externo/:empresaId/:segredo', async (req, res) => {
+  if (!limiteLeadExterno(req.ip)) return res.status(429).json({ erro: 'Muitas requisições.' });
+  const empresa = estado.empresas.find((e) => e.id === req.params.empresaId);
+  const cfg = empresa?.leadExterno || {};
+  const segredo = cfg.segredo || '';
+  const recebido = String(req.params.segredo || '');
+  const confere =
+    cfg.habilitado &&
+    segredo &&
+    recebido.length === segredo.length &&
+    require('crypto').timingSafeEqual(Buffer.from(recebido), Buffer.from(segredo));
+  if (!empresa || !confere) return res.sendStatus(404);
+
+  const nome = texto(req.body?.nome, 120);
+  const telefoneLimpo = texto(req.body?.telefone, 30).replace(/\D/g, '');
+  const email = texto(req.body?.email, 160);
+  if (!telefoneLimpo || telefoneLimpo.length < 10) return res.status(400).json({ erro: 'Informe um telefone válido, com DDD.' });
+
+  const bot = estado.bots.find((b) => b.empresaId === empresa.id);
+  const lead = leads.criarLead({ empresa, bot, canal: 'manual', nome, telefone: telefoneLimpo });
+  if (email) leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: `📋 Cadastro externo — e-mail: ${email}`, sistema: true });
+  if (cfg.etapaDestino) leads.moverEtapa(lead, empresa, cfg.etapaDestino, 'sistema');
+  salvar();
+
+  res.json({ ok: true, leadId: lead.id });
+
+  if (cfg.mensagemBoasVindas && whatsapp.configurado(empresa)) {
+    whatsapp
+      .enviarTexto(empresa, whatsapp.destinoDoLead(lead), cfg.mensagemBoasVindas)
+      .catch((err) => console.error(`[lead-externo ${empresa.id}]`, err.message));
+  }
 });
 
 // Webhook da Evolution API (mensagens do WhatsApp da empresa). O segredo na URL
