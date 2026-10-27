@@ -156,6 +156,7 @@ const servidor = app.listen(config.port, config.host, () => {
   require('./src/whatsapp').iniciarConferenciaEntregas(); // tiques de entrega: confere na Evolution o que ficou "aguardando" // quem já comprou (e quem agendou, por padrão): IA desligada até ligar à mão
   require('./src/eventos-ia').iniciar(); // avisos internos para a IA: [SEM_RESPOSTA], [CHECAR_VIDEO], [FOLLOWUP_1] (tempos por empresa)
   require('./src/expediente').iniciar(); // horário da IA responder e fila de quem esperou a IA (fora do horário / sem crédito)
+  require('./src/cobrancas').iniciar(); // 💰 disparo de cobrança: manda a mensalidade no vencimento (a cada 10 min confere)
   require('./src/meta-ads').iniciar(); // vendas de quem veio de anúncio do Facebook/Instagram → Meta Ads (API de Conversões)
   // uma vez (pedido do dono): imagens "a configurar" da Madara Volantes sem texto de quando enviar
   // ganham o texto-modelo — ele só troca o nome do carro e o revestimento. Continuam "a configurar".

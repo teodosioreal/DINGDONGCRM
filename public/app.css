@@ -1896,3 +1896,15 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 #f-disparo [data-passo][hidden] { display: none !important; }
 .disp-nav .grande-botao { white-space: nowrap; padding-left: 14px; padding-right: 14px; }
 .disp-nav button { white-space: nowrap; }
+
+/* 💰 Disparo de cobrança */
+.cob-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cob-form { margin-top: 12px; border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px 14px; background: var(--hover); }
+.contato-card .cob-form { margin: 0; border: 0; padding: 0; background: none; }
+.cob-acoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cob-pausado { opacity: .65; }
+.chip-botao { border: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
+.editor-cob { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.cob-previa { margin: 0; }
+.cob-previa .chat { height: auto; min-height: 220px; }
+@media (max-width: 900px) { .editor-cob { grid-template-columns: 1fr; } }

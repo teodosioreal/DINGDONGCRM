@@ -4304,6 +4304,7 @@ const MENU_DISPAROS = [
   ['lista', '📣', 'Disparos', ''],
   ['novo', '➕', 'Novo disparo', 'novo'],
   ['listas', '📋', 'Listas de contatos', 'listas'],
+  ['cobranca', '💰', 'Cobranças', 'cobranca'],
   ['seguranca', '🛡️', 'Segurança', 'seguranca']
 ];
 function cascaDisparos(id, ativo, html, abas = null) {
@@ -4392,7 +4393,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   try { leadIds = JSON.parse(sessionStorage.getItem('disparo_leads') || '[]'); sessionStorage.removeItem('disparo_leads'); } catch { leadIds = []; }
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
-  const abasNovo = [[rotaEmpresa(id, 'disparos/novo'), '📣 Para meus clientes', !prospeccao], [`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Para contatos novos (prospecção)', prospeccao]];
+  const abasNovo = ABAS_NOVO_DISPARO(id, prospeccao ? 'prospeccao' : 'clientes');
   const PASSOS = ['Quem recebe', 'Mensagem', 'Ritmo e horário', 'Revisar e enviar'];
   const filtrosComuns = `
           <div class="campo"><label>Etapas ${ajuda('Nenhuma marcada = todas as etapas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}"><span>${esc(e)}</span></label>`).join('')}</div></div>
@@ -5025,6 +5026,178 @@ async function paginaDetalheLista(id, listaId, d, params) {
     $('#grade-lista').innerHTML = lista.slice(0, 500).map((c) => cartaoContato(c, chips(c))).join('') || '<p class="rotulo">Nenhum contato aqui.</p>';
   };
   $('#busca-lista').addEventListener('input', (e) => { busca = e.target.value.trim(); desenhar(); });
+  desenhar();
+}
+
+// 💰 Disparo de cobrança: clientes com mensalidade recebem a cobrança no vencimento (Pix/link)
+const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const nomeMes = (comp) => `${MES_CURTO[Number(comp.slice(5, 7)) - 1]}/${comp.slice(2, 4)}`;
+const diaMes = (dia) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+const ABAS_NOVO_DISPARO = (id, ativa) => [[rotaEmpresa(id, 'disparos/novo'), '📣 Para meus clientes', ativa === 'clientes'], [`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Para contatos novos (prospecção)', ativa === 'prospeccao'], [rotaEmpresa(id, 'disparos/cobranca'), '💰 Cobrança', ativa === 'cobranca']];
+
+async function paginaCobranca(id) {
+  const hashDaPagina = location.hash;
+  const emp = await definirEmpresaAtual(id);
+  let d = await api(`empresas/${id}/cobrancas`);
+  if (location.hash !== hashDaPagina) return;
+  let editando = null; // id do cliente no formulário ('novo' = cadastro)
+
+  const statusDe = (c) => {
+    const s = c.situacao;
+    const chips = [];
+    // o mês de agora já pago (a tela passou para o próximo): continua aparecendo
+    if (s.competencia !== d.mes && (c.pagos || {})[d.mes]) chips.push(`<span class="etiqueta ok">✅ ${nomeMes(d.mes)} pago</span>`);
+    if (c.ativo === false) chips.push('<span class="etiqueta">⏸️ Pausado</span>');
+    else if (s.pago) chips.push(`<span class="etiqueta ok">✅ ${nomeMes(s.competencia)} pago</span>`);
+    else if (s.enviado) chips.push(`<span class="etiqueta ${s.atrasado ? 'aviso' : ''}">📤 Cobrança de ${nomeMes(s.competencia)} enviada ${diaMes(s.enviado.em.slice(0, 10))}${s.atrasado ? ' — em aberto' : ''}</span>`);
+    else chips.push(`<span class="etiqueta">⏳ Cobra em ${diaMes(s.diaEnvio)} (vence ${diaMes(s.vencimento)})</span>`);
+    for (const k of s.emAberto || []) chips.push(`<button type="button" class="etiqueta aviso chip-botao" data-pago-mes="${esc(k)}" data-cli="${esc(c.id)}" title="Clique para marcar como pago">⚠️ ${nomeMes(k)} em aberto · marcar pago</button>`);
+    if (c.ultimoErro) chips.push(`<span class="etiqueta off" title="${esc(c.ultimoErro.motivo)}">❌ A cobrança não saiu: ${esc(c.ultimoErro.motivo.slice(0, 60))}</span>`);
+    return chips.join('');
+  };
+  const formCliente = (c = {}) => `
+    <form class="cob-form" id="f-cob-cliente">
+      <h3 style="margin:0 0 8px">${c.id ? '✏️ Editar cliente' : '➕ Novo cliente de cobrança'}</h3>
+      <div class="campos">
+        <div class="campo"><label>Nome *</label><input name="nome" required maxlength="120" value="${esc(c.nome || '')}" placeholder="Ex.: Ana Souza"></div>
+        <div class="campo"><label>WhatsApp com DDD *</label><input name="telefone" required inputmode="tel" value="${esc(c.telefone ? telefoneBonito(c.telefone) : '')}" placeholder="(24) 99999-9999"></div>
+      </div>
+      <div class="campos">
+        <div class="campo"><label>Valor da mensalidade (R$) *</label><input name="valor" required inputmode="decimal" value="${c.valor ? esc(String(c.valor).replace('.', ',')) : ''}" placeholder="150,00"></div>
+        <div class="campo"><label>Vence todo dia *</label><select name="diaVencimento">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}" ${Number(c.diaVencimento || 10) === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></div>
+      </div>
+      <div class="campo"><label>O que é (opcional)</label><input name="descricao" maxlength="120" value="${esc(c.descricao || '')}" placeholder="Ex.: plano mensal do CRM"><small>Aparece na mensagem: "mensalidade <b>de plano mensal do CRM</b>".</small></div>
+      <details style="margin-top:8px" ${c.link ? 'open' : ''}><summary>Link de pagamento só deste cliente (opcional)</summary><div class="campo" style="margin-top:6px"><input name="link" maxlength="500" value="${esc(c.link || '')}" placeholder="https://… (se vazio, usa o link padrão)"></div></details>
+      <div class="acoes"><button type="button" data-cancelar-cli>Cancelar</button><button type="submit" class="primario">${c.id ? 'Salvar' : 'Adicionar cliente'}</button></div>
+    </form>`;
+
+  function desenhar() {
+    const cfg = d.config;
+    const semPagamento = !cfg.pix && !cfg.link && !d.clientes.some((c) => c.link);
+    const t = d.totais;
+    const lista = d.clientes.slice().sort((a, b) => (a.ativo === false) - (b.ativo === false) || a.situacao.diaEnvio.localeCompare(b.situacao.diaEnvio));
+    conteudo.innerHTML = cascaDisparos(id, 'cobranca', `
+      <div class="cabecalho"><div><h1>💰 Disparo de cobrança</h1><p class="sub">Cadastre os clientes com mensalidade: todo mês, no vencimento, o CRM manda a cobrança pelo WhatsApp com o Pix ou o link de pagamento</p></div></div>
+      ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `As cobranças saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
+      ${semPagamento ? balao('Falta dizer como o cliente paga', 'Coloque a <b>chave Pix</b> e/ou o <b>link de pagamento</b> em "Mensagem e pagamento", aqui embaixo.', 'aviso') : ''}
+      <div class="previa-resumo">
+        <div><strong>${t.ativos}</strong><span class="rotulo">clientes ativos</span></div>
+        <div><strong>${brl(t.mensal)}</strong><span class="rotulo">por mês</span></div>
+        <div><strong>${t.enviadasMes}</strong><span class="rotulo">cobranças enviadas em ${nomeMes(d.mes)}</span></div>
+        <div><strong>${t.pagasMes}</strong><span class="rotulo">pagas em ${nomeMes(d.mes)} (${brl(t.recebidoMes)})</span></div>
+      </div>
+      <div class="card">
+        <div class="cob-topo"><h2 style="margin:0">👥 Clientes de cobrança</h2>${editando === 'novo' ? '' : '<button type="button" class="primario" data-novo-cli>+ Adicionar cliente</button>'}</div>
+        ${editando === 'novo' ? formCliente() : ''}
+        ${lista.length ? `<div class="contato-grid" style="margin-top:12px">${lista.map((c) => (editando === c.id ? `<div class="contato-card">${formCliente(c)}</div>` : `
+          <div class="contato-card ${c.ativo === false ? 'cob-pausado' : ''}">
+            <div class="contato-topo"><strong>${esc(c.nome)}</strong><span class="contato-nota">${brl(c.valor)}</span></div>
+            <div class="contato-linha">📞 ${esc(telefoneBonito(c.telefone))}</div>
+            <div class="contato-linha">📅 Vence todo dia <b>${c.diaVencimento}</b>${c.descricao ? ` · ${esc(c.descricao)}` : ''}</div>
+            <div class="chips contato-chips">${statusDe(c)}</div>
+            <div class="cob-acoes">
+              ${c.situacao.competencia !== d.mes && (c.pagos || {})[d.mes] ? `<button type="button" class="pequeno" data-desfazer-mes="${esc(d.mes)}" data-cli="${esc(c.id)}">↩️ Desfazer ${nomeMes(d.mes)} pago</button>` : ''}
+              ${c.ativo === false ? '' : c.situacao.pago ? `<button type="button" class="pequeno" data-pago="0" data-cli="${esc(c.id)}">↩️ Desfazer pago</button>` : `<button type="button" class="pequeno primario" data-pago="1" data-cli="${esc(c.id)}">✅ Marcar ${nomeMes(c.situacao.competencia)} pago</button>`}
+              ${c.ativo === false ? '' : `<button type="button" class="pequeno" data-enviar-cli="${esc(c.id)}">📤 Enviar agora</button>`}
+              <button type="button" class="pequeno" data-editar-cli="${esc(c.id)}">✏️ Editar</button>
+              <button type="button" class="pequeno" data-ativo="${c.ativo === false ? '1' : '0'}" data-cli="${esc(c.id)}">${c.ativo === false ? '▶️ Retomar' : '⏸️ Pausar'}</button>
+              <button type="button" class="pequeno perigo" data-apagar-cli="${esc(c.id)}" title="Tirar da cobrança">✕</button>
+            </div>
+          </div>`)).join('')}</div>` : editando === 'novo' ? '' : '<p class="rotulo" style="margin:12px 0 0">Nenhum cliente ainda. Clique em "+ Adicionar cliente".</p>'}
+      </div>
+      <form class="card" id="f-cob-config">
+        <h2 style="margin-top:0">✉️ Mensagem e pagamento</h2>
+        <div class="editor-cob">
+          <div>
+            <div class="campos">
+              <div class="campo"><label>Chave Pix</label><input name="pix" maxlength="140" value="${esc(cfg.pix)}" placeholder="CNPJ, e-mail, celular ou chave aleatória"></div>
+              <div class="campo"><label>Nome de quem recebe (opcional)</label><input name="pixNome" maxlength="80" value="${esc(cfg.pixNome)}" placeholder="Ex.: Loja X Ltda"></div>
+            </div>
+            <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="pixSeparado" ${cfg.pixSeparado ? 'checked' : ''}> Mandar a chave Pix numa mensagem separada ${ajuda('Assim o cliente segura o dedo na mensagem e copia só a chave.')}</label>
+            <div class="campo" style="margin-top:10px"><label>Link de pagamento (opcional)</label><input name="link" maxlength="500" value="${esc(cfg.link)}" placeholder="https://… (Mercado Pago, PagSeguro, Asaas…)"></div>
+            <div class="campo" style="margin-top:12px"><label>Mensagem</label>
+              <div class="botoes-variavel"><button type="button" class="pequeno" data-var="{nome}">👤 Nome</button><button type="button" class="pequeno" data-var="{valor}">💵 Valor</button><button type="button" class="pequeno" data-var="{vencimento}">📅 Vencimento</button><button type="button" class="pequeno" data-var="{descricao}" title="vira ' de plano mensal…' (o que você escreveu no cliente)">📝 O que é</button><button type="button" class="pequeno" data-var="{pagamento}" title="o link e/ou o aviso da chave Pix">💳 Como pagar</button><button type="button" class="pequeno" data-var="{Olá|Oi}">👋 Saudação variada</button></div>
+              <textarea name="mensagem" style="min-height:150px">${esc(cfg.mensagem)}</textarea>
+              <small>Sai exatamente esse texto (sem IA), trocando as partes entre chaves. Se tirar o <code>{pagamento}</code>, o Pix/link vai no fim mesmo assim. <a href="#" data-msg-padrao>Voltar para a mensagem padrão</a></small>
+            </div>
+            <div class="campos" style="margin-top:12px">
+              <div class="campo"><label>Quando cobrar</label><select name="diasAntes">${[0, 1, 2, 3, 5, 7].map((n) => `<option value="${n}" ${cfg.diasAntes === n ? 'selected' : ''}>${n ? `${n} dia${n === 1 ? '' : 's'} antes do vencimento` : 'No dia do vencimento'}</option>`).join('')}</select></div>
+              <div class="campo"><label>A partir de que horas</label><select name="hora">${Array.from({ length: 13 }, (_, i) => i + 7).map((h) => `<option value="${h}" ${cfg.hora === h ? 'selected' : ''}>${h}h</option>`).join('')}</select></div>
+            </div>
+            <label class="linha-check" style="margin-top:10px"><input type="checkbox" name="iaResponde" ${cfg.iaResponde ? 'checked' : ''}> A IA responde quando o cliente responder a cobrança ${ajuda('Desmarcado (recomendado): a IA fica pausada na conversa do cliente de cobrança e a equipe atende ("paguei", "posso pagar dia 15?"…).')}</label>
+            <div class="acoes"><button type="submit" class="primario">Salvar mensagem e pagamento</button></div>
+          </div>
+          <div class="card teste whatsapp previa-disparo cob-previa">
+            <div class="cab"><span>Prévia no WhatsApp</span></div>
+            <div class="chat">${d.exemplo.map((t) => `<div class="msg bot">${esc(t).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div>`).join('')}<div class="msg acao-ia">Exemplo com ${d.clientes[0] ? 'o primeiro cliente' : 'um cliente de teste'}. Atualiza quando você salva.</div></div>
+          </div>
+        </div>
+      </form>
+      <div class="card"><h2 style="margin-top:0">Como funciona</h2><ul class="lista-simples">
+        <li>📅 Todo mês, no dia de cobrar (a partir do horário escolhido), o CRM manda a mensagem para cada cliente ativo — <b>uma vez por mês</b>.</li>
+        <li>✅ Marcou <b>pago</b> antes do dia? Aquele mês não é cobrado.</li>
+        <li>⏸️ <b>Pausar</b> para de cobrar o cliente até você retomar.</li>
+        <li>💬 A mensagem aparece na conversa do cliente em Conversas; quando ele responder, ${cfg.iaResponde ? 'a IA responde' : '<b>a equipe atende</b> (a IA fica pausada nessa conversa)'}.</li>
+        <li>🆕 Cliente cadastrado depois do dia de cobrar do mês começa a ser cobrado no mês seguinte (ou use "📤 Enviar agora").</li>
+      </ul></div>`, ABAS_NOVO_DISPARO(id, 'cobranca'));
+    ligar();
+  }
+
+  const recarregar = (r) => { d = r; editando = null; desenhar(); };
+  function ligar() {
+    $('[data-novo-cli]')?.addEventListener('click', () => { editando = 'novo'; desenhar(); $('#f-cob-cliente [name=nome]')?.focus(); });
+    $('[data-cancelar-cli]')?.addEventListener('click', () => { editando = null; desenhar(); });
+    const fc = $('#f-cob-cliente');
+    if (fc) fc.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = formParaObjeto(fc);
+      try {
+        const r = await comEspera(fc.querySelector('[type=submit]'), () => api(editando === 'novo' ? `empresas/${id}/cobrancas/clientes` : `empresas/${id}/cobrancas/clientes/${editando}`, { method: editando === 'novo' ? 'POST' : 'PUT', body }), 'Salvando…');
+        aviso(editando === 'novo' ? 'Cliente adicionado à cobrança.' : 'Cliente salvo.');
+        recarregar(r);
+      } catch (err) { aviso(err.message, true); }
+    };
+    $$('[data-editar-cli]').forEach((b) => { b.onclick = () => { editando = b.dataset.editarCli; desenhar(); }; });
+    $$('[data-pago]').forEach((b) => { b.onclick = async () => { try { recarregar(await api(`empresas/${id}/cobrancas/clientes/${b.dataset.cli}/pago`, { method: 'POST', body: { pago: b.dataset.pago === '1' } })); aviso(b.dataset.pago === '1' ? 'Marcado como pago.' : 'Pagamento desfeito.'); } catch (err) { aviso(err.message, true); } }; });
+    $$('[data-pago-mes]').forEach((b) => { b.onclick = async () => { try { recarregar(await api(`empresas/${id}/cobrancas/clientes/${b.dataset.cli}/pago`, { method: 'POST', body: { pago: true, competencia: b.dataset.pagoMes } })); aviso(`${nomeMes(b.dataset.pagoMes)} marcado como pago.`); } catch (err) { aviso(err.message, true); } }; });
+    $$('[data-desfazer-mes]').forEach((b) => { b.onclick = async () => { try { recarregar(await api(`empresas/${id}/cobrancas/clientes/${b.dataset.cli}/pago`, { method: 'POST', body: { pago: false, competencia: b.dataset.desfazerMes } })); aviso('Pagamento desfeito.'); } catch (err) { aviso(err.message, true); } }; });
+    $$('[data-ativo]').forEach((b) => { b.onclick = async () => { try { recarregar(await api(`empresas/${id}/cobrancas/clientes/${b.dataset.cli}`, { method: 'PUT', body: { ativo: b.dataset.ativo === '1' } })); } catch (err) { aviso(err.message, true); } }; });
+    $$('[data-apagar-cli]').forEach((b) => {
+      b.onclick = async () => {
+        const c = d.clientes.find((x) => x.id === b.dataset.apagarCli);
+        if (!(await confirmar({ titulo: `Tirar ${c.nome} da cobrança?`, texto: 'Ele para de receber as cobranças. A conversa dele continua em Conversas.', botao: 'Tirar', perigo: true }))) return;
+        try { recarregar(await api(`empresas/${id}/cobrancas/clientes/${c.id}`, { method: 'DELETE' })); } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-enviar-cli]').forEach((b) => {
+      b.onclick = async () => {
+        const c = d.clientes.find((x) => x.id === b.dataset.enviarCli);
+        const ja = c.situacao.enviado;
+        if (!(await confirmar({ titulo: `Mandar a cobrança para ${c.nome} agora?`, texto: `<p>Vai a cobrança de <b>${nomeMes(c.situacao.competencia)}</b> (${brl(c.valor)}, vence ${diaMes(c.situacao.vencimento)}) para ${esc(telefoneBonito(c.telefone))}.</p>${ja ? `<p class="aviso-texto">Ela já foi enviada em ${diaMes(ja.em.slice(0, 10))}. Vai de novo.</p>` : '<p class="rotulo">No dia de cobrar ela não vai de novo.</p>'}`, botao: 'Mandar agora' }))) return;
+        try { recarregar(await comEspera(b, () => api(`empresas/${id}/cobrancas/clientes/${c.id}/enviar`, { method: 'POST', body: {} }), 'Enviando…')); aviso('Cobrança enviada.'); } catch (err) { aviso(err.message, true); }
+      };
+    });
+    const fcfg = $('#f-cob-config');
+    $$('[data-var]', fcfg).forEach((b) => {
+      b.onclick = () => {
+        const t = fcfg.elements.mensagem;
+        const pos = t.selectionStart ?? t.value.length;
+        t.value = t.value.slice(0, pos) + b.dataset.var + t.value.slice(t.selectionEnd ?? pos);
+        t.focus();
+      };
+    });
+    $('[data-msg-padrao]', fcfg).onclick = (e) => { e.preventDefault(); fcfg.elements.mensagem.value = d.padrao; };
+    fcfg.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = formParaObjeto(fcfg);
+      try {
+        const r = await comEspera(fcfg.querySelector('[type=submit]'), () => api(`empresas/${id}/cobrancas/config`, { method: 'PUT', body: { ...f, pixSeparado: Boolean(f.pixSeparado), iaResponde: Boolean(f.iaResponde) } }), 'Salvando…');
+        d = r;
+        aviso('Mensagem e pagamento salvos.');
+        desenhar();
+      } catch (err) { aviso(err.message, true); }
+    };
+  }
   desenhar();
 }
 
@@ -8664,7 +8837,7 @@ async function rotear() {
         aprendizado: () => paginaAprendizado(id),
         automacoes: () => paginaAutomacoes(id),
         followup: () => paginaFollowup(id),
-        disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id, params) : partes[3] === 'listas' ? paginaListasContatos(id, params) : partes[3] === 'seguranca' ? paginaSegurancaDisparo(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id, params)),
+        disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id, params) : partes[3] === 'listas' ? paginaListasContatos(id, params) : partes[3] === 'seguranca' ? paginaSegurancaDisparo(id) : partes[3] === 'cobranca' ? paginaCobranca(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id, params)),
         ia: () => paginaCerebro(id),
         catalogo: () => paginaCatalogo(id),
         site: () => paginaSite(id),

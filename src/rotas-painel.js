@@ -968,6 +968,25 @@ router.put('/empresas/:id/disparos-seguranca', (req, res) => {
   res.json(prospeccao.salvarConfig(empresa, req.body || {}));
 });
 
+// 💰 Disparo de cobrança: clientes com mensalidade, mensagem com Pix/link e envio no vencimento
+const cobrancas = require('./cobrancas');
+const rotaCobranca = (fn) => async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json((await fn(empresa, req)) ?? cobrancas.resumo(empresa));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+};
+router.get('/empresas/:id/cobrancas', rotaCobranca(() => null));
+router.put('/empresas/:id/cobrancas/config', rotaCobranca((e, req) => { cobrancas.salvarConfig(e, req.body || {}); return null; }));
+router.post('/empresas/:id/cobrancas/clientes', rotaCobranca((e, req) => { cobrancas.adicionarCliente(e, req.body || {}); return null; }));
+router.put('/empresas/:id/cobrancas/clientes/:cid', rotaCobranca((e, req) => { cobrancas.editarCliente(e, req.params.cid, req.body || {}); return null; }));
+router.delete('/empresas/:id/cobrancas/clientes/:cid', rotaCobranca((e, req) => { cobrancas.removerCliente(e, req.params.cid); return null; }));
+router.post('/empresas/:id/cobrancas/clientes/:cid/pago', rotaCobranca((e, req) => { cobrancas.marcarPago(e, req.params.cid, req.body?.pago !== false, req.body?.competencia); return null; }));
+router.post('/empresas/:id/cobrancas/clientes/:cid/enviar', rotaCobranca(async (e, req) => { await cobrancas.enviarAgora(e, req.params.cid); return null; }));
+
 // Prévia: quantos vão receber e como fica a mensagem para o primeiro
 router.post('/empresas/:id/disparos/previa', (req, res) => {
   const empresa = acharEmpresa(req, res);
