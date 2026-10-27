@@ -16,5 +16,5 @@ for (const [n, e] of (db.empresas || []).entries()) {
   const c = {};
   for (const m of saidas) { const k = m.envio === 'erro' ? 'falhou' : m.entrega || 'sem confirmação'; c[k] = (c[k] || 0) + 1; }
   console.log(`      Empresa ${n + 1}${/lead/i.test(e.nome || '') ? ' (LEADS)' : ''}: últimas 3 h ${saidas.length} saídas · ${Object.entries(c).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`);
-  for (const m of saidas.slice(0, 5)) console.log(`         ${hora(m.em)} · ${m.papel} · id ${m.wid ? 'sim' : 'NÃO'} · envio ${m.envio || '-'} · entrega ${m.entrega || 'sem confirmação'}${m.erroEnvio ? ` · ${String(m.erroEnvio).replace(/\d{6,}/g, '[núm]').slice(0, 80)}` : ''}`);
+  for (const m of saidas.slice(0, 5)) console.log(`         ${hora(m.em)} · ${m.papel} · id ${m.wid ? 'sim' : 'NÃO'} · envio ${m.envio || '-'} · entrega ${m.entrega || 'sem confirmação'}${m.reenvio ? ` · reenviada pelo outro endereço (${/@lid$/.test(m.reenvio.para) ? 'id escondido' : 'número'})` : ''}${m.erroEnvio ? ` · ${String(m.erroEnvio).replace(/\d{6,}/g, '[núm]').slice(0, 80)}` : ''}`);
 }
