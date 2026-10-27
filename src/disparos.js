@@ -73,6 +73,11 @@ function destinatariosPara(empresa, filtroBruto) {
     vistos.add(destino);
     saida.push({ leadId: c.id, nome: c.nome || '', destino });
   }
+  // contatos escolhidos na tela (ex.: lista em ordem de prioridade): saem nessa ordem
+  if (filtro.leadIds.length) {
+    const pos = new Map(filtro.leadIds.map((x, i) => [x, i]));
+    saida.sort((a, b) => pos.get(a.leadId) - pos.get(b.leadId));
+  }
   return { filtro, destinatarios: saida, semNumero, sairam, jaDisparados };
 }
 

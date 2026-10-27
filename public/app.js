@@ -4715,12 +4715,79 @@ const OPCOES_FILTRO_EMPRESA = {
   nota: [['', '⭐ Nota: qualquer'], ['45', '4,5 ou mais'], ['40', '4,0 ou mais'], ['baixa', 'Abaixo de 4,0'], ['sem', 'Sem nota']],
   aval: [['', '💬 Avaliações: qualquer'], ['p', 'Até 50 (pouco movimento)'], ['m', '50 a 500'], ['g', 'Mais de 500 (muito movimento)']]
 };
+// 🎯 Prioridade por objetivo (sem IA: só os dados que vieram na lista)
+//  site: sem site nenhum > só Instagram/Facebook; movimentado (muitas avaliações) primeiro
+//  reputacao (avaliações no Google): nota mais baixa e poucas avaliações primeiro
+const OBJETIVOS_EMPRESA = [['', '📋 Só ver a lista'], ['site', '🌐 Vender site'], ['reputacao', '⭐ Vender avaliações no Google']];
+const ORDENS_EMPRESA = [['prioridade', '🎯 Prioridade'], ['mais-aval', '💬 Mais avaliações'], ['menos-aval', '💬 Menos avaliações'], ['nota-alta', '⭐ Maior nota'], ['nota-baixa', '⭐ Menor nota'], ['nome', '🔤 Nome A-Z']];
+const numAval = (c) => Number(c.avaliacoes || 0);
+const numNota = (c) => (c.nota ? Number(c.nota) : null);
+function prioridadeEmpresa(c, objetivo) {
+  const av = numAval(c);
+  const nota = numNota(c);
+  const mov = av >= 500 ? `${av.toLocaleString('pt-BR')} avaliações (muito movimento)` : av >= 50 ? `${av.toLocaleString('pt-BR')} avaliações` : av ? `só ${av} avaliações` : 'sem avaliações';
+  if (objetivo === 'site') {
+    const t = tipoSite(c);
+    if (t === 'proprio') return { nivel: 'baixa', pontos: 0, motivo: 'já tem site próprio' };
+    const pontos = (t === 'nenhum' ? 1000 : 600) + Math.min(av, 5000) / 10 + (nota || 0);
+    const nivel = (t === 'nenhum' && av >= 20) || (t === 'social' && av >= 200) ? 'alta' : 'media';
+    return { nivel, pontos, motivo: `${t === 'nenhum' ? 'sem site nem rede social' : 'só tem Instagram/Facebook'} · ${mov}` };
+  }
+  if (objetivo === 'reputacao') {
+    const pontos = (nota === null ? 3 : 5 - nota) * 200 + Math.max(0, 100 - av);
+    const nivel = nota === null || nota < 4 || av < 20 ? 'alta' : nota < 4.5 || av < 100 ? 'media' : 'baixa';
+    return { nivel, pontos, motivo: `${nota === null ? 'sem nota no Google' : `nota ${String(nota).replace('.', ',')}`} · ${mov}` };
+  }
+  return null;
+}
+function ordenarEmpresas(lista, sel) {
+  const ordem = sel.ordem || (sel.objetivo ? 'prioridade' : '');
+  const por = {
+    // nível primeiro (alta → média → baixa), depois os pontos dentro do nível
+    prioridade: (a, b) => {
+      const chave = (c) => { const p = prioridadeEmpresa(c, sel.objetivo); return p ? { alta: 3, media: 2, baixa: 1 }[p.nivel] * 1e6 + p.pontos : 0; };
+      return chave(b) - chave(a);
+    },
+    'mais-aval': (a, b) => numAval(b) - numAval(a),
+    'menos-aval': (a, b) => numAval(a) - numAval(b),
+    'nota-alta': (a, b) => (numNota(b) ?? -1) - (numNota(a) ?? -1),
+    'nota-baixa': (a, b) => (numNota(a) ?? 99) - (numNota(b) ?? 99),
+    nome: (a, b) => String(a.empresa || a.nome || '').localeCompare(String(b.empresa || b.nome || ''), 'pt-BR')
+  }[ordem];
+  return por && (ordem !== 'prioridade' || sel.objetivo) ? lista.slice().sort(por) : lista;
+}
+const seloPrioridade = (c, objetivo) => {
+  const p = prioridadeEmpresa(c, objetivo);
+  if (!p) return '';
+  const [cls, nome] = { alta: ['prio-alta', '🔥 Prioridade alta'], media: ['prio-media', '🟡 Prioridade média'], baixa: ['prio-baixa', '⚪ Prioridade baixa'] }[p.nivel];
+  return `<span class="etiqueta ${cls}">${nome} — ${esc(p.motivo)}</span>`;
+};
+// 📊 leitura rápida da lista
+function raioXLista(contatos) {
+  if (!contatos.length) return '';
+  const n = (f) => contatos.filter(f).length;
+  const notas = contatos.map(numNota).filter((x) => x !== null);
+  const media = notas.length ? (notas.reduce((a, b) => a + b, 0) / notas.length).toFixed(1).replace('.', ',') : '—';
+  const pct = (x) => `${Math.round((x / contatos.length) * 100)}%`;
+  const semProprio = n((c) => tipoSite(c) !== 'proprio');
+  const itens = [
+    ['🌐', n((c) => tipoSite(c) === 'proprio'), 'com site próprio'],
+    ['📱', n((c) => tipoSite(c) === 'social'), 'só Instagram/Facebook'],
+    ['🚫', n((c) => tipoSite(c) === 'nenhum'), 'sem site nem rede social'],
+    ['⭐', media, `nota média${notas.length < contatos.length ? ` (${contatos.length - notas.length} sem nota)` : ''}`],
+    ['📉', n((c) => numNota(c) !== null && numNota(c) < 4), 'com nota abaixo de 4,0'],
+    ['✉️', n((c) => c.email), 'com e-mail']
+  ];
+  return `<div class="raio-x"><b>📊 Raio-X da lista</b> <span class="rotulo">— ${semProprio} de ${contatos.length} (${pct(semProprio)}) não têm site próprio</span><div class="raio-x-itens">${itens.map(([ic, v, t]) => `<span><b>${ic} ${v}</b> ${t}</span>`).join('')}</div></div>`;
+}
+
 function barraFiltrosEmpresa(contatos, sel) {
   const unicos = (f) => [...new Set(contatos.map(f).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const cidades = unicos((c) => c.cidade);
   const ramos = unicos(ramoDe);
   const select = (k, opcoes) => `<select data-fe="${k}" class="${sel[k] ? 'ativo' : ''}">${opcoes.map(([v, t]) => `<option value="${esc(v)}" ${sel[k] === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  return `<div class="filtros-empresa">${select('site', OPCOES_FILTRO_EMPRESA.site)}${select('tel', OPCOES_FILTRO_EMPRESA.tel)}${contatos.some((c) => c.nota) ? select('nota', OPCOES_FILTRO_EMPRESA.nota) : ''}${contatos.some((c) => c.avaliacoes) ? select('aval', OPCOES_FILTRO_EMPRESA.aval) : ''}${cidades.length > 1 ? select('cidade', [['', '📍 Cidade: todas'], ...cidades.map((x) => [x, x])]) : ''}${ramos.length > 1 ? select('ramo', [['', '🏷️ Ramo: todos'], ...ramos.map((x) => [x, x])]) : ''}${Object.values(sel).some(Boolean) ? '<button type="button" class="pequeno" data-fe-limpar>✕ Limpar filtros</button>' : ''}</div>`;
+  const objetivo = `<div class="objetivo-empresa"><span class="rotulo">🎯 O que você vai vender?</span>${OBJETIVOS_EMPRESA.map(([v, t]) => `<button type="button" class="chip-filtro ${(sel.objetivo || '') === v ? 'ativo' : ''}" data-objetivo="${v}">${t}</button>`).join('')}<label class="rotulo ordem-empresa">Ordenar: ${select('ordem', [...(sel.objetivo ? [] : [['', 'Como veio no arquivo']]), ...ORDENS_EMPRESA.filter(([v]) => v !== 'prioridade' || sel.objetivo)])}</label></div>`;
+  return `${raioXLista(contatos)}${objetivo}<div class="filtros-empresa">${select('site', OPCOES_FILTRO_EMPRESA.site)}${select('tel', OPCOES_FILTRO_EMPRESA.tel)}${contatos.some((c) => c.nota) ? select('nota', OPCOES_FILTRO_EMPRESA.nota) : ''}${contatos.some((c) => c.avaliacoes) ? select('aval', OPCOES_FILTRO_EMPRESA.aval) : ''}${cidades.length > 1 ? select('cidade', [['', '📍 Cidade: todas'], ...cidades.map((x) => [x, x])]) : ''}${ramos.length > 1 ? select('ramo', [['', '🏷️ Ramo: todos'], ...ramos.map((x) => [x, x])]) : ''}${['site', 'tel', 'nota', 'aval', 'cidade', 'ramo'].some((k) => sel[k]) ? '<button type="button" class="pequeno" data-fe-limpar>✕ Limpar filtros</button>' : ''}</div>`;
 }
 function passaFiltroEmpresa(c, sel) {
   const t = tipoSite(c);
@@ -4744,7 +4811,18 @@ function passaFiltroEmpresa(c, sel) {
 function ligarFiltrosEmpresa(raiz, sel, redesenhar) {
   $$('[data-fe]', raiz).forEach((x) => { x.onchange = () => { sel[x.dataset.fe] = x.value; redesenhar(); }; });
   const limpar = $('[data-fe-limpar]', raiz);
-  if (limpar) limpar.onclick = () => { Object.keys(sel).forEach((k) => { sel[k] = ''; }); redesenhar(); };
+  if (limpar) limpar.onclick = () => { ['site', 'tel', 'nota', 'aval', 'cidade', 'ramo'].forEach((k) => { sel[k] = ''; }); redesenhar(); };
+  // objetivo: já filtra e ordena por prioridade (vender site → só quem não tem site próprio)
+  $$('[data-objetivo]', raiz).forEach((b) => {
+    b.onclick = () => {
+      const o = b.dataset.objetivo;
+      if (sel.objetivo === 'site' && o !== 'site' && sel.site === 'semproprio') sel.site = '';
+      sel.objetivo = o;
+      sel.ordem = o ? 'prioridade' : '';
+      if (o === 'site') sel.site = 'semproprio';
+      redesenhar();
+    };
+  });
 }
 
 // números de um ritmo de envio, em palavras
@@ -4873,7 +4951,7 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
     const FILTROS = [['todos', 'Todos', () => true], ['novo', '✅ Novos', (c) => c.analise.situacao === 'novo'], ['disparo', '⚠️ Já receberam disparo', jaDisp], ['existe', '👤 Já no CRM', (c) => c.analise.situacao === 'existe'], ['fixo', '☎️ Fixos', (c) => c.analise.fixo], ['fora', 'Ficam de fora', (c) => c.analise.situacao !== 'novo']];
     const nDisp = conta(jaDisp);
     const base = filtrados();
-    const visiveis = base.filter((FILTROS.find((f) => f[0] === filtroPrevia) || FILTROS[0])[2]);
+    const visiveis = ordenarEmpresas(base.filter((FILTROS.find((f) => f[0] === filtroPrevia) || FILTROS[0])[2]), selEmp);
     box.innerHTML = `
       <div class="previa-resumo">
         <div><strong>${contatos.length}</strong><span class="rotulo">encontrados${origem ? ` no ${esc(origem)}` : ''}</span></div>
@@ -4883,11 +4961,11 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
         <div><strong>${conta((c) => c.analise.fixo)}</strong><span class="rotulo">telefone fixo</span></div>
       </div>
       ${nDisp ? balao(`${nDisp} ${nDisp === 1 ? 'empresa já recebeu' : 'empresas já receberam'} disparo em massa`, 'Elas estão marcadas com ⚠️ abaixo, com a data e o nome do disparo. Quem já está no CRM não entra de novo nesta lista, e no disparo você pode marcar para <b>não mandar de novo</b> para quem já recebeu.', 'aviso') : ''}
-      <h3 style="margin:14px 0 0">🔎 Filtrar as empresas</h3>
+      <h3 style="margin:14px 0 0">🔎 Separar as empresas</h3>
       ${barraFiltrosEmpresa(contatos, selEmp)}
       ${filtroAtivo() ? `<p class="rotulo" style="margin:0">Filtro: <b>${base.length} de ${contatos.length}</b> empresas. Só as do filtro entram na lista.</p>` : ''}
       <div class="chips" style="margin:12px 0">${FILTROS.map(([k, nome, f]) => `<button type="button" class="chip-filtro ${k === filtroPrevia ? 'ativo' : ''}" data-filtro-previa="${k}">${nome} <span class="rotulo">${base.filter(f).length}</span></button>`).join('')}</div>
-      <div class="contato-grid">${visiveis.slice(0, 300).map((c) => cartaoContato(c, chipsDaAnalise(c.analise))).join('') || '<p class="rotulo">Nenhum contato neste filtro.</p>'}</div>
+      <div class="contato-grid">${visiveis.slice(0, 300).map((c) => cartaoContato(c, seloPrioridade(c, selEmp.objetivo) + chipsDaAnalise(c.analise))).join('') || '<p class="rotulo">Nenhum contato neste filtro.</p>'}</div>
       ${visiveis.length > 300 ? `<p class="rotulo">Mostrando 300 de ${visiveis.length}.</p>` : ''}`;
     $$('[data-filtro-previa]', box).forEach((b) => { b.onclick = () => { filtroPrevia = b.dataset.filtroPrevia; desenhar(); }; });
     ligarFiltrosEmpresa(box, selEmp, desenhar);
@@ -4976,16 +5054,16 @@ async function paginaDetalheLista(id, listaId, d, params) {
     const base = r.contatos.filter((c) => passaFiltroEmpresa(c, selEmp));
     $('#filtros-empresa-lista').innerHTML = barraFiltrosEmpresa(r.contatos, selEmp);
     ligarFiltrosEmpresa($('#filtros-empresa-lista'), selEmp, desenhar);
-    const lista = base.filter(f).filter((c) => !q || [c.empresa, c.nome, c.cidade, c.endereco, c.bairro, c.telefone, c.ramo, c.categorias].join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q) || String(c.telefone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§'));
+    const lista = ordenarEmpresas(base, selEmp).filter(f).filter((c) => !q || [c.empresa, c.nome, c.cidade, c.endereco, c.bairro, c.telefone, c.ramo, c.categorias].join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q) || String(c.telefone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§'));
     $('#filtros-lista').innerHTML = FILTROS.map(([k, nome, fx]) => `<button type="button" class="chip-filtro ${k === filtro ? 'ativo' : ''}" data-filtro="${k}">${nome} <span class="rotulo">${base.filter(fx).length}</span></button>`).join('');
     // disparar só para os que estão na tela (e nunca receberam disparo)
     const alvo = lista.filter((c) => !jaDisp(c) && !c.parecido?.disparos?.length && !c.naoDisparar && c.temWhatsapp !== false);
     const filtrando = Boolean(q) || filtro !== 'todos' || Object.values(selEmp).some(Boolean);
-    $('#disparar-filtrados').innerHTML = filtrando ? (alvo.length ? `<button type="button" class="primario" id="btn-disparar-filtrados">🛡️ Disparar só para estes ${alvo.length} ${alvo.length === 1 ? 'contato' : 'contatos'}</button> <span class="rotulo">quem já recebeu disparo fica de fora</span>` : '<span class="rotulo">Ninguém aqui para disparar (todos já receberam, saíram ou não têm WhatsApp).</span>') : '';
+    $('#disparar-filtrados').innerHTML = filtrando ? (alvo.length ? `<button type="button" class="primario" id="btn-disparar-filtrados">🛡️ Disparar só para estes ${alvo.length} ${alvo.length === 1 ? 'contato' : 'contatos'}</button> <span class="rotulo">${selEmp.objetivo || selEmp.ordem ? 'na ordem da tela (o primeiro recebe primeiro) · ' : ''}quem já recebeu disparo fica de fora</span>` : '<span class="rotulo">Ninguém aqui para disparar (todos já receberam, saíram ou não têm WhatsApp).</span>') : '';
     const bt = $('#btn-disparar-filtrados');
     if (bt) bt.onclick = () => { try { sessionStorage.setItem('disparo_leads', JSON.stringify(alvo.map((c) => c.id))); } catch { /* sem sessionStorage */ } location.hash = rotaEmpresa(id, 'disparos/novo?modo=prospeccao'); };
     $$('[data-filtro]').forEach((b) => { b.onclick = () => { filtro = b.dataset.filtro; desenhar(); }; });
-    $('#grade-lista').innerHTML = lista.slice(0, 500).map((c) => cartaoContato(c, chips(c))).join('') || '<p class="rotulo">Nenhum contato aqui.</p>';
+    $('#grade-lista').innerHTML = lista.slice(0, 500).map((c) => cartaoContato(c, seloPrioridade(c, selEmp.objetivo) + chips(c))).join('') || '<p class="rotulo">Nenhum contato aqui.</p>';
   };
   $('#busca-lista').addEventListener('input', (e) => { busca = e.target.value.trim(); desenhar(); });
   desenhar();

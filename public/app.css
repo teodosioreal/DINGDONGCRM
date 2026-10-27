@@ -1908,3 +1908,15 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .cob-previa { margin: 0; }
 .cob-previa .chat { height: auto; min-height: 220px; }
 @media (max-width: 900px) { .editor-cob { grid-template-columns: 1fr; } }
+
+/* 📊 raio-x da lista e 🎯 prioridade por objetivo */
+.raio-x { border: 1px solid var(--borda); background: var(--superficie); border-radius: var(--raio); padding: 10px 12px; margin: 10px 0; }
+.raio-x-itens { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: 13px; }
+.objetivo-empresa { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 4px; }
+.ordem-empresa { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.ordem-empresa select { width: auto; padding: 5px 8px; font-size: 13px; }
+.etiqueta.prio-alta { background: #fee2e2; color: #b91c1c; }
+.etiqueta.prio-media { background: var(--aviso-fundo); color: var(--aviso-texto); }
+.etiqueta.prio-baixa { background: var(--hover); color: var(--suave); }
+html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
+@media (max-width: 640px) { .ordem-empresa { margin-left: 0; } }
