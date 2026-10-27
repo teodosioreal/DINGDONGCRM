@@ -4869,7 +4869,7 @@ function chipsDaAnalise(a) {
     novo: '<span class="etiqueta ok">✅ novo — vai entrar</span>',
     existe: `<span class="etiqueta">👤 já está no CRM: ${lead}${a.lead?.lista ? ` (lista ${esc(a.lead.lista)})` : a.lead?.etapa ? ` (${esc(a.lead.etapa)})` : ''} — não entra de novo</span>`,
     repetido: '<span class="etiqueta">🔁 repetido no arquivo</span>',
-    fixo: '<span class="etiqueta off">☎️ telefone fixo — fica de fora</span>',
+    fixo: '<span class="etiqueta off">☎️ telefone fixo — fica de fora (marque "Incluir telefone fixo")</span>',
     invalido: '<span class="etiqueta off">sem telefone válido</span>'
   };
   return [
@@ -4915,7 +4915,7 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
       <details style="margin-top:10px" id="lista-colar"><summary>📋 Ou colar a planilha</summary>
         <textarea id="lista-texto" style="margin-top:8px;min-height:160px;font-family:ui-monospace,monospace;font-size:13px;width:100%" placeholder="Empresa	Nome	Telefone	Cidade	Ramo&#10;Lava Rápido Sol	João	(21) 98888-0001	Niterói	lava-jato"></textarea>
       </details>
-      <label class="linha-check" style="margin-top:10px"><input type="checkbox" id="lista-fixos"> Incluir telefone fixo ${ajuda('Algumas empresas usam WhatsApp Business no número fixo. No disparo de prospecção o CRM confere antes de mandar: quem não tem WhatsApp fica de fora.')}</label>
+      <label class="linha-check" style="margin-top:10px"><input type="checkbox" id="lista-fixos" checked> Incluir telefone fixo ${ajuda('Algumas empresas usam WhatsApp Business no número fixo. No disparo de prospecção o CRM confere antes de mandar: quem não tem WhatsApp fica de fora.')}</label>
       <div id="lista-previa"></div>
       <p class="rotulo" style="margin:10px 0 0">Use listas de <b>contato comercial de empresas</b>, com uma oferta que faça sentido para elas. Quem responder SAIR não recebe mais. Para lista fria, prefira um número separado do principal.</p>
       <div class="acoes"><button type="button" class="primario" id="lista-importar" disabled>Importar</button></div>
@@ -5278,7 +5278,7 @@ async function paginaSegurancaDisparo(id) {
       <h2 style="margin-top:0">O que o CRM faz em toda prospecção</h2>
       <ul class="lista-simples">
         <li>✅ Confere se o número <b>tem WhatsApp</b> antes de mandar — quem não tem fica de fora e não conta no limite</li>
-        <li>✅ Tira <b>telefone fixo</b> e contatos <b>repetidos</b> já na importação</li>
+        <li>✅ Tira contatos <b>repetidos</b> (mesmo número) já na importação; telefone fixo entra, e quem não tem WhatsApp fica de fora na hora do envio</li>
         <li>✅ <b>Nunca repete:</b> quem já recebeu disparo em massa fica de fora, mesmo se aparecer de novo em outra lista (também a mesma empresa com outro número)</li>
         <li>✅ <b>Limite por dia</b> com aquecimento e intervalo sorteado entre as mensagens</li>
         <li>✅ Só em <b>horário comercial</b> (se marcado no disparo)</li>
