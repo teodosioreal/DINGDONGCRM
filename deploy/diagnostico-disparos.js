@@ -15,11 +15,13 @@ const limpo = (s, n = 140) => String(s || '').replace(/\+?\d[\d\s()-]{7,}\d/g, '
 const hojeSp = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
 console.log(`      agora ${hora(new Date().toISOString())}`);
 
+// endereço da Evolution: o da empresa (raro) ou o geral do sistema
+const URL_EVOLUTION = (w) => String(w.evolutionUrl || db.config?.evolutionUrl || process.env.EVOLUTION_API_URL || 'https://api.evolutiondingdong.online').replace(/\/+$/, '');
 // estado da conexão na Evolution (só o estado, nada da conta)
 async function conexao(w) {
-  if (!w.evolutionUrl || !w.instancia || !w.apiKey) return 'sem configuração';
+  if (!w.instancia || !w.apiKey) return 'sem configuração';
   try {
-    const r = await fetch(`${String(w.evolutionUrl).replace(/\/$/, '')}/instance/connectionState/${encodeURIComponent(w.instancia)}`, { headers: { apikey: w.apiKey }, signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${URL_EVOLUTION(w)}/instance/connectionState/${encodeURIComponent(w.instancia)}`, { headers: { apikey: w.apiKey }, signal: AbortSignal.timeout(8000) });
     const j = await r.json().catch(() => ({}));
     return `${r.status} ${j?.instance?.state || j?.state || limpo(JSON.stringify(j), 60)}`;
   } catch (err) {
@@ -34,7 +36,7 @@ for (const [n, e] of (db.empresas || []).entries()) {
   if (!disparos.length && !ehLeads) continue;
   const w = e.whatsappConfig || {};
   const bots = (db.bots || []).filter((b) => b.empresaId === e.id);
-  console.log(`      Empresa ${n + 1}${ehLeads ? ' (nome com "lead")' : ''}: ativa ${e.ativa === false ? 'NÃO' : 'sim'} · WhatsApp ${w.evolutionUrl && w.instancia && w.apiKey ? 'configurado' : 'NÃO configurado'} · IA ${w.iaAtiva === false ? 'DESLIGADA' : 'ligada'} · modo teste ${w.modoTeste ? 'LIGADO' : 'não'} · horário da IA ${e.expedienteIa?.ativo ? `${e.expedienteIa.inicio}–${e.expedienteIa.fim}` : 'sem limite'} · bots ${bots.length} · prompt do WhatsApp ${bots.some((b) => String(b.promptWhatsapp || '').trim()) ? 'preenchido' : 'VAZIO'}`);
+  console.log(`      Empresa ${n + 1}${ehLeads ? ' (nome com "lead")' : ''}: ativa ${e.ativa === false ? 'NÃO' : 'sim'} · WhatsApp ${w.instancia && w.apiKey ? 'configurado' : 'NÃO configurado'} · IA ${w.iaAtiva === false ? 'DESLIGADA' : 'ligada'} · modo teste ${w.modoTeste ? 'LIGADO' : 'não'} · horário da IA ${e.expedienteIa?.ativo ? `${e.expedienteIa.inicio}–${e.expedienteIa.fim}` : 'sem limite'} · bots ${bots.length} · prompt do WhatsApp ${bots.some((b) => String(b.promptWhatsapp || '').trim()) ? 'preenchido' : 'VAZIO'}`);
   console.log(`        conexão na Evolution agora: ${await conexao(w)}`);
   // o que saiu da empresa nas últimas 24 h e o que o WhatsApp respondeu (entregue, lida, erro…)
   const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
