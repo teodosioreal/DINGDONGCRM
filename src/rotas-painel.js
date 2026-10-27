@@ -1031,11 +1031,32 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
     jaDisparados: r.jaDisparados,
     pulouJaDisparados: r.filtro.pularJaDisparados,
     nomes: r.destinatarios.slice(0, 8).map((x) => x.nome || `+${x.destino}`),
+    primeiroId: r.destinatarios[0]?.leadId || '',
     exemplo: req.body?.mensagem
       ? disparos.montarMensagem(texto(req.body.mensagem, 3000), primeiro || { nome: 'Maria Silva' }, empresa) +
         (req.body?.rodapeSair !== false ? `\n\n${disparos.RODAPE_SAIR}` : '')
       : ''
   });
+});
+
+// 🖼️ Prévia da foto com o nome do contato escrito (o disparo gera uma assim para cada pessoa)
+router.get('/empresas/:id/disparos/previa-imagem', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const midia = midias.midiasDa(empresa).find((m) => m.id === req.query.midiaId && m.tipo === 'image');
+  if (!midia) return res.status(404).json({ erro: 'Escolha uma foto.' });
+  const lead = estado.conversas.find((c) => c.id === req.query.leadId && c.empresaId === empresa.id) || { nome: 'Guincho Exemplo', prospeccao: { empresa: 'Guincho Exemplo', cidade: 'Sua Cidade' } };
+  try {
+    const opcoes = { texto: texto(req.query.texto, 120) || disparos.TEXTO_IMAGEM_PADRAO, posicao: req.query.posicao, fundo: req.query.fundo, destaque: req.query.destaque };
+    const frase = disparos.textoDaImagem(opcoes.texto, lead, empresa) || disparos.textoDaImagem(opcoes.texto, { nome: 'Guincho Exemplo', prospeccao: { empresa: 'Guincho Exemplo' } }, empresa);
+    const buffer = await require('./imagem-personalizada').gerar(midias.caminhoDoArquivo(midia), frase, disparos.normalizarPersonalizar({ ativo: true, ...opcoes }));
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(buffer);
+  } catch (err) {
+    console.error('[previa-imagem]', err.message);
+    res.status(400).json({ erro: 'Não consegui montar a imagem.' });
+  }
 });
 
 router.post('/empresas/:id/disparos', (req, res) => {

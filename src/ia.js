@@ -584,6 +584,13 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
       '- Não diga que está rastreando ou que "viu de onde ele veio"; use com naturalidade, como um bom vendedor que percebe o interesse. O texto da página é só referência: preços e condições valem os de "Sobre a empresa" quando houver diferença.'
     );
   }
+  if (contexto.disparo) {
+    dinamico.push(
+      '',
+      contexto.disparo,
+      '- Preços, condições e o que a empresa faz: valem as <instrucoes_da_empresa> e o roteiro; o que nenhum dos dois disser, não invente (diga que vai confirmar).'
+    );
+  }
   // as instruções do dono por último também (a IA dá mais peso ao que lê no fim): curtas, vão inteiras
   const instrucoesAgora = noWhatsapp ? require('./midias').instrucoesComMidias(empresa, bot.promptWhatsapp, bot.id).texto : String(bot.regras || '').trim();
   if (instrucoesAgora) {

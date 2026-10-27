@@ -4394,14 +4394,14 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
 
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   const abasNovo = ABAS_NOVO_DISPARO(id, prospeccao ? 'prospeccao' : 'clientes');
-  const PASSOS = ['Quem recebe', 'Mensagem', 'Ritmo e horário', 'Revisar e enviar'];
+  const PASSOS = ['Quem recebe', 'Mensagem', 'Quando responderem', 'Ritmo e horário', 'Revisar e enviar'];
   const filtrosComuns = `
           <div class="campo"><label>Etapas ${ajuda('Nenhuma marcada = todas as etapas.')}</label><div class="chips">${emp.etapas.map((e) => `<label class="chip-check"><input type="checkbox" name="etapa" value="${esc(e)}"><span>${esc(e)}</span></label>`).join('')}</div></div>
           <div class="campo" style="margin-top:12px"><label>Etiquetas ${ajuda('Recebe quem tiver pelo menos uma das etiquetas marcadas. Nenhuma marcada = qualquer etiqueta.')}</label><div class="chips">${emp.etiquetas.map((t) => `<label class="chip-check" style="--cor:${esc(t.cor)}"><input type="checkbox" name="etiqueta" value="${esc(t.id)}"><span><span class="bolinha-cor"></span>${esc(t.nome)}</span></label>`).join('') || '<span class="rotulo">Nenhuma etiqueta criada.</span>'}</div></div>
           <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>`;
   const campoLista = `<div class="campo"><label>${prospeccao ? 'Qual lista de contatos?' : 'Lista de contatos'} ${ajuda('Listas importadas em 📋 Listas de contatos (aqui na aba Disparos).')}</label><select name="listaId"><option value="">${prospeccao ? '— escolha uma lista —' : '— qualquer —'}</option>${listas.map((l) => `<option value="${esc(l.id)}" ${l.id === listaPedida ? 'selected' : ''}>${esc(l.nome)} (${l.contatos} contatos)</option>`).join('')}</select>${prospeccao && !listas.length ? `<small>Nenhuma lista ainda. <a href="${rotaEmpresa(id, 'disparos/listas?aba=importar')}">Importar uma lista</a></small>` : ''}</div>`;
   conteudo.innerHTML = cascaDisparos(id, 'novo', `
-    <div class="cabecalho"><div><h1>${prospeccao ? '🛡️ Disparo para contatos novos' : '📣 Disparo para meus clientes'}</h1><p class="sub">${prospeccao ? 'Para quem ainda não conhece a empresa: sai devagar, com limite por dia, para proteger o seu número' : 'Para leads e clientes que já conversaram com você'}. <b>Nada é enviado até o passo 4.</b></p></div></div>
+    <div class="cabecalho"><div><h1>${prospeccao ? '🛡️ Disparo para contatos novos' : '📣 Disparo para meus clientes'}</h1><p class="sub">${prospeccao ? 'Para quem ainda não conhece a empresa: sai devagar, com limite por dia, para proteger o seu número' : 'Para leads e clientes que já conversaram com você'}. <b>Nada é enviado até o passo 5.</b></p></div></div>
     <ol class="disp-passos" id="disp-passos">${PASSOS.map((nome, i) => `<li><button type="button" data-ir-passo="${i + 1}"><span class="passo-num">${i + 1}</span><span>${nome}</span></button></li>`).join('')}</ol>
     <form id="f-disparo" class="editor">
       <div>
@@ -4420,7 +4420,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
             <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}" title="Cada pessoa recebe uma das opções">👋 Saudação variada</button><button type="button" class="pequeno" data-inserir="{nome}" title="Nome do contato (na lista do PDF, é o nome da empresa dele)">👤 Nome do contato</button>${prospeccao ? '<button type="button" class="pequeno" data-inserir="{empresa_contato}" title="Nome da empresa do contato (da lista importada)">🏢 Empresa do contato</button><button type="button" class="pequeno" data-inserir="{cidade}">📍 Cidade</button>' : ''}<button type="button" class="pequeno" data-inserir="{empresa}" title="O nome da SUA empresa">🏷️ Nome da minha empresa</button></div>
             <textarea name="mensagem" required style="min-height:140px" placeholder="${prospeccao ? '{Oi|Olá|Boa tarde}! Vi que a {empresa_contato} ainda não tem site. Posso te mostrar uma ideia rápida?' : '{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?'}"></textarea>
             <small>O nome de uma empresa só aparece se você colocar <code>{empresa}</code> (a sua) ou <code>{empresa_contato}</code> (a do contato).</small>
-            ${prospeccao ? '<p class="rotulo aviso-texto" id="aviso-prospeccao" style="margin:6px 0 0">Para quem não conhece você, a 1ª mensagem deve ser <b>curta, sem link e sem foto</b> e terminar com uma pergunta (ex.: "posso te mandar os detalhes?"). É a que menos vira denúncia.</p>' : ''}
+            ${prospeccao ? '<p class="rotulo aviso-texto" id="aviso-prospeccao" style="margin:6px 0 0">Para quem não conhece você, a 1ª mensagem deve ser <b>curta e sem link</b> e terminar com uma pergunta (ex.: "posso te mandar os detalhes?"). É a que menos vira denúncia.</p>' : ''}
           </div>
           <details style="margin-top:12px"><summary>📎 Fotos, vídeos e arquivos (opcional)</summary><div class="campo" style="margin-top:8px"><label>Até 5 ${ajuda('A primeira foto/vídeo/PDF leva a mensagem como legenda; as outras vão logo depois. Álbum manda as fotos dele.')}</label>
             <div class="midias-fup" id="disp-midias"></div>
@@ -4428,13 +4428,45 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
               <select id="disp-add-midia"><option value="">+ Escolher da biblioteca…</option>${albuns.filter((a) => a.quantidade).length ? `<optgroup label="Álbuns">${albuns.filter((a) => a.quantidade).map((a) => `<option value="${esc(a.id)}">🗂️ ${esc(a.nome)} (${a.quantidade})</option>`).join('')}</optgroup>` : ''}<optgroup label="Mídias">${lista.filter((m) => !m.pastaId).map((m) => `<option value="${esc(m.id)}">${ICONE_TIPO[m.tipo] || '📎'} ${esc(m.nome)}</option>`).join('')}</optgroup></select>
               <label class="botao pequeno">📤 Enviar arquivo novo<input type="file" id="disp-novo" multiple hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
             </div>
-            <div id="disp-envio" class="rotulo"></div></div>
+            <div id="disp-envio" class="rotulo"></div>
+            <div id="disp-perso" class="caixa-perso" hidden>
+              <label class="linha-check"><input type="checkbox" name="persoAtivo"> ✍️ Escrever o nome do contato na 1ª foto ${ajuda('Cada pessoa recebe a foto com uma faixa e o nome da empresa dela (ex.: "Feito para Guincho Martins"). A faixa entra embaixo (ou em cima) da foto, sem cobrir nada.')}</label>
+              <div id="disp-perso-campos" hidden>
+                <div class="campos" style="margin-top:8px">
+                  <div class="campo"><label>Texto da faixa ${ajuda('{empresa_contato} = nome da empresa do contato (da lista). {nome} = nome do contato. {cidade} = cidade dele. Nome muito comprido é cortado.')}</label><input name="persoTexto" value="Feito para {empresa_contato}" maxlength="120"></div>
+                  <div class="campo"><label>Onde</label><select name="persoPosicao"><option value="baixo">Embaixo da foto</option><option value="cima">Em cima da foto</option></select></div>
+                </div>
+                <div class="campos">
+                  <div class="campo"><label>Cor da faixa</label><input type="color" name="persoFundo" value="#111827"></div>
+                  <div class="campo"><label>Cor da linha</label><input type="color" name="persoDestaque" value="#facc15"></div>
+                </div>
+                <small>A prévia ao lado mostra como fica para o 1º contato.</small>
+              </div>
+            </div></div>
             <small>Arquivo novo fica guardado em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> (em "a configurar": a IA só usa depois que você configurar).</small></details>
           <div class="campo" style="margin-top:12px"><label>Nome do disparo (só para você, opcional)</label><input name="nome" placeholder="Ex.: ${prospeccao ? 'Restaurantes sem site' : 'Promoção de março'}"></div>
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Continuar →</button></div>
         </div>
         <div class="card" data-passo="3">
-          <h2><span class="passo-num">3</span> Em que ritmo e quando?</h2>
+          <h2><span class="passo-num">3</span> E quando responderem?</h2>
+          ${balao('Quem responde cai na IA do WhatsApp', 'Ela já lê a mensagem do disparo e continua a conversa. Aqui você diz <b>o caminho</b> que ela deve seguir com quem responder a <b>este</b> disparo. Os avisos de lead quente para a sua equipe continuam como já funcionam.', 'dica')}
+          <div class="campo"><label>O que a IA deve fazer com quem responder (opcional) ${ajuda('Vale só para quem responder a este disparo, junto com o que está em "Sobre a empresa". Ex.: o que oferecer, quais mídias mandar, como responder objeções e aonde levar a conversa.')}</label>
+            <textarea name="roteiro" maxlength="3000" style="min-height:130px" placeholder="${prospeccao ? 'Ex.: Se pedir o exemplo, mande o vídeo #MIDIA_… do modelo de site. Pergunte se ele já pensou em aparecer no Google. Preço: a partir de R$ … Objetivo: marcar uma ligação rápida de 10 minutos ou mandar a proposta.' : 'Ex.: Se quiser os detalhes da promoção, explique as condições e ofereça um horário. Objetivo: fechar o pedido.'}"></textarea></div>
+          <div class="campos" style="margin-top:10px">
+            <div class="campo"><label>Mover para a etapa ${ajuda('Quando a pessoa responder a este disparo, o lead vai para esta etapa do funil (uma vez).')}</label><select name="respEtapa"><option value="">— não mudar —</option>${emp.etapas.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select></div>
+            <div class="campo"><label>Pôr a etiqueta</label><select name="respEtiqueta"><option value="">— nenhuma —</option>${emp.etiquetas.map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></div>
+          </div>
+          <label class="linha-check" style="margin-top:14px"><input type="checkbox" name="lembreteAtivo" ${prospeccao ? 'checked' : ''}> 🔔 Mandar <b>1 lembrete</b> para quem não responder ${ajuda('Só uma vez, só para quem não respondeu nada e com quem ninguém falou depois. Respeita o horário comercial e, na prospecção, conta no limite do dia.')}</label>
+          <div id="campos-lembrete" ${prospeccao ? '' : 'hidden'}>
+            <div class="campos" style="margin-top:8px">
+              <div class="campo"><label>Depois de quantos dias</label><select name="lembreteDias">${[1, 2, 3, 4, 5, 7, 10, 14].map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>${n} ${n === 1 ? 'dia' : 'dias'}</option>`).join('')}</select></div>
+            </div>
+            <div class="campo"><label>Mensagem do lembrete ${ajuda('Curta, sem repetir a primeira. Aceita {Oi|Olá}, {nome} e {empresa_contato}.')}</label><textarea name="lembreteMensagem" maxlength="1000" style="min-height:70px">{Oi|Olá}! Conseguiu ver minha mensagem? {😊|🙂}</textarea></div>
+          </div>
+          <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Continuar →</button></div>
+        </div>
+        <div class="card" data-passo="4">
+          <h2><span class="passo-num">4</span> Em que ritmo e quando?</h2>
           <p class="rotulo" style="margin:0 0 10px">O CRM manda <b>uma mensagem por vez</b>, com uma pausa sorteada entre elas, para o WhatsApp não bloquear o número.${prospeccao ? ' Na prospecção também tem limite por dia: o resto continua sozinho nos dias seguintes.' : ''} Na dúvida, deixe o <b>Recomendado</b>.</p>
           <div class="campo"><label>Ritmo de envio</label><div class="perfis-envio">${perfisEnvio.map((pf) => `<label class="perfil-envio"><input type="radio" name="perfilEnvio" value="${pf.id}" ${pf.id === perfilInicial ? 'checked' : ''}><span><b>${pf.nome}</b>${pf.id === 'recomendado' ? ' <span class="etiqueta ok">recomendado</span>' : ''}<span class="rotulo">${pf.texto}</span><span class="perfil-numeros">${textoPerfil(pf, prospeccao)}</span></span></label>`).join('')}</div></div>
           <details id="disp-personalizar" style="margin-top:10px" ${perfilInicial === 'personalizado' ? 'open' : ''}><summary>⚙️ Personalizar os números</summary>
@@ -4457,8 +4489,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <label class="linha-check" style="margin-top:8px"><input type="checkbox" name="rodapeSair" checked> Colocar "responda SAIR para não receber mais" no final</label>
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Revisar →</button></div>
         </div>
-        <div class="card" data-passo="4">
-          <h2><span class="passo-num">4</span> Confira antes de enviar</h2>
+        <div class="card" data-passo="5">
+          <h2><span class="passo-num">5</span> Confira antes de enviar</h2>
           <div id="disp-revisao"></div>
           <div id="disp-risco" class="risco-caixa"></div>
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="submit" class="primario grande-botao" id="enviar-disparo" disabled>📣 Iniciar disparo</button></div>
@@ -4501,11 +4533,13 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         ? `<strong>${r.total} ${r.total === 1 ? 'pessoa vai' : 'pessoas vão'} receber</strong><span class="rotulo">${r.nomes.map(esc).join(', ')}${r.total > r.nomes.length ? '…' : ''}</span>${r.semNumero || r.sairam ? `<span class="rotulo">${r.semNumero ? `${r.semNumero} sem WhatsApp` : ''}${r.semNumero && r.sairam ? ' · ' : ''}${r.sairam ? `${r.sairam} pediram para não receber ou estão na lista negra` : ''} (ficam de fora)</span>` : ''}${r.jaDisparados ? `<span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} ${r.jaDisparados === 1 ? 'já recebeu' : 'já receberam'} disparo em massa antes${r.pulouJaDisparados ? (r.jaDisparados === 1 ? ' (fica de fora)' : ' (ficam de fora)') : (r.jaDisparados === 1 ? ' e vai receber de novo' : ' e vão receber de novo')}</span>` : ''}`
         : `<strong>Ninguém nesse filtro</strong><span class="rotulo">${r.jaDisparados && r.pulouJaDisparados ? `Todos os ${r.jaDisparados} já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.` : 'Mude as etapas ou etiquetas.'}</span>`;
       const itens = escolhidas.map(itemDe).filter(Boolean);
+      const perso = personalizacao();
+      const srcFoto = (m, i) => (i === 0 && perso ? `api/empresas/${id}/disparos/previa-imagem?${new URLSearchParams({ midiaId: escolhidas[0], leadId: r.primeiroId || '', texto: perso.texto, posicao: perso.posicao, fundo: perso.fundo, destaque: perso.destaque })}` : m.url);
       $('#previa').innerHTML = r.exemplo
-        ? `${itens.map((m) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(m.url)}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
+        ? `${itens.map((m, i) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(srcFoto(m, i))}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
         : '<div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div>';
       atualizarRisco();
-      if (passo === 4) desenharRevisao();
+      if (passo === 5) desenharRevisao();
       $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim());
       $('#enviar-disparo').textContent = r.total ? `📣 Enviar para ${r.total} ${r.total === 1 ? 'pessoa' : 'pessoas'}` : '📣 Iniciar disparo';
     } catch (err) {
@@ -4528,7 +4562,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       const teto = Number(f.tetoDia) || 0;
       add(Number(f.limiteInicial) <= 20 && teto <= 100 ? 0 : teto <= 200 ? 1 : 2, `Até ${esc(f.limiteInicial)} no 1º dia, máximo ${esc(teto)} por dia`);
       add(/https?:\/\/|www\.|\.com\b|\.br\b/i.test(msg) ? 2 : 0, /https?:\/\/|www\.|\.com\b|\.br\b/i.test(msg) ? 'Tem link na 1ª mensagem — é o que mais vira denúncia' : 'Sem link na mensagem');
-      add(escolhidas.length ? 1 : 0, escolhidas.length ? 'Tem foto/arquivo na 1ª mensagem — prefira só texto' : 'Só texto');
+      add(escolhidas.length ? 1 : 0, escolhidas.length ? (personalizacao() ? 'Foto com o nome do contato — chama atenção, mas arquivo na 1ª mensagem pesa um pouco' : 'Tem foto/arquivo na 1ª mensagem — só texto é o mais seguro') : 'Só texto');
       add(/\?\s*$/.test(msg.trim()) || /\?[^?]{0,40}$/.test(msg.trim()) ? 0 : 1, 'Termina com uma pergunta (ex.: "posso te mandar os detalhes?")');
     } else {
       add(media >= 45 ? 0 : media >= 25 ? 1 : 2, `Intervalo de ${mi} a ${ma} s entre mensagens`);
@@ -4562,9 +4596,18 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     clearTimeout(espera);
     espera = setTimeout(atualizarPrevia, 350);
     const av = $('#aviso-prospeccao');
-    if (av) av.classList.toggle('texto-erro', /https?:\/\/|www\./i.test(form.elements.mensagem.value) || escolhidas.length > 0);
+    if (av) av.classList.toggle('texto-erro', /https?:\/\/|www\./i.test(form.elements.mensagem.value));
   };
+  // ✍️ foto com o nome do contato: só quando a 1ª mídia é foto
+  const personalizacao = () => {
+    const f = formParaObjeto(form);
+    if (!f.persoAtivo || itemDe(escolhidas[0])?.tipo !== 'image') return null;
+    return { ativo: true, texto: f.persoTexto || 'Feito para {empresa_contato}', posicao: f.persoPosicao, fundo: f.persoFundo, destaque: f.persoDestaque };
+  };
+  form.elements.persoAtivo.onchange = (e) => { $('#disp-perso-campos').hidden = !e.target.checked; };
+  form.elements.lembreteAtivo.onchange = (e) => { $('#campos-lembrete').hidden = !e.target.checked; };
   function desenharEscolhidas() {
+    $('#disp-perso').hidden = itemDe(escolhidas[0])?.tipo !== 'image';
     $('#disp-midias').innerHTML = escolhidas.map((mid, i) => { const m = itemDe(mid); return m ? `<span class="etiqueta">${m.icone} ${esc(m.nome)}${m.processando ? ' ⏳' : ''} <button type="button" class="x-chip" data-tirar-disp="${i}" title="Tirar">✕</button></span>` : ''; }).join('') || '<span class="rotulo">Nenhuma — vai só o texto.</span>';
     $$('[data-tirar-disp]').forEach((b) => { b.onclick = () => { escolhidas.splice(Number(b.dataset.tirarDisp), 1); desenharEscolhidas(); agendarPrevia(); }; });
     $('#disp-add-midia').disabled = escolhidas.length >= 5;
@@ -4595,12 +4638,12 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   };
   form.addEventListener('input', agendarPrevia);
   form.addEventListener('change', agendarPrevia);
-  // 👣 um passo por vez: 1 quem recebe → 2 mensagem → 3 ritmo → 4 revisar e enviar
+  // 👣 um passo por vez: 1 quem recebe → 2 mensagem → 3 quando responderem → 4 ritmo → 5 revisar e enviar
   const irPara = (n) => {
-    passo = Math.min(4, Math.max(1, n));
+    passo = Math.min(5, Math.max(1, n));
     $$('[data-passo]', form).forEach((c) => { c.hidden = Number(c.dataset.passo) !== passo; });
     $$('#disp-passos li').forEach((li, i) => { li.classList.toggle('ativo', i + 1 === passo); li.classList.toggle('feito', i + 1 < passo); });
-    if (passo === 4) desenharRevisao();
+    if (passo === 5) desenharRevisao();
     const topo = $('#disp-passos');
     if (topo && topo.getBoundingClientRect().top < 0) topo.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -4629,6 +4672,9 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       <dt>💬 Mensagem</dt><dd><div class="revisao-msg">${esc(r.exemplo || f.mensagem).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><span class="rotulo">Exemplo com o 1º contato${itens.length ? ` · + ${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}: ${itens.map((m) => esc(m.nome)).join(', ')}` : ' · só texto'}</span></dd>
       <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span></dd>
       <dt>🕐 Quando</dt><dd>${f.quando === 'agendar' && f.agendadoPara ? `Agendado para <b>${esc(new Date(f.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</b>` : '<b>Começa quando você clicar em enviar</b>'}${f.horarioComercial ? ' · só em horário comercial (8h às 20h)' : ' · a qualquer hora'}</dd>
+      <dt>💬 Quando responderem</dt><dd>${f.roteiro?.trim() ? `A IA segue o seu roteiro: <span class="rotulo">${esc(f.roteiro.trim().slice(0, 160))}${f.roteiro.trim().length > 160 ? '…' : ''}</span>` : 'A IA continua a conversa com o que está em "Sobre a empresa"'}${f.respEtapa ? `<br>Vai para a etapa <b>${esc(f.respEtapa)}</b>` : ''}${f.respEtiqueta ? `<br>Ganha a etiqueta <b>${esc(emp.etiquetas.find((t) => t.id === f.respEtiqueta)?.nome || '')}</b>` : ''}</dd>
+      <dt>🔔 Lembrete</dt><dd>${f.lembreteAtivo ? `1 lembrete depois de <b>${esc(f.lembreteDias)} ${Number(f.lembreteDias) === 1 ? 'dia' : 'dias'}</b> para quem não responder: <span class="rotulo">${esc(f.lembreteMensagem || '')}</span>` : 'Sem lembrete'}</dd>
+      ${personalizacao() ? `<dt>✍️ Foto</dt><dd>A 1ª foto vai com <b>${esc(personalizacao().texto)}</b> escrito</dd>` : ''}
       ${protecoes.length ? `<dt>🛡️ Proteções</dt><dd>${protecoes.join(' · ')}</dd>` : ''}
     </dl><p class="rotulo" style="margin:8px 0 0">Depois de começar, dá para pausar ou cancelar a qualquer momento.</p>`;
   }
@@ -4694,6 +4740,10 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           intervaloMax: max,
           horarioComercial: f.horarioComercial,
           rodapeSair: f.rodapeSair,
+          roteiro: f.roteiro || '',
+          aoResponder: { etapa: f.respEtapa || '', etiquetaId: f.respEtiqueta || '' },
+          lembrete: { ativo: Boolean(f.lembreteAtivo), dias: Number(f.lembreteDias) || 3, mensagem: f.lembreteMensagem || '' },
+          personalizar: personalizacao() || { ativo: false },
           agendadoPara: agendado ? agendado.toISOString() : null,
           ...(prospeccao ? { prospeccao: true, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia } : {})
         }
@@ -5324,6 +5374,8 @@ async function paginaDisparo(id, disparoId) {
       ${numeroCard('Enviados', d.enviado)}
       ${numeroCard('Responderam', d.responderam)}
       ${numeroCard('Com erro / de fora', d.erro + d.ignorado)}
+      ${d.lembrete ? numeroCard('🔔 Lembretes enviados', d.lembretes || 0) : ''}
+      ${d.lembrete ? numeroCard('Responderam ao lembrete', d.responderamLembrete || 0) : ''}
     </div>
     <div class="card">
       ${barraProgresso(d)}
@@ -5336,11 +5388,12 @@ async function paginaDisparo(id, disparoId) {
       </div>
     </div>
     <div class="duas-colunas">
-      <div class="card"><h2>Mensagem</h2><div class="conversa"><div class="msg bot">${esc(d.mensagem)}</div></div><p class="rotulo">Intervalo de ${d.intervaloMin} a ${d.intervaloMax} s${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''} · criado por ${esc(d.criadoPor || '—')}</p></div>
+      <div class="card"><h2>Mensagem</h2><div class="conversa"><div class="msg bot">${esc(d.mensagem)}</div>${d.lembrete ? `<div class="msg bot">🔔 ${esc(d.lembrete.mensagem)}</div>` : ''}</div><p class="rotulo">Intervalo de ${d.intervaloMin} a ${d.intervaloMax} s${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''}${d.personalizar ? ` · 1ª foto com "${esc(d.personalizar.texto)}"` : ''}${d.lembrete ? ` · lembrete ${d.lembrete.dias} ${d.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : ''} · criado por ${esc(d.criadoPor || '—')}</p>
+        ${d.roteiro || d.aoResponder ? `<h2 style="margin-top:14px">Quando responderem</h2>${d.roteiro ? `<p style="white-space:pre-wrap">${esc(d.roteiro)}</p>` : ''}${d.aoResponder?.etapa ? `<p class="rotulo">Vai para a etapa <b>${esc(d.aoResponder.etapa)}</b></p>` : ''}${d.aoResponder?.etiquetaId ? `<p class="rotulo">Ganha a etiqueta <b>${esc((empresaAtual?.dados?.etiquetas || []).find((t) => t.id === d.aoResponder.etiquetaId)?.nome || 'escolhida')}</b></p>` : ''}` : ''}</div>
       <div class="card tabela-wrap" style="max-height:480px;overflow:auto">
         <table>
           <thead><tr><th>Contato</th><th>Situação</th></tr></thead>
-          <tbody>${d.destinatarios.map((x) => `<tr><td><a href="#/leads/${esc(x.leadId)}">${esc(x.nome || x.numero || 'Lead')}</a>${x.nome && x.numero ? `<br><span class="rotulo">${esc(telefoneBonito(x.numero))}</span>` : ''}</td><td><span class="etiqueta ${ST[x.status]?.[1] || ''}">${ST[x.status]?.[0] || x.status}</span>${x.erro ? `<br><span class="rotulo">${esc(x.erro)}</span>` : ''}</td></tr>`).join('')}</tbody>
+          <tbody>${d.destinatarios.map((x) => `<tr><td><a href="#/leads/${esc(x.leadId)}">${esc(x.nome || x.numero || 'Lead')}</a>${x.nome && x.numero ? `<br><span class="rotulo">${esc(telefoneBonito(x.numero))}</span>` : ''}</td><td><span class="etiqueta ${ST[x.status]?.[1] || ''}">${ST[x.status]?.[0] || x.status}</span>${x.lembrete === 'enviado' ? ' <span class="etiqueta">🔔 lembrete</span>' : ''}${x.erro ? `<br><span class="rotulo">${esc(x.erro)}</span>` : ''}</td></tr>`).join('')}</tbody>
         </table>
       </div>
     </div>`);

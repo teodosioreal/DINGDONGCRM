@@ -7,7 +7,9 @@
 //  - por padrão só envia em horário comercial;
 //  - quem responde SAIR não recebe mais (e o CRM confirma);
 //  - se a conexão cair, o disparo pausa sozinho (sem perder a fila).
-// Quando o lead responde, a IA do WhatsApp continua a conversa normalmente.
+// Quando o lead responde, a IA do WhatsApp continua a conversa normalmente — seguindo o roteiro
+// do disparo, se tiver — e o lead pode ir sozinho para uma etapa/etiqueta. Quem não responde pode
+// receber UM lembrete depois de alguns dias. A 1ª foto pode ir com o nome de cada contato escrito.
 
 const { estado, salvar, novoId, agora } = require('./db');
 const { texto } = require('./util');
@@ -154,7 +156,20 @@ function pausarPorErro(d, motivo) {
   salvar();
 }
 
+// um envio por vez em cada disparo (gerar a foto personalizada leva um tempinho: o relógio não
+// pode mandar para a mesma pessoa de novo enquanto isso)
+const emAndamento = new Set();
 async function processar(id) {
+  if (emAndamento.has(id)) return;
+  emAndamento.add(id);
+  try {
+    return await processarUm(id);
+  } finally {
+    emAndamento.delete(id);
+  }
+}
+
+async function processarUm(id) {
   const d = estado.disparos.find((x) => x.id === id);
   if (!d) return;
   if (d.status === 'agendado') {
@@ -241,9 +256,24 @@ async function processar(id) {
   const mensagem = montarMensagem(d.mensagem, lead, empresa) + (d.rodapeSair ? `\n\n${RODAPE_SAIR}` : '');
   const anexos = midiasDoDisparo(empresa, d);
   const [primeira, ...resto] = anexos;
+  // 🖼️ a 1ª foto com o nome do contato escrito (se não der, vai a foto normal)
+  let personalizada = null;
+  if (d.personalizar?.ativo && primeira?.tipo === 'image') {
+    const frase = textoDaImagem(d.personalizar.texto, lead, empresa);
+    if (frase) {
+      personalizada = await require('./imagem-personalizada')
+        .gerar(midias.caminhoDoArquivo(primeira), frase, d.personalizar)
+        .catch((err) => {
+          console.error(`[disparo ${d.id}] imagem personalizada:`, err.message);
+          return null;
+        });
+    }
+  }
   try {
     let r;
-    if (primeira && primeira.tipo !== 'audio') {
+    if (personalizada) {
+      r = await whatsapp.enviarArquivo(empresa, item.destino, { buffer: personalizada, mimetype: 'image/jpeg', nome: primeira.nome || 'imagem', legenda: mensagem });
+    } else if (primeira && primeira.tipo !== 'audio') {
       // foto/vídeo/PDF com o texto como legenda: uma mensagem só
       r = await whatsapp.enviarMidia(empresa, item.destino, primeira, mensagem);
     } else {
@@ -265,7 +295,7 @@ async function processar(id) {
     leads.adicionarMensagem(lead, {
       papel: 'equipe',
       canal: 'whatsapp',
-      texto: anexos.length ? `${mensagem}\n[mídia: ${anexos.map((m) => m.nome).join(', ')}]` : mensagem,
+      texto: anexos.length ? `${mensagem}\n[mídia: ${anexos.map((m, i) => (i === 0 && personalizada ? `${m.nome} (com o nome do contato)` : m.nome)).join(', ')}]` : mensagem,
       disparoId: d.id
     });
     lead.ultimoDisparoEm = agora();
@@ -320,6 +350,11 @@ function criar(empresa, corpo, usuario) {
   for (const mid of pedidos) {
     if (!midias.midiasDa(empresa).some((m) => m.id === mid) && !midias.albunsDa(empresa).some((a) => a.id === mid)) throw erro('Mídia não encontrada. Atualize a página e escolha de novo.');
   }
+  const personalizar = normalizarPersonalizar(corpo.personalizar);
+  if (personalizar) {
+    const [primeira] = midiasDoDisparo(empresa, { midiaIds: pedidos });
+    if (primeira?.tipo !== 'image') throw erro('Para escrever o nome do contato na imagem, a 1ª mídia do disparo precisa ser uma foto.');
+  }
   const prospeccao = corpo.prospeccao === true;
   // prospecção: nunca manda de novo para quem já recebeu disparo em massa
   const { filtro, destinatarios, jaDisparados } = destinatariosPara(empresa, prospeccao ? { ...(corpo.filtro || {}), pularJaDisparados: true } : corpo.filtro);
@@ -349,6 +384,7 @@ function criar(empresa, corpo, usuario) {
     ...(prospeccao ? { prospeccao: true, prospeccaoCfg: prosCfg, enviadosPorDia: {}, errosSeguidos: 0 } : {}),
     horarioComercial: corpo.horarioComercial !== false,
     rodapeSair: corpo.rodapeSair !== false,
+    ...extrasDoDisparo(empresa, corpo, personalizar),
     status: agendadoPara ? 'agendado' : 'enviando',
     agendadoPara,
     destinatarios: destinatarios.map((x) => ({ ...x, status: 'pendente', erro: '', em: null })),
@@ -367,6 +403,159 @@ function criar(empresa, corpo, usuario) {
   salvar();
   agendar(d, agendadoPara ? new Date(agendadoPara).getTime() - Date.now() : 1000);
   return d;
+}
+
+// ---------------------------------------------------------------- roteiro, lembrete e imagem
+
+const DIA = 24 * 60 * 60 * 1000;
+const LEMBRETE_PADRAO = '{Oi|Olá}! Conseguiu ver minha mensagem? {😊|🙂}';
+const TEXTO_IMAGEM_PADRAO = 'Feito para {empresa_contato}';
+
+function normalizarPersonalizar(p) {
+  if (!p || p.ativo !== true) return null;
+  const hex = (v, def) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : def);
+  return {
+    ativo: true,
+    texto: texto(p.texto, 120) || TEXTO_IMAGEM_PADRAO,
+    posicao: require('./imagem-personalizada').POSICOES.includes(p.posicao) ? p.posicao : 'baixo',
+    fundo: hex(p.fundo, '#111827'),
+    destaque: hex(p.destaque, '#facc15')
+  };
+}
+
+// roteiro da IA, etapa/etiqueta ao responder e lembrete (só guarda o que foi preenchido)
+function extrasDoDisparo(empresa, corpo, personalizar) {
+  const extras = {};
+  const roteiro = texto(corpo.roteiro, 3000);
+  if (roteiro) extras.roteiro = roteiro;
+  const a = corpo.aoResponder || {};
+  const etapa = a.etapa ? leads.acharEtapa(empresa, a.etapa) : null;
+  const etiquetaId = leads.etiquetasDa(empresa).some((t) => t.id === a.etiquetaId) ? a.etiquetaId : '';
+  if (etapa || etiquetaId) extras.aoResponder = { etapa: etapa || '', etiquetaId };
+  const l = corpo.lembrete || {};
+  if (l.ativo === true) extras.lembrete = { ativo: true, dias: Math.min(14, Math.max(1, Math.round(Number(l.dias) || 3))), mensagem: texto(l.mensagem, 1000) || LEMBRETE_PADRAO };
+  if (personalizar) extras.personalizar = personalizar;
+  return extras;
+}
+
+// texto da faixa da imagem; vazio = não personaliza (ex.: "{empresa_contato}" sem nome nenhum)
+function textoDaImagem(modelo, lead, empresa) {
+  const { nomeCurto } = require('./imagem-personalizada');
+  const nomeDoContato = lead.prospeccao?.empresa || lead.nome || '';
+  const curto = { ...lead, nome: nomeCurto(lead.nome || ''), prospeccao: { ...(lead.prospeccao || {}), empresa: nomeCurto(nomeDoContato) } };
+  const usa = (v) => new RegExp(`\\{${v}\\}`, 'i').test(modelo);
+  if ((usa('empresa_contato') || usa('nome') || usa('nome_completo')) && !montarMensagem('{nome_completo}{empresa_contato}', curto, empresa)) return '';
+  return montarMensagem(modelo, curto, empresa);
+}
+
+// o disparo mais recente que o lead recebeu (vale por 30 dias)
+function disparoDoLead(lead) {
+  const m = [...(lead?.mensagens || [])].reverse().find((x) => x.disparoId);
+  if (!m || Date.now() - new Date(m.em).getTime() > 30 * DIA) return null;
+  return estado.disparos.find((x) => x.id === m.disparoId) || null;
+}
+
+// 🎯 o que a IA lê quando o cliente responde a um disparo: o roteiro e os dados da lista
+function paraIa(lead) {
+  const d = disparoDoLead(lead);
+  if (!d) return '';
+  const p = lead.prospeccao || {};
+  const dados = [
+    p.empresa && `empresa: ${p.empresa}`,
+    p.ramo && `ramo: ${p.ramo}`,
+    (p.cidade || p.estado) && `cidade: ${[p.cidade, p.estado].filter(Boolean).join(' - ')}`,
+    p.nota && `nota no Google: ${p.nota}${p.avaliacoes ? ` (${p.avaliacoes} avaliações)` : ''}`,
+    p.temSite && `tem site: ${p.temSite === 'sim' ? 'sim' : 'não'}`,
+    p.site && `site: ${p.site}`
+  ].filter(Boolean);
+  if (!d.roteiro && !dados.length) return '';
+  return [
+    `Este cliente respondeu a um disparo em massa ("${d.nome}"). A mensagem do disparo está no começo da conversa.`,
+    ...(dados.length ? [`Dados do contato (da lista importada, use com naturalidade, sem dizer de onde tirou): ${dados.join('; ')}.`] : []),
+    ...(d.roteiro ? ['Roteiro do dono para quem responde a este disparo (siga para conduzir a conversa):', '<roteiro_do_disparo>', d.roteiro, '</roteiro_do_disparo>'] : [])
+  ].join('\n');
+}
+
+// cliente respondeu a um disparo: vai para a etapa/etiqueta escolhida (uma vez por disparo)
+function aoResponder(empresa, lead) {
+  const d = disparoDoLead(lead);
+  if (!d?.aoResponder) return false;
+  lead.respondeuDisparos = lead.respondeuDisparos || [];
+  if (lead.respondeuDisparos.includes(d.id)) return false;
+  lead.respondeuDisparos.push(d.id);
+  if (d.aoResponder.etapa) leads.moverEtapa(lead, empresa, d.aoResponder.etapa, 'sistema');
+  const tag = d.aoResponder.etiquetaId;
+  if (tag && leads.etiquetasDa(empresa).some((t) => t.id === tag) && !(lead.etiquetas || []).includes(tag)) lead.etiquetas = [...(lead.etiquetas || []), tag];
+  return true;
+}
+
+// 🔔 lembrete: quem recebeu e não respondeu nada em X dias ganha UMA mensagem curta
+function situacaoDoLembrete(d, x, lead, agoraMs) {
+  if (x.status !== 'enviado' || x.lembrete || !x.em) return null;
+  const desde = new Date(x.em).getTime();
+  if (agoraMs - desde < d.lembrete.dias * DIA) return null; // ainda não é hora
+  if (agoraMs - desde > (d.lembrete.dias + 5) * DIA) return 'vencido'; // CRM ficou parado: não manda tão tarde
+  if (!lead || lead.naoDisparar || leads.naListaNegra(null, lead)) return 'pulado';
+  const depois = (lead.mensagens || []).filter((m) => m.em > x.em);
+  if (depois.some((m) => m.papel === 'visitante')) return 'respondeu';
+  // alguém já falou com ele por outro caminho (equipe, IA, outro disparo): não insiste
+  if (depois.some((m) => m.papel !== 'visitante' && m.disparoId !== d.id)) return 'pulado';
+  return 'enviar';
+}
+
+let lembretesRodando = false;
+async function rodarLembretes() {
+  if (lembretesRodando) return;
+  lembretesRodando = true;
+  try {
+    for (const d of estado.disparos || []) {
+      if (!d.lembrete?.ativo || !['enviando', 'concluido'].includes(d.status)) continue;
+      if (d.proximoLembreteEm && Date.now() < new Date(d.proximoLembreteEm).getTime()) continue;
+      await lembreteDaVez(d).catch((err) => console.error(`[disparo ${d.id}] lembrete:`, err.message));
+    }
+  } finally {
+    lembretesRodando = false;
+  }
+}
+
+async function lembreteDaVez(d) {
+  const empresa = estado.empresas.find((e) => e.id === d.empresaId);
+  if (!empresa || !whatsapp.configurado(empresa) || !dentroDoHorario(d)) return;
+  const pros = d.prospeccao ? require('./prospeccao') : null;
+  if (pros && pros.enviadosHoje(d) >= pros.limiteDeHoje(d)) return; // o lembrete conta no limite do dia
+  const agoraMs = Date.now();
+  let mudou = false;
+  let vez = null;
+  for (const x of d.destinatarios) {
+    const lead = x.status === 'enviado' && !x.lembrete ? estado.conversas.find((c) => c.id === x.leadId) : null;
+    const s = situacaoDoLembrete(d, x, lead, agoraMs);
+    if (!s) continue;
+    if (s === 'enviar') { vez = { x, lead }; break; }
+    x.lembrete = s;
+    mudou = true;
+  }
+  if (!vez) {
+    if (mudou) salvar();
+    return;
+  }
+  const { x, lead } = vez;
+  const mensagem = montarMensagem(d.lembrete.mensagem, lead, empresa);
+  try {
+    await whatsapp.enviarTexto(empresa, x.destino, mensagem);
+    x.lembrete = 'enviado';
+    x.lembreteEm = agora();
+    leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: mensagem, disparoId: d.id, lembreteDisparo: true });
+    if (pros) pros.contarEnvio(d);
+    d.proximoLembreteEm = new Date(Date.now() + sorteioIntervalo(d)).toISOString();
+  } catch (err) {
+    if (!err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message)) {
+      d.proximoLembreteEm = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // conexão caiu: tenta depois
+    } else {
+      x.lembrete = 'erro';
+      x.lembreteErro = err.message.slice(0, 200);
+    }
+  }
+  salvar();
 }
 
 function pausar(d) {
@@ -417,7 +606,14 @@ function apagarTodosDa(empresaId) {
 function resumo(d) {
   const cont = { pendente: 0, enviado: 0, erro: 0, ignorado: 0, cancelado: 0 };
   let responderam = 0;
+  let lembretes = 0;
+  let responderamLembrete = 0;
   for (const x of d.destinatarios) {
+    if (x.lembrete === 'enviado') {
+      lembretes++;
+      const lead = estado.conversas.find((c) => c.id === x.leadId);
+      if (lead?.mensagens.some((m) => m.papel === 'visitante' && m.em > x.lembreteEm)) responderamLembrete++;
+    }
     cont[x.status] = (cont[x.status] || 0) + 1;
     if (x.status === 'enviado') {
       const lead = estado.conversas.find((c) => c.id === x.leadId);
@@ -427,11 +623,16 @@ function resumo(d) {
   const { destinatarios, ...resto } = d;
   const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
   const pros = d.prospeccao ? require('./prospeccao') : null;
-  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
+  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
+let relogioLembretes = null;
 function retomarAoIniciar() {
+  if (!relogioLembretes) {
+    relogioLembretes = setInterval(() => rodarLembretes().catch(() => 0), 60 * 1000);
+    relogioLembretes.unref?.();
+  }
   for (const d of estado.disparos || []) {
     if (d.status === 'enviando') agendar(d, 5000);
     if (d.status === 'agendado') agendar(d, new Date(d.agendadoPara).getTime() - Date.now());
@@ -453,5 +654,12 @@ module.exports = {
   apagarTodosDa,
   resumo,
   retomarAoIniciar,
+  paraIa,
+  aoResponder,
+  LEMBRETE_PADRAO,
+  TEXTO_IMAGEM_PADRAO,
+  textoDaImagem,
+  normalizarPersonalizar,
+  rodarLembretes, // (testes)
   processar // (testes)
 };

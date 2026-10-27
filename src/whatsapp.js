@@ -1079,6 +1079,7 @@ async function receberDoCliente(empresa, lead, jid, msg, texto) {
       .catch((err) => console.error(`[whatsapp ${lead.id}] sair:`, err.message));
     return;
   }
+  require('./disparos').aoResponder(empresa, lead); // respondeu a um disparo: etapa/etiqueta escolhida no disparo
   salvar();
   if (resolverSemIa(empresa, lead, texto, jid)) return;
   agendarResposta(empresa, lead);
@@ -1794,6 +1795,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       canal: 'whatsapp',
       tarefa: opcoes.evento ? 'evento' : 'resposta',
       origem: origemIa,
+      disparo: require('./disparos').paraIa(lead), // respondeu a um disparo: roteiro do disparo + dados da lista
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])].map((c) => midias.numeroDoCodigo(empresa, c)),
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
