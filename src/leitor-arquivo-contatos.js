@@ -28,7 +28,50 @@ const CAMPOS = [
   [/^(categoryname|categories\d*|category|categoria|categorias|ramo|segmento|atividade|nicho|tipo)$/, 'categorias'],
   [/^(emails?\d*|email|e?mail)$/, 'email']
 ];
-const campoDe = (titulo) => (CAMPOS.find(([re]) => re.test(sem(titulo))) || [])[1] || null;
+// título exato primeiro; senão pelas palavras do título ("Nome da empresa", "Telefone/WhatsApp",
+// "Qtd Avaliacoes", "Link Google Maps", "Tem site?"…)
+function campoDe(titulo) {
+  const t = sem(titulo);
+  if (!t) return null;
+  const exato = CAMPOS.find(([re]) => re.test(t));
+  if (exato) return exato[1];
+  // caminho interno do JSON/CSV do Apify ("reviews/0/name", "openingHours/2/day"): só pelo título exato
+  if (/\/\d+(\/|$)/.test(String(titulo))) return null;
+  const tem = (...ps) => ps.some((p) => t.includes(p));
+  if (/^(tem|possui|has)/.test(t) && tem('site', 'website')) return 'temSite';
+  if (tem('googlemaps', 'maps', 'mapa', 'placeurl', 'placeid') && !tem('placeid')) return 'link';
+  if (tem('telefone', 'celular', 'whatsapp', 'whats', 'phone', 'fone', 'mobile')) return 'telefone';
+  if (tem('email', 'mail')) return 'email';
+  if (tem('website', 'site', 'homepage', 'paginaweb')) return 'site';
+  if (tem('avalia', 'review', 'coment') && tem('qtd', 'quant', 'numero', 'total', 'count', 'num', 'nde')) return 'avaliacoes';
+  if (tem('avaliacoes', 'reviews')) return 'avaliacoes';
+  if (tem('avaliacao', 'nota', 'rating', 'estrela', 'score', 'stars')) return 'nota';
+  if (tem('empresa', 'estabelecimento', 'fantasia', 'razao', 'negocio', 'company', 'business', 'loja', 'title')) return 'empresa';
+  if (tem('categoria', 'ramo', 'segmento', 'atividade', 'category', 'nicho')) return 'categorias';
+  if (tem('bairro', 'neighborhood')) return 'bairro';
+  if (tem('cidade', 'municipio', 'city')) return 'cidade';
+  if (tem('estado', 'state')) return 'estado';
+  if (tem('cep', 'postal', 'zip')) return 'cep';
+  if (tem('endereco', 'logradouro', 'street', 'address')) return 'endereco';
+  if (tem('pais', 'country')) return 'pais';
+  if (tem('nome', 'name', 'responsavel', 'contato')) return 'nome';
+  return null;
+}
+
+// ---------------------------------------------------------------- reconhecer pelo conteúdo
+
+const PARECE = {
+  telefone: (v) => /^[\d+()\-\s.]+$/.test(v) && v.replace(/\D/g, '').length >= 10 && v.replace(/\D/g, '').length <= 13,
+  email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+  link: (v) => /google\.[a-z.]+\/maps|maps\.app\.goo|goo\.gl\/maps/i.test(v),
+  site: (v) => /^(https?:\/\/|www\.)\S+$/i.test(v) && !PARECE.link(v)
+};
+// a coluna é desse tipo se a maior parte dos valores preenchidos parece com ele
+function colunaParece(linhas, i, tipo) {
+  const vals = linhas.slice(0, 300).map((l) => String(l[i] ?? '').trim()).filter(Boolean);
+  if (!vals.length || vals.length < Math.min(2, linhas.length)) return false;
+  return vals.filter(PARECE[tipo]).length / vals.length >= 0.6;
+}
 
 const UF = { acre: 'AC', alagoas: 'AL', amapa: 'AP', amazonas: 'AM', bahia: 'BA', ceara: 'CE', distritofederal: 'DF', espiritosanto: 'ES', goias: 'GO', maranhao: 'MA', matogrosso: 'MT', matogrossodosul: 'MS', minasgerais: 'MG', para: 'PA', paraiba: 'PB', parana: 'PR', pernambuco: 'PE', piaui: 'PI', riodejaneiro: 'RJ', riograndedonorte: 'RN', riograndedosul: 'RS', rondonia: 'RO', roraima: 'RR', santacatarina: 'SC', saopaulo: 'SP', sergipe: 'SE', tocantins: 'TO' };
 
@@ -40,6 +83,7 @@ function limpar(campo, v) {
   if (campo === 'nota') return s.replace(',', '.').match(/\d+(\.\d+)?/)?.[0] || '';
   if (campo === 'avaliacoes') return s.replace(/\D/g, '');
   if (campo === 'estado') return UF[sem(s)] || s;
+  if (campo === 'temSite') return /^(s|sim|yes|y|true|1|x|tem)$/i.test(sem(s)) ? 'sim' : /^(n|nao|no|false|0|naotem)$/i.test(sem(s)) ? 'nao' : '';
   return s.replace(/\s+/g, ' ');
 }
 
@@ -126,30 +170,40 @@ function linhasDoJsonl(texto) {
 function contatosDasLinhas(linhas) {
   if (!linhas.length) return { contatos: [], colunas: [] };
   const titulo = linhas[0];
-  // coluna de cada campo; "categories/0", "categories/1"… e "emails/0"… juntam
+  // a 1ª linha é de títulos? (tem títulos conhecidos e nenhum telefone/e-mail/link nela)
+  const ehDado = titulo.some((v) => ['telefone', 'email', 'link', 'site'].some((k) => PARECE[k](String(v || '').trim())));
+  const temTitulos = !ehDado && linhas.length > 1; // títulos que o CRM não conhece também são títulos
+  const corpo = temTitulos ? linhas.slice(1) : linhas;
   const mapa = {};
-  titulo.forEach((t, i) => {
-    // "categories/0", "emails/1"…: vale o nome antes da barra
-    const campo = campoDe(t) || (/^[^/]+\/\d+$/.test(t) ? campoDe(String(t).split('/')[0]) : null);
-    if (!campo) return;
-    if (['categorias', 'email'].includes(campo)) (mapa[campo] = mapa[campo] || []).push(i);
-    else if (mapa[campo] === undefined) mapa[campo] = [i];
-    // endereço: a rua ("street") vale mais que o endereço completo ("address", que repete cidade e CEP)
-    else if (campo === 'endereco' && /^(street|rua|logradouro)$/.test(sem(t))) mapa[campo] = [i];
-  });
+  if (temTitulos) {
+    // coluna de cada campo; "categories/0", "categories/1"… e "emails/0"… juntam
+    titulo.forEach((t, i) => {
+      // "categories/0", "emails/1"…: vale o nome antes da barra
+      const campo = campoDe(t) || (/^[^/]+\/\d+$/.test(t) ? campoDe(String(t).split('/')[0]) : null);
+      if (!campo) return;
+      if (['categorias', 'email'].includes(campo)) (mapa[campo] = mapa[campo] || []).push(i);
+      else if (mapa[campo] === undefined) mapa[campo] = [i];
+      // endereço: a rua ("street") vale mais que o endereço completo ("address", que repete cidade e CEP)
+      else if (campo === 'endereco' && /^(street|rua|logradouro)$/.test(sem(t))) mapa[campo] = [i];
+    });
+    // a coluna "telefone" achada pelo título tem que ter telefone mesmo (ex.: "Contato" com nomes)
+    if (mapa.telefone && !mapa.telefone.some((i) => colunaParece(corpo, i, 'telefone'))) delete mapa.telefone;
+  }
+  // o que o título não disse, o conteúdo diz: telefone, e-mail, link do mapa e site
+  const usadas = () => new Set(Object.values(mapa).flat());
+  for (const tipo of ['telefone', 'link', 'site', 'email']) {
+    if (mapa[tipo]) continue;
+    const i = titulo.findIndex((_, j) => !usadas().has(j) && colunaParece(corpo, j, tipo));
+    if (i >= 0) mapa[tipo] = [i];
+  }
+  if (!mapa.telefone) return { contatos: [], colunas: [] };
+  if (!mapa.empresa && !mapa.nome) {
+    // sem coluna de nome reconhecida: as colunas de texto que sobraram viram empresa, nome, cidade e ramo
+    const texto = titulo.map((_, i) => i).filter((i) => !usadas().has(i) && corpo.slice(0, 50).some((l) => /[a-zà-ú]{2}/i.test(String(l[i] || ''))) && !['site', 'email', 'link'].some((k) => colunaParece(corpo, i, k)));
+    ['empresa', 'nome', 'cidade', 'categorias'].forEach((k, j) => { if (texto[j] !== undefined && !mapa[k]) mapa[k] = [texto[j]]; });
+  }
   // só tem "nome" (sem coluna de empresa): o nome é o da empresa
   if (!mapa.empresa && mapa.nome) { mapa.empresa = mapa.nome; delete mapa.nome; }
-  let comCabecalho = Boolean(mapa.telefone);
-  let corpo = linhas.slice(1);
-  if (!comCabecalho) {
-    // sem títulos: acha a coluna do telefone pelos números; o resto vira empresa, nome, cidade, ramo
-    const ehTel = (s) => String(s).replace(/\D/g, '').length >= 10 && String(s).replace(/\D/g, '').length <= 13;
-    corpo = linhas;
-    const iTel = linhas[0].findIndex(ehTel);
-    if (iTel < 0) return { contatos: [], colunas: [] };
-    const outras = linhas[0].map((_, i) => i).filter((i) => i !== iTel);
-    Object.assign(mapa, { telefone: [iTel] }, ...['empresa', 'nome', 'cidade', 'categorias'].map((k, j) => (outras[j] !== undefined ? { [k]: [outras[j]] } : {})));
-  }
   const contatos = [];
   for (const l of corpo) {
     const c = {};

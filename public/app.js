@@ -4706,7 +4706,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
 
 // 🔎 Filtros das empresas (prévia do PDF e ficha da lista): site, telefone, nota, avaliações, cidade, ramo
 const REDE_SOCIAL = /instagram\.|facebook\.|fb\.com|fb\.me|linktr\.ee|wa\.me|whatsapp\.|tiktok\.|ifood\.|goo\.gl|bit\.ly|linkbio|beacons\.ai/i;
-const tipoSite = (c) => (!c.site ? 'nenhum' : REDE_SOCIAL.test(c.site) ? 'social' : 'proprio');
+// sem link de site mas a lista diz "Tem site? Sim": conta como site próprio
+const tipoSite = (c) => (!c.site ? (c.temSite === 'sim' ? 'proprio' : 'nenhum') : REDE_SOCIAL.test(c.site) ? 'social' : 'proprio');
 const ehFixoContato = (c) => Boolean(c.fixo || c.analise?.fixo);
 const ramoDe = (c) => String(c.categorias || c.ramo || '').split(',')[0].trim();
 const OPCOES_FILTRO_EMPRESA = {

@@ -169,7 +169,7 @@ function analisar(empresa, contatos, { incluirFixos = false } = {}) {
 }
 
 // dados extras de cada empresa (do PDF do Google Maps ou da planilha)
-const EXTRAS = { nota: 10, avaliacoes: 12, endereco: 200, bairro: 80, estado: 40, cep: 20, pais: 40, site: 300, email: 160, categorias: 200, mapsUrl: 600 };
+const EXTRAS = { nota: 10, avaliacoes: 12, endereco: 200, bairro: 80, estado: 40, cep: 20, pais: 40, site: 300, email: 160, categorias: 200, mapsUrl: 600, temSite: 3 };
 
 // contatos: [{ nome, telefone, empresa, cidade, ramo, endereco, nota… }]
 function importar(empresa, { nome, contatos, etiquetaId, principal, incluirFixos = false }) {
