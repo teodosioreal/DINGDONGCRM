@@ -4476,9 +4476,11 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
               <div class="campo"><label>Máximo por dia</label><input name="tetoDia" type="number" min="5" max="1000" value="${esc(valoresIniciais.tetoDia)}"></div>
             </div>` : ''}
             <div class="campos" style="margin-top:8px">
-              <div class="campo"><label>Intervalo mínimo (segundos)</label><input name="intMin" type="number" min="${prospeccao ? 45 : 10}" max="1800" value="${esc(valoresIniciais.intervaloMin)}"></div>
-              <div class="campo"><label>Intervalo máximo (segundos)</label><input name="intMax" type="number" min="${prospeccao ? 45 : 10}" max="3600" value="${esc(valoresIniciais.intervaloMax)}"></div>
+              <div class="campo"><label>Intervalo mínimo</label><input name="intMin" type="number" min="1" step="any" value="${esc(valoresIniciais.intervaloMin)}"></div>
+              <div class="campo"><label>Intervalo máximo</label><input name="intMax" type="number" min="1" step="any" value="${esc(valoresIniciais.intervaloMax)}"></div>
+              <div class="campo"><label>Em</label><select name="intUnidade"><option value="s">segundos</option><option value="min">minutos</option><option value="h">horas</option></select></div>
             </div>
+            <small>Ex.: de hora em hora = mínimo 1 e máximo 1 em <b>horas</b> (ou 50 a 70 minutos, que parece mais natural). Mínimo ${prospeccao ? '45 segundos' : '10 segundos'}, máximo 12 horas.</small>
           </details>
           <p class="rotulo" id="disp-estimativa" style="margin:8px 0 0"></p>
           <div class="campos">
@@ -4493,6 +4495,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <h2><span class="passo-num">5</span> Confira antes de enviar</h2>
           <div id="disp-revisao"></div>
           <div id="disp-risco" class="risco-caixa"></div>
+          <div id="disp-erro" style="margin-top:10px"></div>
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="submit" class="primario grande-botao" id="enviar-disparo" disabled>📣 Iniciar disparo</button></div>
         </div>
       </div>
@@ -4505,6 +4508,22 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     </form>`, abasNovo);
 
   const form = $('#f-disparo');
+  form.noValidate = true; // conferimos no JS e mostramos o erro (o navegador travava calado em campo escondido)
+  // intervalo em segundos, qualquer que seja a unidade escolhida (segundos, minutos ou horas)
+  const intervalos = (f = formParaObjeto(form)) => {
+    const mult = { s: 1, min: 60, h: 3600 }[f.intUnidade] || 1;
+    const mi = Math.round((Number(String(f.intMin).replace(',', '.')) || 0) * mult);
+    return { mi, ma: Math.max(mi, Math.round((Number(String(f.intMax).replace(',', '.')) || 0) * mult)) };
+  };
+  // quantos dias leva: limite do dia (prospecção) e quantas cabem no horário com esse intervalo
+  const diasPara = (f, qtd) => {
+    const { mi, ma } = intervalos(f);
+    const porDiaNoRelogio = Math.max(1, Math.floor(((f.horarioComercial ? 12 : 24) * 3600) / Math.max(1, (mi + ma) / 2)));
+    let n = 0, falta = qtd, lim = Number(f.limiteInicial) || 20;
+    while (falta > 0 && n < 3650) { falta -= Math.min(prospeccao ? Math.min(lim, Number(f.tetoDia) || 80) : Infinity, porDiaNoRelogio); lim += Number(f.aumentoDia) || 0; n++; }
+    return n;
+  };
+  const mostrarErro = (msg) => { const caixa = $('#disp-erro'); if (caixa) caixa.innerHTML = msg ? `<div class="erro-caixa">${esc(msg)}</div>` : ''; if (msg) aviso(msg, true); };
   const filtro = () => {
     const pularJaDisparados = Boolean($('input[name=pularJaDisparados]', form)?.checked);
     if (leadIds.length) return { leadIds, pularJaDisparados };
@@ -4525,7 +4544,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     if (!form.isConnected) return;
     const f = formParaObjeto(form);
     try {
-      const r = await api(`empresas/${id}/disparos/previa`, { method: 'POST', body: { filtro: filtro(), mensagem: f.mensagem, rodapeSair: f.rodapeSair } });
+      const r = await api(`empresas/${id}/disparos/previa`, { method: 'POST', body: { filtro: filtro(), mensagem: f.mensagem, rodapeSair: f.rodapeSair, prospeccao } });
       if (!form.isConnected) return;
       total = r.total;
       ultimaPrevia = r;
@@ -4540,7 +4559,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         : '<div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div>';
       atualizarRisco();
       if (passo === 5) desenharRevisao();
-      $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim());
+      if (r.maximo && r.total > r.maximo) $('#contagem').insertAdjacentHTML('beforeend', `<span class="erro-caixa">São ${r.total} contatos e o máximo é ${r.maximo} por disparo. Divida a lista (ex.: por cidade ou etiqueta) e faça mais de um disparo.</span>`);
+      $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim()) || (r.maximo && r.total > r.maximo);
       $('#enviar-disparo').textContent = r.total ? `📣 Enviar para ${r.total} ${r.total === 1 ? 'pessoa' : 'pessoas'}` : '📣 Iniciar disparo';
     } catch (err) {
       if (!form.isConnected) return;
@@ -4552,20 +4572,19 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     if (!form.isConnected) return;
     const f = formParaObjeto(form);
     const msg = String(f.mensagem || '');
-    const mi = Number(f.intMin) || 0;
-    const ma = Math.max(mi, Number(f.intMax) || 0);
+    const { mi, ma } = intervalos(f);
     const media = (mi + ma) / 2;
     const itens = [];
     const add = (nivel, txt) => itens.push([nivel, txt]);
     if (prospeccao) {
-      add(media >= 90 ? 0 : media >= 50 ? 1 : 2, `Intervalo de ${mi} a ${ma} s entre mensagens${media < 50 ? ' — curto para quem não conhece você' : ''}`);
+      add(media >= 90 ? 0 : media >= 50 ? 1 : 2, `Intervalo de ${textoPerfil({ intervaloMin: mi, intervaloMax: ma })}${media < 50 ? ' — curto para quem não conhece você' : ''}`);
       const teto = Number(f.tetoDia) || 0;
       add(Number(f.limiteInicial) <= 20 && teto <= 100 ? 0 : teto <= 200 ? 1 : 2, `Até ${esc(f.limiteInicial)} no 1º dia, máximo ${esc(teto)} por dia`);
       add(/https?:\/\/|www\.|\.com\b|\.br\b/i.test(msg) ? 2 : 0, /https?:\/\/|www\.|\.com\b|\.br\b/i.test(msg) ? 'Tem link na 1ª mensagem — é o que mais vira denúncia' : 'Sem link na mensagem');
       add(escolhidas.length ? 1 : 0, escolhidas.length ? (personalizacao() ? 'Foto com o nome do contato — chama atenção, mas arquivo na 1ª mensagem pesa um pouco' : 'Tem foto/arquivo na 1ª mensagem — só texto é o mais seguro') : 'Só texto');
       add(/\?\s*$/.test(msg.trim()) || /\?[^?]{0,40}$/.test(msg.trim()) ? 0 : 1, 'Termina com uma pergunta (ex.: "posso te mandar os detalhes?")');
     } else {
-      add(media >= 45 ? 0 : media >= 25 ? 1 : 2, `Intervalo de ${mi} a ${ma} s entre mensagens`);
+      add(media >= 45 ? 0 : media >= 25 ? 1 : 2, `Intervalo de ${textoPerfil({ intervaloMin: mi, intervaloMax: ma })}`);
       add(total > 300 && media < 60 ? 2 : total > 150 ? 1 : 0, `${total} ${total === 1 ? 'pessoa' : 'pessoas'} neste disparo${total > 150 ? ' — muitas de uma vez; divida por etiqueta/etapa ou use o ritmo "Bem seguro"' : ''}`);
     }
     if (!msg.trim()) itens.splice(2); // sem mensagem: fica só o ritmo (os 2 primeiros)
@@ -4581,14 +4600,11 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     // quanto tempo leva
     let est = '';
     if (total) {
-      if (prospeccao) {
-        let n = 0, falta = total, lim = Number(f.limiteInicial) || 20;
-        while (falta > 0 && n < 365) { falta -= Math.min(lim, Number(f.tetoDia) || 80); lim += Number(f.aumentoDia) || 0; n++; }
-        est = `⏱️ ${total} contatos: mais ou menos <b>${n} ${n === 1 ? 'dia' : 'dias'}</b> (uma mensagem a cada ${Math.round(mi / 6) / 10} a ${Math.round(ma / 6) / 10} min).`;
-      } else {
-        const minutos = Math.round((total * media) / 60);
-        est = `⏱️ ${total} ${total === 1 ? 'pessoa' : 'pessoas'}: mais ou menos <b>${minutos < 60 ? `${Math.max(1, minutos)} min` : `${(minutos / 60).toFixed(1).replace('.', ',')} h`}</b>.`;
-      }
+      const n = diasPara(f, total);
+      const minutos = Math.round((total * media) / 60);
+      est = prospeccao || n > 1
+        ? `⏱️ ${total} contatos: mais ou menos <b>${n} ${n === 1 ? 'dia' : 'dias'}</b> (uma mensagem a cada ${textoPerfil({ intervaloMin: mi, intervaloMax: ma }).replace(' entre mensagens', '')}${f.horarioComercial ? ', só das 8h às 20h' : ''}).`
+        : `⏱️ ${total} ${total === 1 ? 'pessoa' : 'pessoas'}: mais ou menos <b>${minutos < 60 ? `${Math.max(1, minutos)} min` : `${(minutos / 60).toFixed(1).replace('.', ',')} h`}</b>.`;
     }
     $('#disp-estimativa').innerHTML = est;
   }
@@ -4661,8 +4677,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   function desenharRevisao() {
     const f = formParaObjeto(form);
     const pf = perfisEnvio.find((x) => x.id === f.perfilEnvio);
-    const mi = Number(f.intMin) || 0;
-    const ma = Math.max(mi, Number(f.intMax) || 0);
+    const { mi, ma } = intervalos(f);
     const itens = escolhidas.map(itemDe).filter(Boolean);
     const r = ultimaPrevia || {};
     const pular = form.elements.pularJaDisparados?.checked;
@@ -4685,11 +4700,12 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       if (!pf) return;
       form.elements.intMin.value = pf.intervaloMin;
       form.elements.intMax.value = pf.intervaloMax;
+      form.elements.intUnidade.value = 's';
       if (prospeccao) ['limiteInicial', 'aumentoDia', 'tetoDia'].forEach((k) => { form.elements[k].value = pf[k]; });
       atualizarRisco();
     };
   });
-  $$('#disp-personalizar input', form).forEach((i) => { i.addEventListener('input', () => { $$('input[name=perfilEnvio]', form).forEach((r) => { r.checked = false; }); }); });
+  $$('#disp-personalizar input, #disp-personalizar select', form).forEach((i) => { i.addEventListener('input', () => { $$('input[name=perfilEnvio]', form).forEach((r) => { r.checked = false; }); }); });
   atualizarPrevia();
   $$('[data-inserir]').forEach((b) => {
     b.onclick = () => {
@@ -4706,14 +4722,21 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const f = formParaObjeto(form);
-    const min = Math.max(prospeccao ? 45 : 10, Number(f.intMin) || 30);
-    const max = Math.max(min, Number(f.intMax) || min);
+    mostrarErro('');
+    const { mi, ma } = intervalos(f);
+    const piso = prospeccao ? 45 : 10;
+    if (mi < piso) { irPara(4); return mostrarErro(`O intervalo mínimo é ${piso} segundos.`); }
+    if (ma > 12 * 3600) { irPara(4); return mostrarErro('O intervalo máximo é 12 horas.'); }
+    const min = mi;
+    const max = ma;
     const agendado = f.quando === 'agendar' && f.agendadoPara ? new Date(f.agendadoPara) : null;
-    if (f.quando === 'agendar' && !agendado) return aviso('Escolha a data e a hora.', true);
+    if (f.quando === 'agendar' && (!agendado || Number.isNaN(agendado.getTime()))) { irPara(4); return mostrarErro('Escolha a data e a hora do agendamento.'); }
+    if (agendado && agendado.getTime() < Date.now() - 60000) { irPara(4); return mostrarErro('A data do agendamento já passou. Escolha uma data futura.'); }
+    if (ultimaPrevia?.maximo && total > ultimaPrevia.maximo) return mostrarErro(`São ${total} contatos e o máximo é ${ultimaPrevia.maximo} por disparo. Divida a lista e faça mais de um disparo.`);
     const minutos = Math.round((total * ((min + max) / 2)) / 60);
     if (prospeccao && !f.listaId && !leadIds.length && !(await confirmar({ titulo: 'Prospecção sem lista?', texto: 'Você não escolheu uma lista de contatos: vai para todos os leads do filtro. Continuar assim?', botao: 'Continuar' }))) return;
     // prospecção: quantos dias leva com o limite por dia (aquecendo)
-    const dias = (() => { if (!prospeccao) return 0; let n = 0, falta = total, lim = Number(f.limiteInicial) || 20; while (falta > 0 && n < 365) { falta -= Math.min(lim, Number(f.tetoDia) || 80); lim += Number(f.aumentoDia) || 0; n++; } return n; })();
+    const dias = diasPara(f, total);
     if (prospeccao) {
       const okP = await confirmar({
         titulo: `Prospecção para ${total} ${total === 1 ? 'contato' : 'contatos'}?`,
@@ -4750,7 +4773,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       });
       aviso(agendado ? 'Disparo agendado!' : 'Disparo iniciado!');
       location.hash = rotaEmpresa(id, `disparos/${d.id}`);
-    } catch (err) { aviso(err.message, true); }
+    } catch (err) { mostrarErro(`Não foi criado: ${err.message}`); }
   };
 }
 
@@ -4878,7 +4901,8 @@ function ligarFiltrosEmpresa(raiz, sel, redesenhar) {
 
 // números de um ritmo de envio, em palavras
 function textoPerfil(pf, prospeccao) {
-  const min = (s) => (s >= 60 ? `${String(Math.round((s / 60) * 10) / 10).replace('.', ',')} min` : `${s} s`);
+  const um = (s) => String(Math.round(s * 10) / 10).replace('.', ',');
+  const min = (s) => (s >= 3600 ? `${um(s / 3600)} h` : s >= 60 ? `${um(s / 60)} min` : `${s} s`);
   return `${min(pf.intervaloMin)} a ${min(pf.intervaloMax)} entre mensagens${prospeccao ? ` · ${pf.limiteInicial} no 1º dia, +${pf.aumentoDia}/dia até ${pf.tetoDia}` : ''}`;
 }
 
@@ -5316,9 +5340,10 @@ async function paginaSegurancaDisparo(id) {
       </div>
       <h2>Intervalo entre mensagens (segundos)</h2>
       <div class="campos">
-        <div class="campo"><label>Mínimo (pelo menos 45)</label><input name="intervaloMin" type="number" min="45" max="900" value="${esc(s.intervaloMin)}"></div>
-        <div class="campo"><label>Máximo</label><input name="intervaloMax" type="number" min="45" max="1800" value="${esc(s.intervaloMax)}"></div>
+        <div class="campo"><label>Mínimo (pelo menos 45)</label><input name="intervaloMin" type="number" min="45" max="43200" value="${esc(s.intervaloMin)}"></div>
+        <div class="campo"><label>Máximo</label><input name="intervaloMax" type="number" min="45" max="43200" value="${esc(s.intervaloMax)}"></div>
       </div>
+      <small>60 = 1 minuto · 3600 = 1 hora · máximo 43200 (12 horas). No Novo disparo dá para escolher direto em minutos ou horas.</small>
       <h2>Freio automático</h2>
       <div class="campos"><div class="campo"><label>Pausar depois de quantos envios seguidos com erro</label><input name="freioErros" type="number" min="2" max="20" value="${esc(s.freioErros)}"></div></div>
       </details>
@@ -5367,6 +5392,7 @@ async function paginaDisparo(id, disparoId) {
   conteudo.innerHTML = cascaDisparos(id, 'lista', `
     <div class="cabecalho"><div><h1>${esc(d.nome)}</h1><p class="sub">${statusDisparo(d)} ${d.agendadoPara && d.status === 'agendado' ? `começa em ${data(d.agendadoPara)}` : ''}</p></div><a class="botao" href="${rotaEmpresa(id, 'disparos')}">← Disparos</a></div>
     ${d.status === 'pausado' && d.motivoPausa ? balao('Disparo pausado', esc(d.motivoPausa), 'aviso') : ''}
+    ${d.status === 'agendado' && d.agendadoPara ? balao(`🕐 Agendado para ${esc(new Date(d.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}`, 'Está tudo certo: começa sozinho nessa hora. Você pode pausar ou cancelar antes, aqui embaixo.', 'ok') : ''}
     ${d.status === 'enviando' && d.aguardandoHorario ? balao('Esperando o horário comercial', 'Os envios continuam sozinhos a partir das 8h.', 'dica') : ''}
     ${d.prospeccao ? balao(`🛡️ Prospecção · hoje ${d.hoje} de ${d.limiteHoje}`, `${d.status === 'enviando' && d.aguardandoAmanha ? '<b>Bateu o limite de hoje</b> — continua sozinho amanhã, com um pouco mais. ' : ''}Limite: ${d.prospeccaoCfg?.limiteInicial} no 1º dia, +${d.prospeccaoCfg?.aumentoDia} por dia, até ${d.prospeccaoCfg?.tetoDia}/dia. Sem WhatsApp (ficaram de fora): <b>${d.semWhatsapp}</b>. Freio: pausa se ${d.prospeccaoCfg?.freioErros} envios seguidos falharem.`, d.aguardandoAmanha ? 'dica' : 'ok') : ''}
     <div class="grade-resumo">
@@ -5388,7 +5414,7 @@ async function paginaDisparo(id, disparoId) {
       </div>
     </div>
     <div class="duas-colunas">
-      <div class="card"><h2>Mensagem</h2><div class="conversa"><div class="msg bot">${esc(d.mensagem)}</div>${d.lembrete ? `<div class="msg bot">🔔 ${esc(d.lembrete.mensagem)}</div>` : ''}</div><p class="rotulo">Intervalo de ${d.intervaloMin} a ${d.intervaloMax} s${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''}${d.personalizar ? ` · 1ª foto com "${esc(d.personalizar.texto)}"` : ''}${d.lembrete ? ` · lembrete ${d.lembrete.dias} ${d.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : ''} · criado por ${esc(d.criadoPor || '—')}</p>
+      <div class="card"><h2>Mensagem</h2><div class="conversa"><div class="msg bot">${esc(d.mensagem)}</div>${d.lembrete ? `<div class="msg bot">🔔 ${esc(d.lembrete.mensagem)}</div>` : ''}</div><p class="rotulo">Intervalo de ${textoPerfil({ intervaloMin: d.intervaloMin, intervaloMax: d.intervaloMax }).replace(' entre mensagens', '')}${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''}${d.personalizar ? ` · 1ª foto com "${esc(d.personalizar.texto)}"` : ''}${d.lembrete ? ` · lembrete ${d.lembrete.dias} ${d.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : ''} · criado por ${esc(d.criadoPor || '—')}</p>
         ${d.roteiro || d.aoResponder ? `<h2 style="margin-top:14px">Quando responderem</h2>${d.roteiro ? `<p style="white-space:pre-wrap">${esc(d.roteiro)}</p>` : ''}${d.aoResponder?.etapa ? `<p class="rotulo">Vai para a etapa <b>${esc(d.aoResponder.etapa)}</b></p>` : ''}${d.aoResponder?.etiquetaId ? `<p class="rotulo">Ganha a etiqueta <b>${esc((empresaAtual?.dados?.etiquetas || []).find((t) => t.id === d.aoResponder.etiquetaId)?.nome || 'escolhida')}</b></p>` : ''}` : ''}</div>
       <div class="card tabela-wrap" style="max-height:480px;overflow:auto">
         <table>

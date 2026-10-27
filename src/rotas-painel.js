@@ -1032,6 +1032,7 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
     pulouJaDisparados: r.filtro.pularJaDisparados,
     nomes: r.destinatarios.slice(0, 8).map((x) => x.nome || `+${x.destino}`),
     primeiroId: r.destinatarios[0]?.leadId || '',
+    maximo: disparos.maxDestinatarios(req.body?.prospeccao === true),
     exemplo: req.body?.mensagem
       ? disparos.montarMensagem(texto(req.body.mensagem, 3000), primeiro || { nome: 'Maria Silva' }, empresa) +
         (req.body?.rodapeSair !== false ? `\n\n${disparos.RODAPE_SAIR}` : '')

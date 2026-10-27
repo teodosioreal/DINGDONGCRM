@@ -29,8 +29,8 @@ function configDa(empresa) {
     limiteInicial: n(c.limiteInicial, PADRAO.limiteInicial, 5, 500),
     aumentoDia: n(c.aumentoDia, PADRAO.aumentoDia, 0, 200),
     tetoDia: n(c.tetoDia, PADRAO.tetoDia, 5, 1000),
-    intervaloMin: n(c.intervaloMin, PADRAO.intervaloMin, INTERVALO_MINIMO_PROSPECCAO, 900),
-    intervaloMax: n(c.intervaloMax, PADRAO.intervaloMax, INTERVALO_MINIMO_PROSPECCAO, 1800),
+    intervaloMin: n(c.intervaloMin, PADRAO.intervaloMin, INTERVALO_MINIMO_PROSPECCAO, 12 * 3600),
+    intervaloMax: n(c.intervaloMax, PADRAO.intervaloMax, INTERVALO_MINIMO_PROSPECCAO, 12 * 3600),
     freioErros: n(c.freioErros, PADRAO.freioErros, 2, 20),
     perfil: ['novo', 'recomendado', 'aquecido', 'personalizado'].includes(c.perfil) ? c.perfil : 'recomendado'
   };

@@ -18,7 +18,10 @@ const midias = require('./midias');
 const whatsapp = require('./whatsapp');
 
 const MAX_DESTINATARIOS = 2000;
+const MAX_DESTINATARIOS_PROSPECCAO = 5000; // listas grandes: saem aos poucos, com limite por dia
+const maxDestinatarios = (prospeccao) => (prospeccao ? MAX_DESTINATARIOS_PROSPECCAO : MAX_DESTINATARIOS);
 const INTERVALO_MINIMO = 8; // segundos
+const INTERVALO_MAXIMO = 12 * 60 * 60; // até 12 h entre uma mensagem e outra
 const HORA_INICIO = 8;
 const HORA_FIM = 20;
 
@@ -180,6 +183,9 @@ async function processarUm(id) {
     salvar();
   }
   if (d.status !== 'enviando') return;
+  // intervalo longo (ex.: de hora em hora): o relógio acorda no máximo a cada 1 h — ainda não é a vez
+  const falta = d.proximoEnvioEm ? new Date(d.proximoEnvioEm).getTime() - Date.now() : 0;
+  if (falta > 1000) return agendar(d, falta);
   const empresa = estado.empresas.find((e) => e.id === d.empresaId);
   if (!empresa) return pausarPorErro(d, 'Empresa não encontrada.');
   if (!whatsapp.configurado(empresa)) return pausarPorErro(d, 'O WhatsApp da empresa não está conectado.');
@@ -359,7 +365,7 @@ function criar(empresa, corpo, usuario) {
   // prospecção: nunca manda de novo para quem já recebeu disparo em massa
   const { filtro, destinatarios, jaDisparados } = destinatariosPara(empresa, prospeccao ? { ...(corpo.filtro || {}), pularJaDisparados: true } : corpo.filtro);
   if (!destinatarios.length) throw erro(jaDisparados && filtro.pularJaDisparados ? 'Todos desse filtro já receberam disparo em massa. Desmarque "Não mandar para quem já recebeu" para mandar de novo.' : 'Nenhum lead com WhatsApp nesse filtro.');
-  if (destinatarios.length > MAX_DESTINATARIOS) throw erro(`No máximo ${MAX_DESTINATARIOS} contatos por disparo. Filtre por etapa ou etiqueta.`);
+  if (destinatarios.length > maxDestinatarios(prospeccao)) throw erro(`Esse disparo tem ${destinatarios.length} contatos e o máximo é ${maxDestinatarios(prospeccao)} por disparo. Divida a lista (ex.: filtre por cidade ou etiqueta) e faça mais de um disparo.`);
   const cfgPros = prospeccao ? require('./prospeccao').configDa(empresa) : null;
   // prospecção: os números da aba Segurança (dá para mudar neste disparo)
   const prosCfg = prospeccao ? require('./prospeccao').configDa({ prospeccao: { ...cfgPros, ...Object.fromEntries(['limiteInicial', 'aumentoDia', 'tetoDia'].filter((k) => corpo[k] !== undefined && corpo[k] !== '').map((k) => [k, corpo[k]])) } }) : null;
@@ -379,8 +385,8 @@ function criar(empresa, corpo, usuario) {
     mensagem,
     midiaIds: pedidos,
     filtro,
-    intervaloMin: Math.min(min, prospeccao ? 900 : 600),
-    intervaloMax: Math.min(max, prospeccao ? 1800 : 900),
+    intervaloMin: Math.min(min, INTERVALO_MAXIMO),
+    intervaloMax: Math.min(max, INTERVALO_MAXIMO),
     ...(prospeccao ? { prospeccao: true, prospeccaoCfg: prosCfg, enviadosPorDia: {}, errosSeguidos: 0 } : {}),
     horarioComercial: corpo.horarioComercial !== false,
     rodapeSair: corpo.rodapeSair !== false,
@@ -641,6 +647,8 @@ function retomarAoIniciar() {
 
 module.exports = {
   RODAPE_SAIR,
+  maxDestinatarios,
+  INTERVALO_MAXIMO,
   horaEmSaoPaulo,
   HORA_INICIO,
   HORA_FIM,
