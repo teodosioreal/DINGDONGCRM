@@ -91,6 +91,9 @@ diagnostico() {
     echo "    Sincronização do celular / chaves (10 dias, erros e avisos, sem números):"
     docker logs "$EVO_C" --since 240h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -iE 'app.?state|sync key|key not found|failed to (sync|decode|find)|resync|server_sync|appStateSync' \
       | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(INFO|WARN|ERROR|VERBOSE|DEBUG|LOG)/\1/' | cut -c1-160 | sort | uniq -c | sort -rn | head -12 | sed 's/^/       /' || true
+    echo "    Instâncias crm-lead* na Evolution (24 h, erros/desconexões, sem números):"
+    docker logs "$EVO_C" --since 24h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -iF "crm-lead" | grep -iE 'error|erro|close|logout|logged|conflict|ban|restrict|forbidden|401|403|428|440|500|503|stream|disconnect|fail' \
+      | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(INFO|WARN|ERROR|VERBOSE|DEBUG|LOG)/\1/' | cut -c1-180 | sort | uniq -c | sort -rn | head -15 | sed 's/^/       /' || true
     echo "    Nível de log da Evolution: $(docker inspect "$EVO_C" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^LOG_(LEVEL|BAILEYS)=' | tr '\n' ' ')"
   fi
   echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"
@@ -103,6 +106,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Uso de IA e movimento em 30 dias (só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto-30d.js 2>&1 | head -n 40 || true
+  echo "    Instâncias na Evolution (estado, desconexão, qual empresa usa; sem chaves nem números):"
+  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" EVOLUTION_API_KEY="$(ler_env EVOLUTION_API_KEY .env)" timeout 40 node deploy/diagnostico-evolution.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
   echo "    Disparos em massa e a IA depois deles (anônimo):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-disparos.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Últimas conversas com mensagem de cliente (por que a IA respondeu ou não; anônimo):"
