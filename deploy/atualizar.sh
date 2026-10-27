@@ -94,6 +94,10 @@ diagnostico() {
     echo "    Instâncias crm-lead* na Evolution (24 h, erros/desconexões, sem números):"
     docker logs "$EVO_C" --since 24h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -iF "crm-lead" | grep -iE 'error|erro|close|logout|logged|conflict|ban|restrict|forbidden|401|403|428|440|500|503|stream|disconnect|fail' \
       | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(INFO|WARN|ERROR|VERBOSE|DEBUG|LOG)/\1/' | cut -c1-180 | sort | uniq -c | sort -rn | head -15 | sed 's/^/       /' || true
+    echo "    Detalhe dos erros das instâncias crm-lead* (6 h; só campos de status/erro, sem texto de mensagem, sem números):"
+    docker logs "$EVO_C" --since 6h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -A14 -iE 'crm-lead.*(ERROR|WARN)|(ERROR|WARN).*crm-lead' \
+      | grep -viE 'conversation|text|caption|body|pushName|name:|message:' | grep -iE 'error|erro|status|reason|code|tag|type|statusCode|message|stack|at |ERROR|WARN' \
+      | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(ERROR|WARN)/\1/' | cut -c1-170 | head -40 | sed 's/^/       /' || true
     echo "    Nível de log da Evolution: $(docker inspect "$EVO_C" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^LOG_(LEVEL|BAILEYS)=' | tr '\n' ' ')"
   fi
   echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"

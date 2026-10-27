@@ -55,6 +55,22 @@ for (const [n, e] of (db.empresas || []).entries()) {
   const primeiroErro = saidas.filter(({ m }) => m.entrega === 'erro').map(({ m }) => m.em).sort()[0];
   console.log(`        saídas 24 h: ${saidas.length} · ${Object.entries(porEntrega).map(([k, v]) => `${k} ${v}`).join(', ') || '-'} · última entregue/lida ${hora(ok)} · 1º erro de entrega ${hora(primeiroErro)} · erro em conversa @lid ${saidas.filter(({ m, lid }) => lid && m.entrega === 'erro').length}`);
   if (errosEnvio.length) console.log(`        motivos de falha: ${[...new Set(errosEnvio)].slice(0, 4).join(' | ')}`);
+  // as últimas que saíram: para que tipo de endereço foram e o que o WhatsApp respondeu
+  const tipoJid = (l) => {
+    const j = String(l.whatsappJid || '');
+    if (/@lid$/.test(j)) return 'id escondido (@lid)';
+    if (/@s\.whatsapp\.net$/.test(j)) return `número ${j.split('@')[0].length} dígitos`;
+    return j ? 'outro' : `sem jid (telefone ${String(l.telefone || '').replace(/\D/g, '').length} díg.)`;
+  };
+  const ultimas = [];
+  for (const l of db.conversas || []) {
+    if (l.empresaId !== e.id) continue;
+    for (const m of l.mensagens || []) if (m.papel !== 'visitante' && m.em > desde) ultimas.push({ l, m });
+  }
+  ultimas.sort((a, b) => (a.m.em < b.m.em ? 1 : -1));
+  for (const { l, m } of ultimas.slice(0, 8)) {
+    console.log(`          saiu ${hora(m.em)} · ${m.papel}${m.disparoId ? ' (disparo)' : ''}${m.midiaCodigo || m.anexo ? ' · mídia' : ''} · para ${tipoJid(l)}${l.lidJid ? ' · conversa também tem @lid' : ''}${l.origem ? ` · lead de ${l.origem}` : ''} · id do WhatsApp ${m.wid ? 'sim' : 'NÃO'} · envio ${m.envio || '-'} · entrega ${m.entrega || 'sem confirmação'}${m.erroEnvio ? ` · erro: ${limpo(m.erroEnvio, 90)}` : ''}`);
+  }
   for (const [i, d] of disparos.slice(0, 4).entries()) {
     const c = {};
     const erros = {};
