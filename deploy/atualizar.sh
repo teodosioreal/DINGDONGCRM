@@ -103,6 +103,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto.js 2>&1 | head -n 40 || true
   echo "    Uso de IA e movimento em 30 dias (só números):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto-30d.js 2>&1 | head -n 40 || true
+  echo "    Disparos em massa e a IA depois deles (anônimo):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-disparos.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Últimas conversas com mensagem de cliente (por que a IA respondeu ou não; anônimo):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-ultimo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 20 || true
   echo "    Meta Ads (anônimo: configuração, código do atendimento, fbclid e o site):"
