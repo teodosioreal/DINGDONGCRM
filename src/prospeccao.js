@@ -2,8 +2,8 @@
 // e as proteções do "modo prospecção" dos disparos.
 //
 // Lista importada (PDF do Google Maps, planilha ou CSV colado): cada contato vira um lead com
-// lead.prospeccao { listaId, empresa, cidade, ramo, endereço, nota, site… }. Telefone fixo fica
-// de fora (a não ser que peça para incluir) e repetidos não entram de novo; a prévia avisa quem
+// lead.prospeccao { listaId, empresa, cidade, ramo, endereço, nota, site… }. Telefone fixo entra
+// (a tela já vem com "Incluir telefone fixo" marcado) e repetidos não entram de novo; a prévia avisa quem
 // já recebeu disparo em massa. Quando alguém responde, cai no atendimento normal.
 //
 // Modo prospecção no disparo: limite por dia com aquecimento (começa baixo e sobe um pouco a
