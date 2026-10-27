@@ -594,8 +594,11 @@ function cancelar(d) {
   salvar();
 }
 
+// apagar um disparo agendado/enviando: para antes (quem não recebeu não recebe mais)
 function apagar(d) {
-  if (['enviando', 'agendado'].includes(d.status)) throw erro('Pause ou cancele o disparo antes de apagar.');
+  clearTimeout(timers.get(d.id));
+  timers.delete(d.id);
+  d.status = 'cancelado';
   estado.disparos = estado.disparos.filter((x) => x.id !== d.id);
   salvar();
 }

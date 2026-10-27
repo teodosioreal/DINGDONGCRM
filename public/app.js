@@ -4344,6 +4344,7 @@ async function paginaDisparos(id, params = new URLSearchParams()) {
       </table>
     </div>` : emp.whatsapp?.configurado ? `<div class="card vazio">${todos.length ? 'Nenhum disparo nesta aba.' : 'Nenhum disparo ainda. Clique em "➕ Novo disparo".'}</div>` : ''}`, abas);
   $$('tr[data-disparo]').forEach((tr) => { tr.onclick = () => { location.hash = rotaEmpresa(id, `disparos/${tr.dataset.disparo}`); }; });
+  clearInterval(atualizador); // a página se redesenha sozinha: um relógio só (antes somava um a cada volta)
   if (todos.some((d) => ['enviando', 'agendado'].includes(d.status))) {
     const aqui = location.hash;
     atualizador = setInterval(() => { if (location.hash === aqui) paginaDisparos(id, params).catch(() => {}); }, 8000);
@@ -5410,7 +5411,7 @@ async function paginaDisparo(id, disparoId) {
         ${['enviando', 'agendado'].includes(d.status) ? '<button type="button" data-acao="pausar">⏸ Pausar</button>' : ''}
         ${d.status === 'pausado' ? '<button type="button" class="primario" data-acao="retomar">▶ Continuar</button>' : ''}
         ${!['concluido', 'cancelado'].includes(d.status) ? '<button type="button" class="perigo" data-acao="cancelar">Cancelar disparo</button>' : ''}
-        ${!['enviando', 'agendado'].includes(d.status) ? '<button type="button" class="perigo" id="apagar-disparo" style="margin-left:auto">Apagar</button>' : ''}
+        <button type="button" class="perigo" id="apagar-disparo" style="margin-left:auto">🗑️ Apagar disparo</button>
       </div>
     </div>
     <div class="duas-colunas">
@@ -5433,12 +5434,14 @@ async function paginaDisparo(id, disparoId) {
     };
   });
   $('#apagar-disparo')?.addEventListener('click', async () => {
-    if (!(await confirmar({ titulo: 'Apagar este disparo?', texto: 'Some só o relatório; as mensagens enviadas continuam nos leads.', botao: 'Apagar', perigo: true }))) return;
+    const ativo = ['enviando', 'agendado', 'pausado'].includes(d.status);
+    if (!(await confirmar({ titulo: 'Apagar este disparo?', texto: `${ativo ? '<p><b>Ele para agora</b>: quem ainda não recebeu não vai receber.</p>' : ''}<p>As mensagens que já saíram continuam nas conversas. Quem já recebeu este disparo continua fora dos próximos disparos de prospecção (o CRM nunca repete).</p><p>Depois é só criar um novo em <b>Novo disparo</b>.</p>`, botao: 'Apagar', perigo: true }))) return;
     try {
       await api(`empresas/${id}/disparos/${disparoId}`, { method: 'DELETE' });
       location.hash = rotaEmpresa(id, 'disparos');
     } catch (err) { aviso(err.message, true); }
   });
+  clearInterval(atualizador); // a página se redesenha sozinha: um relógio só (antes somava um a cada volta)
   if (['enviando', 'agendado'].includes(d.status)) {
     const aqui = location.hash;
     atualizador = setInterval(() => { if (location.hash === aqui) paginaDisparo(id, disparoId).catch(() => {}); }, 6000);
