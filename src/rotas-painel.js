@@ -939,6 +939,37 @@ router.post('/empresas/:id/disparos-listas/pdf', express.raw({ type: 'applicatio
     res.status(400).json({ erro: 'Não consegui ler esse PDF. Se ele for uma foto/escaneado, exporte a planilha em CSV e cole aqui.' });
   }
 });
+// 📄 Arquivo da lista: PDF, CSV ou JSON (ex.: o que o Apify exporta). Separa cada contato e já
+// diz quem é novo, quem já está no CRM e quem já recebeu disparo. Ainda não importa nada.
+router.post('/empresas/:id/disparos-listas/arquivo', express.raw({ type: 'application/octet-stream', limit: 40 * 1024 * 1024 }), async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ erro: 'Envie o arquivo da lista.' });
+  const nome = String(req.query.nome || '');
+  const fixos = req.query.fixos === '1';
+  try {
+    let r;
+    if (req.body.subarray(0, 5).toString('latin1') === '%PDF-') {
+      const pdf = await require('./leitor-pdf-contatos').lerContatosDoPdf(req.body);
+      r = { ...pdf, formato: 'PDF' };
+    } else {
+      if (/\.(xlsx?|ods)$/i.test(nome) || req.body.subarray(0, 2).toString('latin1') === 'PK') return res.status(400).json({ erro: 'Arquivo do Excel (.xlsx) ainda não: no Apify (ou no Excel) baixe/salve como CSV ou JSON.' });
+      r = require('./leitor-arquivo-contatos').lerContatosDoArquivo(req.body, nome);
+    }
+    if (!r.contatos.length) return res.status(400).json({ erro: `Não achei contatos nesse ${r.formato || 'arquivo'}. Precisa ter uma coluna de telefone (ex.: phone, telefone, celular).` });
+    res.json({ ...r, contatos: prospeccao.analisar(empresa, r.contatos, { incluirFixos: fixos }) });
+  } catch (err) {
+    console.error('[arquivo contatos]', err.message);
+    res.status(400).json({ erro: err.status === 400 ? err.message : 'Não consegui ler esse arquivo. Confira se é PDF, CSV ou JSON.' });
+  }
+});
+// texto colado da planilha: o mesmo leitor do CSV
+router.post('/empresas/:id/disparos-listas/ler-texto', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const r = require('./leitor-arquivo-contatos').lerContatosDoArquivo(String(req.body?.texto || '').slice(0, 5 * 1024 * 1024), '');
+  res.json({ ...r, contatos: prospeccao.analisar(empresa, r.contatos, { incluirFixos: req.body?.incluirFixos === true }) });
+});
 router.post('/empresas/:id/disparos-listas/analisar', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

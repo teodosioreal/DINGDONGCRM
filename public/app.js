@@ -4803,29 +4803,6 @@ function chipsDaAnalise(a) {
 }
 
 // 📋 Listas de contatos (aba Disparos): importar PDF/planilha/CSV e ver as listas
-// Lê a planilha colada (Excel/Google: separada por tab) ou CSV (; ou ,). Com cabeçalho, acha as
-// colunas pelo nome; sem cabeçalho, acha o telefone pelos números e o resto vira nome/empresa.
-function lerPlanilhaContatos(texto) {
-  const linhas = String(texto || '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
-  if (!linhas.length) return [];
-  const sep = [/\t/, /;/, /,/].find((re) => linhas.slice(0, 5).some((l) => re.test(l))) || /\t/;
-  const celulas = (l) => l.split(sep).map((x) => x.trim().replace(/^"|"$/g, '').trim());
-  const sem = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const COLUNAS = { telefone: /^(telefone|celular|whats|whatsapp|fone|numero|n[uú]mero|phone|contato)/, nome: /^(nome|responsavel|contato nome|name)/, empresa: /^(empresa|razao|nome fantasia|fantasia|estabelecimento|loja|negocio|company|title)/, cidade: /^(cidade|municipio|city|localidade)/, ramo: /^(ramo|segmento|categoria|atividade|tipo|nicho|category)/, endereco: /^(endereco|rua|logradouro|address|street)/, bairro: /^(bairro|neighborhood)/, estado: /^(estado|uf|state)$/, site: /^(site|website)/, email: /^(e-?mail)/, nota: /^(nota|avaliacao|rating|totalscore)$/, avaliacoes: /^(avaliacoes|reviews|reviewscount)$/ };
-  const cab = celulas(linhas[0]).map(sem);
-  const mapa = {};
-  cab.forEach((c, i) => { for (const [k, re] of Object.entries(COLUNAS)) if (mapa[k] === undefined && re.test(c)) { mapa[k] = i; break; } });
-  const temCabecalho = mapa.telefone !== undefined;
-  const ehTel = (s) => String(s).replace(/\D/g, '').length >= 10;
-  return (temCabecalho ? linhas.slice(1) : linhas).map((l) => {
-    const c = celulas(l);
-    if (temCabecalho) return Object.fromEntries(Object.keys(COLUNAS).map((k) => [k, mapa[k] === undefined ? '' : c[mapa[k]] || '']));
-    const iTel = c.findIndex(ehTel);
-    const resto = c.filter((_, i) => i !== iTel);
-    return { telefone: iTel >= 0 ? c[iTel] : '', nome: resto[0] || '', empresa: resto[1] || '', cidade: resto[2] || '', ramo: resto[3] || '' };
-  }).filter((x) => ehTel(x.telefone));
-}
-
 async function paginaListasContatos(id, params = new URLSearchParams()) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -4850,12 +4827,12 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
   const htmlImportar = `
     <div class="card">
       <h2 style="margin-top:0">⬆️ Importar lista de contatos</h2>
-      ${balao('Como trazer a lista', 'Envie o <b>PDF</b> com a tabela de empresas (ex.: o do Google Maps Scraper) e o CRM separa cada empresa com nome, telefone, nota, endereço, cidade e site. Ou copie da planilha (Excel/Google Planilhas) e cole aqui <b>com a linha de títulos</b>, ou escolha um <b>.csv</b>. Antes de importar você vê cada contato separado e o aviso de quem <b>já recebeu disparo</b>.')}
+      ${balao('Como trazer a lista', 'Envie o arquivo: <b>CSV</b>, <b>JSON</b> ou <b>PDF</b> (ex.: o que você baixa no Apify / Google Maps Scraper). O CRM separa cada empresa com nome, telefone, nota, endereço, cidade, site e categorias. Também dá para copiar da planilha e colar <b>com a linha de títulos</b>. Antes de importar você vê cada contato separado e o aviso de quem <b>já recebeu disparo</b>. <i>Excel (.xlsx): baixe como CSV.</i>')}
       <div class="campos">
         <div class="campo"><label>Nome da lista *</label><input id="lista-nome" maxlength="80" placeholder="Ex.: Restaurantes de Miguel Pereira"></div>
         <div class="campo"><label>Etiqueta (opcional)</label><select id="lista-etiqueta"><option value="">Nenhuma</option>${(emp.etiquetas || []).map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></div>
       </div>
-      <div class="acoes" style="margin-top:10px"><label class="botao primario">📄 Enviar PDF<input type="file" id="lista-pdf" hidden accept="application/pdf,.pdf"></label><label class="botao">📑 Escolher arquivo .csv<input type="file" id="lista-arquivo" hidden accept=".csv,.txt,text/csv,text/plain"></label></div>
+      <div class="acoes" style="margin-top:10px"><label class="botao primario">📄 Enviar arquivo (CSV, JSON ou PDF)<input type="file" id="lista-arquivo" hidden accept=".csv,.json,.jsonl,.txt,.pdf,.tsv,text/csv,application/json,text/plain,application/pdf"></label></div>
       <details style="margin-top:10px" id="lista-colar"><summary>📋 Ou colar a planilha</summary>
         <textarea id="lista-texto" style="margin-top:8px;min-height:160px;font-family:ui-monospace,monospace;font-size:13px;width:100%" placeholder="Empresa	Nome	Telefone	Cidade	Ramo&#10;Lava Rápido Sol	João	(21) 98888-0001	Niterói	lava-jato"></textarea>
       </details>
@@ -4916,51 +4893,36 @@ async function paginaListasContatos(id, params = new URLSearchParams()) {
     ligarFiltrosEmpresa(box, selEmp, desenhar);
   };
   const analisarTexto = async () => {
-    const lidos = lerPlanilhaContatos($('#lista-texto').value);
+    const txt = $('#lista-texto').value;
     origem = 'texto colado';
-    if (!lidos.length) {
-      contatos = [];
-      desenhar();
-      if ($('#lista-texto').value.trim()) $('#lista-previa').innerHTML = '<p class="rotulo texto-erro">Não achei telefones. Confira se tem a coluna de telefone (com DDD).</p>';
-      return;
-    }
-    const r = await api(`empresas/${id}/disparos-listas/analisar`, { method: 'POST', body: { contatos: lidos, incluirFixos: $('#lista-fixos').checked } });
+    if (!txt.trim()) { contatos = []; desenhar(); return; }
+    const r = await api(`empresas/${id}/disparos-listas/ler-texto`, { method: 'POST', body: { texto: txt, incluirFixos: $('#lista-fixos').checked } });
     contatos = r.contatos;
     desenhar();
+    if (!contatos.length) $('#lista-previa').innerHTML = '<p class="rotulo texto-erro">Não achei telefones. Confira se tem a coluna de telefone (com DDD).</p>';
   };
-  let pdfAtual = null;
-  const lerPdf = async (arq) => {
-    $('#lista-previa').innerHTML = '<p class="rotulo">📄 Lendo o PDF e separando as empresas…</p>';
-    const r = await fetch(`api/empresas/${id}/disparos-listas/pdf${$('#lista-fixos').checked ? '?fixos=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arq });
+  // arquivo: PDF, CSV ou JSON — o servidor lê e já diz quem é novo / já recebeu disparo
+  let arquivoAtual = null;
+  const lerArquivo = async (arq) => {
+    $('#lista-previa').innerHTML = `<p class="rotulo">📄 Lendo ${esc(arq.name)} e separando os contatos…</p>`;
+    const r = await fetch(`api/empresas/${id}/disparos-listas/arquivo?nome=${encodeURIComponent(arq.name)}${$('#lista-fixos').checked ? '&fixos=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: arq });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.erro || 'Não consegui ler o PDF.');
+    if (!r.ok) throw new Error(j.erro || (r.status === 413 ? 'O arquivo é grande demais (máximo 40 MB).' : 'Não consegui ler o arquivo.'));
     contatos = j.contatos;
-    origem = `PDF (${j.paginas} página${j.paginas === 1 ? '' : 's'})`;
+    origem = j.formato === 'PDF' ? `PDF (${j.paginas} página${j.paginas === 1 ? '' : 's'})` : `${j.formato || 'arquivo'} ${esc(arq.name)}`;
     desenhar();
   };
   let espera = null;
-  $('#lista-texto').addEventListener('input', () => { pdfAtual = null; clearTimeout(espera); espera = setTimeout(() => analisarTexto().catch((err) => aviso(err.message, true)), 400); });
-  $('#lista-fixos').onchange = () => (pdfAtual ? lerPdf(pdfAtual) : analisarTexto()).catch((err) => aviso(err.message, true));
-  $('#lista-pdf').onchange = async (e) => {
-    const arq = e.target.files[0];
-    e.target.value = '';
-    if (!arq) return;
-    if (arq.size > 15 * 1024 * 1024) return aviso('O PDF tem mais de 15 MB.', true);
-    pdfAtual = arq;
-    if (!$('#lista-nome').value) $('#lista-nome').value = arq.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').slice(0, 80);
-    try { await lerPdf(arq); } catch (err) { $('#lista-previa').innerHTML = `<p class="texto-erro">${esc(err.message)}</p>`; contatos = []; $('#lista-importar').disabled = true; }
-  };
+  $('#lista-texto').addEventListener('input', () => { arquivoAtual = null; clearTimeout(espera); espera = setTimeout(() => analisarTexto().catch((err) => aviso(err.message, true)), 400); });
+  $('#lista-fixos').onchange = () => (arquivoAtual ? lerArquivo(arquivoAtual) : analisarTexto()).catch((err) => aviso(err.message, true));
   $('#lista-arquivo').onchange = async (e) => {
     const arq = e.target.files[0];
     e.target.value = '';
     if (!arq) return;
-    let txt = await arq.text();
-    if (/�/.test(txt)) { const buf = await arq.arrayBuffer(); txt = new TextDecoder('windows-1252').decode(buf); } // CSV do Excel antigo
-    pdfAtual = null;
-    $('#lista-colar').open = true;
-    $('#lista-texto').value = txt;
-    if (!$('#lista-nome').value) $('#lista-nome').value = arq.name.replace(/\.[^.]+$/, '').slice(0, 80);
-    analisarTexto().catch((err) => aviso(err.message, true));
+    if (arq.size > 40 * 1024 * 1024) return aviso('O arquivo tem mais de 40 MB. No Apify, baixe sem as avaliações (reviews) ou em partes.', true);
+    arquivoAtual = arq;
+    if (!$('#lista-nome').value) $('#lista-nome').value = arq.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').slice(0, 80);
+    try { await lerArquivo(arq); } catch (err) { $('#lista-previa').innerHTML = `<p class="texto-erro">${esc(err.message)}</p>`; contatos = []; $('#lista-importar').disabled = true; }
   };
   $('#lista-importar').onclick = async (e) => {
     const nome = $('#lista-nome').value.trim();

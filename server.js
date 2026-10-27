@@ -39,6 +39,7 @@ const pastaPublica = path.join(__dirname, 'public');
 
 // webhook do WhatsApp: o histórico que chega ao reconectar pode ser grande
 base.use('/api/public/whatsapp', express.json({ limit: '25mb' }));
+base.use('/api/empresas/:id/disparos-listas', express.json({ limit: '20mb' })); // listas de contatos grandes (milhares de empresas)
 base.use(express.json({ limit: '200kb' }));
 
 // Widget que os sites incluem: <script src=".../crm/chat.js" data-bot="...">
