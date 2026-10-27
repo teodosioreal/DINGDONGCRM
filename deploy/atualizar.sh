@@ -98,6 +98,13 @@ diagnostico() {
     docker logs "$EVO_C" --since 6h 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -A14 -iE 'crm-lead.*(ERROR|WARN)|(ERROR|WARN).*crm-lead' \
       | grep -viE 'conversation|text|caption|body|pushName|name:|message:' | grep -iE 'error|erro|status|reason|code|tag|type|statusCode|message|stack|at |ERROR|WARN' \
       | sed -E 's/[0-9]{6,}/[núm]/g; s/^.*(ERROR|WARN)/\1/' | cut -c1-170 | head -40 | sed 's/^/       /' || true
+    echo "    Servidor da Evolution: $(docker ps --filter "name=$EVO_C" --format 'no ar há {{.RunningFor}} · {{.Status}}' 2>/dev/null) · reinícios $(docker inspect "$EVO_C" --format '{{.RestartCount}}' 2>/dev/null) · $(docker stats --no-stream --format 'CPU {{.CPUPerc}} · memória {{.MemUsage}} ({{.MemPerc}})' "$EVO_C" 2>/dev/null)"
+    echo "    Máquina: $(uptime | sed -E 's/.*load average/carga/') · memória livre $(free -m 2>/dev/null | awk '/Mem:/ {print $7" MB de "$2" MB"}') · disco $(df -h / 2>/dev/null | awk 'NR==2 {print $5" usado"}')"
+    echo "    \"Connection Closed\" na Evolution por hora (12 h, todas as instâncias):"
+    docker logs "$EVO_C" --since 12h --timestamps 2>&1 | grep -F "Connection Closed" | cut -c1-13 | sort | uniq -c | sed 's/^/       /' || true
+    echo "    Mudanças de conexão das instâncias (12 h, sem números):"
+    docker logs "$EVO_C" --since 12h --timestamps 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -E 'Instance "[^"]+" - |connection.*(close|open)|statusReason|CONNECTION_UPDATE' \
+      | sed -E 's/[0-9]{6,}/[núm]/g; s/^([0-9T:-]{16})[^ ]* .*(Instance "[^"]+" - [A-Z_]+|connection[^,]{0,60}|statusReason[^,]{0,30}).*/\1 \2/' | cut -c1-120 | tail -25 | sed 's/^/       /' || true
     echo "    Nível de log da Evolution: $(docker inspect "$EVO_C" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^LOG_(LEVEL|BAILEYS)=' | tr '\n' ' ')"
   fi
   echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"
@@ -112,6 +119,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto-30d.js 2>&1 | head -n 40 || true
   echo "    Instâncias na Evolution (estado, desconexão, qual empresa usa; sem chaves nem números):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" EVOLUTION_API_KEY="$(ler_env EVOLUTION_API_KEY .env)" timeout 40 node deploy/diagnostico-evolution.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
+  echo "    Últimas mensagens que saíram por empresa (3 h, sem texto):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-saidas.js 2>&1 | head -n 40 || true
   echo "    Disparos em massa e a IA depois deles (anônimo):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 30 node deploy/diagnostico-disparos.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Últimas conversas com mensagem de cliente (por que a IA respondeu ou não; anônimo):"
