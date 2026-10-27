@@ -1869,6 +1869,7 @@ html.dark details.chat-meta:not([open]) { background: transparent; }
 .filtros-empresa { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
 .filtros-empresa select { width: auto; min-width: 0; flex: 1 1 150px; max-width: 220px; padding: 6px 8px; font-size: 13px; }
 .risco-caixa { margin-top: 12px; border: 1px solid var(--borda); border-radius: var(--raio); padding: 10px 12px; }
+.caixa-perso { margin-top: 12px; border: 1px dashed var(--borda); border-radius: var(--raio); padding: 10px 12px; }
 .risco-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
 .risco-topo .risco-selo { margin: 0; padding: 3px 10px; font-size: 13px; }
 .risco-vazio { background: var(--hover); color: var(--suave); }
