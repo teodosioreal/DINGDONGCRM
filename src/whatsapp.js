@@ -520,6 +520,7 @@ function destinoDe(jid) {
 
 // Destino de um lead: o JID do WhatsApp; senão o telefone que ele deixou
 function destinoDoLead(lead) {
+  if (lead.destinoPreferido) return destinoDe(lead.destinoPreferido); // o endereço que o WhatsApp aceitou (reenvio)
   if (lead.whatsappJid) return destinoDe(lead.whatsappJid);
   const n = numeroWhatsapp(lead.telefone);
   return n.length >= 10 ? n : '';
@@ -1598,8 +1599,14 @@ function receberStatusEntrega(empresa, dados) {
       leads.guardarStatusEntrega(wid, entrega); // a mensagem ainda vai ser salva
       continue;
     }
+    // o reenvio pelo outro endereço chegou: as próximas mensagens desta conversa vão por ele
+    if (m.reenvio?.wid === wid && ['servidor', 'entregue', 'lida'].includes(entrega) && lead.destinoPreferido !== m.reenvio.para) {
+      lead.destinoPreferido = m.reenvio.para;
+      mudou = true;
+    }
     if (!leads.subirEntrega(m, entrega)) continue;
     mudou = true;
+    if (entrega === 'erro') reenviarPeloOutroEndereco(empresa, lead, m).catch((err) => console.error(`[whatsapp ${lead.id}] reenvio pelo outro endereço:`, err.message));
     if (entrega === 'erro') {
       // o WhatsApp às vezes devolve erro e aceita a mesma mensagem segundos depois (comum com
       // contato de id escondido @lid): só avisa se continuar com erro depois de 2 minutos
@@ -1612,6 +1619,30 @@ function receberStatusEntrega(empresa, dados) {
     }
   }
   if (mudou) salvar();
+}
+
+// O WhatsApp recusou (status ERRO) uma mensagem de texto numa conversa que tem os dois endereços
+// (o número e o id escondido @lid): manda de novo, uma vez só, pelo outro endereço. Se chegar,
+// as próximas mensagens da conversa já vão por ele (destinoPreferido).
+async function reenviarPeloOutroEndereco(empresa, lead, m) {
+  if (!lead || m.reenvio || m.papel === 'visitante' || m.anexo || m.midiaId || m.midiaCodigo || !m.texto || /\n\[mídia: /.test(m.texto)) return false;
+  if ([m.wid, ...(m.wids || [])].filter(Boolean).length > 1) return false; // resposta em várias partes: reenviar tudo duplicaria
+  if (Date.now() - new Date(m.em).getTime() > 15 * 60 * 1000) return false;
+  const usado = lead.destinoPreferido || lead.whatsappJid || '';
+  const outro = [lead.lidJid, lead.whatsappJid, numeroWhatsapp(lead.telefone)].map((x) => String(x || '')).find((x) => x && destinoDe(x) !== destinoDe(usado) && (x.includes('@') || x.length >= 10));
+  if (!outro) return false;
+  m.reenvio = { para: outro, em: agora() };
+  salvar();
+  esperarEco(outro, { texto: m.texto });
+  const r = await evolution(empresa, 'POST', '/message/sendText/{instancia}', { number: destinoDe(outro), text: m.texto });
+  lembrarEnvio(r);
+  if (r?.key?.id) {
+    m.reenvio.wid = r.key.id;
+    m.wids = [...(m.wids || []), r.key.id];
+  }
+  console.log(`[whatsapp ${lead.id}] o WhatsApp recusou a mensagem; reenviada pelo outro endereço (${/@lid$/.test(outro) ? 'id escondido' : 'número'})`);
+  salvar();
+  return true;
 }
 
 // Rede de segurança das confirmações: mensagem que saiu e ficou "aguardando" (o aviso do
@@ -2348,6 +2379,7 @@ module.exports = {
   enviarTexto,
   enviarMidia,
   destinoDoLead,
+  receberStatusEntrega, // (testes)
   enviarPelaEquipe,
   enviarAnexoPorUrl,
   pausarPorMensagemManual,
