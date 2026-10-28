@@ -1945,3 +1945,15 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .ranking-barra span { display: block; height: 100%; background: var(--ok-texto); border-radius: 99px; }
 .ranking-acoes { display: flex; gap: 4px; }
 .editor-simples .campo { margin-bottom: 10px; }
+
+/* 🎯 campanhas */
+.campanhas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.campanha { display: flex; flex-direction: column; gap: 10px; }
+.campanha-topo { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.campanha-nome { font-size: 16px; overflow-wrap: anywhere; }
+.campanha-itens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.campanha-itens li { overflow-wrap: anywhere; }
+.campanha-numeros { font-size: 14px; }
+.campanha .acoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.escolha-campanha { display: block; text-decoration: none; color: inherit; margin-bottom: 14px; }
+.escolha-campanha:hover { border-color: var(--texto); }

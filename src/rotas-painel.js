@@ -1056,6 +1056,27 @@ router.post('/empresas/:id/disparos-mensagens', rotaMensagem((e, req) => { dispa
 router.put('/empresas/:id/disparos-mensagens/:msgId', rotaMensagem((e, req) => { disparos.salvarMensagem(e, req.body || {}, req.params.msgId); return null; }));
 router.delete('/empresas/:id/disparos-mensagens/:msgId', rotaMensagem((e, req) => { disparos.apagarMensagem(e, req.params.msgId); return null; }));
 
+// 🎯 Campanhas: a configuração do disparo guardada (sem a lista); dispara escolhendo a lista depois
+const rotaCampanha = (fn) => (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const r = fn(empresa, req);
+    res.json(r ?? { campanhas: disparos.campanhasComNumeros(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+};
+router.get('/empresas/:id/disparos-campanhas', rotaCampanha(() => null));
+router.get('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => {
+  const c = disparos.campanhasDa(e).find((x) => x.id === req.params.cid);
+  if (!c) throw Object.assign(new Error('Campanha não encontrada.'), { status: 404 });
+  return c;
+}));
+router.post('/empresas/:id/disparos-campanhas', rotaCampanha((e, req) => disparos.salvarCampanha(e, req.body || {})));
+router.put('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => disparos.salvarCampanha(e, req.body || {}, req.params.cid)));
+router.delete('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => { disparos.apagarCampanha(e, req.params.cid); return null; }));
+
 // 🖼️ Prévia da foto com o nome do contato escrito (o disparo gera uma assim para cada pessoa)
 router.get('/empresas/:id/disparos/previa-imagem', async (req, res) => {
   const empresa = acharEmpresa(req, res);
