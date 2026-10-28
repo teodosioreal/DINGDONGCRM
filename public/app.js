@@ -4315,6 +4315,68 @@ function cascaDisparos(id, ativo, html, abas = null) {
   return `<div class="disp-casca"><nav class="disp-menu" aria-label="Disparos em massa">${menu}</nav><div class="disp-corpo">${topo}${html}</div></div>`;
 }
 
+// <input type="datetime-local"> usa a hora local sem fuso: "2026-10-29T09:00"
+function paraDatetimeLocal(dt) {
+  const z = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${z(dt.getMonth() + 1)}-${z(dt.getDate())}T${z(dt.getHours())}:${z(dt.getMinutes())}`;
+}
+function sugestaoDeHorario(horarioComercial = true) {
+  const t = new Date(Date.now() + 3600000);
+  t.setMinutes(0, 0, 0);
+  if (horarioComercial && (t.getHours() >= 20 || t.getHours() < 8)) {
+    if (t.getHours() >= 20) t.setDate(t.getDate() + 1);
+    t.setHours(8);
+  }
+  return t;
+}
+// "hoje 14:30 · em 12 min" / "amanhã 08:00" / "30/10 08:00"
+function quandoEnvio(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso);
+  const hora = t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const hoje = new Date();
+  const amanha = new Date(Date.now() + 864e5);
+  const dia = t.toDateString() === hoje.toDateString() ? 'hoje' : t.toDateString() === amanha.toDateString() ? 'amanhã' : t.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const min = Math.round((t - Date.now()) / 60000);
+  const falta = min <= 0 ? 'agora' : min < 60 ? `em ${min} min` : min < 24 * 60 ? `em ${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}` : '';
+  return `${dia} ${hora}${falta ? ` <span class="rotulo">· ${falta}</span>` : ''}`;
+}
+// ⏭️ tabela da fila (previsão): próximos contatos e a hora que deve sair cada um
+function tabelaFila(itens, { comDisparo = false, id } = {}) {
+  return `<div class="tabela-wrap"><table class="fila-envios"><thead><tr><th>#</th><th>Previsto</th><th>Contato</th>${comDisparo ? '<th class="esconde-mobile">Disparo</th>' : ''}</tr></thead><tbody>${itens.map((x, i) => `<tr><td class="rotulo">${i + 1}</td><td style="white-space:nowrap">${x.em ? quandoEnvio(x.em) : '<span class="etiqueta">⏸ pausado</span>'}</td><td><a href="#/leads/${esc(x.leadId)}">${esc(x.nome || 'Lead')}</a>${x.versao ? ` <span class="etiqueta">versão ${esc(x.versao)}</span>` : ''}${comDisparo ? `<span class="so-mobile rotulo"><br>${esc(x.disparo)}</span>` : ''}</td>${comDisparo ? `<td class="esconde-mobile"><a href="${rotaEmpresa(id, `disparos/${x.disparoId}`)}">${esc(x.disparo)}</a></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+}
+
+// 🕐 mudar a hora do 1º envio de um disparo já criado (ou de quando continua)
+function modalHoraDisparo(id, d, depois) {
+  const atual = d.status === 'agendado' && d.agendadoPara ? new Date(d.agendadoPara) : sugestaoDeHorario(d.horarioComercial);
+  const fechar = abrirModal(`
+    <h2>🕐 Quando começa</h2>
+    <div class="texto-modal"><p>Escolha a data e a hora do ${d.enviado ? 'próximo envio' : '1º envio'}. Os outros saem em seguida, com o intervalo do disparo${d.horarioComercial ? ', só das 8h às 20h' : ''}.</p>
+      <div class="campo"><label>Data e hora</label><input type="datetime-local" id="nova-hora" value="${paraDatetimeLocal(atual)}" min="${paraDatetimeLocal(new Date())}"></div>
+      <p class="erro-caixa" id="erro-hora" hidden></p></div>
+    <div class="acoes"><button type="button" class="primario" id="salvar-hora">🕐 Agendar</button><button type="button" id="agora-hora">▶ Começar agora</button><button type="button" data-fechar>Voltar</button></div>`, (m) => {
+    const enviar = async (botao, valor) => {
+      const err = $('#erro-hora', m);
+      err.hidden = true;
+      let iso = null;
+      if (valor !== null) {
+        const t = new Date(valor);
+        if (!valor || Number.isNaN(t.getTime())) { err.textContent = 'Escolha a data e a hora.'; err.hidden = false; return; }
+        if (t.getTime() < Date.now() - 60000) { err.textContent = 'Esse horário já passou. Escolha um daqui para frente.'; err.hidden = false; return; }
+        iso = t.toISOString();
+      }
+      try {
+        await comEspera(botao, () => api(`empresas/${id}/disparos/${d.id}/agendamento`, { method: 'PUT', body: { agendadoPara: iso } }));
+        fechar();
+        aviso(iso ? `Agendado para ${new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Começou!');
+        depois();
+      } catch (e) { err.textContent = e.message; err.hidden = false; }
+    };
+    $('#salvar-hora', m).onclick = (e) => enviar(e.currentTarget, $('#nova-hora', m).value);
+    $('#agora-hora', m).onclick = (e) => enviar(e.currentTarget, null);
+  });
+}
+
 async function paginaDisparos(id, params = new URLSearchParams()) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
@@ -4323,12 +4385,15 @@ async function paginaDisparos(id, params = new URLSearchParams()) {
   const NA_ABA = { todos: () => true, andamento: (d) => ['enviando', 'pausado'].includes(d.status), agendados: (d) => d.status === 'agendado', concluidos: (d) => ['concluido', 'cancelado'].includes(d.status) };
   const lista = todos.filter(NA_ABA[aba]);
   const conta = (k) => todos.filter(NA_ABA[k]).length;
+  // ⏭️ fila de todos os disparos ativos juntos (os pausados não entram: só saem quando continuar)
+  const fila = todos.filter((d) => ['enviando', 'agendado'].includes(d.status)).flatMap((d) => (d.proximos || []).filter((x) => x.em).map((x) => ({ ...x, disparo: d.nome, disparoId: d.id }))).sort((a, b) => (a.em < b.em ? -1 : 1)).slice(0, 10);
   const abas = [['todos', 'Todos'], ['andamento', 'Em andamento'], ['agendados', 'Agendados'], ['concluidos', 'Concluídos']].map(([k, nome]) => [`${rotaEmpresa(id, 'disparos')}${k === 'todos' ? '' : `?aba=${k}`}`, `${nome} <span class="rotulo">${conta(k)}</span>`, k === aba]);
   if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
   conteudo.innerHTML = cascaDisparos(id, 'lista', `
     <div class="cabecalho"><div><h1>Disparos em massa</h1><p class="sub">Mande uma mensagem pelo WhatsApp para vários leads de uma vez</p></div>${emp.whatsapp?.configurado ? `<a class="botao primario" href="${rotaEmpresa(id, 'disparos/novo')}">+ Novo disparo</a>` : ''}</div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `Os disparos saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
     ${balao('Quando o cliente responde, a IA assume', 'Quem responder o disparo cai no atendimento normal: a IA do WhatsApp continua a conversa (se estiver ligada) e o lead aparece em Leads. Os envios saem <b>um por vez, com intervalos</b>, para o WhatsApp não bloquear o número.')}
+    ${fila.length ? `<div class="card"><h2 style="margin-top:0">⏭️ Próximos ${fila.length} envios <span class="rotulo">(previsão · atualiza sozinho)</span></h2>${tabelaFila(fila, { comDisparo: true, id })}<p class="rotulo" style="margin:8px 0 0">O horário é uma previsão: o intervalo entre mensagens é sorteado e quem não tem WhatsApp sai da fila.</p></div>` : ''}
     ${lista.length ? `
     <div class="card tabela-wrap">
       <table>
@@ -4859,7 +4924,15 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       agendarPrevia();
     };
   });
-  form.elements.quando.onchange = (e) => { $('#campo-agenda').hidden = e.target.value !== 'agendar'; };
+  form.elements.quando.onchange = (e) => {
+    const agendar = e.target.value === 'agendar';
+    $('#campo-agenda').hidden = !agendar;
+    const campo = form.elements.agendadoPara;
+    campo.min = paraDatetimeLocal(new Date());
+    // já vem preenchido (próxima hora cheia; de noite, 8h do dia seguinte): no celular o campo vazio confunde
+    if (agendar && !campo.value) campo.value = paraDatetimeLocal(sugestaoDeHorario(form.elements.horarioComercial?.checked !== false));
+    if (agendar) campo.focus();
+  };
   $('#limpar-escolha')?.addEventListener('click', (e) => { e.preventDefault(); paginaNovoDisparo(id, new URLSearchParams([['campanha', campanhaPedida]])); });
 
   // tudo do disparo menos quem recebe (é o que a campanha guarda)
@@ -5749,14 +5822,16 @@ async function paginaDisparo(id, disparoId) {
     </div>
     <div class="card">
       ${barraProgresso(d)}
-      <p class="rotulo" style="margin:8px 0 0">${d.proximoEnvioEm && d.status === 'enviando' ? `Próximo envio às ${new Date(d.proximoEnvioEm).toLocaleTimeString('pt-BR')}` : ''}</p>
+      <p class="rotulo" style="margin:8px 0 0">${d.proximos?.[0]?.em ? `Próximo envio: ${quandoEnvio(d.proximos[0].em)}` : ''}</p>
       <div class="acoes">
+        ${['enviando', 'agendado', 'pausado'].includes(d.status) && d.pendente ? `<button type="button" id="mudar-hora">🕐 ${d.status === 'agendado' ? 'Mudar horário' : 'Agendar horário'}</button>` : ''}
         ${['enviando', 'agendado'].includes(d.status) ? '<button type="button" data-acao="pausar">⏸ Pausar</button>' : ''}
         ${d.status === 'pausado' ? '<button type="button" class="primario" data-acao="retomar">▶ Continuar</button>' : ''}
         ${!['concluido', 'cancelado'].includes(d.status) ? '<button type="button" class="perigo" data-acao="cancelar">Cancelar disparo</button>' : ''}
         <button type="button" class="perigo" id="apagar-disparo" style="margin-left:auto">🗑️ Apagar disparo</button>
       </div>
     </div>
+    ${d.proximos?.length ? `<div class="card"><h2 style="margin-top:0">⏭️ Próximos ${d.proximos.length} envios <span class="rotulo">(previsão${['enviando', 'agendado'].includes(d.status) ? ' · atualiza sozinho' : ''})</span></h2>${d.status === 'pausado' ? '<p class="rotulo">Pausado: estes são os próximos da fila. Saem quando você clicar em ▶ Continuar ou agendar um horário.</p>' : ''}${tabelaFila(d.proximos)}<p class="rotulo" style="margin:8px 0 0">Faltam <b>${d.pendente}</b> na fila. O horário é uma previsão: o intervalo entre mensagens é sorteado${d.prospeccao ? ', o limite do dia joga o resto para o dia seguinte' : ''} e quem não tem WhatsApp sai da fila.</p></div>` : ''}
     ${d.porVersao ? (() => {
       const lider = d.porVersao.every((v) => v.enviados >= 10) ? d.porVersao.reduce((x, y) => (taxaMsg(y) > taxaMsg(x) ? y : x)) : null;
       return `<div class="card"><h2 style="margin-top:0">🔁 Qual versão faz mais gente responder</h2><div class="ranking-msgs">${d.porVersao.map((v) => `<div class="ranking-msg ${v === lider ? 'lider' : ''}"><div class="ranking-corpo"><div class="ranking-topo"><b>Versão ${v.letra}</b> ${v === lider ? '<span class="etiqueta ok">🏆 na frente</span>' : ''}</div><div class="ranking-texto">${esc(v.texto)}</div><div class="ranking-barra"><span style="width:${taxaMsg(v)}%"></span></div><span class="rotulo"><b>${taxaMsg(v)}% responderam</b> · ${v.responderam} de ${v.enviados} enviados</span></div></div>`).join('')}</div><p class="rotulo" style="margin:8px 0 0">${lider ? 'Com mais envios o resultado fica mais certo.' : 'Ainda poucos envios por versão: espere pelo menos 10 de cada para comparar.'} O ranking de todos os disparos fica em <a href="${rotaEmpresa(id, 'disparos/mensagens')}">💬 Mensagens e ranking</a>.</p></div>`;
@@ -5780,6 +5855,7 @@ async function paginaDisparo(id, disparoId) {
       } catch (err) { aviso(err.message, true); }
     };
   });
+  $('#mudar-hora')?.addEventListener('click', () => modalHoraDisparo(id, d, () => paginaDisparo(id, disparoId)));
   $('#apagar-disparo')?.addEventListener('click', async () => {
     const ativo = ['enviando', 'agendado', 'pausado'].includes(d.status);
     if (!(await confirmar({ titulo: 'Apagar este disparo?', texto: `${ativo ? '<p><b>Ele para agora</b>: quem ainda não recebeu não vai receber.</p>' : ''}<p>As mensagens que já saíram continuam nas conversas. Quem já recebeu este disparo continua fora dos próximos disparos de prospecção (o CRM nunca repete).</p><p>Depois é só criar um novo em <b>Novo disparo</b>.</p>`, botao: 'Apagar', perigo: true }))) return;

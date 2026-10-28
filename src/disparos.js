@@ -381,6 +381,7 @@ function criar(empresa, corpo, usuario) {
   if (corpo.agendadoPara) {
     const t = new Date(corpo.agendadoPara);
     if (Number.isNaN(t.getTime())) throw erro('Data de agendamento inválida.');
+    if (t.getTime() < Date.now() - 5 * 60 * 1000) throw erro(`Esse horário (${quandoSp(t)}) já passou. Escolha uma data e hora daqui para frente.`);
     if (t.getTime() > Date.now() + 60 * 1000) agendadoPara = t.toISOString();
   }
   for (const v of versoes) v.msgId = guardarMensagem(empresa, v.texto).id;
@@ -1044,6 +1045,81 @@ function retomar(d) {
   agendar(d, 1000);
 }
 
+// 🕐 muda a hora do 1º envio (ou de quando continua): vale para agendado, pausado e em andamento.
+// Sem data = começa agora.
+function reagendar(d, quando) {
+  if (['concluido', 'cancelado'].includes(d.status)) throw erro('Este disparo já terminou.');
+  if (!d.destinatarios.some((x) => x.status === 'pendente')) throw erro('Não sobrou ninguém na fila deste disparo.');
+  let t = null;
+  if (quando) {
+    t = new Date(quando);
+    if (Number.isNaN(t.getTime())) throw erro('Data inválida.');
+    if (t.getTime() < Date.now() - 5 * 60 * 1000) throw erro(`Esse horário (${quandoSp(t)}) já passou. Escolha uma data e hora daqui para frente.`);
+    if (t.getTime() <= Date.now() + 60 * 1000) t = null;
+  }
+  clearTimeout(timers.get(d.id));
+  timers.delete(d.id);
+  d.motivoPausa = '';
+  d.proximoEnvioEm = null;
+  d.aguardandoHorario = false;
+  if (t) {
+    d.status = 'agendado';
+    d.agendadoPara = t.toISOString();
+    salvar();
+    agendar(d, t.getTime() - Date.now());
+  } else {
+    d.status = 'enviando';
+    d.agendadoPara = null;
+    d.iniciadoEm = d.iniciadoEm || agora();
+    salvar();
+    agendar(d, 1000);
+  }
+}
+
+const quandoSp = (t) => new Date(t).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+
+// ⏭️ previsão dos próximos envios (a fila): mesma regra do relógio — começa no agendamento ou no
+// próximo envio, anda a média do intervalo, pula a noite (horário comercial) e o limite do dia
+// da prospecção. É previsão: o intervalo de verdade é sorteado e quem não tem WhatsApp sai da fila.
+const HORA_MS = 3600 * 1000;
+const horaSp = (ms) => new Date(ms - 3 * HORA_MS).getUTCHours();
+const inicioDoDiaSp = (ms) => { const x = new Date(ms - 3 * HORA_MS); return Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) + 3 * HORA_MS; };
+function proximosEnvios(d, n = 10) {
+  if (!['enviando', 'agendado', 'pausado'].includes(d.status)) return [];
+  const fila = d.destinatarios.filter((x) => x.status === 'pendente').slice(0, n);
+  if (!fila.length) return [];
+  const pros = d.prospeccao ? require('./prospeccao') : null;
+  const minBase = pros ? pros.INTERVALO_MINIMO_PROSPECCAO : INTERVALO_MINIMO;
+  const min = Math.max(minBase, d.intervaloMin || 20);
+  const passo = ((min + Math.max(min, d.intervaloMax || 60)) / 2) * 1000;
+  let t = Date.now() + 5000;
+  if (d.status === 'agendado' && d.agendadoPara) t = Math.max(t, new Date(d.agendadoPara).getTime());
+  if (d.status === 'enviando' && d.proximoEnvioEm) t = Math.max(t, new Date(d.proximoEnvioEm).getTime());
+  const porDia = { ...(d.enviadosPorDia || {}) };
+  const p = d.prospeccaoCfg || {};
+  const limiteDoDia = (dia) => Math.min(p.tetoDia, p.limiteInicial + p.aumentoDia * Object.keys(porDia).filter((k) => k < dia && porDia[k] > 0).length);
+  const saida = [];
+  for (const x of fila) {
+    for (let volta = 0; volta < 400; volta++) {
+      if (d.horarioComercial) {
+        const h = horaSp(t);
+        if (h < HORA_INICIO) { t = inicioDoDiaSp(t) + HORA_INICIO * HORA_MS; continue; }
+        if (h >= HORA_FIM) { t = inicioDoDiaSp(t) + 24 * HORA_MS + HORA_INICIO * HORA_MS; continue; }
+      }
+      if (pros && (porDia[pros.diaSp(t)] || 0) >= limiteDoDia(pros.diaSp(t))) {
+        t = inicioDoDiaSp(t) + 24 * HORA_MS + (d.horarioComercial ? HORA_INICIO * HORA_MS : 0);
+        continue;
+      }
+      break;
+    }
+    const lead = estado.conversas.find((c) => c.id === x.leadId);
+    saida.push({ leadId: x.leadId, nome: lead?.prospeccao?.empresa || lead?.nome || '', versao: (d.versoes || []).length > 1 ? String.fromCharCode(65 + (x.versao || 0)) : '', em: d.status === 'pausado' ? null : new Date(t).toISOString() });
+    if (pros) { const dia = pros.diaSp(t); porDia[dia] = (porDia[dia] || 0) + 1; }
+    t += passo;
+  }
+  return saida;
+}
+
 function cancelar(d) {
   if (['concluido', 'cancelado'].includes(d.status)) throw erro('Este disparo já terminou.');
   clearTimeout(timers.get(d.id));
@@ -1094,7 +1170,7 @@ function resumo(d) {
   const porVersao = (d.versoes || []).length > 1 ? numerosPorVersao(d) : null;
   const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
   const pros = d.prospeccao ? require('./prospeccao') : null;
-  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
+  return { ...resto, proximos: proximosEnvios(d, 10), total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
@@ -1111,6 +1187,8 @@ function retomarAoIniciar() {
 }
 
 module.exports = {
+  reagendar,
+  proximosEnvios,
   RODAPE_SAIR,
   maxDestinatarios,
   INTERVALO_MAXIMO,
