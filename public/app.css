@@ -1957,3 +1957,4 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .campanha .acoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
 .escolha-campanha { display: block; text-decoration: none; color: inherit; margin-bottom: 14px; }
 .escolha-campanha:hover { border-color: var(--texto); }
+.caixa-teste { margin: 12px 0; border: 1px dashed var(--borda); border-radius: var(--raio); padding: 10px 12px; }

@@ -1097,6 +1097,17 @@ router.get('/empresas/:id/disparos/previa-imagem', async (req, res) => {
   }
 });
 
+// 🧪 Disparo de teste: manda agora para um número escolhido e a IA responde quando ele escrever
+router.post('/empresas/:id/disparos/teste', async (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    res.json(await disparos.testar(empresa, req.body || {}, req.usuario));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 router.post('/empresas/:id/disparos', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;

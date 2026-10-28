@@ -4535,6 +4535,12 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         <div class="card" data-passo="5">
           <h2><span class="passo-num">5</span> ${modoCampanha ? 'Confira e salve' : 'Confira antes de enviar'}</h2>
           <div id="disp-revisao"></div>
+          <div class="caixa-teste">
+            <b>🧪 Testar antes com o seu número</b>
+            <p class="rotulo" style="margin:4px 0 8px">Manda a mensagem <b>agora</b> só para este número. Responda do celular como se fosse o cliente: a IA continua com o roteiro. Não conta no ranking nem na campanha.</p>
+            <div class="linha-form" style="flex-wrap:wrap"><input name="testeNumero" type="tel" inputmode="tel" placeholder="Seu WhatsApp com DDD" style="flex:1;min-width:180px"><select id="teste-versao"></select><button type="button" id="enviar-teste">Enviar teste agora</button></div>
+            <div id="teste-resultado"></div>
+          </div>
           <div id="disp-risco" class="risco-caixa"></div>
           <div id="disp-erro" style="margin-top:10px"></div>
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button>${modoCampanha ? '<button type="submit" class="primario grande-botao" id="salvar-campanha">💾 Salvar campanha</button><button type="button" id="enviar-disparo" hidden disabled></button>' : '<button type="submit" class="primario grande-botao" id="enviar-disparo" disabled>📣 Iniciar disparo</button>'}</div>
@@ -4751,6 +4757,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   $$('[data-ir-passo]').forEach((b) => { b.onclick = () => { const n = Number(b.dataset.irPasso); if (n <= passo || podeIr(n)) irPara(n); }; });
   function desenharRevisao() {
     const f = formParaObjeto(form);
+    const selTeste = $('#teste-versao');
+    if (selTeste) { const antes = selTeste.value; selTeste.innerHTML = comTexto().map((v, i) => `<option value="${i}">Versão ${String.fromCharCode(65 + i)}</option>`).join(''); selTeste.hidden = comTexto().length < 2; if (antes) selTeste.value = antes; }
     const pf = perfisEnvio.find((x) => x.id === f.perfilEnvio);
     const { mi, ma } = intervalos(f);
     const itens = escolhidas.map(itemDe).filter(Boolean);
@@ -4843,6 +4851,9 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       ...(prospeccao ? { limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia } : {})
     };
   };
+  // 🧪 teste para um número: manda agora e a IA responde quando o número escrever
+  try { form.elements.testeNumero.value = localStorage.getItem('disparo_teste_numero') || ''; } catch { /* sem localStorage */ }
+  $('#enviar-teste').onclick = (e) => enviarTesteDisparo(id, e.currentTarget, { ...configDoForm(formParaObjeto(form)), nome: form.elements.nome?.value || form.elements.campanhaNome?.value || '', ...(campanha ? { campanhaId: campanha.id } : {}) }, form.elements.testeNumero.value, Number($('#teste-versao').value) || 0, $('#teste-resultado'));
   form.onsubmit = async (e) => {
     e.preventDefault();
     const f = formParaObjeto(form);
@@ -5511,6 +5522,21 @@ async function paginaSegurancaDisparo(id) {
   };
 }
 
+// 🧪 manda o disparo de teste e mostra o resultado (no Novo disparo e no cartão da campanha)
+async function enviarTesteDisparo(id, botao, config, numero, versao, caixa) {
+  if (String(numero || '').replace(/\D/g, '').length < 10) { caixa.innerHTML = '<div class="erro-caixa">Digite o seu WhatsApp com DDD.</div>'; return; }
+  if (!config.mensagens?.length) { caixa.innerHTML = '<div class="erro-caixa">Escreva a mensagem antes de testar.</div>'; return; }
+  try { localStorage.setItem('disparo_teste_numero', numero); } catch { /* sem localStorage */ }
+  try {
+    const r = await comEspera(botao, () => api(`empresas/${id}/disparos/teste`, { method: 'POST', body: { ...config, numero, versao } }), 'Enviando…');
+    caixa.innerHTML = r.enviado
+      ? `${balao(`Teste enviado (versão ${esc(r.versao)}) para +${esc(r.numero)}`, `Agora responda do seu celular como se fosse o cliente (ex.: "sim", "quanto custa?"). A IA vai continuar com o roteiro. <a href="#/leads/${esc(r.leadId)}">Abrir a conversa no CRM</a>${r.avisos.length ? `<br><b>⚠️ ${r.avisos.map(esc).join('<br>⚠️ ')}</b>` : ''}`, r.avisos.length ? 'aviso' : 'ok')}`
+      : `<div class="erro-caixa">Não foi enviado: ${esc(r.erro || 'erro no WhatsApp')}</div>`;
+  } catch (err) {
+    caixa.innerHTML = `<div class="erro-caixa">${esc(err.message)}</div>`;
+  }
+}
+
 // 🎯 Campanhas: configuração guardada (mensagens, lembrete, roteiro, ritmo); dispara escolhendo a lista
 async function paginaCampanhas(id) {
   const hashDaPagina = location.hash;
@@ -5531,8 +5557,21 @@ async function paginaCampanhas(id) {
           <li>🔔 ${c.lembrete?.ativo ? `lembrete ${c.lembrete.dias} ${c.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : 'sem lembrete'}</li>
         </ul>
         <div class="campanha-numeros">${c.disparos ? `<b>${taxaMsg(c)}% responderam</b> · ${c.responderam} de ${c.enviados} · ${c.disparos} ${c.disparos === 1 ? 'disparo' : 'disparos'}` : '<span class="rotulo">Ainda não foi disparada</span>'}</div>
-        <div class="acoes"><a class="botao primario" href="${rotaEmpresa(id, `disparos/novo?campanha=${encodeURIComponent(c.id)}`)}">🚀 Disparar</a><a class="botao" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(c.id)}`)}">✏️ Editar</a><button type="button" data-duplicar="${esc(c.id)}">⧉ Duplicar</button><button type="button" class="perigo" data-apagar-campanha="${esc(c.id)}">🗑️</button></div>
+        <div class="acoes"><a class="botao primario" href="${rotaEmpresa(id, `disparos/novo?campanha=${encodeURIComponent(c.id)}`)}">🚀 Disparar</a><a class="botao" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(c.id)}`)}">✏️ Editar</a><button type="button" data-testar-campanha="${esc(c.id)}">🧪 Testar</button><button type="button" data-duplicar="${esc(c.id)}">⧉ Duplicar</button><button type="button" class="perigo" data-apagar-campanha="${esc(c.id)}">🗑️</button></div>
       </div>`).join('')}</div>` : `<div class="card vazio"><p>Nenhuma campanha ainda.</p><p class="rotulo">Exemplo: "Guinchos sem site" com 3 versões da mensagem, a foto do modelo com o nome de cada empresa, lembrete em 3 dias e o roteiro do que a IA faz quando responderem. Depois é só disparar para cada lista nova.</p><a class="botao primario" href="${rotaEmpresa(id, 'disparos/campanhas/nova')}">+ Criar a primeira campanha</a></div>`}`);
+  $$('[data-testar-campanha]').forEach((b) => {
+    b.onclick = () => {
+      const c = lista.find((x) => x.id === b.dataset.testarCampanha);
+      let salvo = '';
+      try { salvo = localStorage.getItem('disparo_teste_numero') || ''; } catch { salvo = ''; }
+      abrirModal(`<h2>🧪 Testar "${esc(c.nome)}"</h2><p class="rotulo">A mensagem sai <b>agora</b> só para este número. Responda do celular como se fosse o cliente: a IA continua com o roteiro da campanha.</p>
+        <div class="campo"><label>Seu WhatsApp com DDD</label><input id="t-num" type="tel" inputmode="tel" value="${esc(salvo)}"></div>
+        ${c.mensagens.length > 1 ? `<div class="campo"><label>Qual versão</label><select id="t-ver">${c.mensagens.map((m, i) => `<option value="${i}">Versão ${String.fromCharCode(65 + i)}: ${esc(m.replace(/\s+/g, ' ').slice(0, 50))}…</option>`).join('')}</select></div>` : ''}
+        <div class="acoes"><button type="button" class="primario" id="t-enviar">Enviar teste agora</button><button type="button" data-fechar>Fechar</button></div><div id="t-res"></div>`, (m) => {
+        $('#t-enviar', m).onclick = (e) => enviarTesteDisparo(id, e.currentTarget, { ...c, campanhaId: c.id, nome: c.nome }, $('#t-num', m).value, Number($('#t-ver', m)?.value) || 0, $('#t-res', m));
+      });
+    };
+  });
   $$('[data-duplicar]').forEach((b) => {
     b.onclick = async () => {
       const c = lista.find((x) => x.id === b.dataset.duplicar);
