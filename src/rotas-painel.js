@@ -1125,6 +1125,18 @@ router.get('/empresas/:id/disparos/:disparoId', (req, res) => {
   res.json({ ...disparos.resumo(d), destinatarios: d.destinatarios.map(({ destino, ...x }) => ({ ...x, numero: /^\d+$/.test(destino) ? `+${destino}` : '' })) });
 });
 
+// 🕐 mudar a hora do 1º envio (ou de quando continua). agendadoPara vazio = começa agora
+router.put('/empresas/:id/disparos/:disparoId/agendamento', (req, res) => {
+  const d = acharDisparo(req, res);
+  if (!d) return;
+  try {
+    disparos.reagendar(d, req.body?.agendadoPara || null);
+    res.json(disparos.resumo(d));
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+});
+
 router.post('/empresas/:id/disparos/:disparoId/:acao', (req, res) => {
   const d = acharDisparo(req, res);
   if (!d) return;

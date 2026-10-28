@@ -1966,3 +1966,8 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .interruptor.ligado { background: var(--ok-fundo); color: var(--ok-texto); border: 1px solid var(--ok-texto); }
 .interruptor.desligado { background: #fef2f2; color: #b91c1c; border: 1px solid #b91c1c; }
 .interruptor-ia { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); }
+
+/* ⏭️ fila dos próximos envios (previsão) */
+.so-mobile { display: none; }
+@media (max-width: 768px) { .so-mobile { display: inline; } }
+.fila-envios td { vertical-align: top; }
