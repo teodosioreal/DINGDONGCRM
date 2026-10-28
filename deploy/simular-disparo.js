@@ -26,6 +26,19 @@ const CENARIOS = [
   ['áudio pedindo explicação', ['[áudio do cliente]: opa tudo bem, me explica melhor isso aí que eu tô dirigindo']]
 ];
 
+// regras de conversa curta (genéricas, sem nada da empresa): testadas EM CIMA do prompt atual
+const REGRAS_CURTAS = `COMO CONVERSAR (vale acima de tudo)
+- Mensagens curtas: no máximo 2 frases por resposta, como num WhatsApp de verdade. Ideal: 1 frase + 1 pergunta.
+- Nunca mande o texto de apresentação inteiro. Responda só o que o cliente disse e dê UM passo por vez.
+- Termine sempre com UMA pergunta curta que puxe o próximo passo (a não ser que o cliente diga que não tem interesse).
+- Preço só quando o cliente perguntar o preço ou já tiver mostrado interesse. Nunca no "oi", no "sim" ou no "manda".
+- Se o cliente mandar 1 linha, responda com 1 ou 2 linhas.
+
+Passos da conversa: 1) ele respondeu → mostre o exemplo e pergunte se ele gostaria de um assim; 2) entenda a situação dele com uma pergunta; 3) mostre o ganho em 1 frase; 4) preço quando ele pedir; 5) proponha um passo pequeno (ligação rápida ou mandar a proposta).
+
+INFORMAÇÕES DA EMPRESA (use só quando fizer sentido, sem copiar o texto inteiro):
+`;
+
 const palavras = (t) => String(t || '').split(/\s+/).filter(Boolean).length;
 const frases = (t) => String(t || '').split(/[.!?]+(\s|$)/).filter((x) => x && x.trim().length > 2).length;
 
@@ -49,6 +62,10 @@ const frases = (t) => String(t || '').split(/[.!?]+(\s|$)/).filter((x) => x && x
   const disp = ultimo || { id: 'dsp_simulado', empresaId: e.id, nome: 'Simulação', mensagem: '{Oi|Olá}! Vi a {empresa_contato} no Google. Posso te mandar um exemplo de site?', destinatarios: [], status: 'concluido' };
   if (!ultimo) estado.disparos.push(disp);
   const textoDisparo = (disp.versoes?.[0]?.texto || disp.mensagem);
+  const promptAtual = bot.promptWhatsapp;
+  for (const rodada of ['A', 'B']) {
+  bot.promptWhatsapp = rodada === 'A' ? promptAtual : `${REGRAS_CURTAS}${promptAtual}`;
+  console.log(`    ===== RODADA ${rodada}: ${rodada === 'A' ? 'prompt atual' : 'regras de conversa curta + prompt atual'} =====`);
   const resumo = { respostas: 0, longas: 0, semPergunta: 0, balõesMax: 0, palavrasTotal: 0 };
   for (const [nome, falas] of CENARIOS) {
     const lead = leads.criarLead({ empresa: e, bot, canal: 'manual', nome: 'Guincho Exemplo', telefone: '5511900000000' });
@@ -81,6 +98,11 @@ const frases = (t) => String(t || '').split(/[.!?]+(\s|$)/).filter((x) => x && x
       leads.adicionarMensagem(lead, { papel: 'assistente', canal: 'whatsapp', texto: r.texto });
     }
   }
-  console.log(`    RESUMO: ${resumo.respostas} respostas · média ${resumo.respostas ? Math.round(resumo.palavrasTotal / resumo.respostas) : 0} palavras · longas ${resumo.longas} · sem pergunta no fim ${resumo.semPergunta} · até ${resumo.balõesMax} balões numa resposta`);
+  console.log(`    RESUMO ${rodada}: ${resumo.respostas} respostas · média ${resumo.respostas ? Math.round(resumo.palavrasTotal / resumo.respostas) : 0} palavras · longas ${resumo.longas} · sem pergunta no fim ${resumo.semPergunta} · até ${resumo.balõesMax} balões numa resposta`);
+  }
+  bot.promptWhatsapp = promptAtual;
+  // o banco da cópia salva um pouco depois: espera e só então apaga a pasta
+  await new Promise((ok) => setTimeout(ok, 2000));
   fs.rmSync(pasta, { recursive: true, force: true });
+  process.exit(0);
 })().catch((err) => console.log(`    erro na simulação: ${String(err.message).slice(0, 160)}`));
