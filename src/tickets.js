@@ -161,21 +161,25 @@ function registrarVenda(empresa, lead, { valor, descricao, por = 'ia', forma = '
   return { venda, nova: true };
 }
 
-function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false, valor = null, semHora = false }) {
+function registrarAgendamento(empresa, lead, { quando, descricao, por = 'ia', semAviso = false, valor = null, semHora = false, modo = '', link = '' }) {
   const valorOk = Number.isFinite(Number(valor)) && Number(valor) > 0 ? Math.round(Number(valor) * 100) / 100 : null;
   const iso = quandoDe(quando);
   const desc = String(descricao || '').trim().slice(0, 200);
   lead.agendamentos = Array.isArray(lead.agendamentos) ? lead.agendamentos : [];
   // o mesmo horário de novo (ou remarcação no mesmo dia): atualiza em vez de duplicar
   const mesmo = lead.agendamentos.find((a) => a.status === 'agendado' && ((iso && a.quando === iso) || (!iso && !a.quando && a.descricao === desc)));
+  const am = require('./agenda-modo');
+  const tipo = am.modoDoAgendamento(empresa, { modo, descricao: desc });
+  const linkOk = tipo === 'online' ? am.limparLink(link) || am.linkDa(empresa) : '';
   if (mesmo) {
     if (desc) mesmo.descricao = desc;
+    if (modo) { mesmo.modo = tipo; if (linkOk) mesmo.link = linkOk; }
     if (valorOk) mesmo.valor = valorOk;
     salvar();
     return { agendamento: mesmo, novo: false };
   }
   // semHora: combinaram o dia, mas não a hora exata ("sábado de manhã") — mostra "horário a combinar"
-  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora(), ...(valorOk ? { valor: valorOk } : {}), ...(iso && semHora ? { semHora: true } : {}) };
+  const ag = { id: novoId('agd'), quando: iso, quandoTexto: iso ? '' : String(quando || '').slice(0, 80), descricao: desc, por, status: 'agendado', criadoEm: agora(), ...(valorOk ? { valor: valorOk } : {}), ...(iso && semHora ? { semHora: true } : {}), modo: tipo, ...(linkOk ? { link: linkOk } : {}) };
   lead.agendamentos.push(ag);
   colocarEtiquetaAgendado(empresa, lead); // agendou no CRM → etiqueta Agendado aqui e no WhatsApp
   const etapa = acharEtapaAgendamento(empresa);
@@ -377,7 +381,7 @@ function aplicarDaIa(empresa, lead, r) {
   const ocupado = r?.agendamento && iso && require('./horarios-ia').configDa(empresa).ativo ? require('./horarios-ia').conflito(empresa, iso, lead.id) : null;
   if (ocupado) {
     require('./alertas').registrar(empresa, 'agenda', `A IA combinou ${require('./horarios-ia').formatar(iso)} com um cliente, mas esse horário já está com outro cliente. Não foi agendado — combine outro horário com ele.`, { leadId: lead.id });
-  } else if (r?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [r.agendamento.descricao])) {
+  } else if (r?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [r.agendamento.descricao, r.agendamento.modo])) {
     // última trava: a IA marcou sem o endereço do cliente → não registra (a conversa continua normal)
     require('./alertas').registrar(empresa, `agenda:${lead.id}`, `📍 A IA quis agendar ${lead.nome || 'um cliente'}, mas ele ainda não passou o endereço — não agendei.`, { nivel: 'info', leadId: lead.id });
   } else if (r?.agendamento && iso && horarioExcluido(lead, iso)) {

@@ -1024,7 +1024,20 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
   if (!empresa) return;
   const r = disparos.destinatariosPara(empresa, req.body?.filtro);
   const primeiro = r.destinatarios[0] && estado.conversas.find((c) => c.id === r.destinatarios[0].leadId);
+  // lista escolhida: quantos de cada categoria (tem site / não tem) receberiam
+  let categorias = null;
+  if (r.filtro.listaId) {
+    const todos = disparos.destinatariosPara(empresa, { ...(req.body?.filtro || {}), site: '' }).destinatarios;
+    const porId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
+    categorias = { todos: todos.length, nenhum: 0, social: 0, semproprio: 0, proprio: 0 };
+    for (const x of todos) {
+      const t = prospeccao.tipoSite(porId.get(x.leadId)?.prospeccao);
+      categorias[t]++;
+      if (t !== 'proprio') categorias.semproprio++;
+    }
+  }
   res.json({
+    categorias,
     total: r.destinatarios.length,
     semNumero: r.semNumero,
     sairam: r.sairam,
@@ -2287,6 +2300,7 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
         quando: a.quando, semHora: Boolean(a.semHora), quandoTexto: a.quandoTexto || '', descricao: a.descricao || '', status: a.status, por: a.por, detectadoPor: a.detectadoPor || '',
         avisoStatus: a.avisoStatus || (a.avisoEm ? 'fila' : ''), avisoErro: a.avisoErro || '', motivoCancelamento: a.motivoCancelamento || '', semData: Boolean(a.semData), grupo, criadoEm: a.criadoEm,
         fotos, local: c.localizacao?.texto || '',
+        modo: a.modo || (require('./agenda-modo').modoDa(empresa) === 'online' ? 'online' : 'presencial'), link: a.link || '',
         // quanto vai entrar (lido sem IA: valor digitado, descrição ou conversa)
         ...(() => { const v = valorAgendamento.valorDo(c, a); return { valor: v.valor, valorOrigem: v.origem || '', valorIncerto: Boolean(v.incerto), valorTrecho: v.trecho || '' }; })()
       });
@@ -2300,7 +2314,7 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
   };
   res.json({
     resumo,
-    regras: { exigeEndereco: empresa.agendaExigeEndereco !== false },
+    regras: { exigeEndereco: empresa.agendaExigeEndereco !== false, modo: require('./agenda-modo').modoDa(empresa), link: require('./agenda-modo').linkDa(empresa) },
     proximos: lista.filter((x) => x.grupo === 'proximos').sort((a, b) => ord(a).localeCompare(ord(b))),
     passados: lista.filter((x) => x.grupo === 'passados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200),
     cancelados: lista.filter((x) => x.grupo === 'cancelados').sort((a, b) => ord(b).localeCompare(ord(a))).slice(0, 200)
@@ -2311,9 +2325,19 @@ router.get('/empresas/:id/agendamentos', (req, res) => {
 router.put('/empresas/:id/agenda-regras', (req, res) => {
   const empresa = acharEmpresa(req, res);
   if (!empresa) return;
+  const am = require('./agenda-modo');
   if (req.body?.exigeEndereco !== undefined) empresa.agendaExigeEndereco = req.body.exigeEndereco === true;
+  if (req.body?.modo !== undefined) {
+    if (!am.MODOS.includes(req.body.modo)) return res.status(400).json({ erro: 'Tipo de atendimento inválido.' });
+    empresa.agendaModo = req.body.modo;
+  }
+  if (req.body?.link !== undefined) {
+    const link = am.limparLink(req.body.link);
+    if (String(req.body.link || '').trim() && !link) return res.status(400).json({ erro: 'O link precisa começar com https:// (ex.: https://meet.google.com/abc-defg-hij).' });
+    empresa.agendaLink = link;
+  }
   salvar();
-  res.json({ exigeEndereco: empresa.agendaExigeEndereco !== false });
+  res.json({ exigeEndereco: empresa.agendaExigeEndereco !== false, modo: am.modoDa(empresa), link: am.linkDa(empresa) });
 });
 
 // Horários que a IA pode agendar (aba Agendamentos)
@@ -2375,7 +2399,9 @@ router.get('/leads/:id/agendamentos/sugestao', (req, res) => {
   if (!c) return;
   const h = require('./detector-agenda').horarioDaConversa(c);
   const v = valorAgendamento.valorDo(c, { quando: null });
-  res.json({ quando: h?.quando || null, descricao: h?.descricao || '', valor: v.valor || null, valorTrecho: v.trecho || '', valorIncerto: Boolean(v.incerto) });
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const am = require('./agenda-modo');
+  res.json({ quando: h?.quando || null, descricao: h?.descricao || '', valor: v.valor || null, valorTrecho: v.trecho || '', valorIncerto: Boolean(v.incerto), modoEmpresa: am.modoDa(empresa), link: am.linkDa(empresa) });
 });
 
 // Agendamento marcado pela equipe (aparece como aviso na conversa)
@@ -2389,7 +2415,7 @@ router.post('/leads/:id/agendamentos', (req, res) => {
     valor = tickets.valorDe(req.body.valor);
     if (!valor) return res.status(400).json({ erro: 'Valor inválido. Ex.: 250 ou 1.250,00' });
   }
-  const r = tickets.registrarAgendamento(empresa, c, { quando: req.body.quando, descricao: texto(req.body?.descricao, 200), por: 'equipe', valor });
+  const r = tickets.registrarAgendamento(empresa, c, { quando: req.body.quando, descricao: texto(req.body?.descricao, 200), por: 'equipe', valor, modo: texto(req.body?.modo, 20), link: texto(req.body?.link, 300) });
   res.status(201).json(r.agendamento);
 });
 

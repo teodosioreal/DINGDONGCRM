@@ -1855,7 +1855,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
     r = await pedirIa();
     // agenda da IA ligada: o horário marcado tem que estar livre na lista (confere antes de enviar)
     // só agenda com o endereço do cliente (regra da aba Agendamentos): sem ele, a IA pede o endereço
-    const semEndereco = (x) => x?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [x.agendamento.descricao]);
+    const semEndereco = (x) => x?.agendamento && !(lead.agendamentos || []).some((a) => a.status === 'agendado') && !require('./endereco').podeAgendar(empresa, lead, [x.agendamento.descricao, x.agendamento.modo]);
     if (semEndereco(r)) {
       console.log(`[agenda-ia ${lead.id}] a IA marcou sem o endereço do cliente; reescrevendo`);
       r = await pedirIa('- ATENÇÃO: na resposta anterior você marcou [[AGENDAMENTO]], mas o cliente ainda NÃO passou o endereço. Escreva de novo SEM [[AGENDAMENTO]]: confirme o dia/horário que ele quer e peça o endereço completo (rua, número e bairro) para finalizar o agendamento.');

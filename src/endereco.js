@@ -34,11 +34,15 @@ function enderecoDo(lead, extras = []) {
   return '';
 }
 
-const exige = (empresa) => empresa?.agendaExigeEndereco !== false;
+// atendimento online (videochamada, ligação, serviço digital) nunca pede endereço
+const exige = (empresa) => empresa?.agendaExigeEndereco !== false && require('./agenda-modo').modoDa(empresa) !== 'online';
 
-// pode agendar sozinho? (sem a regra ligada, sempre pode)
+// pode agendar sozinho? (sem a regra ligada, sempre pode). extras: descrição, tipo ("online")…
 function podeAgendar(empresa, lead, extras = []) {
-  return !exige(empresa) || Boolean(enderecoDo(lead, extras));
+  if (!exige(empresa)) return true;
+  // empresa que atende dos dois jeitos: agendamento online não precisa de endereço
+  if (require('./agenda-modo').modoDa(empresa) === 'ambos' && extras.some((x) => require('./agenda-modo').pareceOnline(x))) return true;
+  return Boolean(enderecoDo(lead, extras));
 }
 
 module.exports = { ehEndereco, enderecoDo, exige, podeAgendar };

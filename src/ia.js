@@ -348,6 +348,31 @@ async function testarMotor(empresa, m) {
 // Monta o prompt de sistema de um canal ('site' ou 'whatsapp').
 // `contexto` traz o que a IA pode usar além do texto: etapas do funil, etapa
 // atual do lead e as mídias que ela pode mandar no WhatsApp.
+// agendamentos presenciais, online (videochamada, ligação, serviço digital) ou os dois
+function instrucoesDoModo(empresa) {
+  const am = require('./agenda-modo');
+  const modo = am.modoDa(empresa);
+  const link = am.linkDa(empresa);
+  const pedeEndereco = empresa?.agendaExigeEndereco !== false;
+  const enderecoTxt = 'você precisa do ENDEREÇO completo do cliente (rua, número e bairro, ou a localização do WhatsApp). Se ainda não tiver (veja "Contexto desta conversa"), peça o endereço e só marque depois que ele mandar.';
+  const linkTxt = link ? `Ao confirmar um agendamento online, mande este link para o cliente entrar na hora marcada: ${link}` : 'Ao confirmar um agendamento online, diga que o link (ou a ligação) chega pelo WhatsApp perto do horário.';
+  if (modo === 'online') {
+    return [
+      '- Os atendimentos desta empresa são ONLINE (videochamada, ligação, reunião ou serviço digital): NUNCA peça endereço. Combine só o dia e o horário.',
+      `- ${linkTxt}`
+    ];
+  }
+  if (modo === 'ambos') {
+    return [
+      '- Esta empresa atende PRESENCIAL e ONLINE (videochamada, ligação, reunião ou serviço digital). Se não estiver claro, pergunte como o cliente prefere.',
+      '- Ao marcar, diga o tipo no fim do código: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado | online]] ou [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado | presencial]].',
+      `- ${linkTxt}`,
+      ...(pedeEndereco ? [`- Só para agendamento PRESENCIAL: antes de marcar, ${enderecoTxt} Online não precisa de endereço.`] : [])
+    ];
+  }
+  return pedeEndereco ? [`- Antes de marcar [[AGENDAMENTO]], ${enderecoTxt}`] : [];
+}
+
 function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const nomeAssistente = bot.nomeAssistente || 'Assistente';
   const nicho = empresa?.nicho ? ` (${empresa.nicho})` : '';
@@ -522,11 +547,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     'Registrar vendas e agendamentos (a equipe vê um aviso na conversa e a venda vai para o Faturamento):',
     '- A data e a hora de agora estão em "Contexto desta conversa", no fim. Use para transformar "amanhã", "sábado" etc. em data.',
     '- Quando o cliente CONFIRMAR a compra (fechou o pedido e combinou o pagamento, ou avisou que pagou), escreva numa linha separada: [[VENDA: valor | o que ele comprou]] — ex.: [[VENDA: 350,00 | o produto ou serviço que ele comprou]]. Sem valor certo, deixe o valor vazio: [[VENDA: | o que ele comprou]].',
-    '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | o serviço agendado]].',
+    '- Quando o cliente CONFIRMAR um dia e horário (visita, serviço, consulta, instalação, entrega, reunião, videochamada, ligação), escreva numa linha separada: [[AGENDAMENTO: dd/mm/aaaa hh:mm | o que foi agendado]] — ex.: [[AGENDAMENTO: 04/10/2026 09:00 | o serviço agendado]].',
     '- Quando o cliente DESMARCAR ou cancelar um agendamento já registrado (sem marcar outro), escreva numa linha separada: [[DESMARCAR]]. Se ele trocar de dia/horário, use [[AGENDAMENTO: …]] com o horário novo (o antigo sai sozinho).',
     '- Só marque o que foi confirmado pelo cliente (horário apenas sugerido ou "vou ver" não conta) e não marque de novo o que já está registrado (veja "Contexto desta conversa"). Remarcou? Marque o novo horário.',
     '- Pergunta sobre disponibilidade NÃO é agendamento: "atende hoje?", "tem horário amanhã?", "consegue sábado?" e um "sim" para isso não marcam nada. Só marque quando ficar combinado um DIA e um HORÁRIO certos.',
-    ...(empresa?.agendaExigeEndereco !== false ? ['- Antes de marcar [[AGENDAMENTO]], você precisa do ENDEREÇO completo do cliente (rua, número e bairro, ou a localização do WhatsApp). Se ainda não tiver (veja "Contexto desta conversa"), peça o endereço e só marque depois que ele mandar.'] : []),
+    ...instrucoesDoModo(empresa),
     '',
     'Localização do cliente (a equipe vê como etiqueta 📍 na conversa):',
     '- Quando o cliente disser onde mora ou onde está (cidade, bairro, região), escreva numa linha separada: [[LOCAL: bairro/cidade - UF]] — ex.: [[LOCAL: Quitandinha, Petrópolis - RJ]] ou [[LOCAL: Niterói - RJ]]. Só com o que ele disse; nunca adivinhe. Não marque de novo se já estiver igual no "Contexto desta conversa".'
@@ -542,7 +567,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   }
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
   if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
-  if (contexto.endereco !== undefined && empresa?.agendaExigeEndereco !== false) dinamico.push(contexto.endereco ? `- Endereço do cliente (já informado): ${contexto.endereco}` : '- Endereço do cliente: ainda NÃO informado — peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]].');
+  if (contexto.endereco !== undefined && require('./endereco').exige(empresa)) dinamico.push(contexto.endereco ? `- Endereço do cliente (já informado): ${contexto.endereco}` : (require('./agenda-modo').modoDa(empresa) === 'ambos' ? '- Endereço do cliente: ainda NÃO informado — se for PRESENCIAL, peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]]; online não precisa.' : '- Endereço do cliente: ainda NÃO informado — peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]].'));
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${String(c).startsWith('#') ? c : require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 
@@ -1262,7 +1287,10 @@ function extrairAcoes(bruto) {
   });
   texto = texto.replace(/\[\[\s*AGENDAMENTO\s*:\s*([^\]]+?)\s*\]\]/gi, (_, dentro) => {
     const [quando, ...resto] = dentro.split('|');
-    agendamento = { quando: (quando || '').trim(), descricao: resto.join('|').trim() };
+    // 3º campo (opcional): o tipo — "online" ou "presencial"
+    const ultimo = resto.length > 1 ? resto[resto.length - 1].trim() : '';
+    const modo = /^(online|presencial|v[ií]deo|liga[çc][aã]o|remoto|digital)$/i.test(ultimo) ? ultimo.toLowerCase() : '';
+    agendamento = { quando: (quando || '').trim(), descricao: (modo ? resto.slice(0, -1) : resto).join('|').trim(), ...(modo ? { modo } : {}) };
     acao('AGENDAMENTO');
     return '';
   });

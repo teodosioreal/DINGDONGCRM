@@ -320,6 +320,7 @@ function motivoGeral(empresa, lead, f) {
   if (lead.naoDisparar) return 'pediu para não receber';
   if (leads.naListaNegra?.(empresa, lead)) return 'lista negra';
   if (lead.precisaHumano && !manual) return 'esperando a equipe';
+  if (!manual && require('./disparos').semFollowupGeral(lead)) return 'veio de campanha de disparo sem follow-up geral';
   if (whatsapp.iaOcupadaCom(lead.id)) return 'a IA está respondendo agora';
   if (lead.iaPausada && !f.incluirPausados && !manual) return 'equipe atendendo';
   // mensagem agendada pela EQUIPE ainda vai sair: não junta com o follow-up. (O follow-up
