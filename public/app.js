@@ -4497,7 +4497,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           ${balao('Prompt próprio da campanha', 'Quem responder a esta campanha é atendido <b>só por este prompt</b>: o prompt principal da empresa, o "Sobre a empresa", o catálogo e o clone <b>não valem</b> nessas conversas. Escreva aqui tudo que a IA precisa: quem você é, o que oferece, preço, passos da conversa e objeções. Deixou vazio: atende pelo prompt principal.', 'dica')}
           ${modoCampanha ? `<label class="linha-check interruptor-ia"><input type="checkbox" name="iaCampanha" ${campanha?.iaLigada === false ? '' : 'checked'}> 🤖 <b>A IA responde quem responder a esta campanha</b> ${ajuda('Desligado: quem responder aos disparos desta campanha fica para a equipe (a IA não responde). Dá para ligar e desligar a qualquer hora, também no cartão da campanha — vale na hora, até para disparos que já estão rodando.')}</label>` : ''}
           <div class="campo"><label>🧠 Prompt da campanha ${ajuda('É o único prompt que a IA segue nas conversas desta campanha. Editou aqui, vale na hora, até para disparos que já estão rodando.')}</label>
-            <textarea name="roteiro" maxlength="3000" style="min-height:130px" placeholder="${prospeccao ? 'Ex.: Se pedir o exemplo, mande o vídeo #MIDIA_… do modelo de site. Pergunte se ele já pensou em aparecer no Google. Preço: a partir de R$ … Objetivo: marcar uma ligação rápida de 10 minutos ou mandar a proposta.' : 'Ex.: Se quiser os detalhes da promoção, explique as condições e ofereça um horário. Objetivo: fechar o pedido.'}"></textarea></div>
+            <textarea name="roteiro" maxlength="12000" style="min-height:260px" placeholder="${prospeccao ? 'Ex.: Se pedir o exemplo, mande o vídeo #MIDIA_… do modelo de site. Pergunte se ele já pensou em aparecer no Google. Preço: a partir de R$ … Objetivo: marcar uma ligação rápida de 10 minutos ou mandar a proposta.' : 'Ex.: Se quiser os detalhes da promoção, explique as condições e ofereça um horário. Objetivo: fechar o pedido.'}"></textarea><small class="rotulo" id="roteiro-conta"></small></div>
           <div class="campos" style="margin-top:10px">
             <div class="campo"><label>Mover para a etapa ${ajuda('Quando a pessoa responder a este disparo, o lead vai para esta etapa do funil (uma vez).')}</label><select name="respEtapa"><option value="">— não mudar —</option>${emp.etapas.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select></div>
             <div class="campo"><label>Pôr a etiqueta</label><select name="respEtiqueta"><option value="">— nenhuma —</option>${emp.etiquetas.map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></div>
@@ -4710,6 +4710,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     if (!f.persoAtivo || itemDe(escolhidas[0])?.tipo !== 'image') return null;
     return { ativo: true, texto: f.persoTexto || 'Feito para {empresa_contato}', posicao: f.persoPosicao, fundo: f.persoFundo, destaque: f.persoDestaque };
   };
+  const contarRoteiro = () => { const n = form.elements.roteiro.value.length; $('#roteiro-conta').textContent = `${n.toLocaleString('pt-BR')} de 12.000 letras`; };
+  form.elements.roteiro.addEventListener('input', contarRoteiro);
   form.elements.persoAtivo.onchange = (e) => { $('#disp-perso-campos').hidden = !e.target.checked; };
   form.elements.lembreteAtivo.onchange = (e) => { $('#campos-lembrete').hidden = !e.target.checked; };
   function desenharEscolhidas() {
@@ -4812,6 +4814,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       el.persoDestaque.value = campanha.personalizar.destaque || el.persoDestaque.value;
     }
     el.roteiro.value = campanha.roteiro || '';
+    contarRoteiro();
     el.respEtapa.value = campanha.aoResponder?.etapa || '';
     el.respEtiqueta.value = campanha.aoResponder?.etiquetaId || '';
     el.lembreteAtivo.checked = Boolean(campanha.lembrete?.ativo);
