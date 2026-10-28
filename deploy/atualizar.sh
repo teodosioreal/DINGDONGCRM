@@ -79,6 +79,10 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 40 node deploy/diagnostico-config-zap.js 2>&1 | head -n 10 || true
   echo "    Vídeos da biblioteca (formato e se toca liso no WhatsApp):"
   CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" timeout 90 node deploy/diagnostico-videos.js 2>&1 | head -n 30 || true
+  if [ -f deploy/simular-disparo.pedido ]; then
+    echo "    Simulação: clientes respondendo a um disparo da LEADS (cópia do banco, só números das respostas):"
+    CRM_DB_PATH_ORIGINAL="$DB_CRM" MIDIAS_DIR="$(ler_env MIDIAS_DIR .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 400 node deploy/simular-disparo.js 2>&1 | sed -u -E 's/[0-9]{10,}/[núm]/g' | head -n 80 || true
+  fi
   echo "    Mídias e simulação de conversas (cópia do banco, nada é enviado):"
   # a simulação usa a IA de verdade (gasta tokens): só roda quando o arquivo deploy/simular.pedido existe
   [ -f deploy/simular.pedido ] && SIMULAR_IA=sim || SIMULAR_IA=nao
