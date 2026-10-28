@@ -275,4 +275,4 @@ async function temWhatsapp(empresa, destino) {
   }
 }
 
-module.exports = { jaRecebeuDisparo, PERFIS, PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };
+module.exports = { jaRecebeuDisparo, indiceDosLeads, PERFIS, PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };

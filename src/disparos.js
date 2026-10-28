@@ -473,7 +473,7 @@ function numerosPorVersao(d, leadPorId = null) {
 function mensagensComNumeros(empresa) {
   const leadPorId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
   const total = new Map();
-  for (const d of estado.disparos.filter((x) => x.empresaId === empresa.id)) {
+  for (const d of estado.disparos.filter((x) => x.empresaId === empresa.id && !x.teste)) {
     for (const n of numerosPorVersao(d, leadPorId)) {
       const id = n.msgId || mensagensDa(empresa).find((m) => textoIgual(m.texto, n.texto))?.id;
       if (!id) continue;
@@ -518,6 +518,75 @@ function apagarMensagem(empresa, msgId) {
   if (i < 0) throw erro('Mensagem não encontrada.', 404);
   lista.splice(i, 1);
   salvar();
+}
+
+// ---------------------------------------------------------------- 🧪 disparo de teste
+// Manda a mensagem do disparo/campanha AGORA para um número escolhido (o seu), com o roteiro da
+// IA, a foto com nome e a etapa ao responder valendo. Quando você responder do celular, a IA
+// continua como faria com um cliente. Não entra no ranking nem nas contas da campanha.
+
+const MAX_TESTES = 10; // guarda só os últimos testes de cada empresa
+
+async function testar(empresa, corpo = {}, usuario = null) {
+  const { numeroWhatsapp } = require('./util');
+  const numero = numeroWhatsapp(corpo.numero);
+  if (numero.length < 10) throw erro('Digite o número com DDD (ex.: 11 91234-5678).');
+  if (!whatsapp.configurado(empresa)) throw erro('Conecte o WhatsApp da empresa antes de testar.');
+  const versoes = versoesDoCorpo(empresa, corpo);
+  if (!versoes.length) throw erro('Escreva a mensagem.');
+  const versao = Math.min(versoes.length - 1, Math.max(0, Math.round(Number(corpo.versao) || 0)));
+  const pros = require('./prospeccao');
+  const principal = estado.bots.find((b) => b.empresaId === empresa.id && b.principal) || estado.bots.find((b) => b.empresaId === empresa.id);
+  let lead = pros.indiceDosLeads(empresa).acharNumero(numero);
+  if (!lead) lead = leads.criarLead({ empresa, bot: principal, canal: 'manual', nome: 'Teste do disparo', telefone: numero });
+  // dados de exemplo para {empresa_contato}, {cidade} e {ramo} (sem mexer nos de um contato de verdade)
+  if (!lead.prospeccao?.empresa) lead.prospeccao = { ...(lead.prospeccao || {}), empresa: lead.prospeccao?.empresa || 'Empresa Teste', cidade: lead.prospeccao?.cidade || 'Sua Cidade', ramo: lead.prospeccao?.ramo || 'seu ramo' };
+  lead.testeDisparo = true;
+  // o teste é para ver a IA responder: tira o "não disparar" e a pausa deste número
+  delete lead.naoDisparar;
+  if (lead.iaPausada) { lead.iaPausada = false; delete lead.iaPausadaMotivo; }
+  const personalizar = normalizarPersonalizar(corpo.personalizar);
+  const midiaIds = [...new Set((Array.isArray(corpo.midiaIds) ? corpo.midiaIds : []).map((x) => texto(x, 60)).filter(Boolean))].slice(0, MAX_MIDIAS);
+  const { lembrete, ...extras } = extrasDoDisparo(empresa, corpo, personalizar); // lembrete fica de fora do teste
+  for (const v of versoes) v.msgId = guardarMensagem(empresa, v.texto).id;
+  const d = {
+    id: novoId('dsp'),
+    empresaId: empresa.id,
+    nome: `🧪 Teste${corpo.nome ? ` · ${texto(corpo.nome, 80)}` : ''}`,
+    teste: true,
+    mensagem: versoes[0].texto,
+    versoes,
+    midiaIds,
+    filtro: normalizarFiltro({ leadIds: [lead.id] }),
+    intervaloMin: INTERVALO_MINIMO,
+    intervaloMax: INTERVALO_MINIMO,
+    horarioComercial: false,
+    rodapeSair: corpo.rodapeSair !== false,
+    ...extras,
+    ...(campanhasDa(empresa).some((c) => c.id === corpo.campanhaId) ? { campanhaId: corpo.campanhaId } : {}),
+    status: 'enviando',
+    agendadoPara: null,
+    destinatarios: [{ leadId: lead.id, nome: lead.nome || '', destino: whatsapp.destinoDoLead(lead) || numero, status: 'pendente', erro: '', em: null, versao }],
+    criadoPor: usuario?.email || '',
+    criadoEm: agora(),
+    iniciadoEm: agora(),
+    concluidoEm: null
+  };
+  estado.disparos.push(d);
+  // só os últimos testes ficam guardados
+  const testes = estado.disparos.filter((x) => x.empresaId === empresa.id && x.teste);
+  if (testes.length > MAX_TESTES) {
+    const fora = new Set(testes.slice(0, testes.length - MAX_TESTES).map((x) => x.id));
+    estado.disparos = estado.disparos.filter((x) => !fora.has(x.id));
+  }
+  salvar();
+  await processar(d.id);
+  const item = d.destinatarios[0];
+  const c = whatsapp.configDa(empresa);
+  const avisos = [];
+  if (!c.iaAtiva) avisos.push('A IA do WhatsApp está DESLIGADA: ela não vai responder. Ligue em IA do WhatsApp.');
+  if (!whatsapp.liberadoNoModoTeste(empresa, lead)) avisos.push('O modo teste da IA está ligado e este número não está na lista de teste: a IA não vai responder. Coloque o número na lista ou desligue o modo teste.');
+  return { disparoId: d.id, leadId: lead.id, enviado: item.status === 'enviado', erro: item.erro || d.motivoPausa || '', numero, versao: String.fromCharCode(65 + versao), avisos };
 }
 
 // ---------------------------------------------------------------- 🎯 campanhas
@@ -582,7 +651,7 @@ function apagarCampanha(empresa, campanhaId) {
 function campanhasComNumeros(empresa) {
   const leadPorId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
   return campanhasDa(empresa).map((c) => {
-    const ds = estado.disparos.filter((d) => d.empresaId === empresa.id && d.campanhaId === c.id);
+    const ds = estado.disparos.filter((d) => d.empresaId === empresa.id && d.campanhaId === c.id && !d.teste);
     let enviados = 0;
     let responderam = 0;
     for (const d of ds) for (const v of numerosPorVersao(d, leadPorId)) { enviados += v.enviados; responderam += v.responderam; }
@@ -849,6 +918,7 @@ module.exports = {
   paraIa,
   aoResponder,
   MAX_VERSOES,
+  testar,
   campanhasDa,
   campanhasComNumeros,
   salvarCampanha,
