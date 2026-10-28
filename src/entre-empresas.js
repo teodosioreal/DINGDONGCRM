@@ -4,6 +4,9 @@
 // de uma responderia a IA da outra sem parar. Mensagem que vem do número de outra empresa
 // do CRM é ignorada (não vira conversa) e a IA, o follow-up e as automações não mandam
 // nada para esses números.
+// Exceção: 🧪 disparo de teste para o número de outra empresa sua — por 2 h a conversa do teste
+// recebe as mensagens e a IA de quem testou responde. Do outro lado a IA continua bloqueada
+// (só um lado fala sozinho), e não dá para abrir o teste ao contrário ao mesmo tempo.
 
 const { estado } = require('./db');
 
@@ -51,4 +54,25 @@ function leadDeOutraEmpresa(empresa, lead) {
   return [lead.telefone, lead.whatsappJid].some((j) => j && !/@lid$/.test(j) && outras.has(chave(j)));
 }
 
-module.exports = { aprenderNumeroProprio, mensagemDeOutraEmpresa, leadDeOutraEmpresa, chave };
+// 🧪 teste liberado nesta conversa (até quando)?
+const testeLiberado = (lead) => Boolean(lead?.testeLiberadoAte && lead.testeLiberadoAte > new Date().toISOString());
+
+// mensagem de outra empresa do CRM que é a resposta de um teste liberado
+function testeLiberadoDaMensagem(empresa, msg) {
+  const identidade = require('./identidade');
+  return identidade.conversasDoCliente(empresa, identidade.enderecos(msg)).some(testeLiberado);
+}
+
+// a empresa dona deste número (outra do CRM), ou null
+function empresaDoNumero(empresa, numero) {
+  const k = chave(numero);
+  return (estado.empresas || []).find((e) => e.id !== empresa.id && numerosDa(e).includes(k)) || null;
+}
+
+// já existe um teste aberto AO CONTRÁRIO (a outra empresa testando com o número desta)?
+function testeAoContrario(empresa, outra) {
+  const meus = new Set(numerosDa(empresa));
+  return estado.conversas.some((c) => c.empresaId === outra.id && testeLiberado(c) && [c.telefone, c.whatsappJid].some((j) => j && meus.has(chave(j))));
+}
+
+module.exports = { aprenderNumeroProprio, mensagemDeOutraEmpresa, leadDeOutraEmpresa, chave, testeLiberado, testeLiberadoDaMensagem, empresaDoNumero, testeAoContrario };
