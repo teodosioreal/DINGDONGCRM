@@ -431,25 +431,120 @@ function mensagensDa(empresa) {
 }
 
 // guarda a mensagem na biblioteca (ou acha a igual que já existe) e devolve o id
+// mensagens que valem (as "versões antigas", trocadas por uma edição, ficam só para o histórico)
+const ativas = (empresa) => mensagensDa(empresa).filter((m) => !m.substituidaPor);
+
+// a mensagem já saiu em algum disparo de verdade? (então o texto dela não muda mais: o ranking é dela)
+function jaEnviada(empresa, m) {
+  return estado.disparos.some((d) => d.empresaId === empresa.id && !d.teste && (d.versoes || []).some((v, i) => (v.msgId === m.id || (!v.msgId && textoIgual(v.texto, m.texto))) && (d.destinatarios || []).some((x) => x.status === 'enviado' && (x.versao || 0) === i)));
+}
+
+// campanhas que usam cada mensagem (pelo id; campanha antiga sem id: pelo texto)
+function usoNasCampanhas(empresa) {
+  const uso = new Map();
+  for (const c of campanhasDa(empresa)) {
+    const vs = c.versoes?.length ? c.versoes : (c.mensagens || []).map((t) => ({ texto: t }));
+    for (const v of vs) {
+      const m = (v.msgId && mensagensDa(empresa).find((x) => x.id === v.msgId)) || ativas(empresa).find((x) => textoIgual(x.texto, v.texto));
+      if (!m) continue;
+      const lista = uso.get(m.id) || [];
+      if (!lista.some((x) => x.id === c.id)) lista.push({ id: c.id, nome: c.nome });
+      uso.set(m.id, lista);
+    }
+  }
+  return uso;
+}
+
+// guarda a mensagem na biblioteca (ou acha a igual que já existe) e devolve ela
 function guardarMensagem(empresa, textoMsg, nome = '') {
   const lista = mensagensDa(empresa);
-  const igual = lista.find((m) => textoIgual(m.texto, textoMsg));
+  const igual = ativas(empresa).find((m) => textoIgual(m.texto, textoMsg)) || lista.find((m) => textoIgual(m.texto, textoMsg));
   if (igual) return igual;
   const m = { id: novoId('msd'), nome: texto(nome, 60), texto: texto(textoMsg, 3000), criadoEm: agora() };
   lista.push(m);
-  if (lista.length > MAX_MENSAGENS_SALVAS) lista.splice(0, lista.length - MAX_MENSAGENS_SALVAS);
+  // passou do limite: sai a mais antiga que não está em campanha nem foi enviada
+  if (lista.length > MAX_MENSAGENS_SALVAS) {
+    const uso = usoNasCampanhas(empresa);
+    const fora = lista.find((x) => x !== m && !uso.has(x.id) && !jaEnviada(empresa, x));
+    if (fora) lista.splice(lista.indexOf(fora), 1);
+  }
   return m;
 }
 
-// versões que vieram da tela (até 10); "mensagem" sozinha = uma versão. Quando o disparo é criado,
-// cada versão entra na biblioteca de mensagens (o ranking de quem mais responde junta os disparos).
+// Muda o texto de uma mensagem da biblioteca. Se ela ainda não saiu em disparo, muda ela mesma;
+// se já saiu, nasce uma versão nova e a antiga vira "versão antiga" (o ranking dela continua certo).
+// Se já existe outra mensagem com o mesmo texto, usa aquela (nada de duplicada).
+function mudarTexto(empresa, m, t) {
+  if (textoIgual(m.texto, t)) return m;
+  const outra = ativas(empresa).find((x) => x !== m && textoIgual(x.texto, t));
+  if (outra) return outra;
+  if (!jaEnviada(empresa, m)) {
+    m.texto = texto(t, 3000);
+    m.atualizadoEm = agora();
+    return m;
+  }
+  const nova = { id: novoId('msd'), nome: m.nome || '', texto: texto(t, 3000), criadoEm: agora(), anteriorId: m.id };
+  m.substituidaPor = nova.id;
+  mensagensDa(empresa).push(nova);
+  return nova;
+}
+
+// a mensagem mudou de id (versão nova): as campanhas que usavam a antiga passam a usar a nova
+function trocarNasCampanhas(empresa, deId, para) {
+  for (const c of campanhasDa(empresa)) {
+    let mudou = false;
+    c.versoes = (c.versoes?.length ? c.versoes : (c.mensagens || []).map((t) => ({ texto: t }))).map((v) => {
+      const eDela = v.msgId ? v.msgId === deId : textoIgual(v.texto, mensagensDa(empresa).find((x) => x.id === deId)?.texto);
+      if (!eDela) return v;
+      mudou = true;
+      return { texto: para.texto, msgId: para.id };
+    });
+    if (mudou) c.mensagens = c.versoes.map((v) => v.texto);
+  }
+}
+
+// o texto da mensagem mudou (mesmo id): todas as campanhas que usam ela ficam com o texto novo
+function sincronizarTexto(empresa, m) {
+  for (const c of campanhasDa(empresa)) {
+    if (!c.versoes?.some((v) => v.msgId === m.id && v.texto !== m.texto)) continue;
+    c.versoes = c.versoes.map((v) => (v.msgId === m.id ? { ...v, texto: m.texto } : v));
+    c.mensagens = c.versoes.map((v) => v.texto);
+  }
+}
+
+// junta mensagens com o MESMO texto (duplicadas de antes): fica a mais antiga e os disparos e
+// campanhas passam a apontar para ela — os números somam, nada se perde
+function juntarDuplicadas(empresa) {
+  const lista = mensagensDa(empresa);
+  let mudou = false;
+  for (let i = 0; i < lista.length; i++) {
+    for (let j = lista.length - 1; j > i; j--) {
+      const a = lista[i];
+      const b = lista[j];
+      if (!textoIgual(a.texto, b.texto)) continue;
+      for (const d of estado.disparos) if (d.empresaId === empresa.id) for (const v of d.versoes || []) if (v.msgId === b.id) v.msgId = a.id;
+      for (const c of campanhasDa(empresa)) for (const v of c.versoes || []) if (v.msgId === b.id) v.msgId = a.id;
+      for (const x of lista) if (x.substituidaPor === b.id) x.substituidaPor = a.id;
+      if (!a.nome && b.nome) a.nome = b.nome;
+      if (a.substituidaPor && !b.substituidaPor) delete a.substituidaPor;
+      lista.splice(j, 1);
+      mudou = true;
+    }
+  }
+  if (mudou) salvar();
+  return mudou;
+}
+
+// versões que vieram da tela (até 10); "mensagem" sozinha = uma versão. Aceita [{ texto, msgId }]
+// (da campanha) para o disparo apontar para a mesma mensagem da biblioteca.
 function versoesDoCorpo(empresa, corpo) {
-  const brutas = Array.isArray(corpo.mensagens) && corpo.mensagens.length ? corpo.mensagens : [corpo.mensagem];
+  const brutas = Array.isArray(corpo.versoes) && corpo.versoes.length ? corpo.versoes : Array.isArray(corpo.mensagens) && corpo.mensagens.length ? corpo.mensagens : [corpo.mensagem];
   const saida = [];
   for (const b of brutas) {
     const t = texto(typeof b === 'string' ? b : b?.texto, 3000);
     if (!t || saida.some((v) => textoIgual(v.texto, t))) continue;
-    saida.push({ texto: t });
+    const m = typeof b === 'object' && b?.msgId ? mensagensDa(empresa).find((x) => x.id === b.msgId && textoIgual(x.texto, t)) : null;
+    saida.push(m ? { texto: t, msgId: m.id } : { texto: t });
     if (saida.length >= MAX_VERSOES) break;
   }
   return saida;
@@ -469,8 +564,9 @@ function numerosPorVersao(d, leadPorId = null) {
   return nums;
 }
 
-// biblioteca com o ranking: somando todos os disparos da empresa
+// biblioteca com o ranking (somando todos os disparos) e em quais campanhas cada uma está
 function mensagensComNumeros(empresa) {
+  juntarDuplicadas(empresa);
   const leadPorId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
   const total = new Map();
   for (const d of estado.disparos.filter((x) => x.empresaId === empresa.id && !x.teste)) {
@@ -484,7 +580,8 @@ function mensagensComNumeros(empresa) {
       total.set(id, t);
     }
   }
-  return mensagensDa(empresa).map((m) => ({ ...m, ...(total.get(m.id) || { enviados: 0, responderam: 0, disparos: 0 }) }));
+  const uso = usoNasCampanhas(empresa);
+  return mensagensDa(empresa).map((m) => ({ ...m, ...(total.get(m.id) || { enviados: 0, responderam: 0, disparos: 0 }), campanhas: uso.get(m.id) || [], antiga: Boolean(m.substituidaPor) }));
 }
 
 function salvarMensagem(empresa, b = {}, msgId = null) {
@@ -498,25 +595,31 @@ function salvarMensagem(empresa, b = {}, msgId = null) {
   }
   const m = mensagensDa(empresa).find((x) => x.id === msgId);
   if (!m) throw erro('Mensagem não encontrada.', 404);
-  // texto mudou e já foi usado em disparo: vira uma mensagem nova (o ranking da antiga continua certo)
-  const usada = estado.disparos.some((d) => d.empresaId === empresa.id && (d.versoes || []).some((v) => v.msgId === m.id));
-  if (!textoIgual(m.texto, t) && usada) {
-    const nova = { id: novoId('msd'), nome: texto(b.nome, 60) || m.nome, texto: t, criadoEm: agora() };
-    mensagensDa(empresa).push(nova);
-    salvar();
-    return nova;
-  }
-  m.texto = t;
-  if (b.nome !== undefined) m.nome = texto(b.nome, 60);
+  const final = mudarTexto(empresa, m, t);
+  if (final !== m) trocarNasCampanhas(empresa, m.id, final); // as campanhas acompanham a mensagem editada
+  else sincronizarTexto(empresa, m);
+  if (b.nome !== undefined) final.nome = texto(b.nome, 60);
   salvar();
-  return m;
+  return final;
 }
 
+// apagar: sai da biblioteca e das campanhas que usavam (campanha não pode ficar sem mensagem)
 function apagarMensagem(empresa, msgId) {
   const lista = mensagensDa(empresa);
-  const i = lista.findIndex((x) => x.id === msgId);
-  if (i < 0) throw erro('Mensagem não encontrada.', 404);
-  lista.splice(i, 1);
+  const m = lista.find((x) => x.id === msgId);
+  if (!m) throw erro('Mensagem não encontrada.', 404);
+  const usam = usoNasCampanhas(empresa).get(m.id) || [];
+  for (const u of usam) {
+    const c = campanhasDa(empresa).find((x) => x.id === u.id);
+    const vs = (c.versoes?.length ? c.versoes : (c.mensagens || []).map((t) => ({ texto: t }))).filter((v) => !(v.msgId ? v.msgId === m.id : textoIgual(v.texto, m.texto)));
+    if (!vs.length) throw erro(`Essa é a única mensagem da campanha "${c.nome}". Coloque outra mensagem nela antes de apagar esta.`);
+  }
+  for (const u of usam) {
+    const c = campanhasDa(empresa).find((x) => x.id === u.id);
+    c.versoes = (c.versoes?.length ? c.versoes : (c.mensagens || []).map((t) => ({ texto: t }))).filter((v) => !(v.msgId ? v.msgId === m.id : textoIgual(v.texto, m.texto)));
+    c.mensagens = c.versoes.map((v) => v.texto);
+  }
+  lista.splice(lista.indexOf(m), 1);
   salvar();
 }
 
@@ -601,7 +704,7 @@ async function testar(empresa, corpo = {}, usuario = null) {
 // nome, roteiro da IA, etapa/etiqueta ao responder, lembrete e ritmo. Na hora de disparar só
 // escolhe a lista (ou filtros), o nome e quando; o disparo leva campanhaId.
 
-const CAMPOS_CAMPANHA = ['mensagens', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
+const CAMPOS_CAMPANHA = ['mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
 
 function campanhasDa(empresa) {
   if (!Array.isArray(empresa.campanhasDisparo)) empresa.campanhasDisparo = [];
@@ -611,13 +714,27 @@ function campanhasDa(empresa) {
 function salvarCampanha(empresa, b = {}, campanhaId = null) {
   const nome = texto(b.nome, 80);
   if (!nome) throw erro('Dê um nome para a campanha.');
-  const mensagens = (Array.isArray(b.mensagens) ? b.mensagens : []).map((m) => texto(m, 3000)).filter(Boolean).slice(0, MAX_VERSOES);
-  if (!mensagens.length) throw erro('Escreva pelo menos uma mensagem.');
+  // versões: { texto, msgId } — a campanha aponta para a mensagem da biblioteca (sem duplicar)
+  const brutas = Array.isArray(b.versoes) && b.versoes.length ? b.versoes : (Array.isArray(b.mensagens) ? b.mensagens : []).map((t) => ({ texto: t }));
+  const versoes = [];
+  for (const v of brutas) {
+    const t = texto(typeof v === 'string' ? v : v?.texto, 3000);
+    if (!t) continue;
+    const ligada = v?.msgId && mensagensDa(empresa).find((x) => x.id === v.msgId);
+    const m = ligada ? mudarTexto(empresa, ligada, t) : guardarMensagem(empresa, t);
+    if (ligada && m !== ligada) trocarNasCampanhas(empresa, ligada.id, m); // outras campanhas com a mesma mensagem acompanham
+    else sincronizarTexto(empresa, m);
+    if (!versoes.some((x) => x.msgId === m.id)) versoes.push({ texto: m.texto, msgId: m.id });
+    if (versoes.length >= MAX_VERSOES) break;
+  }
+  if (!versoes.length) throw erro('Escreva pelo menos uma mensagem.');
+  const mensagens = versoes.map((v) => v.texto);
   const n = (v) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? undefined : Number(v));
   const dados = {
     nome,
     tipo: b.tipo === 'clientes' ? 'clientes' : 'prospeccao',
     mensagens,
+    versoes,
     midiaIds: (Array.isArray(b.midiaIds) ? b.midiaIds : []).map((x) => texto(x, 60)).filter(Boolean).slice(0, MAX_MIDIAS),
     personalizar: normalizarPersonalizar(b.personalizar),
     ...extrasDoDisparo(empresa, b, null),
@@ -631,7 +748,6 @@ function salvarCampanha(empresa, b = {}, campanhaId = null) {
     perfilEnvio: texto(b.perfilEnvio, 30),
     atualizadoEm: agora()
   };
-  for (const m of mensagens) guardarMensagem(empresa, m); // as mensagens já aparecem no ranking
   const lista = campanhasDa(empresa);
   let c = campanhaId ? lista.find((x) => x.id === campanhaId) : null;
   if (campanhaId && !c) throw erro('Campanha não encontrada.', 404);
