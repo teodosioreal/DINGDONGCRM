@@ -744,6 +744,41 @@ function aoResponder(empresa, lead) {
   return true;
 }
 
+// 🛡️ O cliente respondeu a um disparo (a última mensagem da empresa antes da resposta é do
+// disparo ou do lembrete): a IA atende. Pausa que veio ANTES do disparo (a equipe tinha falado à
+// mão, ou o cliente já tinha comprado/agendado) não vale mais — o disparo reabriu a conversa.
+// Pausa DEPOIS do disparo (cliente pediu uma pessoa, a IA chamou a equipe, a equipe respondeu)
+// continua valendo. Lista negra e "SAIR" nunca são liberados.
+function liberarIaAoResponder(empresa, lead) {
+  if (!lead || lead.listaNegra || lead.naoDisparar) return false;
+  const msgs = lead.mensagens || [];
+  let i = msgs.length - 1;
+  while (i >= 0 && msgs[i].papel === 'visitante') i--;
+  const ultima = msgs[i];
+  if (!ultima?.disparoId || Date.now() - new Date(ultima.em).getTime() > 30 * DIA) return false;
+  let liberou = false;
+  const antiga = lead.iaPausadaEm ? lead.iaPausadaEm <= ultima.em : /^A equipe respondeu|^Cliente de cobrança/.test(lead.iaPausadaMotivo || '');
+  if (lead.iaPausada && !lead.iaDesligadaPor && antiga) {
+    lead.iaPausada = false;
+    lead.precisaHumano = false;
+    delete lead.iaPausadaMotivo;
+    delete lead.iaPausadaEm;
+    liberou = true;
+  }
+  // comprou/agendou antes do disparo: atende de novo (vale até uma venda nova)
+  const iaD = require('./ia-desligada');
+  const m = iaD.motivo(empresa, lead);
+  if (m && ['venda', 'agenda'].includes(m.por) && lead.iaDesligadaEm && lead.iaDesligadaEm <= ultima.em) {
+    iaD.ligadaAMao(lead);
+    lead.iaPausada = false;
+    delete lead.iaPausadaMotivo;
+    delete lead.iaPausadaEm;
+    liberou = true;
+  }
+  if (liberou) console.log(`[disparo ${ultima.disparoId}] cliente respondeu ao disparo: IA liberada na conversa ${lead.id}`);
+  return liberou;
+}
+
 // 🔔 lembrete: quem recebeu e não respondeu nada em X dias ganha UMA mensagem curta
 function situacaoDoLembrete(d, x, lead, agoraMs) {
   if (x.status !== 'enviado' || x.lembrete || !x.em) return null;
@@ -917,6 +952,7 @@ module.exports = {
   retomarAoIniciar,
   paraIa,
   aoResponder,
+  liberarIaAoResponder,
   MAX_VERSOES,
   testar,
   campanhasDa,

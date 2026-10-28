@@ -133,6 +133,36 @@ async function aprenderLidDaMensagem(empresa, msg) {
   return null;
 }
 
+// O contrário: chegou SÓ o id escondido (@lid), sem o número, e o CRM não conhece esse LID.
+// Pergunta à Evolution como a mensagem foi guardada — se ela souber o número, a mensagem cai na
+// conversa que já existe (ex.: o contato que recebeu o disparo pelo número).
+const semFonePorLid = new Map(); // lid → quando perguntou e não achou (não repete por 1 h)
+async function aprenderFoneDoLid(empresa, msg) {
+  const e = enderecos(msg);
+  if (!e.lid || e.fone || !msg?.key?.id || mapaDa(empresa)[e.lid]) return null;
+  if (conversasDoCliente(empresa, { lid: e.lid }).length) return null; // já conhece este LID
+  const ultimo = semFonePorLid.get(e.lid);
+  if (ultimo && Date.now() - ultimo < 3600 * 1000) return null;
+  const whatsapp = require('./whatsapp');
+  try {
+    const r = await whatsapp.evolution(empresa, 'POST', '/chat/findMessages/{instancia}', { where: { key: { id: msg.key.id } }, page: 1, offset: 3 }, { tempo: 6000 });
+    for (const m of r?.messages?.records || []) {
+      const k = m.key || {};
+      const fone = [k.remoteJidAlt, k.senderPn, k.participantAlt, m.senderPn].find(ehTelefone);
+      if (fone) {
+        mapaDa(empresa)[e.lid] = fone;
+        salvar();
+        console.log('[identidade] id escondido (@lid) ligado ao número pela Evolution');
+        return fone;
+      }
+    }
+  } catch {
+    // a Evolution não respondeu: segue sem o número (vira conversa pelo LID)
+  }
+  semFonePorLid.set(e.lid, Date.now());
+  return null;
+}
+
 // Endereço para guardar numa conversa nova (número de verdade quando souber)
 function jidPreferido(empresa, msg) {
   const e = enderecos(msg);
@@ -163,4 +193,4 @@ function repararDuplicadas(empresa) {
   return juntadas;
 }
 
-module.exports = { aprenderLidDaMensagem, conversaDoEndereco, acharCliente, jidPreferido, repararDuplicadas, conversasDoCliente, chaveFone, enderecos, ehTelefone, ehLid };
+module.exports = { aprenderLidDaMensagem, aprenderFoneDoLid, conversaDoEndereco, acharCliente, jidPreferido, repararDuplicadas, conversasDoCliente, chaveFone, enderecos, ehTelefone, ehLid };

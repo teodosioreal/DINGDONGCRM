@@ -260,6 +260,7 @@ async function enviar(empresa, c, comp, { manual = false } = {}) {
     delete c.ultimoErro;
     if (!cfg.iaResponde && !lead.iaPausada) {
       lead.iaPausada = true;
+      lead.iaPausadaEm = agora();
       lead.iaPausadaMotivo = 'Cliente de cobrança: a equipe atende (Disparos → Cobrança)';
     }
     salvar();
