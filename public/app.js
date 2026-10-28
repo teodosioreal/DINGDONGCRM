@@ -4400,7 +4400,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   const campanha = campanhaPedida ? await api(`empresas/${id}/disparos-campanhas/${encodeURIComponent(campanhaPedida)}`).catch(() => null) : null;
   if (campanhaPedida && !campanha) { aviso('Campanha não encontrada.', true); location.hash = rotaEmpresa(id, 'disparos/campanhas'); return; }
   const emp = await definirEmpresaAtual(id);
-  const [lista, albuns, ld, salvas] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/disparos-listas`).catch(() => ({ listas: [], seguranca: {} })), api(`empresas/${id}/disparos-mensagens`).then((r) => r.mensagens || []).catch(() => [])]);
+  const [lista, albuns, ld, salvas] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/disparos-listas`).catch(() => ({ listas: [], seguranca: {} })), api(`empresas/${id}/disparos-mensagens`).then((r) => (r.mensagens || []).filter((m) => !m.antiga)).catch(() => [])]);
   // 🛡️ prospecção: contatos que ainda não conhecem a empresa (lista importada)
   const listaPedida = params.get('lista') || '';
   const prospeccao = campanha ? campanha.tipo !== 'clientes' : params.get('modo') === 'prospeccao' || Boolean(listaPedida);
@@ -4460,7 +4460,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <div class="campo">
             <label>Mensagem * ${ajuda('Cadastre até 10 versões: o CRM reveza entre os contatos (1º recebe a A, 2º a B…) e mostra em 💬 Mensagens e ranking qual faz mais gente responder.')}</label>
             <div class="versoes-msg" id="versoes-msg"></div>
-            ${salvas.length ? `<select id="usar-salva" class="pequeno-select"><option value="">📚 Usar uma das minhas mensagens…</option>${salvas.slice().sort((a, b) => taxaMsg(b) - taxaMsg(a)).map((m) => `<option value="${esc(m.id)}">${m.enviados ? `${taxaMsg(m)}% responderam · ` : ''}${esc(m.nome || m.texto.replace(/\s+/g, ' ').slice(0, 70))}</option>`).join('')}</select>` : ''}
+            ${salvas.length ? `<select id="usar-salva" class="pequeno-select"><option value="">📚 Usar uma das minhas mensagens…</option>${salvas.slice().sort((a, b) => taxaMsg(b) - taxaMsg(a)).map((m) => `<option value="${esc(m.id)}">${m.enviados ? `${taxaMsg(m)}% responderam · ` : ''}${esc(m.nome || m.texto.replace(/\s+/g, ' ').slice(0, 70))}${m.campanhas?.length ? ` · em ${m.campanhas.length} ${m.campanhas.length === 1 ? 'campanha' : 'campanhas'}` : ''}</option>`).join('')}</select>` : ''}
             <p class="rotulo" style="margin:6px 0 6px">Sai exatamente o que você escrever (o disparo não usa IA). Toque para colocar no texto:</p>
             <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}" title="Cada pessoa recebe uma das opções">👋 Saudação variada</button><button type="button" class="pequeno" data-inserir="{nome}" title="Nome do contato (na lista do PDF, é o nome da empresa dele)">👤 Nome do contato</button>${prospeccao ? '<button type="button" class="pequeno" data-inserir="{empresa_contato}" title="Nome da empresa do contato (da lista importada)">🏢 Empresa do contato</button><button type="button" class="pequeno" data-inserir="{cidade}">📍 Cidade</button>' : ''}<button type="button" class="pequeno" data-inserir="{empresa}" title="O nome da SUA empresa">🏷️ Nome da minha empresa</button></div>
             <textarea name="mensagem" required style="min-height:140px" placeholder="${prospeccao ? '{Oi|Olá|Boa tarde}! Vi que a {empresa_contato} ainda não tem site. Posso te mostrar uma ideia rápida?' : '{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?'}"></textarea>
@@ -4565,7 +4565,12 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   const form = $('#f-disparo');
   // 🔁 versões da mensagem (até 10): a caixa de texto edita a versão escolhida
   const versoes = [''];
-  try { const pedidas = JSON.parse(sessionStorage.getItem('disparo_mensagens') || '[]'); sessionStorage.removeItem('disparo_mensagens'); if (pedidas.length) versoes.splice(0, 1, ...pedidas.slice(0, 10)); } catch { /* sem sessionStorage */ }
+  const idsVersoes = [null]; // id da mensagem da biblioteca de cada versão (null = texto novo)
+  try {
+    const pedidas = JSON.parse(sessionStorage.getItem('disparo_mensagens') || '[]').slice(0, 10);
+    sessionStorage.removeItem('disparo_mensagens');
+    if (pedidas.length) { versoes.splice(0, 1, ...pedidas.map((x) => (typeof x === 'string' ? x : x.texto))); idsVersoes.splice(0, 1, ...pedidas.map((x) => (typeof x === 'string' ? null : x.id || null))); }
+  } catch { /* sem sessionStorage */ }
   let vAtiva = 0;
   const caixaMsg = form.elements.mensagem;
   caixaMsg.value = versoes[0];
@@ -4574,8 +4579,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     const letras = versoes.map((v, i) => `<button type="button" class="chip-filtro ${i === vAtiva ? 'ativo' : ''}" data-versao="${i}" title="${esc(v.slice(0, 120))}">Versão ${String.fromCharCode(65 + i)}${v.trim() ? '' : ' (vazia)'}</button>`).join('');
     $('#versoes-msg').innerHTML = `${letras}${versoes.length < 10 ? '<button type="button" class="chip-filtro" id="versao-nova">+ Nova versão</button>' : ''}${versoes.length > 1 ? `<button type="button" class="pequeno perigo" id="versao-tirar" title="Tirar a versão ${String.fromCharCode(65 + vAtiva)}">✕ Tirar ${String.fromCharCode(65 + vAtiva)}</button>` : ''}${versoes.length > 1 ? `<span class="rotulo">${comTexto().length} versões revezando entre os contatos</span>` : ''}`;
     $$('[data-versao]').forEach((b) => { b.onclick = () => irVersao(Number(b.dataset.versao)); });
-    $('#versao-nova')?.addEventListener('click', () => { versoes.push(''); irVersao(versoes.length - 1); });
-    $('#versao-tirar')?.addEventListener('click', () => { versoes.splice(vAtiva, 1); irVersao(Math.max(0, vAtiva - 1)); });
+    $('#versao-nova')?.addEventListener('click', () => { versoes.push(''); idsVersoes.push(null); irVersao(versoes.length - 1); });
+    $('#versao-tirar')?.addEventListener('click', () => { versoes.splice(vAtiva, 1); idsVersoes.splice(vAtiva, 1); irVersao(Math.max(0, vAtiva - 1)); });
   }
   function irVersao(i) {
     vAtiva = Math.min(versoes.length - 1, Math.max(0, i));
@@ -4589,8 +4594,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     const m = salvas.find((x) => x.id === e.target.value);
     e.target.value = '';
     if (!m) return;
-    if (versoes.some((v) => v.trim() === m.texto.trim())) return aviso('Essa mensagem já está nas versões.');
-    if (versoes[vAtiva].trim() && versoes.length < 10) { versoes.push(m.texto); irVersao(versoes.length - 1); } else { versoes[vAtiva] = m.texto; irVersao(vAtiva); }
+    if (idsVersoes.includes(m.id) || versoes.some((v) => v.trim() === m.texto.trim())) return aviso('Essa mensagem já está nas versões.');
+    if (versoes[vAtiva].trim() && versoes.length < 10) { versoes.push(m.texto); idsVersoes.push(m.id); irVersao(versoes.length - 1); } else { versoes[vAtiva] = m.texto; idsVersoes[vAtiva] = m.id; irVersao(vAtiva); }
   });
   form.noValidate = true; // conferimos no JS e mostramos o erro (o navegador travava calado em campo escondido)
   // intervalo em segundos, qualquer que seja a unidade escolhida (segundos, minutos ou horas)
@@ -4790,7 +4795,9 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   // 🎯 campanha: tudo preenchido (editar a campanha ou disparar com ela)
   if (campanha) {
     const el = form.elements;
-    versoes.splice(0, versoes.length, ...(campanha.mensagens?.length ? campanha.mensagens.slice(0, 10) : ['']));
+    const vsCamp = campanha.versoes?.length ? campanha.versoes : (campanha.mensagens || []).map((t) => ({ texto: t }));
+    versoes.splice(0, versoes.length, ...(vsCamp.length ? vsCamp.slice(0, 10).map((v) => v.texto) : ['']));
+    idsVersoes.splice(0, idsVersoes.length, ...(vsCamp.length ? vsCamp.slice(0, 10).map((v) => v.msgId || null) : [null]));
     caixaMsg.value = versoes[0];
     for (const mid of campanha.midiaIds || []) if (itemDe(mid) && !escolhidas.includes(mid)) escolhidas.push(mid);
     desenharEscolhidas();
@@ -4848,6 +4855,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     return {
       mensagem: comTexto()[0] || '',
       mensagens: comTexto(),
+      versoes: versoes.map((t, i) => ({ texto: t.trim(), msgId: idsVersoes[i] || null })).filter((v) => v.texto),
       midiaIds: escolhidas,
       intervaloMin: mi,
       intervaloMax: ma,
@@ -5629,8 +5637,11 @@ async function paginaMensagensDisparo(id) {
   await definirEmpresaAtual(id);
   const r = await api(`empresas/${id}/disparos-mensagens`);
   if (location.hash !== hashDaPagina) return;
-  const lista = (r.mensagens || []).slice().sort((a, b) => (b.enviados ? 1 : 0) - (a.enviados ? 1 : 0) || taxaMsg(b) - taxaMsg(a) || b.enviados - a.enviados);
-  const confiaveis = lista.filter((m) => m.enviados >= POUCOS_ENVIOS);
+  let verAntigas = false;
+  try { verAntigas = sessionStorage.getItem('ranking_antigas') === '1'; } catch { verAntigas = false; }
+  const antigas = (r.mensagens || []).filter((m) => m.antiga);
+  const lista = (r.mensagens || []).filter((m) => verAntigas || !m.antiga).sort((a, b) => (a.antiga ? 1 : 0) - (b.antiga ? 1 : 0) || (b.enviados ? 1 : 0) - (a.enviados ? 1 : 0) || taxaMsg(b) - taxaMsg(a) || b.enviados - a.enviados);
+  const confiaveis = lista.filter((m) => !m.antiga && m.enviados >= POUCOS_ENVIOS);
   const lider = confiaveis.length > 1 ? confiaveis.reduce((x, y) => (taxaMsg(y) > taxaMsg(x) ? y : x)) : null;
   const maior = Math.max(1, ...lista.map(taxaMsg));
   conteudo.innerHTML = cascaDisparos(id, 'mensagens', `
@@ -5646,14 +5657,16 @@ async function paginaMensagensDisparo(id) {
     </div>
     ${lista.length ? `<div class="card">
       <div class="linha-form" style="justify-content:space-between;flex-wrap:wrap"><h2 style="margin:0">🏆 Ranking</h2><button type="button" class="primario" id="usar-escolhidas" disabled>🎯 Criar campanha com as marcadas</button></div>
+      ${antigas.length ? `<label class="linha-check rotulo" style="margin-top:6px"><input type="checkbox" id="ver-antigas" ${verAntigas ? 'checked' : ''}> Mostrar versões antigas (${antigas.length}) — mensagens que já tinham sido enviadas e depois foram editadas</label>` : ''}
       <div class="ranking-msgs">${lista.map((m, i) => `
         <div class="ranking-msg ${m === lider ? 'lider' : ''}">
-          <label class="linha-check"><input type="checkbox" data-escolher="${esc(m.id)}"></label>
+          <label class="linha-check" ${m.antiga ? 'style="visibility:hidden"' : ''}><input type="checkbox" data-escolher="${esc(m.id)}" ${m.antiga ? 'disabled' : ''}></label>
           <div class="ranking-corpo">
-            <div class="ranking-topo"><b>${m.enviados ? `${i + 1}º` : '—'}</b> ${m === lider ? '<span class="etiqueta ok">🏆 a melhor até agora</span>' : ''}${m.nome ? ` <b>${esc(m.nome)}</b>` : ''}</div>
+            <div class="ranking-topo"><b>${m.antiga ? '🕓' : m.enviados ? `${i + 1}º` : '—'}</b> ${m === lider ? '<span class="etiqueta ok">🏆 a melhor até agora</span>' : ''}${m.antiga ? '<span class="etiqueta">versão antiga (foi editada)</span>' : ''}${m.nome ? ` <b>${esc(m.nome)}</b>` : ''}</div>
             <div class="ranking-texto">${esc(m.texto)}</div>
             <div class="ranking-barra"><span style="width:${Math.round((taxaMsg(m) / maior) * 100)}%"></span></div>
-            <span class="rotulo">${m.enviados ? `<b>${taxaMsg(m)}% responderam</b> · ${m.responderam} de ${m.enviados} · em ${m.disparos} ${m.disparos === 1 ? 'disparo' : 'disparos'}${m.enviados < POUCOS_ENVIOS ? ' · ainda poucos envios' : ''}` : 'ainda não foi usada em disparo'}</span>
+            <span class="rotulo">${m.enviados ? `<b>${taxaMsg(m)}% responderam</b> · ${m.responderam} de ${m.enviados} · em ${m.disparos} ${m.disparos === 1 ? 'disparo' : 'disparos'}${m.enviados < POUCOS_ENVIOS ? ' · ainda poucos envios' : ''}` : 'ainda não foi enviada'}</span>
+            <div class="uso-campanhas">${m.campanhas?.length ? `🎯 Usada em: ${m.campanhas.map((c) => `<a class="etiqueta" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(c.id)}`)}">${esc(c.nome)}</a>`).join(' ')}` : `<span class="rotulo">${m.antiga ? 'Fica só no histórico' : 'Não está em nenhuma campanha'}</span>`}</div>
           </div>
           <div class="ranking-acoes"><button type="button" class="pequeno" data-editar-msg="${esc(m.id)}">✏️</button><button type="button" class="pequeno perigo" data-apagar-msg="${esc(m.id)}">🗑️</button></div>
         </div>`).join('')}</div>
@@ -5666,13 +5679,14 @@ async function paginaMensagensDisparo(id) {
   const marcadas = () => $$('[data-escolher]:checked').map((c) => lista.find((m) => m.id === c.dataset.escolher)).filter(Boolean);
   $$('[data-escolher]').forEach((c) => { c.onchange = () => { const n = marcadas().length; $('#usar-escolhidas').disabled = !n || n > 10; $('#usar-escolhidas').textContent = n > 10 ? 'Máximo 10 versões' : `🎯 Criar campanha com ${n ? `as ${n} marcadas` : 'as marcadas'}`; }; });
   $('#usar-escolhidas')?.addEventListener('click', () => {
-    try { sessionStorage.setItem('disparo_mensagens', JSON.stringify(marcadas().map((m) => m.texto))); } catch { /* sem sessionStorage */ }
+    try { sessionStorage.setItem('disparo_mensagens', JSON.stringify(marcadas().map((m) => ({ texto: m.texto, id: m.id })))); } catch { /* sem sessionStorage */ }
     location.hash = rotaEmpresa(id, 'disparos/campanhas/nova');
   });
+  $('#ver-antigas')?.addEventListener('change', (e) => { try { sessionStorage.setItem('ranking_antigas', e.target.checked ? '1' : '0'); } catch { /* sem sessionStorage */ } paginaMensagensDisparo(id); });
   $$('[data-editar-msg]').forEach((b) => {
     b.onclick = () => {
       const m = lista.find((x) => x.id === b.dataset.editarMsg);
-      abrirModal(`<h2>Editar mensagem</h2><form id="f-msg-editar"><div class="campo"><label>Nome</label><input name="nome" maxlength="60" value="${esc(m.nome || '')}"></div><div class="campo"><label>Mensagem</label><textarea name="texto" maxlength="3000" style="min-height:120px">${esc(m.texto)}</textarea>${m.enviados ? '<small>Já foi usada em disparo: mudando o texto, vira uma mensagem nova no ranking (a antiga continua com os números dela).</small>' : ''}</div><div class="acoes"><button type="submit" class="primario">Salvar</button></div></form>`, (fundo, fechar) => {
+      abrirModal(`<h2>Editar mensagem</h2><form id="f-msg-editar"><div class="campo"><label>Nome</label><input name="nome" maxlength="60" value="${esc(m.nome || '')}"></div><div class="campo"><label>Mensagem</label><textarea name="texto" maxlength="3000" style="min-height:120px">${esc(m.texto)}</textarea>${m.campanhas?.length ? `<small>Muda também nas campanhas: <b>${m.campanhas.map((c) => esc(c.nome)).join(', ')}</b>.</small><br>` : ''}${m.enviados ? '<small>Já foi enviada: mudando o texto, o ranking começa do zero para o texto novo (o antigo fica em "versões antigas" com os números dele).</small>' : ''}</div><div class="acoes"><button type="submit" class="primario">Salvar</button></div></form>`, (fundo, fechar) => {
         $('#f-msg-editar', fundo).onsubmit = async (e) => {
           e.preventDefault();
           try { await api(`empresas/${id}/disparos-mensagens/${m.id}`, { method: 'PUT', body: formParaObjeto(e.target) }); fechar(); paginaMensagensDisparo(id); } catch (err) { aviso(err.message, true); }
@@ -5682,7 +5696,8 @@ async function paginaMensagensDisparo(id) {
   });
   $$('[data-apagar-msg]').forEach((b) => {
     b.onclick = async () => {
-      if (!(await confirmar({ titulo: 'Apagar esta mensagem?', texto: 'Ela sai da lista e do ranking. Os disparos que já usaram continuam como estão.', botao: 'Apagar', perigo: true }))) return;
+      const m = lista.find((x) => x.id === b.dataset.apagarMsg);
+      if (!(await confirmar({ titulo: 'Apagar esta mensagem?', texto: `<p>Ela sai da lista e do ranking.${m?.campanhas?.length ? ` <b>Também sai das campanhas: ${m.campanhas.map((c) => esc(c.nome)).join(', ')}.</b>` : ''}</p><p class="rotulo">Os disparos que já usaram continuam como estão.</p>`, botao: 'Apagar', perigo: true }))) return;
       try { await api(`empresas/${id}/disparos-mensagens/${b.dataset.apagarMsg}`, { method: 'DELETE' }); paginaMensagensDisparo(id); } catch (err) { aviso(err.message, true); }
     };
   });
