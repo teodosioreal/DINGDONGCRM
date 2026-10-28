@@ -18,7 +18,8 @@ const iaComCompradores = (empresa) => empresa?.iaComCompradores === true;
 // { por: 'venda' | 'agenda', texto } ou null
 function motivo(empresa, lead) {
   if (!empresa || !lead) return null;
-  if (require('./entre-empresas').leadDeOutraEmpresa(empresa, lead)) return { por: 'empresa', texto: 'Este número é de outra empresa do CRM: a IA não conversa com ele.' };
+  const ee = require('./entre-empresas');
+  if (ee.leadDeOutraEmpresa(empresa, lead) && !ee.testeLiberado(lead)) return { por: 'empresa', texto: 'Este número é de outra empresa do CRM: a IA não conversa com ele.' };
   const manual = lead.iaLigadaManualEm || '';
   const venda = !iaComCompradores(empresa) && require('./comprovantes').jaVendeu(empresa, lead);
   if (venda && (!manual || (venda.em && String(venda.em) > manual))) return { por: 'venda', texto: `Cliente já comprou (${venda.por}): IA desligada. Ligue de novo se quiser.` };

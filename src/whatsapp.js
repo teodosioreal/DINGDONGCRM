@@ -1001,7 +1001,8 @@ async function receberWebhook(empresa, corpo) {
     }
 
     // número de outra empresa do CRM: não vira conversa e a IA não responde (senão as duas IAs conversam sem parar)
-    if (require('./entre-empresas').mensagemDeOutraEmpresa(empresa, msg)) continue;
+    // (exceção: a resposta de um 🧪 disparo de teste liberado para esse número)
+    if (require('./entre-empresas').mensagemDeOutraEmpresa(empresa, msg) && !require('./entre-empresas').testeLiberadoDaMensagem(empresa, msg)) continue;
     const lead = acharOuCriarLead(empresa, jid, texto, msg);
     // "não atropelar": enquanto esta mensagem é preparada (foto descrita pela IA, áudio
     // transcrito…), a IA não responde este cliente — responde tudo junto depois

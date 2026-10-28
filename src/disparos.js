@@ -537,14 +537,20 @@ async function testar(empresa, corpo = {}, usuario = null) {
   const versao = Math.min(versoes.length - 1, Math.max(0, Math.round(Number(corpo.versao) || 0)));
   const pros = require('./prospeccao');
   const principal = estado.bots.find((b) => b.empresaId === empresa.id && b.principal) || estado.bots.find((b) => b.empresaId === empresa.id);
+  // número do WhatsApp de outra empresa sua no CRM: libera só este teste (2 h), nunca dos dois lados
+  const ee = require('./entre-empresas');
+  const outra = ee.empresaDoNumero(empresa, numero);
+  if (outra && ee.testeAoContrario(empresa, outra)) throw erro(`Já tem um teste aberto da empresa "${outra.nome}" para o número desta. Espere 2 h ou teste com outro número (assim as duas IAs não conversam sozinhas).`);
   let lead = pros.indiceDosLeads(empresa).acharNumero(numero);
   if (!lead) lead = leads.criarLead({ empresa, bot: principal, canal: 'manual', nome: 'Teste do disparo', telefone: numero });
   // dados de exemplo para {empresa_contato}, {cidade} e {ramo} (sem mexer nos de um contato de verdade)
   if (!lead.prospeccao?.empresa) lead.prospeccao = { ...(lead.prospeccao || {}), empresa: lead.prospeccao?.empresa || 'Empresa Teste', cidade: lead.prospeccao?.cidade || 'Sua Cidade', ramo: lead.prospeccao?.ramo || 'seu ramo' };
   lead.testeDisparo = true;
+  if (outra) lead.testeLiberadoAte = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
   // o teste é para ver a IA responder: tira o "não disparar" e a pausa deste número
   delete lead.naoDisparar;
-  if (lead.iaPausada) { lead.iaPausada = false; delete lead.iaPausadaMotivo; }
+  if (lead.iaPausada) { lead.iaPausada = false; delete lead.iaPausadaMotivo; delete lead.iaPausadaEm; }
+  if (lead.iaDesligadaPor === 'empresa') delete lead.iaDesligadaPor;
   const personalizar = normalizarPersonalizar(corpo.personalizar);
   const midiaIds = [...new Set((Array.isArray(corpo.midiaIds) ? corpo.midiaIds : []).map((x) => texto(x, 60)).filter(Boolean))].slice(0, MAX_MIDIAS);
   const { lembrete, ...extras } = extrasDoDisparo(empresa, corpo, personalizar); // lembrete fica de fora do teste
@@ -584,6 +590,7 @@ async function testar(empresa, corpo = {}, usuario = null) {
   const item = d.destinatarios[0];
   const c = whatsapp.configDa(empresa);
   const avisos = [];
+  if (outra) avisos.push(`Esse número é o WhatsApp da sua empresa "${outra.nome}" no CRM. Liberei a IA só para este teste, por 2 horas. Lá na "${outra.nome}" a IA continua sem responder esse número, para as duas não conversarem sozinhas.`);
   if (!c.iaAtiva) avisos.push('A IA do WhatsApp está DESLIGADA: ela não vai responder. Ligue em IA do WhatsApp.');
   if (!whatsapp.liberadoNoModoTeste(empresa, lead)) avisos.push('O modo teste da IA está ligado e este número não está na lista de teste: a IA não vai responder. Coloque o número na lista ou desligue o modo teste.');
   return { disparoId: d.id, leadId: lead.id, enviado: item.status === 'enviado', erro: item.erro || d.motivoPausa || '', numero, versao: String.fromCharCode(65 + versao), avisos };
