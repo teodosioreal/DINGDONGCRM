@@ -1958,3 +1958,5 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .escolha-campanha { display: block; text-decoration: none; color: inherit; margin-bottom: 14px; }
 .escolha-campanha:hover { border-color: var(--texto); }
 .caixa-teste { margin: 12px 0; border: 1px dashed var(--borda); border-radius: var(--raio); padding: 10px 12px; }
+.resumo-campanha { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.resumo-campanha .acoes { display: flex; gap: 6px; }
