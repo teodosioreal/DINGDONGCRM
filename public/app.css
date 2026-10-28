@@ -2003,3 +2003,6 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .cat-botao:hover { background: var(--hover); }
 .cat-botao.vazio { opacity: .55; }
 @media (max-width: 768px) { .cat-botoes { grid-template-columns: 1fr 1fr; } }
+.primeiros-fila { margin: 4px 0 0; padding-left: 20px; }
+.primeiros-fila li { margin: 2px 0; }
+.primeiros-fila span { color: var(--suave); }

@@ -1036,8 +1036,14 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
       if (t !== 'proprio') categorias.semproprio++;
     }
   }
+  // 🔢 os primeiros da fila (para conferir a ordem de envio)
+  const primeiros = r.filtro.listaId ? r.destinatarios.slice(0, 5).map((x) => {
+    const pr = estado.conversas.find((c) => c.id === x.leadId)?.prospeccao || {};
+    return { nome: pr.empresa || x.nome || '', nota: pr.nota || '', avaliacoes: pr.avaliacoes || '', site: prospeccao.tipoSite(pr), cidade: pr.cidade || '' };
+  }) : null;
   res.json({
     categorias,
+    primeiros,
     total: r.destinatarios.length,
     semNumero: r.semNumero,
     sairam: r.sairam,

@@ -4345,6 +4345,9 @@ function cascaDisparos(id, ativo, html, abas = null) {
   return `<div class="disp-casca"><nav class="disp-menu" aria-label="Disparos em massa">${menu}</nav><div class="disp-corpo">${topo}${html}</div></div>`;
 }
 
+// 🔢 ordem de envio da lista (o servidor ordena igual)
+const ORDENS_ENVIO = [['arquivo', '📄 Na ordem do arquivo'], ['menos-aval', '💬 Menos avaliações primeiro (nenhuma antes)'], ['mais-aval', '💬 Mais avaliações primeiro'], ['nota-baixa', '⭐ Menor nota primeiro (sem nota antes)'], ['nota-alta', '⭐ Maior nota primeiro'], ['prioridade-site', '🎯 Prioridade para vender site (sem site e mais movimento antes)'], ['cidade', '📍 Por cidade (A-Z)'], ['nome', '🔤 Por nome (A-Z)']];
+
 // 🔁 follow-up da campanha (quem não respondeu): a 1ª e as que tiverem texto
 function passosFupDoForm(f) {
   return [1, 2, 3].map((i) => {
@@ -4537,7 +4540,9 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           <div class="campo" style="margin-top:12px"><label>De onde veio</label><select name="origem"><option value="todos">Todos</option><option value="site">Site</option><option value="whatsapp">WhatsApp</option><option value="manual">Cadastrados / importados</option></select></div>`;
   const campoLista = `<div class="campo"><label>${prospeccao ? 'Qual lista de contatos?' : 'Lista de contatos'} ${ajuda('Listas importadas em 📋 Listas de contatos (aqui na aba Disparos).')}</label><select name="listaId"><option value="">${prospeccao ? '— escolha uma lista —' : '— qualquer —'}</option>${listas.map((l) => `<option value="${esc(l.id)}" ${l.id === listaPedida ? 'selected' : ''}>${esc(l.nome)} (${l.contatos} contatos)</option>`).join('')}</select>${prospeccao && !listas.length ? `<small>Nenhuma lista ainda. <a href="${rotaEmpresa(id, 'disparos/listas?aba=importar')}">Importar uma lista</a></small>` : ''}</div>
     <div class="categorias-lista" id="categorias-lista" hidden><span class="rotulo">🗂️ Mandar só para:</span><input type="hidden" name="siteCat" value="${esc(['nenhum', 'social', 'semproprio', 'proprio'].includes(params.get('site')) ? params.get('site') : '')}"><div class="chips" id="chips-categoria"></div>
-      <label class="linha-check"><input type="checkbox" name="soCelular" ${params.get('cel') === '1' ? 'checked' : ''}> 📱 Só celular (tira os telefones fixos)</label></div>`;
+      <label class="linha-check"><input type="checkbox" name="soCelular" ${params.get('cel') === '1' ? 'checked' : ''}> 📱 Só celular (tira os telefones fixos)</label>
+      <div class="campo" style="margin-top:6px"><label>🔢 Quem recebe primeiro ${ajuda('A ordem em que a lista sai. Na prospecção, com limite por dia, os primeiros são os que recebem nos primeiros dias.')}</label><select name="ordem">${ORDENS_ENVIO.map(([v, t]) => `<option value="${v}" ${(params.get('ordem') || 'arquivo') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="rotulo" id="primeiros-fila"></div></div>`;
   conteudo.innerHTML = cascaDisparos(id, modoCampanha || campanha ? 'campanhas' : 'novo', `
     ${modoCampanha
       ? `<div class="cabecalho"><div><a class="rotulo" href="${rotaEmpresa(id, 'disparos/campanhas')}">← Campanhas</a><h1>🎯 ${campanha ? 'Editar campanha' : 'Nova campanha'}</h1><p class="sub">Para ${tipoTexto}. Configure tudo agora; <b>a lista você escolhe na hora de disparar</b>. Nada é enviado aqui.</p></div></div>`
@@ -4742,6 +4747,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       origem: f.origem,
       listaId: f.listaId || '',
       site: f.listaId ? f.siteCat || '' : '',
+      ordem: f.listaId ? f.ordem || '' : '',
       soCelular: Boolean(f.listaId && f.soCelular)
     };
   };
@@ -4766,6 +4772,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
           $('#chips-categoria').innerHTML = [['', 'Todos', r.categorias.todos], ['nenhum', '🚫 Sem site nem rede social', r.categorias.nenhum], ['social', '📱 Só Instagram/Facebook', r.categorias.social], ['semproprio', '🎯 Sem site próprio (os dois)', r.categorias.semproprio], ['proprio', '🌐 Já têm site', r.categorias.proprio]]
             .map(([k, nome, n]) => `<button type="button" class="chip-filtro ${atual === k ? 'ativo' : ''}" data-cat="${k}">${nome} <span class="rotulo">${n}</span></button>`).join('');
           $$('[data-cat]', caixaCat).forEach((b) => { b.onclick = () => { form.elements.siteCat.value = b.dataset.cat; atualizarPrevia(); }; });
+          const SITE = { nenhum: '🚫 sem site', social: '📱 só Instagram/Facebook', proprio: '🌐 tem site' };
+          $('#primeiros-fila').innerHTML = r.primeiros?.length ? `<b>Primeiros da fila:</b><ol class="primeiros-fila">${r.primeiros.map((x) => `<li>${esc(x.nome || 'Contato')} <span>· ${x.nota ? `⭐ ${esc(String(x.nota).replace('.', ','))}` : 'sem nota'} · ${x.avaliacoes ? `${esc(x.avaliacoes)} avaliações` : 'nenhuma avaliação'} · ${SITE[x.site]}${x.cidade ? ` · ${esc(x.cidade)}` : ''}</span></li>`).join('')}</ol>` : '';
         }
       }
       $('#contagem').innerHTML = r.total
@@ -4914,7 +4922,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     const pular = form.elements.pularJaDisparados?.checked;
     const protecoes = [pular && 'não repete para quem já recebeu disparo', f.rodapeSair && '"responda SAIR" no final', prospeccao && 'confere se o número tem WhatsApp', prospeccao && 'pausa sozinho se der erro seguido'].filter(Boolean);
     $('#disp-revisao').innerHTML = `<dl class="revisao">
-      ${modoCampanha ? `<dt>🎯 Campanha</dt><dd><b>${esc(f.campanhaNome || '')}</b> · ${tipoTexto}<br><span class="rotulo">A lista é escolhida na hora de disparar.</span></dd><dt hidden></dt><dd hidden>` : `${campanha ? `<dt>🎯 Campanha</dt><dd>${esc(campanha.nome)}</dd>` : ''}<dt>👥 Para</dt><dd>`}<b>${total} ${total === 1 ? 'pessoa' : 'pessoas'}</b>${f.listaId && (f.siteCat || f.soCelular) ? ` <span class="etiqueta">${esc([{ nenhum: '🚫 sem site nem rede social', social: '📱 só Instagram/Facebook', semproprio: '🎯 sem site próprio', proprio: '🌐 já têm site' }[f.siteCat], f.soCelular ? '📱 só celular' : ''].filter(Boolean).join(' · '))}</span>` : ''}${r.nomes?.length ? `<br><span class="rotulo">${r.nomes.map(esc).join(', ')}${total > r.nomes.length ? '…' : ''}</span>` : ''}${r.jaDisparados ? `<br><span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} já ${r.jaDisparados === 1 ? 'recebeu' : 'receberam'} disparo antes ${pular ? '(fica de fora)' : '(vai receber de novo)'}</span>` : ''}</dd>
+      ${modoCampanha ? `<dt>🎯 Campanha</dt><dd><b>${esc(f.campanhaNome || '')}</b> · ${tipoTexto}<br><span class="rotulo">A lista é escolhida na hora de disparar.</span></dd><dt hidden></dt><dd hidden>` : `${campanha ? `<dt>🎯 Campanha</dt><dd>${esc(campanha.nome)}</dd>` : ''}<dt>👥 Para</dt><dd>`}<b>${total} ${total === 1 ? 'pessoa' : 'pessoas'}</b>${f.listaId && f.ordem && f.ordem !== 'arquivo' ? ` <span class="etiqueta">${esc((ORDENS_ENVIO.find(([v]) => v === f.ordem) || [])[1] || '')}</span>` : ''}${f.listaId && (f.siteCat || f.soCelular) ? ` <span class="etiqueta">${esc([{ nenhum: '🚫 sem site nem rede social', social: '📱 só Instagram/Facebook', semproprio: '🎯 sem site próprio', proprio: '🌐 já têm site' }[f.siteCat], f.soCelular ? '📱 só celular' : ''].filter(Boolean).join(' · '))}</span>` : ''}${r.nomes?.length ? `<br><span class="rotulo">${r.nomes.map(esc).join(', ')}${total > r.nomes.length ? '…' : ''}</span>` : ''}${r.jaDisparados ? `<br><span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} já ${r.jaDisparados === 1 ? 'recebeu' : 'receberam'} disparo antes ${pular ? '(fica de fora)' : '(vai receber de novo)'}</span>` : ''}</dd>
       ${comTexto().length > 1 ? `<dt>🔁 Versões</dt><dd><b>${comTexto().length} versões</b> revezando${modoCampanha ? ' entre os contatos' : ` (cada uma vai para ${Math.ceil(total / comTexto().length)} pessoas mais ou menos)`}<br><span class="rotulo">${comTexto().map((v, i) => `${String.fromCharCode(65 + i)}: ${esc(v.replace(/\s+/g, ' ').slice(0, 60))}${v.length > 60 ? '…' : ''}`).join('<br>')}</span></dd>` : ''}
       <dt>💬 Mensagem</dt><dd><div class="revisao-msg">${esc(r.exemplo || f.mensagem).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><span class="rotulo">Exemplo com o 1º contato${itens.length ? ` · + ${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}: ${itens.map((m) => esc(m.nome)).join(', ')}` : ' · só texto'}</span></dd>
       <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}${modoCampanha ? '' : `<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span>`}</dd>
@@ -5446,6 +5454,9 @@ async function paginaDetalheLista(id, listaId, d, params) {
     $('#filtros-empresa-lista').innerHTML = barraFiltrosEmpresa(r.contatos, selEmp);
     ligarFiltrosEmpresa($('#filtros-empresa-lista'), selEmp, desenhar);
     const lista = ordenarEmpresas(base, selEmp).filter(f).filter((c) => !q || [c.empresa, c.nome, c.cidade, c.endereco, c.bairro, c.telefone, c.ramo, c.categorias].join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q) || String(c.telefone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§'));
+    // os botões de categoria levam a ordem escolhida aqui (ex.: menos avaliações primeiro)
+    const ordemEnvio = selEmp.ordem && selEmp.ordem !== 'prioridade' ? selEmp.ordem : selEmp.objetivo === 'site' ? 'prioridade-site' : selEmp.objetivo === 'reputacao' ? 'nota-baixa' : '';
+    $$('.cat-botao').forEach((a) => { const u = new URL(a.href); const q = new URLSearchParams(u.hash.split('?')[1] || ''); if (ordemEnvio) q.set('ordem', ordemEnvio); else q.delete('ordem'); a.href = `${u.hash.split('?')[0]}?${q}`; });
     $('#filtros-lista').innerHTML = FILTROS.map(([k, nome, fx]) => `<button type="button" class="chip-filtro ${k === filtro ? 'ativo' : ''}" data-filtro="${k}">${nome} <span class="rotulo">${base.filter(fx).length}</span></button>`).join('');
     // disparar só para os que estão na tela (e nunca receberam disparo)
     const alvo = lista.filter((c) => !jaDisp(c) && !c.parecido?.disparos?.length && !c.naoDisparar && c.temWhatsapp !== false);
@@ -5706,7 +5717,7 @@ async function paginaEscolherCampanhaParaDisparo(id, params, temEscolhidos) {
   if (location.hash !== hashDaPagina) return;
   const listaPedida = params.get('lista') || '';
   const lista = (ld.listas || []).find((l) => l.id === listaPedida);
-  const extra = `${listaPedida ? `&lista=${encodeURIComponent(listaPedida)}` : ''}${params.get('site') ? `&site=${encodeURIComponent(params.get('site'))}` : ''}${params.get('cel') ? '&cel=1' : ''}`;
+  const extra = `${listaPedida ? `&lista=${encodeURIComponent(listaPedida)}` : ''}${params.get('site') ? `&site=${encodeURIComponent(params.get('site'))}` : ''}${params.get('ordem') ? `&ordem=${encodeURIComponent(params.get('ordem'))}` : ''}${params.get('cel') ? '&cel=1' : ''}`;
   const ordenadas = campanhas.slice().sort((a, b) => ((b.ultimoDisparoEm || b.atualizadoEm || '') > (a.ultimoDisparoEm || a.atualizadoEm || '') ? 1 : -1));
   conteudo.innerHTML = cascaDisparos(id, 'novo', `
     <div class="cabecalho"><div><h1>🚀 Novo disparo</h1><p class="sub">1º escolha a <b>campanha</b> (mensagens, lembrete e o que a IA faz). Depois você escolhe quem recebe e quando.</p></div><a class="botao" href="${rotaEmpresa(id, 'disparos/campanhas/nova')}">+ Criar campanha</a></div>
