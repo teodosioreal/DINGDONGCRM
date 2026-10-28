@@ -1246,7 +1246,8 @@ function resumo(d) {
   const porVersao = (d.versoes || []).length > 1 ? numerosPorVersao(d) : null;
   const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
   const pros = d.prospeccao ? require('./prospeccao') : null;
-  return { ...resto, proximos: proximosEnvios(d, 10), total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(passosLembrete(d).length || lembretes ? { lembretes, responderamLembrete, followup: passosLembrete(d) } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
+  const campanhaNome = d.campanhaId ? estado.empresas.find((e) => e.id === d.empresaId)?.campanhasDisparo?.find((c) => c.id === d.campanhaId)?.nome || '' : '';
+  return { ...resto, campanhaNome, proximos: proximosEnvios(d, 10), total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(passosLembrete(d).length || lembretes ? { lembretes, responderamLembrete, followup: passosLembrete(d) } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
