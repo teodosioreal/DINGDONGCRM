@@ -44,11 +44,37 @@ function normalizarFiltro(f = {}) {
     // categoria da lista: sem site nem rede social / só Instagram-Facebook / sem site próprio (os dois) / com site
     site: CATEGORIAS_SITE.includes(f.site) ? f.site : '',
     soCelular: f.soCelular === true,
+    ordem: ORDENS_ENVIO.includes(f.ordem) ? f.ordem : '',
     pularJaDisparados: f.pularJaDisparados === true // não manda de novo para quem já recebeu disparo em massa
   };
 }
 
 const CATEGORIAS_SITE = ['nenhum', 'social', 'semproprio', 'proprio'];
+// 🔢 ordem de envio da lista: quem sai primeiro (sem ordem = os mais recentes primeiro, como sempre foi)
+const ORDENS_ENVIO = ['arquivo', 'menos-aval', 'mais-aval', 'nota-baixa', 'nota-alta', 'prioridade-site', 'cidade', 'nome'];
+function ordenarPorLista(saida, ordem) {
+  const porId = new Map(estado.conversas.map((c, i) => [c.id, { c, i }]));
+  const p = (x) => porId.get(x.leadId)?.c?.prospeccao || {};
+  const num = (v) => (v === undefined || v === null || v === '' || !Number.isFinite(Number(String(v).replace(',', '.'))) ? null : Number(String(v).replace(',', '.')));
+  const aval = (x) => num(String(p(x).avaliacoes || '').replace(/\D/g, '')) || 0;
+  const nota = (x) => num(p(x).nota);
+  const pos = (x) => p(x).posicao || porId.get(x.leadId)?.i || 0;
+  const tipo = (x) => require('./prospeccao').tipoSite(p(x));
+  const texto_ = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const chave = {
+    arquivo: (a, b) => pos(a) - pos(b),
+    'menos-aval': (a, b) => aval(a) - aval(b),
+    'mais-aval': (a, b) => aval(b) - aval(a),
+    'nota-baixa': (a, b) => (nota(a) ?? 0) - (nota(b) ?? 0), // sem nota vem antes
+    'nota-alta': (a, b) => (nota(b) ?? -1) - (nota(a) ?? -1),
+    // vender site: sem site nem rede social > só Instagram/Facebook > com site; mais movimento antes
+    'prioridade-site': (a, b) => ({ nenhum: 0, social: 1, proprio: 2 }[tipo(a)] - { nenhum: 0, social: 1, proprio: 2 }[tipo(b)]) || aval(b) - aval(a),
+    cidade: (a, b) => texto_(p(a).cidade).localeCompare(texto_(p(b).cidade), 'pt-BR') || pos(a) - pos(b),
+    nome: (a, b) => texto_(p(a).empresa || a.nome).localeCompare(texto_(p(b).empresa || b.nome), 'pt-BR')
+  }[ordem];
+  // empate: mantém a ordem do arquivo
+  if (chave) saida.sort((a, b) => chave(a, b) || pos(a) - pos(b));
+}
 function passaCategoriaSite(c, cat) {
   const t = require('./prospeccao').tipoSite(c.prospeccao);
   return cat === 'semproprio' ? t !== 'proprio' : t === cat;
@@ -89,6 +115,7 @@ function destinatariosPara(empresa, filtroBruto) {
     vistos.add(destino);
     saida.push({ leadId: c.id, nome: c.nome || '', destino });
   }
+  if (!filtro.leadIds.length && filtro.ordem) ordenarPorLista(saida, filtro.ordem);
   // contatos escolhidos na tela (ex.: lista em ordem de prioridade): saem nessa ordem
   if (filtro.leadIds.length) {
     const pos = new Map(filtro.leadIds.map((x, i) => [x, i]));

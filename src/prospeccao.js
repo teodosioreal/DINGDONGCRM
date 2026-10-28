@@ -186,13 +186,14 @@ function importar(empresa, { nome, contatos, etiquetaId, principal, incluirFixos
   if (!lista.length) throw Object.assign(new Error('Cole ou envie pelo menos um contato com telefone.'), { status: 400 });
   const l = { id: novoId('lst'), nome: texto(nome, 80) || `Lista de ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, criadoEm: agora(), importados: 0, repetidos: 0, fixos: 0, invalidos: 0, jaDisparados: 0 };
   const etiquetaOk = etiquetaId && require('./leads').etiquetasDa(empresa).some((t) => t.id === etiquetaId) ? etiquetaId : null;
+  let posicao = 0;
   for (const x of analisar(empresa, lista, { incluirFixos })) {
     const a = x.analise;
     if (a.situacao === 'invalido') { l.invalidos++; continue; }
     if (a.situacao === 'fixo') { l.fixos++; continue; }
     if (a.situacao === 'existe' || a.situacao === 'repetido') { l.repetidos++; if (a.disparos.length) l.jaDisparados++; continue; }
     const lead = criarLead({ empresa, bot: principal, canal: 'manual', nome: texto(x?.nome || x?.empresa, 120), telefone: a.numero });
-    lead.prospeccao = { listaId: l.id, empresa: texto(x?.empresa, 120), cidade: texto(x?.cidade, 80), ramo: texto(x?.ramo || x?.categorias, 80), importadoEm: agora() };
+    lead.prospeccao = { listaId: l.id, empresa: texto(x?.empresa, 120), cidade: texto(x?.cidade, 80), ramo: texto(x?.ramo || x?.categorias, 80), importadoEm: agora(), posicao: ++posicao };
     for (const [k, max] of Object.entries(EXTRAS)) { const v = texto(x?.[k], max); if (v) lead.prospeccao[k] = v; }
     if (a.fixo) lead.prospeccao.fixo = true;
     const cortados = (Array.isArray(x?.cortados) ? x.cortados : []).filter((k) => ['empresa', 'endereco', 'site', 'categorias', 'email'].includes(k));
