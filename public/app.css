@@ -2006,3 +2006,24 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .primeiros-fila { margin: 4px 0 0; padding-left: 20px; }
 .primeiros-fila li { margin: 2px 0; }
 .primeiros-fila span { color: var(--suave); }
+
+/* 📊 Meus disparos: um bloco por situação, cartões com os botões */
+.disp-bloco { margin-top: 18px; }
+.disp-bloco h2 { font-size: 17px; margin: 0 0 8px; }
+.disp-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.disp-card { background: var(--superficie); border: 1px solid var(--borda); border-left: 4px solid var(--borda-campo); border-radius: var(--raio); padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.disp-card.st-enviando { border-left-color: #16a34a; }
+.disp-card.st-agendado { border-left-color: #4f46e5; }
+.disp-card.st-pausado { border-left-color: #d97706; }
+.disp-card.st-cancelado { opacity: .8; }
+.disp-card header { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.disp-card-nome { display: flex; flex-direction: column; min-width: 0; }
+.disp-card-nome b { overflow-wrap: anywhere; }
+.disp-card-numeros { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; color: var(--rotulo); }
+.disp-card-situacao { margin: 0; font-size: 13.5px; color: var(--rotulo); }
+.disp-card-acoes { display: flex; flex-wrap: wrap; gap: 6px; }
+.disp-card-acoes > * { font-size: 13.5px; padding: 6px 10px; }
+.disp-card-acoes .perigo { margin-left: auto; }
+.fila-geral summary { cursor: pointer; }
+.fila-geral[open] summary { margin-bottom: 8px; }
+@media (max-width: 768px) { .disp-grade { grid-template-columns: 1fr; } }

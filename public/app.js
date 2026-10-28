@@ -4422,40 +4422,93 @@ async function paginaDisparos(id, params = new URLSearchParams()) {
   const hashDaPagina = location.hash;
   const emp = await definirEmpresaAtual(id);
   const todos = await api(`empresas/${id}/disparos`);
-  const aba = ['andamento', 'agendados', 'concluidos'].includes(params.get('aba')) ? params.get('aba') : 'todos';
-  const NA_ABA = { todos: () => true, andamento: (d) => ['enviando', 'pausado'].includes(d.status), agendados: (d) => d.status === 'agendado', concluidos: (d) => ['concluido', 'cancelado'].includes(d.status) };
-  const lista = todos.filter(NA_ABA[aba]);
-  const conta = (k) => todos.filter(NA_ABA[k]).length;
+  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
+  // 🗂️ cada situação no seu bloco (testes ficam à parte, para não misturar)
+  const GRUPOS = [
+    ['enviando', '▶️ Enviando agora', (d) => !d.teste && d.status === 'enviando'],
+    ['agendados', '🕐 Agendados', (d) => !d.teste && d.status === 'agendado'],
+    ['pausados', '⏸️ Pausados', (d) => !d.teste && d.status === 'pausado'],
+    ['concluidos', '✅ Terminados', (d) => !d.teste && ['concluido', 'cancelado'].includes(d.status)],
+    ['testes', '🧪 Testes', (d) => d.teste]
+  ];
+  const aba = GRUPOS.some(([k]) => k === params.get('aba')) ? params.get('aba') : 'todos';
+  const conta = (k) => todos.filter(GRUPOS.find((g) => g[0] === k)[2]).length;
+  const abas = [['todos', 'Todos', todos.filter((d) => !d.teste).length], ...GRUPOS.map(([k, nome]) => [k, nome, conta(k)])]
+    .filter(([k, , n]) => k === 'todos' || n || k === aba)
+    .map(([k, nome, n]) => [`${rotaEmpresa(id, 'disparos')}${k === 'todos' ? '' : `?aba=${k}`}`, `${nome} <span class="rotulo">${n}</span>`, k === aba]);
   // ⏭️ fila de todos os disparos ativos juntos (os pausados não entram: só saem quando continuar)
   const fila = todos.filter((d) => ['enviando', 'agendado'].includes(d.status)).flatMap((d) => (d.proximos || []).filter((x) => x.em).map((x) => ({ ...x, disparo: d.nome, disparoId: d.id }))).sort((a, b) => (a.em < b.em ? -1 : 1)).slice(0, 10);
-  const abas = [['todos', 'Todos'], ['andamento', 'Em andamento'], ['agendados', 'Agendados'], ['concluidos', 'Concluídos']].map(([k, nome]) => [`${rotaEmpresa(id, 'disparos')}${k === 'todos' ? '' : `?aba=${k}`}`, `${nome} <span class="rotulo">${conta(k)}</span>`, k === aba]);
-  if (location.hash !== hashDaPagina) return; // o usuário já foi para outra página
+  const situacao = (d) => {
+    if (d.status === 'agendado') return `🕐 Começa ${quandoEnvio(d.agendadoPara)}`;
+    if (d.status === 'pausado') return `⏸️ ${esc(d.motivoPausa || 'Pausado')}`;
+    if (d.status === 'enviando') return d.aguardandoAmanha ? '🌙 Bateu o limite de hoje — continua amanhã' : d.aguardandoHorario ? '🌙 Fora do horário — continua às 8h' : d.proximos?.[0]?.em ? `⏭️ Próximo envio: ${quandoEnvio(d.proximos[0].em)}` : '▶️ Enviando…';
+    if (d.status === 'cancelado') return `Cancelado ${d.concluidoEm ? `em ${esc(dataCurta(d.concluidoEm))}` : ''}`;
+    return `Terminou ${d.concluidoEm ? `em ${esc(dataCurta(d.concluidoEm))}` : ''}`;
+  };
+  const cartao = (d) => {
+    const pct = d.total ? Math.round(((d.enviado + d.erro + d.ignorado) / d.total) * 100) : 0;
+    const taxa = d.enviado ? Math.round((d.responderam / d.enviado) * 100) : 0;
+    return `
+    <article class="disp-card st-${esc(d.status)}" data-disparo="${esc(d.id)}">
+      <header><div class="disp-card-nome"><b>${esc(d.nome)}</b><span class="rotulo">${d.campanhaNome ? `🎯 ${esc(d.campanhaNome)} · ` : ''}${d.prospeccao ? '🛡️ prospecção · ' : ''}criado ${esc(dataCurta(d.criadoEm))}</span></div>${statusDisparo(d)}</header>
+      <div class="disp-card-numeros">
+        <span><b>${d.enviado}</b> de ${d.total} enviados</span>
+        <span><b>${d.responderam}</b> responderam${d.enviado ? ` <small>(${taxa}%)</small>` : ''}</span>
+        ${d.erro + d.ignorado ? `<span><b>${d.erro + d.ignorado}</b> com erro / de fora</span>` : ''}
+        ${d.prospeccao && ['enviando', 'pausado'].includes(d.status) ? `<span>hoje <b>${d.hoje}/${d.limiteHoje}</b></span>` : ''}
+      </div>
+      <div class="progresso"><span style="width:${pct}%"></span></div>
+      <p class="disp-card-situacao">${situacao(d)}</p>
+      <div class="disp-card-acoes">
+        ${d.status === 'enviando' || d.status === 'agendado' ? `<button type="button" data-acao-disp="pausar" data-id="${esc(d.id)}">⏸️ Pausar</button>` : ''}
+        ${d.status === 'pausado' ? `<button type="button" class="primario" data-acao-disp="retomar" data-id="${esc(d.id)}">▶️ Continuar</button>` : ''}
+        ${['enviando', 'agendado', 'pausado'].includes(d.status) && d.pendente ? `<button type="button" data-hora-disp="${esc(d.id)}">🕐 Horário</button>` : ''}
+        <a class="botao" href="${rotaEmpresa(id, `disparos/${d.id}`)}">👁️ Detalhes</a>
+        <button type="button" class="perigo" data-apagar-disp="${esc(d.id)}" title="Excluir disparo">🗑️ Excluir</button>
+      </div>
+    </article>`;
+  };
+  const blocos = (aba === 'todos' ? GRUPOS.filter(([k]) => k !== 'testes') : GRUPOS.filter(([k]) => k === aba))
+    .map(([k, nome, f]) => [k, nome, todos.filter(f)])
+    .filter(([, , l]) => l.length);
+  const nTestes = conta('testes');
   conteudo.innerHTML = cascaDisparos(id, 'lista', `
-    <div class="cabecalho"><div><h1>Disparos em massa</h1><p class="sub">Mande uma mensagem pelo WhatsApp para vários leads de uma vez</p></div>${emp.whatsapp?.configurado ? `<a class="botao primario" href="${rotaEmpresa(id, 'disparos/novo')}">+ Novo disparo</a>` : ''}</div>
+    <div class="cabecalho"><div><h1>Meus disparos</h1><p class="sub">Cada disparo no seu bloco: enviando, agendados, pausados e terminados. Pause, continue ou exclua por aqui.</p></div>${emp.whatsapp?.configurado ? `<a class="botao primario" href="${rotaEmpresa(id, 'disparos/novo')}">+ Novo disparo</a>` : ''}</div>
     ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `Os disparos saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
-    ${balao('Quando o cliente responde, a IA assume', 'Quem responder o disparo cai no atendimento normal: a IA do WhatsApp continua a conversa (se estiver ligada) e o lead aparece em Leads. Os envios saem <b>um por vez, com intervalos</b>, para o WhatsApp não bloquear o número.')}
-    ${fila.length ? `<div class="card"><h2 style="margin-top:0">⏭️ Próximos ${fila.length} envios <span class="rotulo">(previsão · atualiza sozinho)</span></h2>${tabelaFila(fila, { comDisparo: true, id })}<p class="rotulo" style="margin:8px 0 0">O horário é uma previsão: o intervalo entre mensagens é sorteado e quem não tem WhatsApp sai da fila.</p></div>` : ''}
-    ${lista.length ? `
-    <div class="card tabela-wrap">
-      <table>
-        <thead><tr><th>Disparo</th><th>Status</th><th>Progresso</th><th class="esconde-mobile">Responderam</th><th class="esconde-mobile">Criado</th></tr></thead>
-        <tbody>
-          ${lista.map((d) => `
-            <tr class="clicavel" data-disparo="${esc(d.id)}">
-              <td><strong>${esc(d.nome)}</strong><br><span class="rotulo cartao-texto">${esc(d.mensagem.slice(0, 80))}</span></td>
-              <td>${statusDisparo(d)}${d.prospeccao ? '<br><span class="etiqueta">🛡️ prospecção</span>' : ''}</td>
-              <td style="min-width:140px">${barraProgresso(d)}<span class="rotulo">${d.enviado} de ${d.total} enviados${d.erro ? ` · ${d.erro} erro${d.erro === 1 ? '' : 's'}` : ''}${d.prospeccao && ['enviando', 'pausado'].includes(d.status) ? ` · hoje ${d.hoje}/${d.limiteHoje}` : ''}</span></td>
-              <td class="esconde-mobile">${d.responderam}</td>
-              <td class="esconde-mobile rotulo">${data(d.criadoEm)}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>` : emp.whatsapp?.configurado ? `<div class="card vazio">${todos.length ? 'Nenhum disparo nesta aba.' : 'Nenhum disparo ainda. Clique em "➕ Novo disparo".'}</div>` : ''}`, abas);
-  $$('tr[data-disparo]').forEach((tr) => { tr.onclick = () => { location.hash = rotaEmpresa(id, `disparos/${tr.dataset.disparo}`); }; });
+    ${fila.length && ['todos', 'enviando', 'agendados'].includes(aba) ? `<details class="card fila-geral" ${sessionStorage.getItem('fila-fechada') === '1' ? '' : 'open'}><summary><b>⏭️ Próximos ${fila.length} envios</b> <span class="rotulo">(previsão · atualiza sozinho)</span></summary>${tabelaFila(fila, { comDisparo: true, id })}<p class="rotulo" style="margin:8px 0 0">O horário é uma previsão: o intervalo entre mensagens é sorteado e quem não tem WhatsApp sai da fila.</p></details>` : ''}
+    ${blocos.length ? blocos.map(([k, nome, l]) => `<section class="disp-bloco"><h2>${nome} <span class="rotulo">${l.length}</span></h2><div class="disp-grade">${l.map(cartao).join('')}</div></section>`).join('') : `<div class="card vazio">${todos.length ? 'Nenhum disparo aqui.' : 'Nenhum disparo ainda. Clique em "+ Novo disparo".'}</div>`}
+    ${aba === 'todos' && nTestes ? `<p class="rotulo"><a href="${rotaEmpresa(id, 'disparos?aba=testes')}">🧪 Ver ${nTestes} ${nTestes === 1 ? 'disparo de teste' : 'disparos de teste'}</a></p>` : ''}`, abas);
+  const recarregar = () => paginaDisparos(id, params);
+  $('.fila-geral')?.addEventListener('toggle', (e) => { try { sessionStorage.setItem('fila-fechada', e.target.open ? '0' : '1'); } catch { /* sem sessionStorage */ } });
+  $$('[data-acao-disp]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await comEspera(b, () => api(`empresas/${id}/disparos/${b.dataset.id}/${b.dataset.acaoDisp}`, { method: 'POST' }));
+        aviso(b.dataset.acaoDisp === 'pausar' ? 'Disparo pausado. Ninguém mais recebe até você clicar em Continuar.' : 'Disparo continuando.');
+        recarregar();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  $$('[data-hora-disp]').forEach((b) => { b.onclick = () => modalHoraDisparo(id, todos.find((d) => d.id === b.dataset.horaDisp), recarregar); });
+  $$('[data-apagar-disp]').forEach((b) => {
+    b.onclick = async () => {
+      const d = todos.find((x) => x.id === b.dataset.apagarDisp);
+      const ativo = ['enviando', 'agendado', 'pausado'].includes(d.status);
+      if (!(await confirmar({ titulo: `Excluir "${d.nome}"?`, texto: `${ativo ? `<p><b>Ele para agora</b>: ${d.pendente} ${d.pendente === 1 ? 'contato que ainda não recebeu não vai receber' : 'contatos que ainda não receberam não vão receber'}.</p>` : ''}<p>As mensagens que já saíram continuam nas conversas, e quem já recebeu continua fora dos próximos disparos de prospecção (o CRM nunca repete). A campanha não é apagada.</p>`, botao: 'Excluir disparo', perigo: true }))) return;
+      try {
+        await api(`empresas/${id}/disparos/${d.id}`, { method: 'DELETE' });
+        aviso('Disparo excluído.');
+        recarregar();
+      } catch (err) { aviso(err.message, true); }
+    };
+  });
+  // clicar no cartão (fora dos botões) abre os detalhes
+  $$('.disp-card').forEach((c) => { c.onclick = (e) => { if (!e.target.closest('button, a')) location.hash = rotaEmpresa(id, `disparos/${c.dataset.disparo}`); }; });
   clearInterval(atualizador); // a página se redesenha sozinha: um relógio só (antes somava um a cada volta)
   if (todos.some((d) => ['enviando', 'agendado'].includes(d.status))) {
     const aqui = location.hash;
-    atualizador = setInterval(() => { if (location.hash === aqui) paginaDisparos(id, params).catch(() => {}); }, 8000);
+    // não redesenha com uma janela aberta (confirmar excluir, mudar horário)
+    atualizador = setInterval(() => { if (location.hash === aqui && !document.querySelector('.fundo-modal')) recarregar().catch(() => {}); }, 8000);
   }
 }
 
@@ -5950,7 +6003,7 @@ async function paginaDisparo(id, disparoId) {
   clearInterval(atualizador); // a página se redesenha sozinha: um relógio só (antes somava um a cada volta)
   if (['enviando', 'agendado'].includes(d.status)) {
     const aqui = location.hash;
-    atualizador = setInterval(() => { if (location.hash === aqui) paginaDisparo(id, disparoId).catch(() => {}); }, 6000);
+    atualizador = setInterval(() => { if (location.hash === aqui && !document.querySelector('.fundo-modal')) paginaDisparo(id, disparoId).catch(() => {}); }, 6000);
   }
 }
 
