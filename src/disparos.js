@@ -396,6 +396,7 @@ function criar(empresa, corpo, usuario) {
     horarioComercial: corpo.horarioComercial !== false,
     rodapeSair: corpo.rodapeSair !== false,
     ...extrasDoDisparo(empresa, corpo, personalizar),
+    ...(campanhasDa(empresa).some((c) => c.id === corpo.campanhaId) ? { campanhaId: corpo.campanhaId } : {}),
     status: agendadoPara ? 'agendado' : 'enviando',
     agendadoPara,
     versoes,
@@ -517,6 +518,77 @@ function apagarMensagem(empresa, msgId) {
   if (i < 0) throw erro('Mensagem não encontrada.', 404);
   lista.splice(i, 1);
   salvar();
+}
+
+// ---------------------------------------------------------------- 🎯 campanhas
+// A campanha guarda tudo do disparo MENOS quem recebe: versões da mensagem, mídias, foto com o
+// nome, roteiro da IA, etapa/etiqueta ao responder, lembrete e ritmo. Na hora de disparar só
+// escolhe a lista (ou filtros), o nome e quando; o disparo leva campanhaId.
+
+const CAMPOS_CAMPANHA = ['mensagens', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
+
+function campanhasDa(empresa) {
+  if (!Array.isArray(empresa.campanhasDisparo)) empresa.campanhasDisparo = [];
+  return empresa.campanhasDisparo;
+}
+
+function salvarCampanha(empresa, b = {}, campanhaId = null) {
+  const nome = texto(b.nome, 80);
+  if (!nome) throw erro('Dê um nome para a campanha.');
+  const mensagens = (Array.isArray(b.mensagens) ? b.mensagens : []).map((m) => texto(m, 3000)).filter(Boolean).slice(0, MAX_VERSOES);
+  if (!mensagens.length) throw erro('Escreva pelo menos uma mensagem.');
+  const n = (v) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? undefined : Number(v));
+  const dados = {
+    nome,
+    tipo: b.tipo === 'clientes' ? 'clientes' : 'prospeccao',
+    mensagens,
+    midiaIds: (Array.isArray(b.midiaIds) ? b.midiaIds : []).map((x) => texto(x, 60)).filter(Boolean).slice(0, MAX_MIDIAS),
+    personalizar: normalizarPersonalizar(b.personalizar),
+    ...extrasDoDisparo(empresa, b, null),
+    rodapeSair: b.rodapeSair !== false,
+    horarioComercial: b.horarioComercial !== false,
+    intervaloMin: n(b.intervaloMin),
+    intervaloMax: n(b.intervaloMax),
+    limiteInicial: n(b.limiteInicial),
+    aumentoDia: n(b.aumentoDia),
+    tetoDia: n(b.tetoDia),
+    perfilEnvio: texto(b.perfilEnvio, 30),
+    atualizadoEm: agora()
+  };
+  for (const m of mensagens) guardarMensagem(empresa, m); // as mensagens já aparecem no ranking
+  const lista = campanhasDa(empresa);
+  let c = campanhaId ? lista.find((x) => x.id === campanhaId) : null;
+  if (campanhaId && !c) throw erro('Campanha não encontrada.', 404);
+  if (c) {
+    for (const k of [...CAMPOS_CAMPANHA, 'nome', 'tipo']) delete c[k];
+    Object.assign(c, dados);
+  } else {
+    c = { id: novoId('cmp'), criadoEm: agora(), ...dados };
+    lista.push(c);
+  }
+  salvar();
+  return c;
+}
+
+function apagarCampanha(empresa, campanhaId) {
+  const lista = campanhasDa(empresa);
+  const i = lista.findIndex((x) => x.id === campanhaId);
+  if (i < 0) throw erro('Campanha não encontrada.', 404);
+  lista.splice(i, 1);
+  salvar();
+}
+
+// campanhas com o resultado de todos os disparos feitos com cada uma
+function campanhasComNumeros(empresa) {
+  const leadPorId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
+  return campanhasDa(empresa).map((c) => {
+    const ds = estado.disparos.filter((d) => d.empresaId === empresa.id && d.campanhaId === c.id);
+    let enviados = 0;
+    let responderam = 0;
+    for (const d of ds) for (const v of numerosPorVersao(d, leadPorId)) { enviados += v.enviados; responderam += v.responderam; }
+    const ativos = ds.filter((d) => ['enviando', 'agendado', 'pausado'].includes(d.status)).length;
+    return { ...c, disparos: ds.length, ativos, enviados, responderam, ultimoDisparoEm: ds.map((d) => d.criadoEm).sort().pop() || null };
+  });
 }
 
 // ---------------------------------------------------------------- roteiro, lembrete e imagem
@@ -777,6 +849,10 @@ module.exports = {
   paraIa,
   aoResponder,
   MAX_VERSOES,
+  campanhasDa,
+  campanhasComNumeros,
+  salvarCampanha,
+  apagarCampanha,
   mensagensComNumeros,
   salvarMensagem,
   apagarMensagem,
