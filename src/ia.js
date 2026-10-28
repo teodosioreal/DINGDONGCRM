@@ -355,7 +355,11 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   const temWhatsapp = Boolean(numeroDoAtendimento(bot, empresa));
   const noWhatsapp = canal === 'whatsapp';
 
-  const temInstrucoes = Boolean(String((noWhatsapp ? bot.promptWhatsapp : bot.regras) || '').trim());
+  // 🎯 conversa que veio de campanha com prompt: o prompt da campanha substitui TUDO da empresa
+  // (prompt principal, Sobre a empresa, catálogo, site, clone e aprendizados)
+  const roteiroCampanha = noWhatsapp ? String(contexto.roteiroCampanha || '').trim() : '';
+  const promptPrincipal = roteiroCampanha || (noWhatsapp ? bot.promptWhatsapp : bot.regras);
+  const temInstrucoes = Boolean(String(promptPrincipal || '').trim());
   const partes = [
     noWhatsapp
       ? `Você é ${nomeAssistente}, e atende os clientes da empresa "${empresa?.nome || bot.nome}"${nicho} pelo WhatsApp da empresa.`
@@ -542,7 +546,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);
   if (contexto.midiasEnviadas?.length) dinamico.push(`- Mídias JÁ ENVIADAS nesta conversa (não envie de novo): ${contexto.midiasEnviadas.map((c) => `${String(c).startsWith('#') ? c : require('./midias').codigoVisivel(c)} [JÁ ENVIADA]`).join(', ')}.`);
 
-  if (contexto.clone) {
+  if (contexto.clone && !roteiroCampanha) {
     // clone: respostas reais (escritas à mão) de conversas que viraram venda
     const cl = typeof contexto.clone === 'string' ? { texto: contexto.clone, nome: 'o dono', completo: false } : contexto.clone;
     dinamico.push(
@@ -592,27 +596,21 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
   // as instruções do dono por último também (a IA dá mais peso ao que lê no fim): curtas, vão inteiras
-  const instrucoesAgora = noWhatsapp ? require('./midias').instrucoesComMidias(empresa, bot.promptWhatsapp, bot.id).texto : String(bot.regras || '').trim();
+  const instrucoesAgora = noWhatsapp ? require('./midias').instrucoesComMidias(empresa, promptPrincipal, bot.id).texto : String(bot.regras || '').trim();
   if (instrucoesAgora) {
     dinamico.push(
       '',
-      'INSTRUÇÕES DA EMPRESA VALENDO AGORA (as mais recentes do dono):',
+      roteiroCampanha ? 'PROMPT DA CAMPANHA VALENDO AGORA (esta conversa veio de um disparo em massa: siga SÓ este prompt):' : 'INSTRUÇÕES DA EMPRESA VALENDO AGORA (as mais recentes do dono):',
       lembreteDasInstrucoes(instrucoesAgora),
       '- Se as suas mensagens anteriores nesta conversa seguiram outro jeito ou outra regra, é porque as instruções mudaram: siga as de AGORA a partir desta resposta, sem comentar a mudança com o cliente.',
       '- Elas valem mais do que o clone, os aprendizados, os exemplos e as dicas gerais.'
     );
   }
   dinamico.push('', 'Lembrete final: siga as instruções da empresa com naturalidade e não invente nenhuma informação (na dúvida, diga que vai confirmar).');
-  // 🎯 conversa que veio de um disparo com roteiro: o roteiro da campanha decide o JEITO de conduzir
-  if (contexto.disparo && contexto.disparo.includes('<roteiro_do_disparo>')) {
-    dinamico.push(
-      'ESTA CONVERSA VEIO DE UM DISPARO EM MASSA COM ROTEIRO: o <roteiro_do_disparo> decide o JEITO de conduzir — ordem dos passos, tamanho das mensagens, quando mandar mídia, quando falar de preço e quando pedir dados. Se as instruções gerais da empresa mandarem fechar, pedir dados ou ir mais rápido do que o roteiro, siga o ROTEIRO. Fatos (preço, prazo, o que a empresa faz) valem os das instruções da empresa e do roteiro; nunca invente.'
-    );
-  }
   const textoDinamico = dinamico.join('\n');
 
   const aprendido = empresa?.aprendizado;
-  if (aprendido?.texto?.trim() && aprendido.usarNoPrompt !== false) {
+  if (!roteiroCampanha && aprendido?.texto?.trim() && aprendido.usarNoPrompt !== false) {
     partes.push(
       '',
       'Como esta empresa atende de verdade (aprendido lendo as conversas reais do WhatsApp — imite o jeito de falar, as perguntas e a forma de fechar; se algo aqui conflitar com "Sobre a empresa", vale "Sobre a empresa"):',
@@ -622,7 +620,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
-  const doSite = require('./site').textoParaIa(empresa || {});
+  const doSite = roteiroCampanha ? '' : require('./site').textoParaIa(empresa || {});
   if (doSite) {
     partes.push(
       '',
@@ -633,7 +631,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
-  const catalogo = require('./catalogo').paraIa(empresa || {});
+  const catalogo = roteiroCampanha ? '' : require('./catalogo').paraIa(empresa || {});
   if (catalogo) {
     partes.push(
       '',
@@ -648,14 +646,15 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
 
-  partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
+  if (roteiroCampanha) partes.push('', 'Sobre a empresa:', '<conhecimento>', '(nesta conversa vale só o prompt da campanha, em <instrucoes_da_empresa>: use apenas o que estiver escrito lá)', '</conhecimento>');
+  else partes.push('', 'Sobre a empresa:', '<conhecimento>', (bot.conhecimento || '').trim() || '(nenhuma informação cadastrada ainda)', '</conhecimento>');
 
   // por último (a IA dá mais peso ao fim): as instruções que o dono escreveu
   const instrucoes = instrucoesAgora;
   if (instrucoes) {
     partes.push(
       '',
-      `INSTRUÇÕES DA EMPRESA para ${noWhatsapp ? 'o WhatsApp' : 'o chat do site'} — escritas pelo dono. Siga com naturalidade: o jeito de falar, o que pode e o que não pode dizer, a ordem do atendimento, as mídias que ele mandou enviar e quando passar para a equipe. Elas valem mais do que qualquer dica geral deste texto. Se uma instrução estiver ambígua, siga a intenção mais provável do dono, sem inventar informação:`,
+      roteiroCampanha ? 'PROMPT DA CAMPANHA — esta conversa veio de um disparo em massa e segue SÓ este prompt, escrito pelo dono para a campanha (as instruções gerais da empresa não valem aqui). Siga com naturalidade: o jeito de falar, a ordem dos passos, o que dizer e o que não dizer, as mídias e quando passar para a equipe. Só use os fatos que estão escritos nele:' : `INSTRUÇÕES DA EMPRESA para ${noWhatsapp ? 'o WhatsApp' : 'o chat do site'} — escritas pelo dono. Siga com naturalidade: o jeito de falar, o que pode e o que não pode dizer, a ordem do atendimento, as mídias que ele mandou enviar e quando passar para a equipe. Elas valem mais do que qualquer dica geral deste texto. Se uma instrução estiver ambígua, siga a intenção mais provável do dono, sem inventar informação:`,
       '<instrucoes_da_empresa>',
       instrucoes,
       '</instrucoes_da_empresa>'
