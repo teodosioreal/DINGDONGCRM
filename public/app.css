@@ -1971,3 +1971,35 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .so-mobile { display: none; }
 @media (max-width: 768px) { .so-mobile { display: inline; } }
 .fila-envios td { vertical-align: top; }
+
+/* 🧭 agenda: presencial / online */
+.ag-modos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ag-modo { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); color: var(--texto); cursor: pointer; }
+.ag-modo span { font-size: 20px; }
+.ag-modo small { color: var(--suave); font-size: 12px; line-height: 1.3; }
+.ag-modo.ativo { border-color: var(--texto); box-shadow: inset 0 0 0 1px var(--texto); background: var(--hover); }
+.ag-link .linha-input { display: flex; gap: 8px; }
+.ag-link .linha-input input { flex: 1; min-width: 0; }
+.ag-tipos { margin-top: 6px; }
+.ag-online, .ag-presencial { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-right: 4px; }
+.ag-online { background: #e0f2fe; color: #075985; }
+.ag-presencial { background: var(--hover); color: var(--rotulo); }
+.ag-entrar { display: inline-block; margin: -4px 0 8px; font-size: 13px; font-weight: 600; }
+@media (max-width: 768px) { .ag-modos { grid-template-columns: 1fr; } .ag-modo { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; } .ag-modo small { flex-basis: 100%; } }
+
+/* 🔁 follow-up da campanha */
+.caixa-followup { margin-top: 16px; padding: 12px 14px; border: 1px dashed var(--borda-campo); border-radius: var(--raio); background: var(--superficie-2); }
+.caixa-followup h3 { margin: 0 0 6px; font-size: 15px; }
+.passo-fup { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--borda); }
+.passo-fup:first-child { border-top: 0; }
+.caixa-followup select[name=followupGeral] { width: 100%; }
+
+/* 🗂️ categorias da lista (tem site / não tem) */
+.categorias-lista { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.cat-botoes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.cat-botao { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); color: var(--texto); text-decoration: none; }
+.cat-botao b { font-size: 22px; }
+.cat-botao small { color: var(--suave); font-weight: 600; }
+.cat-botao:hover { background: var(--hover); }
+.cat-botao.vazio { opacity: .55; }
+@media (max-width: 768px) { .cat-botoes { grid-template-columns: 1fr 1fr; } }

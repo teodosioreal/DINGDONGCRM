@@ -122,7 +122,7 @@ function montarAviso(empresa, lead, ag, r) {
   const blocoServico = [
     r.servico ? `🔧 *Serviço:* ${r.servico}` : '',
     r.veiculo ? `📦 *Item do cliente:* ${r.veiculo}` : '',
-    r.endereco ? `📍 *Endereço:* ${r.endereco}` : '',
+    ag.modo === 'online' ? `💻 *Online*${ag.link ? `: ${ag.link}` : ' (videochamada / ligação)'}` : r.endereco ? `📍 *Endereço:* ${r.endereco}` : '',
     r.preco ? `💰 *Valor:* ${r.preco}` : ''
   ];
   const blocos = [

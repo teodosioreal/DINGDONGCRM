@@ -41,8 +41,17 @@ function normalizarFiltro(f = {}) {
     origem: ['site', 'whatsapp', 'manual'].includes(f.origem) ? f.origem : 'todos',
     leadIds: lista(f.leadIds),
     listaId: texto(f.listaId, 60), // lista de contatos importada na aba Disparos
+    // categoria da lista: sem site nem rede social / só Instagram-Facebook / sem site próprio (os dois) / com site
+    site: CATEGORIAS_SITE.includes(f.site) ? f.site : '',
+    soCelular: f.soCelular === true,
     pularJaDisparados: f.pularJaDisparados === true // não manda de novo para quem já recebeu disparo em massa
   };
+}
+
+const CATEGORIAS_SITE = ['nenhum', 'social', 'semproprio', 'proprio'];
+function passaCategoriaSite(c, cat) {
+  const t = require('./prospeccao').tipoSite(c.prospeccao);
+  return cat === 'semproprio' ? t !== 'proprio' : t === cat;
 }
 
 function destinatariosPara(empresa, filtroBruto) {
@@ -62,6 +71,8 @@ function destinatariosPara(empresa, filtroBruto) {
     if (filtro.etiquetas.length && !(c.etiquetas || []).some((t) => filtro.etiquetas.includes(t))) continue;
     if (filtro.origem !== 'todos' && (c.origem || 'site') !== filtro.origem) continue;
     if (filtro.listaId && c.prospeccao?.listaId !== filtro.listaId) continue;
+    if (filtro.site && !passaCategoriaSite(c, filtro.site)) continue;
+    if (filtro.soCelular && (c.prospeccao?.fixo || require('./prospeccao').ehFixo(c.telefone))) continue;
     if (c.naoDisparar || leads.naListaNegra(empresa, c)) {
       sairam++;
       continue;
@@ -706,7 +717,7 @@ async function testar(empresa, corpo = {}, usuario = null) {
 // nome, roteiro da IA, etapa/etiqueta ao responder, lembrete e ritmo. Na hora de disparar só
 // escolhe a lista (ou filtros), o nome e quando; o disparo leva campanhaId.
 
-const CAMPOS_CAMPANHA = ['aoEnviar', 'iaLigada', 'mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
+const CAMPOS_CAMPANHA = ['followupGeral', 'aoEnviar', 'iaLigada', 'mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
 
 function campanhasDa(empresa) {
   if (!Array.isArray(empresa.campanhasDisparo)) empresa.campanhasDisparo = [];
@@ -790,6 +801,17 @@ function campanhasComNumeros(empresa) {
 
 const DIA = 24 * 60 * 60 * 1000;
 const LEMBRETE_PADRAO = '{Oi|Olá}! Conseguiu ver minha mensagem? {😊|🙂}';
+const MAX_LEMBRETES = 3;
+// os passos do follow-up de quem não respondeu (o 1º é o "lembrete" de antes)
+// (disparo de campanha: segue o que está na campanha agora — editou a campanha, vale para os disparos dela)
+function passosLembrete(d) {
+  const campanha = d.campanhaId && !d.teste ? estado.empresas.find((e) => e.id === d.empresaId)?.campanhasDisparo?.find((c) => c.id === d.campanhaId) : null;
+  const l = campanha ? campanha.lembrete : d.lembrete;
+  if (!l?.ativo) return [];
+  return [{ dias: l.dias, mensagem: l.mensagem }, ...(l.mais || [])];
+}
+// quantos já foram para este contato (disparos antigos só tinham 1)
+const feitosLembrete = (x) => x.lembretesEnviados ?? (x.lembrete === 'enviado' ? 1 : 0);
 const TEXTO_IMAGEM_PADRAO = 'Feito para {empresa_contato}';
 
 function normalizarPersonalizar(p) {
@@ -817,7 +839,14 @@ function extrasDoDisparo(empresa, corpo, personalizar) {
     if (etapa || etiquetaId) extras[campo] = { etapa: etapa || '', etiquetaId };
   }
   const l = corpo.lembrete || {};
-  if (l.ativo === true) extras.lembrete = { ativo: true, dias: Math.min(14, Math.max(1, Math.round(Number(l.dias) || 3))), mensagem: texto(l.mensagem, 1000) || LEMBRETE_PADRAO };
+  if (l.ativo === true) {
+    // 🔁 até 3 mensagens para quem não responde: a 1ª X dias depois do disparo, as outras X dias depois da anterior
+    const dias = (v, def) => Math.min(30, Math.max(1, Math.round(Number(v) || def)));
+    const mais = (Array.isArray(l.mais) ? l.mais : []).map((m) => ({ dias: dias(m?.dias, 4), mensagem: texto(m?.mensagem, 1000) })).filter((m) => m.mensagem).slice(0, MAX_LEMBRETES - 1);
+    extras.lembrete = { ativo: true, dias: dias(l.dias, 3), mensagem: texto(l.mensagem, 1000) || LEMBRETE_PADRAO, ...(mais.length ? { mais } : {}) };
+  }
+  // quem respondeu e depois sumiu: entra no follow-up geral da empresa (padrão) ou não
+  if (corpo.followupGeral === false) extras.followupGeral = false;
   if (personalizar) extras.personalizar = personalizar;
   return extras;
 }
@@ -957,12 +986,27 @@ function liberarIaAoResponder(empresa, lead) {
   return liberou;
 }
 
+// a campanha disse "não colocar no follow-up geral": vale para quem a última mensagem nossa foi
+// deste disparo (ou do follow-up dele), nos últimos 30 dias
+function semFollowupGeral(lead) {
+  const ultima = [...(lead.mensagens || [])].reverse().find((m) => m.papel !== 'visitante' && !m.sistema && m.disparoId);
+  if (!ultima || Date.now() - new Date(ultima.em).getTime() > 30 * DIA) return false;
+  const d = estado.disparos.find((x) => x.id === ultima.disparoId);
+  if (!d) return false;
+  const c = d.campanhaId ? estado.empresas.find((e) => e.id === d.empresaId)?.campanhasDisparo?.find((y) => y.id === d.campanhaId) : null;
+  return (c ? c.followupGeral : d.followupGeral) === false;
+}
+
 // 🔔 lembrete: quem recebeu e não respondeu nada em X dias ganha UMA mensagem curta
 function situacaoDoLembrete(d, x, lead, agoraMs) {
-  if (x.status !== 'enviado' || x.lembrete || !x.em) return null;
-  const desde = new Date(x.em).getTime();
-  if (agoraMs - desde < d.lembrete.dias * DIA) return null; // ainda não é hora
-  if (agoraMs - desde > (d.lembrete.dias + 5) * DIA) return 'vencido'; // CRM ficou parado: não manda tão tarde
+  if (x.status !== 'enviado' || !x.em || x.lembreteFim) return null;
+  const k = feitosLembrete(x);
+  if (!k && x.lembrete) return null; // parou já no 1º (respondeu, pulado, erro…)
+  const passo = passosLembrete(d)[k];
+  if (!passo) return null; // já foram todos
+  const desde = new Date(k ? x.lembreteEm : x.em).getTime();
+  if (agoraMs - desde < passo.dias * DIA) return null; // ainda não é hora
+  if (agoraMs - desde > (passo.dias + 5) * DIA) return 'vencido'; // CRM ficou parado: não manda tão tarde
   if (!lead || lead.naoDisparar || leads.naListaNegra(null, lead)) return 'pulado';
   const depois = (lead.mensagens || []).filter((m) => m.em > x.em);
   if (depois.some((m) => m.papel === 'visitante')) return 'respondeu';
@@ -977,7 +1021,7 @@ async function rodarLembretes() {
   lembretesRodando = true;
   try {
     for (const d of estado.disparos || []) {
-      if (!d.lembrete?.ativo || !['enviando', 'concluido'].includes(d.status)) continue;
+      if (!['enviando', 'concluido'].includes(d.status) || !passosLembrete(d).length) continue;
       if (d.proximoLembreteEm && Date.now() < new Date(d.proximoLembreteEm).getTime()) continue;
       await lembreteDaVez(d).catch((err) => console.error(`[disparo ${d.id}] lembrete:`, err.message));
     }
@@ -995,11 +1039,13 @@ async function lembreteDaVez(d) {
   let mudou = false;
   let vez = null;
   for (const x of d.destinatarios) {
-    const lead = x.status === 'enviado' && !x.lembrete ? estado.conversas.find((c) => c.id === x.leadId) : null;
+    if (x.status !== 'enviado' || x.lembreteFim || (x.lembrete && x.lembrete !== 'enviado')) continue;
+    const lead = estado.conversas.find((c) => c.id === x.leadId);
     const s = situacaoDoLembrete(d, x, lead, agoraMs);
     if (!s) continue;
     if (s === 'enviar') { vez = { x, lead }; break; }
-    x.lembrete = s;
+    if (feitosLembrete(x)) x.lembreteFim = s;
+    else x.lembrete = s;
     mudou = true;
   }
   if (!vez) {
@@ -1007,19 +1053,22 @@ async function lembreteDaVez(d) {
     return;
   }
   const { x, lead } = vez;
-  const mensagem = montarMensagem(d.lembrete.mensagem, lead, empresa);
+  const k = feitosLembrete(x);
+  const mensagem = montarMensagem(passosLembrete(d)[k].mensagem, lead, empresa);
   try {
     await whatsapp.enviarTexto(empresa, x.destino, mensagem);
     x.lembrete = 'enviado';
+    x.lembretesEnviados = k + 1;
     x.lembreteEm = agora();
-    leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: mensagem, disparoId: d.id, lembreteDisparo: true });
+    leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: mensagem, disparoId: d.id, lembreteDisparo: k + 1 });
     if (pros) pros.contarEnvio(d);
     d.proximoLembreteEm = new Date(Date.now() + sorteioIntervalo(d)).toISOString();
   } catch (err) {
     if (!err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message)) {
       d.proximoLembreteEm = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // conexão caiu: tenta depois
     } else {
-      x.lembrete = 'erro';
+      if (k) x.lembreteFim = 'erro';
+      else x.lembrete = 'erro';
       x.lembreteErro = err.message.slice(0, 200);
     }
   }
@@ -1156,7 +1205,7 @@ function resumo(d) {
   let responderamLembrete = 0;
   for (const x of d.destinatarios) {
     if (x.lembrete === 'enviado') {
-      lembretes++;
+      lembretes += feitosLembrete(x);
       const lead = estado.conversas.find((c) => c.id === x.leadId);
       if (lead?.mensagens.some((m) => m.papel === 'visitante' && m.em > x.lembreteEm)) responderamLembrete++;
     }
@@ -1170,7 +1219,7 @@ function resumo(d) {
   const porVersao = (d.versoes || []).length > 1 ? numerosPorVersao(d) : null;
   const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
   const pros = d.prospeccao ? require('./prospeccao') : null;
-  return { ...resto, proximos: proximosEnvios(d, 10), total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
+  return { ...resto, proximos: proximosEnvios(d, 10), total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(passosLembrete(d).length || lembretes ? { lembretes, responderamLembrete, followup: passosLembrete(d) } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
@@ -1187,6 +1236,9 @@ function retomarAoIniciar() {
 }
 
 module.exports = {
+  semFollowupGeral,
+  passosLembrete,
+  MAX_LEMBRETES,
   reagendar,
   proximosEnvios,
   RODAPE_SAIR,

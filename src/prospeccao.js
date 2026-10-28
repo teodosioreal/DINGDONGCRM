@@ -47,6 +47,14 @@ function salvarConfig(empresa, b = {}) {
   return empresa.prospeccao;
 }
 
+// 🌐 site do contato (lista importada): 'proprio' | 'social' (só Instagram/Facebook/link de bio) | 'nenhum'
+// (sem link mas a lista diz "Tem site? Sim" conta como site próprio — igual à tela)
+const REDE_SOCIAL = /instagram\.|facebook\.|fb\.com|fb\.me|linktr\.ee|wa\.me|whatsapp\.|tiktok\.|ifood\.|goo\.gl|bit\.ly|linkbio|beacons\.ai/i;
+function tipoSite(p = {}) {
+  if (!p?.site) return p?.temSite === 'sim' ? 'proprio' : 'nenhum';
+  return REDE_SOCIAL.test(p.site) ? 'social' : 'proprio';
+}
+
 // Brasil: celular tem 9 dígitos depois do DDD e começa com 9; fixo tem 8 e começa com 2 a 5
 function ehFixo(numero) {
   const d = String(numero || '').replace(/\D/g, '');
@@ -275,4 +283,4 @@ async function temWhatsapp(empresa, destino) {
   }
 }
 
-module.exports = { jaRecebeuDisparo, indiceDosLeads, PERFIS, PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };
+module.exports = { tipoSite, jaRecebeuDisparo, indiceDosLeads, PERFIS, PADRAO, INTERVALO_MINIMO_PROSPECCAO, configDa, salvarConfig, ehFixo, listasDa, contatosDaLista, resumoLista, analisar, disparosRecebidos, chavesDoNumero, importar, detalheLista, apagarLista, limiteDeHoje, enviadosHoje, contarEnvio, temWhatsapp, diaSp };
