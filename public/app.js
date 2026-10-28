@@ -4439,7 +4439,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       : campanha
         ? `<div class="cabecalho"><div><a class="rotulo" href="${rotaEmpresa(id, 'disparos/campanhas')}">← Campanhas</a><h1>🚀 Disparar: ${esc(campanha.nome)}</h1><p class="sub">Escolha quem recebe, dê um nome e confira. Mensagens, lembrete, roteiro e ritmo vêm da campanha (para mudar, use ✏️ Editar campanha). <b>Nada é enviado até você clicar em enviar.</b></p></div></div>`
         : `<div class="cabecalho"><div><h1>${prospeccao ? '🛡️ Disparo para contatos novos' : '📣 Disparo para meus clientes'}</h1><p class="sub">${prospeccao ? 'Para quem ainda não conhece a empresa: sai devagar, com limite por dia, para proteger o seu número' : 'Para leads e clientes que já conversaram com você'}. <b>Nada é enviado até o passo 5.</b></p></div></div>`}
-    ${campanha && !modoCampanha ? `<div class="card resumo-campanha"><div><span class="rotulo">Campanha</span><br><b>🎯 ${esc(campanha.nome)}</b> <span class="rotulo">· ${campanha.tipo === 'clientes' ? 'meus clientes' : 'contatos novos'} · ${campanha.mensagens.length} ${campanha.mensagens.length === 1 ? 'mensagem' : 'versões revezando'} · ${campanha.roteiro ? 'roteiro da IA' : 'sem roteiro'} · ${campanha.lembrete?.ativo ? `lembrete em ${campanha.lembrete.dias} d` : 'sem lembrete'}</span></div><div class="acoes"><a class="botao pequeno" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(campanha.id)}`)}">✏️ Editar campanha</a><a class="botao pequeno" href="${rotaEmpresa(id, 'disparos/novo')}${listaPedida ? `?lista=${encodeURIComponent(listaPedida)}` : ''}">Trocar</a></div></div>` : ''}
+    ${campanha && !modoCampanha ? `<div class="card resumo-campanha"><div><span class="rotulo">Campanha</span><br><b>🎯 ${esc(campanha.nome)}</b> <span class="rotulo">· ${campanha.tipo === 'clientes' ? 'meus clientes' : 'contatos novos'} · ${campanha.mensagens.length} ${campanha.mensagens.length === 1 ? 'mensagem' : 'versões revezando'} · ${campanha.roteiro ? 'roteiro da IA' : 'sem roteiro'} · ${campanha.lembrete?.ativo ? `lembrete em ${campanha.lembrete.dias} d` : 'sem lembrete'} · ${campanha.iaLigada === false ? '<b>⛔ IA desligada</b>' : '🤖 IA ligada'}</span></div><div class="acoes"><a class="botao pequeno" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(campanha.id)}`)}">✏️ Editar campanha</a><a class="botao pequeno" href="${rotaEmpresa(id, 'disparos/novo')}${listaPedida ? `?lista=${encodeURIComponent(listaPedida)}` : ''}">Trocar</a></div></div>` : ''}
     <ol class="disp-passos" id="disp-passos">${ORDEM.map((n) => `<li><button type="button" data-ir-passo="${n}"><span class="passo-num">${numPasso(n)}</span><span>${NOMES_PASSO[n]}</span></button></li>`).join('')}</ol>
     <form id="f-disparo" class="editor">
       <div>
@@ -4495,6 +4495,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         <div class="card" data-passo="3">
           <h2><span class="passo-num">3</span> E quando responderem?</h2>
           ${balao('Quem responde cai na IA do WhatsApp', 'Ela já lê a mensagem do disparo e continua a conversa. Aqui você diz <b>o caminho</b> que ela deve seguir com quem responder a <b>este</b> disparo. Os avisos de lead quente para a sua equipe continuam como já funcionam.', 'dica')}
+          ${modoCampanha ? `<label class="linha-check interruptor-ia"><input type="checkbox" name="iaCampanha" ${campanha?.iaLigada === false ? '' : 'checked'}> 🤖 <b>A IA responde quem responder a esta campanha</b> ${ajuda('Desligado: quem responder aos disparos desta campanha fica para a equipe (a IA não responde). Dá para ligar e desligar a qualquer hora, também no cartão da campanha — vale na hora, até para disparos que já estão rodando.')}</label>` : ''}
           <div class="campo"><label>O que a IA deve fazer com quem responder (opcional) ${ajuda('Vale só para quem responder a este disparo, junto com o que está em "Sobre a empresa". Ex.: o que oferecer, quais mídias mandar, como responder objeções e aonde levar a conversa.')}</label>
             <textarea name="roteiro" maxlength="3000" style="min-height:130px" placeholder="${prospeccao ? 'Ex.: Se pedir o exemplo, mande o vídeo #MIDIA_… do modelo de site. Pergunte se ele já pensou em aparecer no Google. Preço: a partir de R$ … Objetivo: marcar uma ligação rápida de 10 minutos ou mandar a proposta.' : 'Ex.: Se quiser os detalhes da promoção, explique as condições e ofereça um horário. Objetivo: fechar o pedido.'}"></textarea></div>
           <div class="campos" style="margin-top:10px">
@@ -4786,6 +4787,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       <dt>💬 Mensagem</dt><dd><div class="revisao-msg">${esc(r.exemplo || f.mensagem).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><span class="rotulo">Exemplo com o 1º contato${itens.length ? ` · + ${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}: ${itens.map((m) => esc(m.nome)).join(', ')}` : ' · só texto'}</span></dd>
       <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}${modoCampanha ? '' : `<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span>`}</dd>
       <dt ${modoCampanha ? 'hidden' : ''}>🕐 Quando</dt><dd ${modoCampanha ? 'hidden' : ''}>${f.quando === 'agendar' && f.agendadoPara ? `Agendado para <b>${esc(new Date(f.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</b>` : '<b>Começa quando você clicar em enviar</b>'}${f.horarioComercial ? ' · só em horário comercial (8h às 20h)' : ' · a qualquer hora'}</dd>
+      ${modoCampanha && !f.iaCampanha ? '<dt>🤖 IA</dt><dd><b>Desligada</b> nesta campanha: quem responder fica para a equipe</dd>' : ''}
       <dt>💬 Quando responderem</dt><dd>${f.roteiro?.trim() ? `A IA segue o seu roteiro: <span class="rotulo">${esc(f.roteiro.trim().slice(0, 160))}${f.roteiro.trim().length > 160 ? '…' : ''}</span>` : 'A IA continua a conversa com o que está em "Sobre a empresa"'}${f.respEtapa ? `<br>Vai para a etapa <b>${esc(f.respEtapa)}</b>` : ''}${f.respEtiqueta ? `<br>Ganha a etiqueta <b>${esc(emp.etiquetas.find((t) => t.id === f.respEtiqueta)?.nome || '')}</b>` : ''}</dd>
       <dt>🔔 Lembrete</dt><dd>${f.lembreteAtivo ? `1 lembrete depois de <b>${esc(f.lembreteDias)} ${Number(f.lembreteDias) === 1 ? 'dia' : 'dias'}</b> para quem não responder: <span class="rotulo">${esc(f.lembreteMensagem || '')}</span>` : 'Sem lembrete'}</dd>
       ${personalizacao() ? `<dt>✍️ Foto</dt><dd>A 1ª foto vai com <b>${esc(personalizacao().texto)}</b> escrito</dd>` : ''}
@@ -4884,7 +4886,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       if (!f.campanhaNome?.trim()) { irPara(1); return mostrarErro('Dê um nome para a campanha.'); }
       if (!comTexto().length) { irPara(2); return mostrarErro('Escreva a mensagem.'); }
       try {
-        await api(campanha ? `empresas/${id}/disparos-campanhas/${campanha.id}` : `empresas/${id}/disparos-campanhas`, { method: campanha ? 'PUT' : 'POST', body: { ...configDoForm(f), nome: f.campanhaNome, tipo: prospeccao ? 'prospeccao' : 'clientes' } });
+        await api(campanha ? `empresas/${id}/disparos-campanhas/${campanha.id}` : `empresas/${id}/disparos-campanhas`, { method: campanha ? 'PUT' : 'POST', body: { ...configDoForm(f), nome: f.campanhaNome, tipo: prospeccao ? 'prospeccao' : 'clientes', iaLigada: Boolean(f.iaCampanha) } });
         aviso('Campanha salva!');
         location.hash = rotaEmpresa(id, 'disparos/campanhas');
       } catch (err) { mostrarErro(`Não foi salva: ${err.message}`); }
@@ -5591,6 +5593,7 @@ async function paginaCampanhas(id) {
     ${lista.length ? `<div class="campanhas">${lista.map((c) => `
       <div class="card campanha">
         <div class="campanha-topo"><div><b class="campanha-nome">${esc(c.nome)}</b><br><span class="rotulo">${c.tipo === 'clientes' ? '📣 meus clientes' : '🛡️ contatos novos'} · ${c.mensagens.length} ${c.mensagens.length === 1 ? 'mensagem' : 'versões revezando'}</span></div>${c.ativos ? `<span class="etiqueta ok">${c.ativos} em andamento</span>` : ''}</div>
+        <button type="button" class="interruptor ${c.iaLigada === false ? 'desligado' : 'ligado'}" data-ia-campanha="${esc(c.id)}" title="Liga ou desliga a IA para quem responder a esta campanha (vale na hora)">${c.iaLigada === false ? '⛔ IA desligada — a equipe atende · ligar' : '🤖 IA respondendo · desligar'}</button>
         <ul class="campanha-itens">
           <li>💬 ${esc(c.mensagens[0].replace(/\s+/g, ' ').slice(0, 90))}${c.mensagens[0].length > 90 ? '…' : ''}</li>
           ${c.midiaIds?.length ? `<li>📎 ${c.midiaIds.length} ${c.midiaIds.length === 1 ? 'mídia' : 'mídias'}${c.personalizar?.ativo ? ' · 1ª foto com o nome do contato' : ''}</li>` : ''}
@@ -5600,6 +5603,14 @@ async function paginaCampanhas(id) {
         <div class="campanha-numeros">${c.disparos ? `<b>${taxaMsg(c)}% responderam</b> · ${c.responderam} de ${c.enviados} · ${c.disparos} ${c.disparos === 1 ? 'disparo' : 'disparos'}` : '<span class="rotulo">Ainda não foi disparada</span>'}</div>
         <div class="acoes"><a class="botao primario" href="${rotaEmpresa(id, `disparos/novo?campanha=${encodeURIComponent(c.id)}`)}">🚀 Disparar</a><a class="botao" href="${rotaEmpresa(id, `disparos/campanhas/${encodeURIComponent(c.id)}`)}">✏️ Editar</a><button type="button" data-testar-campanha="${esc(c.id)}">🧪 Testar</button><button type="button" data-duplicar="${esc(c.id)}">⧉ Duplicar</button><button type="button" class="perigo" data-apagar-campanha="${esc(c.id)}">🗑️</button></div>
       </div>`).join('')}</div>` : `<div class="card vazio"><p>Nenhuma campanha ainda.</p><p class="rotulo">Exemplo: "Guinchos sem site" com 3 versões da mensagem, a foto do modelo com o nome de cada empresa, lembrete em 3 dias e o roteiro do que a IA faz quando responderem. Depois é só disparar para cada lista nova.</p><a class="botao primario" href="${rotaEmpresa(id, 'disparos/campanhas/nova')}">+ Criar a primeira campanha</a></div>`}`);
+  $$('[data-ia-campanha]').forEach((b) => {
+    b.onclick = async () => {
+      const c = lista.find((x) => x.id === b.dataset.iaCampanha);
+      const ligar = c.iaLigada === false;
+      if (!ligar && !(await confirmar({ titulo: `Desligar a IA em "${c.nome}"?`, texto: '<p>Quem responder aos disparos desta campanha (inclusive os que já estão rodando) <b>não recebe resposta da IA</b>: fica para a equipe responder.</p><p class="rotulo">Dá para ligar de novo a qualquer hora.</p>', botao: 'Desligar a IA' }))) return;
+      try { await api(`empresas/${id}/disparos-campanhas/${c.id}/ia`, { method: 'PUT', body: { ligada: ligar } }); aviso(ligar ? 'IA ligada nesta campanha.' : 'IA desligada nesta campanha.'); paginaCampanhas(id); } catch (err) { aviso(err.message, true); }
+    };
+  });
   $$('[data-testar-campanha]').forEach((b) => {
     b.onclick = () => {
       const c = lista.find((x) => x.id === b.dataset.testarCampanha);

@@ -704,7 +704,7 @@ async function testar(empresa, corpo = {}, usuario = null) {
 // nome, roteiro da IA, etapa/etiqueta ao responder, lembrete e ritmo. Na hora de disparar só
 // escolhe a lista (ou filtros), o nome e quando; o disparo leva campanhaId.
 
-const CAMPOS_CAMPANHA = ['mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
+const CAMPOS_CAMPANHA = ['iaLigada', 'mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
 
 function campanhasDa(empresa) {
   if (!Array.isArray(empresa.campanhasDisparo)) empresa.campanhasDisparo = [];
@@ -746,6 +746,7 @@ function salvarCampanha(empresa, b = {}, campanhaId = null) {
     aumentoDia: n(b.aumentoDia),
     tetoDia: n(b.tetoDia),
     perfilEnvio: texto(b.perfilEnvio, 30),
+    iaLigada: b.iaLigada !== false,
     atualizadoEm: agora()
   };
   const lista = campanhasDa(empresa);
@@ -865,6 +866,23 @@ function aoResponder(empresa, lead) {
   const tag = d.aoResponder.etiquetaId;
   if (tag && leads.etiquetasDa(empresa).some((t) => t.id === tag) && !(lead.etiquetas || []).includes(tag)) lead.etiquetas = [...(lead.etiquetas || []), tag];
   return true;
+}
+
+// 🎯 IA desligada na campanha (botão de emergência): vale para quem veio dos disparos dela,
+// inclusive os que já estão rodando (lê a campanha na hora, não a cópia do disparo)
+function iaDesligadaPelaCampanha(empresa, lead) {
+  const d = disparoDoLead(lead);
+  if (!d?.campanhaId) return '';
+  const c = campanhasDa(empresa).find((x) => x.id === d.campanhaId);
+  return c && c.iaLigada === false ? `A IA está desligada na campanha "${c.nome}": a equipe atende (ligue de novo em Campanhas).` : '';
+}
+
+function ligarIaDaCampanha(empresa, campanhaId, ligada) {
+  const c = campanhasDa(empresa).find((x) => x.id === campanhaId);
+  if (!c) throw erro('Campanha não encontrada.', 404);
+  c.iaLigada = ligada !== false;
+  salvar();
+  return c;
 }
 
 // 🛡️ O cliente respondeu a um disparo (a última mensagem da empresa antes da resposta é do
@@ -1076,6 +1094,8 @@ module.exports = {
   paraIa,
   aoResponder,
   liberarIaAoResponder,
+  iaDesligadaPelaCampanha,
+  ligarIaDaCampanha,
   MAX_VERSOES,
   testar,
   campanhasDa,

@@ -1462,6 +1462,9 @@ function registrarIa(empresa, lead, tipo, motivo) {
 
 function agendarResposta(empresa, lead) {
   if (!configDa(empresa).iaAtiva) return registrarIa(empresa, lead, 'ignorou', 'A IA do WhatsApp está desligada.');
+  // 🎯 IA desligada na campanha de onde este cliente veio (botão de emergência): a equipe atende
+  const pelaCampanha = require('./disparos').iaDesligadaPelaCampanha(empresa, lead);
+  if (pelaCampanha) return registrarIa(empresa, lead, 'ignorou', pelaCampanha);
   // já comprou (ou agendou): a IA fica desligada nesta conversa até você ligar à mão
   const desligada = require('./ia-desligada').conferir(empresa, lead);
   if (desligada) return registrarIa(empresa, lead, 'ignorou', desligada.texto);

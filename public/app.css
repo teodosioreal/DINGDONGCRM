@@ -1962,3 +1962,7 @@ html.dark .etiqueta.prio-alta { background: #450a0a; color: #fca5a5; }
 .resumo-campanha .acoes { display: flex; gap: 6px; }
 .uso-campanhas { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 13px; }
 .uso-campanhas a.etiqueta { text-decoration: none; }
+.interruptor { align-self: flex-start; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.interruptor.ligado { background: var(--ok-fundo); color: var(--ok-texto); border: 1px solid var(--ok-texto); }
+.interruptor.desligado { background: #fef2f2; color: #b91c1c; border: 1px solid #b91c1c; }
+.interruptor-ia { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); }
