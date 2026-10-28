@@ -259,7 +259,9 @@ async function processarUm(id) {
     }
   }
 
-  const mensagem = montarMensagem(d.mensagem, lead, empresa) + (d.rodapeSair ? `\n\n${RODAPE_SAIR}` : '');
+  // 🔁 versões da mensagem: cada contato recebe a sua (revezando), para ver qual faz mais gente responder
+  const versao = d.versoes?.[item.versao] || null;
+  const mensagem = montarMensagem(versao?.texto || d.mensagem, lead, empresa) + (d.rodapeSair ? `\n\n${RODAPE_SAIR}` : '');
   const anexos = midiasDoDisparo(empresa, d);
   const [primeira, ...resto] = anexos;
   // 🖼️ a 1ª foto com o nome do contato escrito (se não der, vai a foto normal)
@@ -302,7 +304,8 @@ async function processarUm(id) {
       papel: 'equipe',
       canal: 'whatsapp',
       texto: anexos.length ? `${mensagem}\n[mídia: ${anexos.map((m, i) => (i === 0 && personalizada ? `${m.nome} (com o nome do contato)` : m.nome)).join(', ')}]` : mensagem,
-      disparoId: d.id
+      disparoId: d.id,
+      ...(versao ? { disparoVersao: item.versao } : {})
     });
     lead.ultimoDisparoEm = agora();
     if (pros) { pros.contarEnvio(d); d.errosSeguidos = 0; }
@@ -348,8 +351,9 @@ function midiasDoDisparo(empresa, d) {
 // ---------------------------------------------------------------- operações
 
 function criar(empresa, corpo, usuario) {
-  const mensagem = texto(corpo.mensagem, 3000);
-  if (!mensagem) throw erro('Escreva a mensagem.');
+  const versoes = versoesDoCorpo(empresa, corpo);
+  if (!versoes.length) throw erro('Escreva a mensagem.');
+  const mensagem = versoes[0].texto;
   if (!whatsapp.configurado(empresa)) throw erro('Conecte o WhatsApp da empresa antes de fazer disparos.');
   // várias mídias e álbuns (ids da biblioteca); "midiaId" é o formato antigo, de uma só
   const pedidos = [...new Set([...(Array.isArray(corpo.midiaIds) ? corpo.midiaIds : []), corpo.midiaId].map((x) => texto(x, 60)).filter(Boolean))].slice(0, MAX_MIDIAS);
@@ -378,6 +382,7 @@ function criar(empresa, corpo, usuario) {
     if (Number.isNaN(t.getTime())) throw erro('Data de agendamento inválida.');
     if (t.getTime() > Date.now() + 60 * 1000) agendadoPara = t.toISOString();
   }
+  for (const v of versoes) v.msgId = guardarMensagem(empresa, v.texto).id;
   const d = {
     id: novoId('dsp'),
     empresaId: empresa.id,
@@ -393,7 +398,9 @@ function criar(empresa, corpo, usuario) {
     ...extrasDoDisparo(empresa, corpo, personalizar),
     status: agendadoPara ? 'agendado' : 'enviando',
     agendadoPara,
-    destinatarios: destinatarios.map((x) => ({ ...x, status: 'pendente', erro: '', em: null })),
+    versoes,
+    // revezando: 1º contato a versão A, 2º a B… (cada versão vai para a mesma quantidade de gente)
+    destinatarios: destinatarios.map((x, i) => ({ ...x, status: 'pendente', erro: '', em: null, versao: i % versoes.length })),
     criadoPor: usuario?.email || '',
     criadoEm: agora(),
     iniciadoEm: agendadoPara ? null : agora(),
@@ -409,6 +416,107 @@ function criar(empresa, corpo, usuario) {
   salvar();
   agendar(d, agendadoPara ? new Date(agendadoPara).getTime() - Date.now() : 1000);
   return d;
+}
+
+// ---------------------------------------------------------------- 💬 mensagens salvas e versões
+
+const MAX_VERSOES = 10;
+const MAX_MENSAGENS_SALVAS = 100;
+const textoIgual = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
+
+function mensagensDa(empresa) {
+  if (!Array.isArray(empresa.mensagensDisparo)) empresa.mensagensDisparo = [];
+  return empresa.mensagensDisparo;
+}
+
+// guarda a mensagem na biblioteca (ou acha a igual que já existe) e devolve o id
+function guardarMensagem(empresa, textoMsg, nome = '') {
+  const lista = mensagensDa(empresa);
+  const igual = lista.find((m) => textoIgual(m.texto, textoMsg));
+  if (igual) return igual;
+  const m = { id: novoId('msd'), nome: texto(nome, 60), texto: texto(textoMsg, 3000), criadoEm: agora() };
+  lista.push(m);
+  if (lista.length > MAX_MENSAGENS_SALVAS) lista.splice(0, lista.length - MAX_MENSAGENS_SALVAS);
+  return m;
+}
+
+// versões que vieram da tela (até 10); "mensagem" sozinha = uma versão. Quando o disparo é criado,
+// cada versão entra na biblioteca de mensagens (o ranking de quem mais responde junta os disparos).
+function versoesDoCorpo(empresa, corpo) {
+  const brutas = Array.isArray(corpo.mensagens) && corpo.mensagens.length ? corpo.mensagens : [corpo.mensagem];
+  const saida = [];
+  for (const b of brutas) {
+    const t = texto(typeof b === 'string' ? b : b?.texto, 3000);
+    if (!t || saida.some((v) => textoIgual(v.texto, t))) continue;
+    saida.push({ texto: t });
+    if (saida.length >= MAX_VERSOES) break;
+  }
+  return saida;
+}
+
+// números de cada versão de um disparo: quantos receberam e quantos responderam
+function numerosPorVersao(d, leadPorId = null) {
+  const versoes = d.versoes || [{ texto: d.mensagem }];
+  const nums = versoes.map((v, i) => ({ letra: String.fromCharCode(65 + i), texto: v.texto, msgId: v.msgId || null, enviados: 0, responderam: 0 }));
+  for (const x of d.destinatarios || []) {
+    if (x.status !== 'enviado') continue;
+    const n = nums[x.versao || 0] || nums[0];
+    n.enviados++;
+    const lead = leadPorId ? leadPorId.get(x.leadId) : estado.conversas.find((c) => c.id === x.leadId);
+    if (lead?.mensagens?.some((m) => m.papel === 'visitante' && m.em > x.em)) n.responderam++;
+  }
+  return nums;
+}
+
+// biblioteca com o ranking: somando todos os disparos da empresa
+function mensagensComNumeros(empresa) {
+  const leadPorId = new Map(estado.conversas.filter((c) => c.empresaId === empresa.id).map((c) => [c.id, c]));
+  const total = new Map();
+  for (const d of estado.disparos.filter((x) => x.empresaId === empresa.id)) {
+    for (const n of numerosPorVersao(d, leadPorId)) {
+      const id = n.msgId || mensagensDa(empresa).find((m) => textoIgual(m.texto, n.texto))?.id;
+      if (!id) continue;
+      const t = total.get(id) || { enviados: 0, responderam: 0, disparos: 0 };
+      t.enviados += n.enviados;
+      t.responderam += n.responderam;
+      if (n.enviados) t.disparos++;
+      total.set(id, t);
+    }
+  }
+  return mensagensDa(empresa).map((m) => ({ ...m, ...(total.get(m.id) || { enviados: 0, responderam: 0, disparos: 0 }) }));
+}
+
+function salvarMensagem(empresa, b = {}, msgId = null) {
+  const t = texto(b.texto, 3000);
+  if (!t) throw erro('Escreva a mensagem.');
+  if (!msgId) {
+    const m = guardarMensagem(empresa, t, b.nome);
+    if (b.nome) m.nome = texto(b.nome, 60);
+    salvar();
+    return m;
+  }
+  const m = mensagensDa(empresa).find((x) => x.id === msgId);
+  if (!m) throw erro('Mensagem não encontrada.', 404);
+  // texto mudou e já foi usado em disparo: vira uma mensagem nova (o ranking da antiga continua certo)
+  const usada = estado.disparos.some((d) => d.empresaId === empresa.id && (d.versoes || []).some((v) => v.msgId === m.id));
+  if (!textoIgual(m.texto, t) && usada) {
+    const nova = { id: novoId('msd'), nome: texto(b.nome, 60) || m.nome, texto: t, criadoEm: agora() };
+    mensagensDa(empresa).push(nova);
+    salvar();
+    return nova;
+  }
+  m.texto = t;
+  if (b.nome !== undefined) m.nome = texto(b.nome, 60);
+  salvar();
+  return m;
+}
+
+function apagarMensagem(empresa, msgId) {
+  const lista = mensagensDa(empresa);
+  const i = lista.findIndex((x) => x.id === msgId);
+  if (i < 0) throw erro('Mensagem não encontrada.', 404);
+  lista.splice(i, 1);
+  salvar();
 }
 
 // ---------------------------------------------------------------- roteiro, lembrete e imagem
@@ -630,9 +738,10 @@ function resumo(d) {
     }
   }
   const { destinatarios, ...resto } = d;
+  const porVersao = (d.versoes || []).length > 1 ? numerosPorVersao(d) : null;
   const semWhatsapp = destinatarios.filter((x) => x.erro === 'Número sem WhatsApp').length;
   const pros = d.prospeccao ? require('./prospeccao') : null;
-  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
+  return { ...resto, total: destinatarios.length, ...cont, responderam, semWhatsapp, ...(porVersao ? { porVersao } : {}), ...(d.lembrete ? { lembretes, responderamLembrete } : {}), ...(pros ? { hoje: pros.enviadosHoje(d), limiteHoje: pros.limiteDeHoje(d) } : {}) };
 }
 
 // Ao subir o app: continua os disparos que estavam em andamento
@@ -667,6 +776,10 @@ module.exports = {
   retomarAoIniciar,
   paraIa,
   aoResponder,
+  MAX_VERSOES,
+  mensagensComNumeros,
+  salvarMensagem,
+  apagarMensagem,
   LEMBRETE_PADRAO,
   TEXTO_IMAGEM_PADRAO,
   textoDaImagem,

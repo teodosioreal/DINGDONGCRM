@@ -4094,7 +4094,7 @@ async function paginaLeads(id, params) {
     };
     $('#lote-disparar').onclick = () => {
       sessionStorage.setItem('disparo_leads', JSON.stringify(selecionados()));
-      location.hash = rotaEmpresa(id, 'disparos/novo');
+      location.hash = rotaEmpresa(id, 'disparos/novo?modo=clientes');
     };
   }
 
@@ -4301,11 +4301,12 @@ function barraProgresso(d) {
 
 // Aba Disparos em massa: menu do lado esquerdo (seções) e abas em cima (dentro de cada seção)
 const MENU_DISPAROS = [
-  ['lista', '📣', 'Disparos', ''],
+  ['lista', '📊', 'Meus disparos', ''],
   ['novo', '➕', 'Novo disparo', 'novo'],
+  ['mensagens', '💬', 'Mensagens e ranking', 'mensagens'],
   ['listas', '📋', 'Listas de contatos', 'listas'],
-  ['cobranca', '💰', 'Cobranças', 'cobranca'],
-  ['seguranca', '🛡️', 'Segurança', 'seguranca']
+  ['seguranca', '🛡️', 'Segurança', 'seguranca'],
+  ['cobranca', '💰', 'Cobranças', 'cobranca']
 ];
 function cascaDisparos(id, ativo, html, abas = null) {
   const menu = MENU_DISPAROS.map(([k, ic, nome, rota]) => `<a class="disp-item ${k === ativo ? 'ativo' : ''}" href="${rotaEmpresa(id, rota ? `disparos/${rota}` : 'disparos')}"><span class="disp-ic">${ic}</span><span>${nome}</span></a>`).join('');
@@ -4368,10 +4369,27 @@ async function subirParaBiblioteca(empresaId, arq, progresso = () => {}) {
   return api(`empresas/${empresaId}/midias/envio/${ini.envioId}/concluir`, { method: 'POST', body: {} });
 }
 
+// ➕ Novo disparo sem tipo escolhido: primeiro a pergunta (contatos novos ou clientes)
+async function paginaEscolherDisparo(id) {
+  const emp = await definirEmpresaAtual(id);
+  const rota = (q) => `${rotaEmpresa(id, 'disparos/novo')}?${q}`;
+  conteudo.innerHTML = cascaDisparos(id, 'novo', `
+    <div class="cabecalho"><div><h1>➕ Novo disparo</h1><p class="sub">Para quem você vai mandar?</p></div></div>
+    ${emp.whatsapp?.configurado ? '' : balao('Conecte o WhatsApp primeiro', `Os disparos saem pelo WhatsApp da empresa. <a href="${rotaEmpresa(id, 'whatsapp')}">Conectar o WhatsApp</a>`, 'aviso')}
+    <div class="escolha-disparo">
+      <a class="card escolha-tipo" href="${rota('modo=prospeccao')}"><span class="escolha-ic">🛡️</span><b>Contatos novos (prospecção)</b><span class="rotulo">Gente que ainda não conhece a empresa: uma lista importada (ex.: Google Maps). Sai devagar, com limite por dia, para proteger o número.</span><span class="botao primario">Escolher</span></a>
+      <a class="card escolha-tipo" href="${rota('modo=clientes')}"><span class="escolha-ic">📣</span><b>Meus clientes e leads</b><span class="rotulo">Quem já conversou com você: promoção, aviso, reativar quem sumiu. Filtra por etapa, etiqueta ou origem.</span><span class="botao">Escolher</span></a>
+    </div>
+    <p class="rotulo" style="margin-top:12px">Mensalidade e cobrança ficam em <a href="${rotaEmpresa(id, 'disparos/cobranca')}">💰 Cobranças</a>. As mensagens que mais fazem o cliente responder ficam em <a href="${rotaEmpresa(id, 'disparos/mensagens')}">💬 Mensagens e ranking</a>.</p>`);
+}
+
 async function paginaNovoDisparo(id, params = new URLSearchParams()) {
   const hashDaPagina = location.hash;
+  let temEscolhidos = false;
+  try { temEscolhidos = Boolean(JSON.parse(sessionStorage.getItem('disparo_leads') || '[]').length); } catch { temEscolhidos = false; }
+  if (!params.get('modo') && !params.get('lista') && !temEscolhidos) return paginaEscolherDisparo(id);
   const emp = await definirEmpresaAtual(id);
-  const [lista, albuns, ld] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/disparos-listas`).catch(() => ({ listas: [], seguranca: {} }))]);
+  const [lista, albuns, ld, salvas] = await Promise.all([api(`empresas/${id}/midias`), api(`empresas/${id}/albuns`), api(`empresas/${id}/disparos-listas`).catch(() => ({ listas: [], seguranca: {} })), api(`empresas/${id}/disparos-mensagens`).then((r) => r.mensagens || []).catch(() => [])]);
   // 🛡️ prospecção: contatos que ainda não conhecem a empresa (lista importada)
   const listaPedida = params.get('lista') || '';
   const prospeccao = params.get('modo') === 'prospeccao' || Boolean(listaPedida);
@@ -4408,7 +4426,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       <div>
         <div class="card" data-passo="1">
           <h2><span class="passo-num">1</span> Quem vai receber?</h2>
-          ${leadIds.length ? `${balao(`${leadIds.length} contatos escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : prospeccao ? `${campoLista}<details style="margin-top:12px"><summary>Mais filtros (etapa, etiqueta, origem)</summary><div style="margin-top:10px">${filtrosComuns}</div></details>` : `${filtrosComuns}<details style="margin-top:12px"><summary>Só de uma lista de contatos importada</summary><div style="margin-top:10px">${campoLista}</div></details>`}
+          ${leadIds.length ? `${balao(`${leadIds.length} contatos escolhidos na lista`, `<a href="${rotaEmpresa(id, 'disparos/novo?modo=clientes')}" id="limpar-escolha">Usar filtros em vez disso</a>`, 'ok')}` : prospeccao ? `${campoLista}<details style="margin-top:12px"><summary>Mais filtros (etapa, etiqueta, origem)</summary><div style="margin-top:10px">${filtrosComuns}</div></details>` : `${filtrosComuns}<details style="margin-top:12px"><summary>Só de uma lista de contatos importada</summary><div style="margin-top:10px">${campoLista}</div></details>`}
           <label class="linha-check" style="margin-top:12px"><input type="checkbox" name="pularJaDisparados" checked ${prospeccao ? 'disabled' : ''}> Não mandar para quem já recebeu disparo em massa ${prospeccao ? '<span class="rotulo">(sempre ligado na prospecção)</span>' : ajuda('Quem já recebeu qualquer disparo antes fica de fora deste — vale também para contatos que aparecem de novo em outra lista. Desmarcado, o CRM só avisa quantos já receberam.')}</label>
           <div class="contagem" id="contagem">Calculando…</div>
           <div class="disp-nav"><span></span><button type="button" class="primario" data-proximo>Continuar →</button></div>
@@ -4416,8 +4434,10 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         <div class="card" data-passo="2">
           <h2><span class="passo-num">2</span> O que vai ser enviado?</h2>
           <div class="campo">
-            <label>Mensagem *</label>
-            <p class="rotulo" style="margin:0 0 6px">Sai exatamente o que você escrever (o disparo não usa IA). Toque para colocar no texto:</p>
+            <label>Mensagem * ${ajuda('Cadastre até 10 versões: o CRM reveza entre os contatos (1º recebe a A, 2º a B…) e mostra em 💬 Mensagens e ranking qual faz mais gente responder.')}</label>
+            <div class="versoes-msg" id="versoes-msg"></div>
+            ${salvas.length ? `<select id="usar-salva" class="pequeno-select"><option value="">📚 Usar uma das minhas mensagens…</option>${salvas.slice().sort((a, b) => taxaMsg(b) - taxaMsg(a)).map((m) => `<option value="${esc(m.id)}">${m.enviados ? `${taxaMsg(m)}% responderam · ` : ''}${esc(m.nome || m.texto.replace(/\s+/g, ' ').slice(0, 70))}</option>`).join('')}</select>` : ''}
+            <p class="rotulo" style="margin:6px 0 6px">Sai exatamente o que você escrever (o disparo não usa IA). Toque para colocar no texto:</p>
             <div class="botoes-variavel"><button type="button" class="pequeno" data-inserir="{Oi|Olá|E aí}" title="Cada pessoa recebe uma das opções">👋 Saudação variada</button><button type="button" class="pequeno" data-inserir="{nome}" title="Nome do contato (na lista do PDF, é o nome da empresa dele)">👤 Nome do contato</button>${prospeccao ? '<button type="button" class="pequeno" data-inserir="{empresa_contato}" title="Nome da empresa do contato (da lista importada)">🏢 Empresa do contato</button><button type="button" class="pequeno" data-inserir="{cidade}">📍 Cidade</button>' : ''}<button type="button" class="pequeno" data-inserir="{empresa}" title="O nome da SUA empresa">🏷️ Nome da minha empresa</button></div>
             <textarea name="mensagem" required style="min-height:140px" placeholder="${prospeccao ? '{Oi|Olá|Boa tarde}! Vi que a {empresa_contato} ainda não tem site. Posso te mostrar uma ideia rápida?' : '{Oi|Olá} {nome}! Tudo bem? Esta semana temos 20% de desconto. Quer que eu te mande os detalhes?'}"></textarea>
             <small>O nome de uma empresa só aparece se você colocar <code>{empresa}</code> (a sua) ou <code>{empresa_contato}</code> (a do contato).</small>
@@ -4509,6 +4529,35 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     </form>`, abasNovo);
 
   const form = $('#f-disparo');
+  // 🔁 versões da mensagem (até 10): a caixa de texto edita a versão escolhida
+  const versoes = [''];
+  try { const pedidas = JSON.parse(sessionStorage.getItem('disparo_mensagens') || '[]'); sessionStorage.removeItem('disparo_mensagens'); if (pedidas.length) versoes.splice(0, 1, ...pedidas.slice(0, 10)); } catch { /* sem sessionStorage */ }
+  let vAtiva = 0;
+  const caixaMsg = form.elements.mensagem;
+  caixaMsg.value = versoes[0];
+  const comTexto = () => versoes.map((v) => v.trim()).filter(Boolean);
+  function desenharVersoes() {
+    const letras = versoes.map((v, i) => `<button type="button" class="chip-filtro ${i === vAtiva ? 'ativo' : ''}" data-versao="${i}" title="${esc(v.slice(0, 120))}">Versão ${String.fromCharCode(65 + i)}${v.trim() ? '' : ' (vazia)'}</button>`).join('');
+    $('#versoes-msg').innerHTML = `${letras}${versoes.length < 10 ? '<button type="button" class="chip-filtro" id="versao-nova">+ Nova versão</button>' : ''}${versoes.length > 1 ? `<button type="button" class="pequeno perigo" id="versao-tirar" title="Tirar a versão ${String.fromCharCode(65 + vAtiva)}">✕ Tirar ${String.fromCharCode(65 + vAtiva)}</button>` : ''}${versoes.length > 1 ? `<span class="rotulo">${comTexto().length} versões revezando entre os contatos</span>` : ''}`;
+    $$('[data-versao]').forEach((b) => { b.onclick = () => irVersao(Number(b.dataset.versao)); });
+    $('#versao-nova')?.addEventListener('click', () => { versoes.push(''); irVersao(versoes.length - 1); });
+    $('#versao-tirar')?.addEventListener('click', () => { versoes.splice(vAtiva, 1); irVersao(Math.max(0, vAtiva - 1)); });
+  }
+  function irVersao(i) {
+    vAtiva = Math.min(versoes.length - 1, Math.max(0, i));
+    caixaMsg.value = versoes[vAtiva];
+    desenharVersoes();
+    agendarPrevia();
+    caixaMsg.focus();
+  }
+  caixaMsg.addEventListener('input', () => { versoes[vAtiva] = caixaMsg.value; if (!caixaMsg.value.trim() || versoes[vAtiva].length < 2) desenharVersoes(); });
+  $('#usar-salva')?.addEventListener('change', (e) => {
+    const m = salvas.find((x) => x.id === e.target.value);
+    e.target.value = '';
+    if (!m) return;
+    if (versoes.some((v) => v.trim() === m.texto.trim())) return aviso('Essa mensagem já está nas versões.');
+    if (versoes[vAtiva].trim() && versoes.length < 10) { versoes.push(m.texto); irVersao(versoes.length - 1); } else { versoes[vAtiva] = m.texto; irVersao(vAtiva); }
+  });
   form.noValidate = true; // conferimos no JS e mostramos o erro (o navegador travava calado em campo escondido)
   // intervalo em segundos, qualquer que seja a unidade escolhida (segundos, minutos ou horas)
   const intervalos = (f = formParaObjeto(form)) => {
@@ -4556,12 +4605,12 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       const perso = personalizacao();
       const srcFoto = (m, i) => (i === 0 && perso ? `api/empresas/${id}/disparos/previa-imagem?${new URLSearchParams({ midiaId: escolhidas[0], leadId: r.primeiroId || '', texto: perso.texto, posicao: perso.posicao, fundo: perso.fundo, destaque: perso.destaque })}` : m.url);
       $('#previa').innerHTML = r.exemplo
-        ? `${itens.map((m, i) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(srcFoto(m, i))}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
+        ? `${itens.map((m, i) => `<div class="msg bot midia-previa-msg">${m.tipo === 'image' ? `<img src="${esc(srcFoto(m, i))}" alt="">` : `${m.icone} ${esc(m.nome)}`}</div>`).join('')}<div class="msg bot">${esc(r.exemplo).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><div class="msg acao-ia">${versoes.length > 1 ? `Versão ${String.fromCharCode(65 + vAtiva)} · ` : ''}Exemplo com o primeiro contato da lista. Cada pessoa recebe com o próprio nome.</div>`
         : '<div class="msg acao-ia">Escreva a mensagem para ver a prévia.</div>';
       atualizarRisco();
       if (passo === 5) desenharRevisao();
       if (r.maximo && r.total > r.maximo) $('#contagem').insertAdjacentHTML('beforeend', `<span class="erro-caixa">São ${r.total} contatos e o máximo é ${r.maximo} por disparo. Divida a lista (ex.: por cidade ou etiqueta) e faça mais de um disparo.</span>`);
-      $('#enviar-disparo').disabled = !(r.total && f.mensagem.trim()) || (r.maximo && r.total > r.maximo);
+      $('#enviar-disparo').disabled = !(r.total && comTexto().length) || (r.maximo && r.total > r.maximo);
       $('#enviar-disparo').textContent = r.total ? `📣 Enviar para ${r.total} ${r.total === 1 ? 'pessoa' : 'pessoas'}` : '📣 Iniciar disparo';
     } catch (err) {
       if (!form.isConnected) return;
@@ -4669,7 +4718,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     const fl = filtro();
     if (n > 1 && prospeccao && !leadIds.length && !fl.listaId && !fl.etapas.length && !fl.etiquetas.length && fl.origem === 'todos') { aviso('Escolha a lista de contatos que vai receber.', true); form.elements.listaId?.focus(); return false; }
     if (n > 1 && !total) { aviso('Ninguém vai receber assim: escolha a lista ou mude os filtros.', true); return false; }
-    if (n > 2 && !form.elements.mensagem.value.trim()) { aviso('Escreva a mensagem.', true); form.elements.mensagem.focus(); return false; }
+    if (n > 2 && !comTexto().length) { aviso('Escreva a mensagem.', true); form.elements.mensagem.focus(); return false; }
     return true;
   };
   $$('[data-proximo]', form).forEach((b) => { b.onclick = () => { if (podeIr(passo + 1)) irPara(passo + 1); }; });
@@ -4685,6 +4734,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     const protecoes = [pular && 'não repete para quem já recebeu disparo', f.rodapeSair && '"responda SAIR" no final', prospeccao && 'confere se o número tem WhatsApp', prospeccao && 'pausa sozinho se der erro seguido'].filter(Boolean);
     $('#disp-revisao').innerHTML = `<dl class="revisao">
       <dt>👥 Para</dt><dd><b>${total} ${total === 1 ? 'pessoa' : 'pessoas'}</b>${r.nomes?.length ? `<br><span class="rotulo">${r.nomes.map(esc).join(', ')}${total > r.nomes.length ? '…' : ''}</span>` : ''}${r.jaDisparados ? `<br><span class="rotulo aviso-texto">⚠️ ${r.jaDisparados} já ${r.jaDisparados === 1 ? 'recebeu' : 'receberam'} disparo antes ${pular ? '(fica de fora)' : '(vai receber de novo)'}</span>` : ''}</dd>
+      ${comTexto().length > 1 ? `<dt>🔁 Versões</dt><dd><b>${comTexto().length} versões</b> revezando (cada uma vai para ${Math.ceil(total / comTexto().length)} pessoas mais ou menos)<br><span class="rotulo">${comTexto().map((v, i) => `${String.fromCharCode(65 + i)}: ${esc(v.replace(/\s+/g, ' ').slice(0, 60))}${v.length > 60 ? '…' : ''}`).join('<br>')}</span></dd>` : ''}
       <dt>💬 Mensagem</dt><dd><div class="revisao-msg">${esc(r.exemplo || f.mensagem).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')}</div><span class="rotulo">Exemplo com o 1º contato${itens.length ? ` · + ${itens.length} ${itens.length === 1 ? 'arquivo' : 'arquivos'}: ${itens.map((m) => esc(m.nome)).join(', ')}` : ' · só texto'}</span></dd>
       <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span></dd>
       <dt>🕐 Quando</dt><dd>${f.quando === 'agendar' && f.agendadoPara ? `Agendado para <b>${esc(new Date(f.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</b>` : '<b>Começa quando você clicar em enviar</b>'}${f.horarioComercial ? ' · só em horário comercial (8h às 20h)' : ' · a qualquer hora'}</dd>
@@ -4695,6 +4745,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     </dl><p class="rotulo" style="margin:8px 0 0">Depois de começar, dá para pausar ou cancelar a qualquer momento.</p>`;
   }
   irPara(1);
+  desenharVersoes();
   $$('input[name=perfilEnvio]', form).forEach((r) => {
     r.onchange = () => {
       const pf = perfisEnvio.find((x) => x.id === r.value);
@@ -4718,7 +4769,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     };
   });
   form.elements.quando.onchange = (e) => { $('#campo-agenda').hidden = e.target.value !== 'agendar'; };
-  $('#limpar-escolha')?.addEventListener('click', (e) => { e.preventDefault(); paginaNovoDisparo(id); });
+  $('#limpar-escolha')?.addEventListener('click', (e) => { e.preventDefault(); paginaNovoDisparo(id, new URLSearchParams('modo=clientes')); });
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -4757,7 +4808,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
         method: 'POST',
         body: {
           nome: f.nome,
-          mensagem: f.mensagem,
+          mensagem: comTexto()[0] || '',
+          mensagens: comTexto(),
           midiaIds: escolhidas,
           filtro: filtro(),
           intervaloMin: min,
@@ -5149,7 +5201,7 @@ async function paginaDetalheLista(id, listaId, d, params) {
 const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const nomeMes = (comp) => `${MES_CURTO[Number(comp.slice(5, 7)) - 1]}/${comp.slice(2, 4)}`;
 const diaMes = (dia) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
-const ABAS_NOVO_DISPARO = (id, ativa) => [[rotaEmpresa(id, 'disparos/novo'), '📣 Para meus clientes', ativa === 'clientes'], [`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Para contatos novos (prospecção)', ativa === 'prospeccao'], [rotaEmpresa(id, 'disparos/cobranca'), '💰 Cobrança', ativa === 'cobranca']];
+const ABAS_NOVO_DISPARO = (id, ativa) => [[`${rotaEmpresa(id, 'disparos/novo')}?modo=prospeccao`, '🛡️ Para contatos novos', ativa === 'prospeccao'], [`${rotaEmpresa(id, 'disparos/novo')}?modo=clientes`, '📣 Para meus clientes', ativa === 'clientes']];
 
 async function paginaCobranca(id) {
   const hashDaPagina = location.hash;
@@ -5255,7 +5307,7 @@ async function paginaCobranca(id) {
         <li>⏸️ <b>Pausar</b> para de cobrar o cliente até você retomar.</li>
         <li>💬 A mensagem aparece na conversa do cliente em Conversas; quando ele responder, ${cfg.iaResponde ? 'a IA responde' : '<b>a equipe atende</b> (a IA fica pausada nessa conversa)'}.</li>
         <li>🆕 Cliente cadastrado depois do dia de cobrar do mês começa a ser cobrado no mês seguinte (ou use "📤 Enviar agora").</li>
-      </ul></div>`, ABAS_NOVO_DISPARO(id, 'cobranca'));
+      </ul></div>`);
     ligar();
   }
 
@@ -5384,6 +5436,74 @@ async function paginaSegurancaDisparo(id) {
   };
 }
 
+const taxaMsg = (m) => (m.enviados ? Math.round((m.responderam / m.enviados) * 100) : 0);
+const POUCOS_ENVIOS = 30; // com menos que isso por mensagem, o ranking ainda muda muito
+
+// 💬 Mensagens salvas e o ranking de qual faz mais gente responder (todos os disparos somados)
+async function paginaMensagensDisparo(id) {
+  const hashDaPagina = location.hash;
+  await definirEmpresaAtual(id);
+  const r = await api(`empresas/${id}/disparos-mensagens`);
+  if (location.hash !== hashDaPagina) return;
+  const lista = (r.mensagens || []).slice().sort((a, b) => (b.enviados ? 1 : 0) - (a.enviados ? 1 : 0) || taxaMsg(b) - taxaMsg(a) || b.enviados - a.enviados);
+  const confiaveis = lista.filter((m) => m.enviados >= POUCOS_ENVIOS);
+  const lider = confiaveis.length > 1 ? confiaveis.reduce((x, y) => (taxaMsg(y) > taxaMsg(x) ? y : x)) : null;
+  const maior = Math.max(1, ...lista.map(taxaMsg));
+  conteudo.innerHTML = cascaDisparos(id, 'mensagens', `
+    <div class="cabecalho"><div><h1>💬 Mensagens e ranking</h1><p class="sub">Suas mensagens de disparo e quantas pessoas responderam a cada uma (somando todos os disparos)</p></div></div>
+    ${balao('Como descobrir a melhor mensagem', `No <b>Novo disparo</b>, cadastre de 2 a 10 versões da mensagem. O CRM reveza: o 1º contato recebe a versão A, o 2º a B, e assim por diante. Aqui aparece qual faz mais gente responder. Com menos de ${POUCOS_ENVIOS} envios por mensagem o resultado ainda muda muito.`, 'dica')}
+    <div class="card">
+      <h2 style="margin-top:0">+ Nova mensagem</h2>
+      <form id="f-msg-nova" class="editor-simples">
+        <div class="campo"><label>Nome (só para você, opcional)</label><input name="nome" maxlength="60" placeholder="Ex.: Curta com pergunta"></div>
+        <div class="campo"><label>Mensagem</label><textarea name="texto" maxlength="3000" style="min-height:90px" placeholder="{Oi|Olá}! Vi a {empresa_contato} no Google. Posso te mandar um exemplo?"></textarea><small>Aceita {Oi|Olá}, {nome}, {empresa_contato} e {cidade}.</small></div>
+        <button type="submit" class="primario">Salvar mensagem</button>
+      </form>
+    </div>
+    ${lista.length ? `<div class="card">
+      <div class="linha-form" style="justify-content:space-between;flex-wrap:wrap"><h2 style="margin:0">🏆 Ranking</h2><button type="button" class="primario" id="usar-escolhidas" disabled>📣 Usar as marcadas num novo disparo</button></div>
+      <div class="ranking-msgs">${lista.map((m, i) => `
+        <div class="ranking-msg ${m === lider ? 'lider' : ''}">
+          <label class="linha-check"><input type="checkbox" data-escolher="${esc(m.id)}"></label>
+          <div class="ranking-corpo">
+            <div class="ranking-topo"><b>${m.enviados ? `${i + 1}º` : '—'}</b> ${m === lider ? '<span class="etiqueta ok">🏆 a melhor até agora</span>' : ''}${m.nome ? ` <b>${esc(m.nome)}</b>` : ''}</div>
+            <div class="ranking-texto">${esc(m.texto)}</div>
+            <div class="ranking-barra"><span style="width:${Math.round((taxaMsg(m) / maior) * 100)}%"></span></div>
+            <span class="rotulo">${m.enviados ? `<b>${taxaMsg(m)}% responderam</b> · ${m.responderam} de ${m.enviados} · em ${m.disparos} ${m.disparos === 1 ? 'disparo' : 'disparos'}${m.enviados < POUCOS_ENVIOS ? ' · ainda poucos envios' : ''}` : 'ainda não foi usada em disparo'}</span>
+          </div>
+          <div class="ranking-acoes"><button type="button" class="pequeno" data-editar-msg="${esc(m.id)}">✏️</button><button type="button" class="pequeno perigo" data-apagar-msg="${esc(m.id)}">🗑️</button></div>
+        </div>`).join('')}</div>
+    </div>` : '<div class="card vazio">Nenhuma mensagem ainda. Salve uma acima ou faça um disparo: as mensagens usadas entram aqui sozinhas.</div>'}`);
+  $('#f-msg-nova').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = formParaObjeto(e.target);
+    try { await api(`empresas/${id}/disparos-mensagens`, { method: 'POST', body: f }); aviso('Mensagem salva.'); paginaMensagensDisparo(id); } catch (err) { aviso(err.message, true); }
+  };
+  const marcadas = () => $$('[data-escolher]:checked').map((c) => lista.find((m) => m.id === c.dataset.escolher)).filter(Boolean);
+  $$('[data-escolher]').forEach((c) => { c.onchange = () => { const n = marcadas().length; $('#usar-escolhidas').disabled = !n || n > 10; $('#usar-escolhidas').textContent = n > 10 ? 'Máximo 10 versões' : `📣 Usar ${n ? `as ${n} marcadas` : 'as marcadas'} num novo disparo`; }; });
+  $('#usar-escolhidas')?.addEventListener('click', () => {
+    try { sessionStorage.setItem('disparo_mensagens', JSON.stringify(marcadas().map((m) => m.texto))); } catch { /* sem sessionStorage */ }
+    location.hash = rotaEmpresa(id, 'disparos/novo');
+  });
+  $$('[data-editar-msg]').forEach((b) => {
+    b.onclick = () => {
+      const m = lista.find((x) => x.id === b.dataset.editarMsg);
+      abrirModal(`<h2>Editar mensagem</h2><form id="f-msg-editar"><div class="campo"><label>Nome</label><input name="nome" maxlength="60" value="${esc(m.nome || '')}"></div><div class="campo"><label>Mensagem</label><textarea name="texto" maxlength="3000" style="min-height:120px">${esc(m.texto)}</textarea>${m.enviados ? '<small>Já foi usada em disparo: mudando o texto, vira uma mensagem nova no ranking (a antiga continua com os números dela).</small>' : ''}</div><div class="acoes"><button type="submit" class="primario">Salvar</button></div></form>`, (fundo, fechar) => {
+        $('#f-msg-editar', fundo).onsubmit = async (e) => {
+          e.preventDefault();
+          try { await api(`empresas/${id}/disparos-mensagens/${m.id}`, { method: 'PUT', body: formParaObjeto(e.target) }); fechar(); paginaMensagensDisparo(id); } catch (err) { aviso(err.message, true); }
+        };
+      });
+    };
+  });
+  $$('[data-apagar-msg]').forEach((b) => {
+    b.onclick = async () => {
+      if (!(await confirmar({ titulo: 'Apagar esta mensagem?', texto: 'Ela sai da lista e do ranking. Os disparos que já usaram continuam como estão.', botao: 'Apagar', perigo: true }))) return;
+      try { await api(`empresas/${id}/disparos-mensagens/${b.dataset.apagarMsg}`, { method: 'DELETE' }); paginaMensagensDisparo(id); } catch (err) { aviso(err.message, true); }
+    };
+  });
+}
+
 async function paginaDisparo(id, disparoId) {
   const hashDaPagina = location.hash;
   await definirEmpresaAtual(id);
@@ -5414,8 +5534,12 @@ async function paginaDisparo(id, disparoId) {
         <button type="button" class="perigo" id="apagar-disparo" style="margin-left:auto">🗑️ Apagar disparo</button>
       </div>
     </div>
+    ${d.porVersao ? (() => {
+      const lider = d.porVersao.every((v) => v.enviados >= 10) ? d.porVersao.reduce((x, y) => (taxaMsg(y) > taxaMsg(x) ? y : x)) : null;
+      return `<div class="card"><h2 style="margin-top:0">🔁 Qual versão faz mais gente responder</h2><div class="ranking-msgs">${d.porVersao.map((v) => `<div class="ranking-msg ${v === lider ? 'lider' : ''}"><div class="ranking-corpo"><div class="ranking-topo"><b>Versão ${v.letra}</b> ${v === lider ? '<span class="etiqueta ok">🏆 na frente</span>' : ''}</div><div class="ranking-texto">${esc(v.texto)}</div><div class="ranking-barra"><span style="width:${taxaMsg(v)}%"></span></div><span class="rotulo"><b>${taxaMsg(v)}% responderam</b> · ${v.responderam} de ${v.enviados} enviados</span></div></div>`).join('')}</div><p class="rotulo" style="margin:8px 0 0">${lider ? 'Com mais envios o resultado fica mais certo.' : 'Ainda poucos envios por versão: espere pelo menos 10 de cada para comparar.'} O ranking de todos os disparos fica em <a href="${rotaEmpresa(id, 'disparos/mensagens')}">💬 Mensagens e ranking</a>.</p></div>`;
+    })() : ''}
     <div class="duas-colunas">
-      <div class="card"><h2>Mensagem</h2><div class="conversa"><div class="msg bot">${esc(d.mensagem)}</div>${d.lembrete ? `<div class="msg bot">🔔 ${esc(d.lembrete.mensagem)}</div>` : ''}</div><p class="rotulo">Intervalo de ${textoPerfil({ intervaloMin: d.intervaloMin, intervaloMax: d.intervaloMax }).replace(' entre mensagens', '')}${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''}${d.personalizar ? ` · 1ª foto com "${esc(d.personalizar.texto)}"` : ''}${d.lembrete ? ` · lembrete ${d.lembrete.dias} ${d.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : ''} · criado por ${esc(d.criadoPor || '—')}</p>
+      <div class="card"><h2>Mensagem${(d.versoes || []).length > 1 ? 's' : ''}</h2><div class="conversa">${(d.versoes || []).length > 1 ? d.versoes.map((v, i) => `<div class="msg bot"><b>${String.fromCharCode(65 + i)}:</b> ${esc(v.texto)}</div>`).join('') : `<div class="msg bot">${esc(d.mensagem)}</div>`}${d.lembrete ? `<div class="msg bot">🔔 ${esc(d.lembrete.mensagem)}</div>` : ''}</div><p class="rotulo">Intervalo de ${textoPerfil({ intervaloMin: d.intervaloMin, intervaloMax: d.intervaloMax }).replace(' entre mensagens', '')}${d.horarioComercial ? ' · só em horário comercial' : ''}${d.rodapeSair ? ' · com opção SAIR' : ''}${d.personalizar ? ` · 1ª foto com "${esc(d.personalizar.texto)}"` : ''}${d.lembrete ? ` · lembrete ${d.lembrete.dias} ${d.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : ''} · criado por ${esc(d.criadoPor || '—')}</p>
         ${d.roteiro || d.aoResponder ? `<h2 style="margin-top:14px">Quando responderem</h2>${d.roteiro ? `<p style="white-space:pre-wrap">${esc(d.roteiro)}</p>` : ''}${d.aoResponder?.etapa ? `<p class="rotulo">Vai para a etapa <b>${esc(d.aoResponder.etapa)}</b></p>` : ''}${d.aoResponder?.etiquetaId ? `<p class="rotulo">Ganha a etiqueta <b>${esc((empresaAtual?.dados?.etiquetas || []).find((t) => t.id === d.aoResponder.etiquetaId)?.nome || 'escolhida')}</b></p>` : ''}` : ''}</div>
       <div class="card tabela-wrap" style="max-height:480px;overflow:auto">
         <table>
@@ -8960,7 +9084,7 @@ async function rotear() {
         aprendizado: () => paginaAprendizado(id),
         automacoes: () => paginaAutomacoes(id),
         followup: () => paginaFollowup(id),
-        disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id, params) : partes[3] === 'listas' ? paginaListasContatos(id, params) : partes[3] === 'seguranca' ? paginaSegurancaDisparo(id) : partes[3] === 'cobranca' ? paginaCobranca(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id, params)),
+        disparos: () => (partes[3] === 'novo' ? paginaNovoDisparo(id, params) : partes[3] === 'mensagens' ? paginaMensagensDisparo(id) : partes[3] === 'listas' ? paginaListasContatos(id, params) : partes[3] === 'seguranca' ? paginaSegurancaDisparo(id) : partes[3] === 'cobranca' ? paginaCobranca(id) : partes[3] ? paginaDisparo(id, partes[3]) : paginaDisparos(id, params)),
         ia: () => paginaCerebro(id),
         catalogo: () => paginaCatalogo(id),
         site: () => paginaSite(id),
