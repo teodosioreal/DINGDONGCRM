@@ -125,6 +125,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" EVOLUTION_API_KEY="$(ler_env EVOLUTION_API_KEY .env)" timeout 40 node deploy/diagnostico-evolution.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
   echo "    Últimas mensagens que saíram por empresa (3 h, sem texto):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-saidas.js 2>&1 | head -n 40 || true
+  echo "    Testes de disparo e respostas recentes da LEADS (anônimo):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-teste-disparo.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 50 || true
   echo "    Disparos em massa e a IA depois deles (anônimo):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" timeout 30 node deploy/diagnostico-disparos.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Últimas conversas com mensagem de cliente (por que a IA respondeu ou não; anônimo):"
@@ -143,7 +145,7 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-prompt-tamanho.js 2>&1 | head -n 30 || true
   echo "    Log do app (conexão, comprovantes, etiquetas):"
   pm2 logs "$NOME_PM2" --out --lines 1500 --nostream --raw 2>/dev/null \
-    | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex|fila-ia|horario-ia|\[ia " \
+    | grep -iE "whatsapp|sincron|comprovante|etiquet|syncFull|restart|webhook|conex|fila-ia|horario-ia|\[ia |identidade|disparo" \
     | sed -E 's/[0-9]{8,}/[núm]/g' | tail -n 50 | sed 's/^/      /' || true
   echo "    Últimos erros do app (números escondidos):"
   pm2 logs "$NOME_PM2" --err --lines 40 --nostream --raw 2>/dev/null \
