@@ -1040,6 +1040,22 @@ router.post('/empresas/:id/disparos/previa', (req, res) => {
   });
 });
 
+// 💬 Mensagens de disparo salvas, com o ranking de quem mais responde (somando todos os disparos)
+const rotaMensagem = (fn) => (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  try {
+    const r = fn(empresa, req);
+    res.json(r ?? { mensagens: disparos.mensagensComNumeros(empresa) });
+  } catch (err) {
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+};
+router.get('/empresas/:id/disparos-mensagens', rotaMensagem(() => null));
+router.post('/empresas/:id/disparos-mensagens', rotaMensagem((e, req) => { disparos.salvarMensagem(e, req.body || {}); return null; }));
+router.put('/empresas/:id/disparos-mensagens/:msgId', rotaMensagem((e, req) => { disparos.salvarMensagem(e, req.body || {}, req.params.msgId); return null; }));
+router.delete('/empresas/:id/disparos-mensagens/:msgId', rotaMensagem((e, req) => { disparos.apagarMensagem(e, req.params.msgId); return null; }));
+
 // 🖼️ Prévia da foto com o nome do contato escrito (o disparo gera uma assim para cada pessoa)
 router.get('/empresas/:id/disparos/previa-imagem', async (req, res) => {
   const empresa = acharEmpresa(req, res);
