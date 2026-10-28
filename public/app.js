@@ -4489,6 +4489,11 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
               </div>
             </div></div>
             <small>Arquivo novo fica guardado em <a href="${rotaEmpresa(id, 'midias')}">Mídias</a> (em "a configurar": a IA só usa depois que você configurar).</small></details>
+          <div class="campos" style="margin-top:12px">
+            <div class="campo"><label>📌 Ao enviar, colocar na etapa ${ajuda('Quando o disparo sair para o contato, o lead vai para esta etapa do funil. Quem já está numa etapa mais adiante (ex.: já comprou) não volta.')}</label><select name="envEtapa"><option value="">— não mudar —</option>${emp.etapas.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select></div>
+            <div class="campo"><label>e a etiqueta</label><select name="envEtiqueta"><option value="">— nenhuma —</option>${emp.etiquetas.map((t) => `<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></div>
+          </div>
+          <small class="rotulo">Quando responderem, dá para mover para outra etapa no próximo passo.</small>
 
           <div class="disp-nav"><button type="button" data-voltar>← Voltar</button><button type="button" class="primario" data-proximo>Continuar →</button></div>
         </div>
@@ -4790,6 +4795,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       <dt>⏱️ Ritmo</dt><dd><b>${pf ? pf.nome : '⚙️ Personalizado'}</b> · ${textoPerfil({ intervaloMin: mi, intervaloMax: ma, limiteInicial: f.limiteInicial, aumentoDia: f.aumentoDia, tetoDia: f.tetoDia }, prospeccao)}${modoCampanha ? '' : `<br><span class="rotulo">${$('#disp-estimativa').innerHTML}</span>`}</dd>
       <dt ${modoCampanha ? 'hidden' : ''}>🕐 Quando</dt><dd ${modoCampanha ? 'hidden' : ''}>${f.quando === 'agendar' && f.agendadoPara ? `Agendado para <b>${esc(new Date(f.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</b>` : '<b>Começa quando você clicar em enviar</b>'}${f.horarioComercial ? ' · só em horário comercial (8h às 20h)' : ' · a qualquer hora'}</dd>
       ${modoCampanha && !f.iaCampanha ? '<dt>🤖 IA</dt><dd><b>Desligada</b> nesta campanha: quem responder fica para a equipe</dd>' : ''}
+      ${f.envEtapa || f.envEtiqueta ? `<dt>📌 Ao enviar</dt><dd>${f.envEtapa ? `Vai para a etapa <b>${esc(f.envEtapa)}</b>` : ''}${f.envEtapa && f.envEtiqueta ? ' · ' : ''}${f.envEtiqueta ? `etiqueta <b>${esc(emp.etiquetas.find((t) => t.id === f.envEtiqueta)?.nome || '')}</b>` : ''}</dd>` : ''}
       <dt>💬 Quando responderem</dt><dd>${f.roteiro?.trim() ? `A IA segue <b>só o prompt da campanha</b>: <span class="rotulo">${esc(f.roteiro.trim().slice(0, 160))}${f.roteiro.trim().length > 160 ? '…' : ''}</span>` : 'Sem prompt da campanha: a IA atende pelo prompt principal da empresa'}${f.respEtapa ? `<br>Vai para a etapa <b>${esc(f.respEtapa)}</b>` : ''}${f.respEtiqueta ? `<br>Ganha a etiqueta <b>${esc(emp.etiquetas.find((t) => t.id === f.respEtiqueta)?.nome || '')}</b>` : ''}</dd>
       <dt>🔔 Lembrete</dt><dd>${f.lembreteAtivo ? `1 lembrete depois de <b>${esc(f.lembreteDias)} ${Number(f.lembreteDias) === 1 ? 'dia' : 'dias'}</b> para quem não responder: <span class="rotulo">${esc(f.lembreteMensagem || '')}</span>` : 'Sem lembrete'}</dd>
       ${personalizacao() ? `<dt>✍️ Foto</dt><dd>A 1ª foto vai com <b>${esc(personalizacao().texto)}</b> escrito</dd>` : ''}
@@ -4816,6 +4822,8 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
     el.roteiro.value = campanha.roteiro || '';
     contarRoteiro();
     el.respEtapa.value = campanha.aoResponder?.etapa || '';
+    el.envEtapa.value = campanha.aoEnviar?.etapa || '';
+    el.envEtiqueta.value = campanha.aoEnviar?.etiquetaId || '';
     el.respEtiqueta.value = campanha.aoResponder?.etiquetaId || '';
     el.lembreteAtivo.checked = Boolean(campanha.lembrete?.ativo);
     $('#campos-lembrete').hidden = !campanha.lembrete?.ativo;
@@ -4868,6 +4876,7 @@ async function paginaNovoDisparo(id, params = new URLSearchParams()) {
       rodapeSair: f.rodapeSair,
       roteiro: f.roteiro || '',
       aoResponder: { etapa: f.respEtapa || '', etiquetaId: f.respEtiqueta || '' },
+      aoEnviar: { etapa: f.envEtapa || '', etiquetaId: f.envEtiqueta || '' },
       lembrete: { ativo: Boolean(f.lembreteAtivo), dias: Number(f.lembreteDias) || 3, mensagem: f.lembreteMensagem || '' },
       personalizar: personalizacao() || { ativo: false },
       perfilEnvio: f.perfilEnvio || '',
@@ -5590,7 +5599,7 @@ async function paginaCampanhas(id) {
   const { campanhas = [] } = await api(`empresas/${id}/disparos-campanhas`);
   if (location.hash !== hashDaPagina) return;
   const lista = campanhas.slice().sort((a, b) => ((b.ultimoDisparoEm || b.atualizadoEm || '') > (a.ultimoDisparoEm || a.atualizadoEm || '') ? 1 : -1));
-  const etapaOuEtiqueta = (c) => [c.aoResponder?.etapa && `vai para "${c.aoResponder.etapa}"`, c.aoResponder?.etiquetaId && `etiqueta "${(emp.etiquetas || []).find((t) => t.id === c.aoResponder.etiquetaId)?.nome || '?'}"`].filter(Boolean).join(' e ');
+  const etapaOuEtiqueta = (c, k = 'aoResponder') => [c[k]?.etapa && `vai para "${c[k].etapa}"`, c[k]?.etiquetaId && `etiqueta "${(emp.etiquetas || []).find((t) => t.id === c[k].etiquetaId)?.nome || '?'}"`].filter(Boolean).join(' e ');
   conteudo.innerHTML = cascaDisparos(id, 'campanhas', `
     <div class="cabecalho"><div><h1>🎯 Campanhas</h1><p class="sub">Monte a campanha uma vez (mensagens, lembrete, o que a IA faz quando responderem) e dispare para as listas que quiser</p></div><a class="botao primario" href="${rotaEmpresa(id, 'disparos/campanhas/nova')}">+ Nova campanha</a></div>
     ${lista.length ? `<div class="campanhas">${lista.map((c) => `
@@ -5601,6 +5610,7 @@ async function paginaCampanhas(id) {
           <li>💬 ${esc(c.mensagens[0].replace(/\s+/g, ' ').slice(0, 90))}${c.mensagens[0].length > 90 ? '…' : ''}</li>
           ${c.midiaIds?.length ? `<li>📎 ${c.midiaIds.length} ${c.midiaIds.length === 1 ? 'mídia' : 'mídias'}${c.personalizar?.ativo ? ' · 1ª foto com o nome do contato' : ''}</li>` : ''}
           <li>🧠 ${c.roteiro ? 'Prompt próprio da campanha' : 'Sem prompt próprio (usa o prompt principal)'}${etapaOuEtiqueta(c) ? ` · quem responde ${etapaOuEtiqueta(c)}` : ''}</li>
+          ${etapaOuEtiqueta(c, 'aoEnviar') ? `<li>📌 Ao enviar: ${etapaOuEtiqueta(c, 'aoEnviar')}</li>` : ''}
           <li>🔔 ${c.lembrete?.ativo ? `lembrete ${c.lembrete.dias} ${c.lembrete.dias === 1 ? 'dia' : 'dias'} depois para quem não respondeu` : 'sem lembrete'}</li>
         </ul>
         <div class="campanha-numeros">${c.disparos ? `<b>${taxaMsg(c)}% responderam</b> · ${c.responderam} de ${c.enviados} · ${c.disparos} ${c.disparos === 1 ? 'disparo' : 'disparos'}` : '<span class="rotulo">Ainda não foi disparada</span>'}</div>

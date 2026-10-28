@@ -308,6 +308,7 @@ async function processarUm(id) {
       ...(versao ? { disparoVersao: item.versao } : {})
     });
     lead.ultimoDisparoEm = agora();
+    aoEnviar(empresa, lead, d);
     if (pros) { pros.contarEnvio(d); d.errosSeguidos = 0; }
   } catch (err) {
     // queda de conexão / servidor fora: pausa sem gastar a fila
@@ -704,7 +705,7 @@ async function testar(empresa, corpo = {}, usuario = null) {
 // nome, roteiro da IA, etapa/etiqueta ao responder, lembrete e ritmo. Na hora de disparar só
 // escolhe a lista (ou filtros), o nome e quando; o disparo leva campanhaId.
 
-const CAMPOS_CAMPANHA = ['iaLigada', 'mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
+const CAMPOS_CAMPANHA = ['aoEnviar', 'iaLigada', 'mensagens', 'versoes', 'midiaIds', 'personalizar', 'roteiro', 'aoResponder', 'lembrete', 'rodapeSair', 'horarioComercial', 'intervaloMin', 'intervaloMax', 'limiteInicial', 'aumentoDia', 'tetoDia', 'perfilEnvio'];
 
 function campanhasDa(empresa) {
   if (!Array.isArray(empresa.campanhasDisparo)) empresa.campanhasDisparo = [];
@@ -807,10 +808,13 @@ function extrasDoDisparo(empresa, corpo, personalizar) {
   const extras = {};
   const roteiro = texto(corpo.roteiro, 12000);
   if (roteiro) extras.roteiro = roteiro;
-  const a = corpo.aoResponder || {};
-  const etapa = a.etapa ? leads.acharEtapa(empresa, a.etapa) : null;
-  const etiquetaId = leads.etiquetasDa(empresa).some((t) => t.id === a.etiquetaId) ? a.etiquetaId : '';
-  if (etapa || etiquetaId) extras.aoResponder = { etapa: etapa || '', etiquetaId };
+  // etapa/etiqueta: ao ENVIAR o disparo e quando o cliente RESPONDER
+  for (const campo of ['aoEnviar', 'aoResponder']) {
+    const a = corpo[campo] || {};
+    const etapa = a.etapa ? leads.acharEtapa(empresa, a.etapa) : null;
+    const etiquetaId = leads.etiquetasDa(empresa).some((t) => t.id === a.etiquetaId) ? a.etiquetaId : '';
+    if (etapa || etiquetaId) extras[campo] = { etapa: etapa || '', etiquetaId };
+  }
   const l = corpo.lembrete || {};
   if (l.ativo === true) extras.lembrete = { ativo: true, dias: Math.min(14, Math.max(1, Math.round(Number(l.dias) || 3))), mensagem: texto(l.mensagem, 1000) || LEMBRETE_PADRAO };
   if (personalizar) extras.personalizar = personalizar;
@@ -871,6 +875,20 @@ function paraIa(lead, { semRoteiro = false } = {}) {
     ...(dados.length ? [`Dados do contato (da lista importada, use com naturalidade, sem dizer de onde tirou): ${dados.join('; ')}.`] : []),
     ...(roteiro ? ['Roteiro do dono para quem responde a este disparo (siga para conduzir a conversa):', '<roteiro_do_disparo>', roteiro, '</roteiro_do_disparo>'] : [])
   ].join('\n');
+}
+
+// disparo saiu para o lead: vai para a etapa/etiqueta escolhida na campanha ("Ao enviar").
+// Nunca puxa para trás quem já está numa etapa mais adiante do funil (ex.: quem já comprou).
+function aoEnviar(empresa, lead, d) {
+  const a = d.aoEnviar;
+  if (!a) return;
+  if (a.etapa) {
+    const etapas = leads.etapasDa(empresa);
+    const atual = etapas.indexOf(lead.etapa);
+    const alvo = etapas.indexOf(a.etapa);
+    if (alvo >= 0 && atual < alvo) leads.moverEtapa(lead, empresa, a.etapa, 'sistema');
+  }
+  if (a.etiquetaId && leads.etiquetasDa(empresa).some((t) => t.id === a.etiquetaId) && !(lead.etiquetas || []).includes(a.etiquetaId)) lead.etiquetas = [...(lead.etiquetas || []), a.etiquetaId];
 }
 
 // cliente respondeu a um disparo: vai para a etapa/etiqueta escolhida (uma vez por disparo)
