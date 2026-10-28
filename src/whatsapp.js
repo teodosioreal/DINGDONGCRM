@@ -1835,12 +1835,12 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       canal: 'whatsapp',
       tarefa: opcoes.evento ? 'evento' : 'resposta',
       origem: origemIa,
-      disparo: require('./disparos').paraIa(lead), // respondeu a um disparo: roteiro do disparo + dados da lista
+      ...require('./disparos').contextoDeCampanha(lead), // veio de campanha com prompt: obedece só a ele
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])].map((c) => midias.numeroDoCodigo(empresa, c)),
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
       endereco: require('./endereco').enderecoDo(lead),
-      clone: require('./clone').paraIa(empresa, lead), // modo clone: respostas reais do dono como modelo
+      clone: require('./disparos').contextoDeCampanha(lead).roteiroCampanha ? null : require('./clone').paraIa(empresa, lead), // modo clone (não em conversa de campanha)
       etapas: leads.etapasDa(empresa),
       etapaAtual: lead.etapa,
       // teste A/B áudio x texto: quem está no grupo "texto" não vê o áudio; recebe o conteúdo escrito

@@ -835,9 +835,27 @@ function disparoDoLead(lead) {
 }
 
 // 🎯 o que a IA lê quando o cliente responde a um disparo: o roteiro e os dados da lista
-function paraIa(lead) {
+// o prompt da campanha (lido na hora: editou a campanha, vale até para disparos já rodando)
+function roteiroDo(d) {
+  if (!d) return '';
+  const empresa = estado.empresas.find((e) => e.id === d.empresaId);
+  const c = d.campanhaId && empresa ? campanhasDa(empresa).find((x) => x.id === d.campanhaId) : null;
+  return String((c ? c.roteiro : d.roteiro) || '').trim();
+}
+
+// 🎯 Conversa que veio de campanha com prompt: a IA obedece SÓ ao prompt da campanha (nada do
+// prompt principal, do "Sobre a empresa", catálogo, clone ou aprendizados). Sem prompt na
+// campanha: atende como sempre, com os dados do contato.
+function contextoDeCampanha(lead) {
+  const d = disparoDoLead(lead);
+  const roteiro = roteiroDo(d);
+  return roteiro ? { roteiroCampanha: roteiro, disparo: paraIa(lead, { semRoteiro: true }) } : { disparo: paraIa(lead) };
+}
+
+function paraIa(lead, { semRoteiro = false } = {}) {
   const d = disparoDoLead(lead);
   if (!d) return '';
+  const roteiro = semRoteiro ? '' : roteiroDo(d);
   const p = lead.prospeccao || {};
   const dados = [
     p.empresa && `empresa: ${p.empresa}`,
@@ -847,11 +865,11 @@ function paraIa(lead) {
     p.temSite && `tem site: ${p.temSite === 'sim' ? 'sim' : 'não'}`,
     p.site && `site: ${p.site}`
   ].filter(Boolean);
-  if (!d.roteiro && !dados.length) return '';
+  if (!roteiro && !dados.length && !semRoteiro) return '';
   return [
     `Este cliente respondeu a um disparo em massa ("${d.nome}"). A mensagem do disparo está no começo da conversa.`,
     ...(dados.length ? [`Dados do contato (da lista importada, use com naturalidade, sem dizer de onde tirou): ${dados.join('; ')}.`] : []),
-    ...(d.roteiro ? ['Roteiro do dono para quem responde a este disparo (siga para conduzir a conversa):', '<roteiro_do_disparo>', d.roteiro, '</roteiro_do_disparo>'] : [])
+    ...(roteiro ? ['Roteiro do dono para quem responde a este disparo (siga para conduzir a conversa):', '<roteiro_do_disparo>', roteiro, '</roteiro_do_disparo>'] : [])
   ].join('\n');
 }
 
@@ -1092,6 +1110,7 @@ module.exports = {
   resumo,
   retomarAoIniciar,
   paraIa,
+  contextoDeCampanha,
   aoResponder,
   liberarIaAoResponder,
   iaDesligadaPelaCampanha,

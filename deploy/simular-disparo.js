@@ -77,7 +77,7 @@ const frases = (t) => String(t || '').split(/[.!?]+(\s|$)/).filter((x) => x && x
       let r;
       try {
         r = await ia.responder(bot, e, leads.historicoParaIa(lead), {
-          canal: 'whatsapp', tarefa: 'teste', disparo: disparos.paraIa(lead), clone: require('../src/clone').paraIa(e, lead),
+          canal: 'whatsapp', tarefa: 'teste', ...disparos.contextoDeCampanha(lead), clone: disparos.contextoDeCampanha(lead).roteiroCampanha ? null : require('../src/clone').paraIa(e, lead),
           midias: midias.paraIa(e), links: midias.linksDa(e), etapas: leads.etapasDa(e), etapaAtual: lead.etapa, etiquetas: leads.etiquetasDa(e)
         });
       } catch (err) {

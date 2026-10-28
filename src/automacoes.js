@@ -419,7 +419,8 @@ async function executar(regra, lead, empresa) {
       etapaAtual: lead.etapa,
       midias: midias.paraIa(empresa, { followup: true }),
       links: midias.linksDa(empresa),
-      etiquetas: leads.etiquetasDa(empresa)
+      etiquetas: leads.etiquetasDa(empresa),
+      ...disparos.contextoDeCampanha(lead) // cliente de campanha: o follow-up segue o prompt da campanha
     });
     mensagem = r.texto;
     midiasPedidas = r.midias || [];
@@ -482,7 +483,8 @@ async function enviarAgendadas(empresa) {
             etapas: leads.etapasDa(empresa),
             etapaAtual: lead.etapa,
             midias: midias.paraIa(empresa, { followup: true }),
-            links: midias.linksDa(empresa)
+            links: midias.linksDa(empresa),
+            ...disparos.contextoDeCampanha(lead)
           });
           textoEnvio = r.texto;
           midiasPedidas = r.midias || [];
