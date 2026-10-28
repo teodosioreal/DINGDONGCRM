@@ -805,7 +805,7 @@ function normalizarPersonalizar(p) {
 // roteiro da IA, etapa/etiqueta ao responder e lembrete (só guarda o que foi preenchido)
 function extrasDoDisparo(empresa, corpo, personalizar) {
   const extras = {};
-  const roteiro = texto(corpo.roteiro, 3000);
+  const roteiro = texto(corpo.roteiro, 12000);
   if (roteiro) extras.roteiro = roteiro;
   const a = corpo.aoResponder || {};
   const etapa = a.etapa ? leads.acharEtapa(empresa, a.etapa) : null;
