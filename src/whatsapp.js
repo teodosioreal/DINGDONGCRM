@@ -960,6 +960,8 @@ async function receberWebhook(empresa, corpo) {
     if (!texto) continue;
     // número novo + conversas antigas só com id escondido: descobre se é o mesmo cliente
     await require('./identidade').aprenderLidDaMensagem(empresa, msg).catch(() => null);
+    // só o id escondido (@lid), sem o número: pergunta à Evolution qual é o número (resposta de disparo cai na conversa certa)
+    await require('./identidade').aprenderFoneDoLid(empresa, msg).catch(() => null);
 
     if (msg.key.fromMe) {
       // enviada pelo próprio CRM (eco) → ignora; enviada pela equipe no celular → IA para
@@ -1081,6 +1083,7 @@ async function receberDoCliente(empresa, lead, jid, msg, texto) {
     return;
   }
   require('./disparos').aoResponder(empresa, lead); // respondeu a um disparo: etapa/etiqueta escolhida no disparo
+  require('./disparos').liberarIaAoResponder(empresa, lead); // 🛡️ e a IA atende, mesmo com pausa antiga
   salvar();
   if (resolverSemIa(empresa, lead, texto, jid)) return;
   agendarResposta(empresa, lead);
@@ -1121,6 +1124,7 @@ function resolverSemIa(empresa, lead, texto, jid) {
   if (PEDE_HUMANO.test(texto)) {
     const aviso = 'Claro! Já chamei uma pessoa da equipe para falar com você. Em instantes alguém te responde por aqui. 😊';
     lead.iaPausada = true;
+    lead.iaPausadaEm = agora();
     lead.iaPausadaMotivo = 'O cliente pediu para falar com uma pessoa';
     lead.precisaHumano = true;
     salvar();
@@ -1362,6 +1366,7 @@ async function enviarAnexoPorUrl(empresa, destino, leadId, anexo, legenda = '') 
 
 // Arquivo mandado pela equipe no painel (vai em base64, sem precisar de link público)
 async function enviarArquivo(empresa, destino, { buffer, mimetype, nome, legenda = '' }) {
+  esperarEco(destino, { midia: true }); // o eco que volta do celular é do CRM (não pausa a IA)
   let tipo = midias.tipoDoMime(mimetype);
   // vídeo que não é MP4 (ex.: .mov) ou pesado demais vai como arquivo, senão o WhatsApp recusa
   if (tipo === 'video' && (mimetype !== 'video/mp4' || buffer.length > require('./video').LIMITE_WHATSAPP)) tipo = 'document';
@@ -1913,6 +1918,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
   // #PAUSAR: pausa a IA neste contato DEPOIS dos envios (no painel: "Devolver para a IA")
   if (r.humano) {
     lead.iaPausada = true;
+    lead.iaPausadaEm = agora();
     lead.iaPausadaMotivo = 'A IA pausou (#PAUSAR) e chamou uma pessoa da equipe';
     lead.precisaHumano = true;
   }
@@ -2264,6 +2270,7 @@ function pausarPorMensagemManual(empresa, lead, motivo) {
   cancelarResposta(lead.id); // a resposta que a IA ia mandar agora não sai (a pessoa já respondeu)
   if (iaContinuaAposManual(empresa)) return;
   lead.iaPausada = true;
+  lead.iaPausadaEm = agora();
   lead.iaPausadaMotivo = motivo;
 }
 

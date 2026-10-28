@@ -2431,6 +2431,7 @@ function manterIa(lead, manter) {
     lead.precisaHumano = false;
   } else {
     lead.iaPausada = true;
+    lead.iaPausadaEm = agora();
     lead.iaPausadaMotivo = lead.iaPausadaMotivo || 'A equipe respondeu pelo painel';
     whatsapp.cancelarResposta(lead.id);
   }
