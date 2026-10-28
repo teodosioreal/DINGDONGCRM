@@ -1075,6 +1075,7 @@ router.get('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => {
 }));
 router.post('/empresas/:id/disparos-campanhas', rotaCampanha((e, req) => disparos.salvarCampanha(e, req.body || {})));
 router.put('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => disparos.salvarCampanha(e, req.body || {}, req.params.cid)));
+router.put('/empresas/:id/disparos-campanhas/:cid/ia', rotaCampanha((e, req) => { disparos.ligarIaDaCampanha(e, req.params.cid, req.body?.ligada !== false); return null; }));
 router.delete('/empresas/:id/disparos-campanhas/:cid', rotaCampanha((e, req) => { disparos.apagarCampanha(e, req.params.cid); return null; }));
 
 // 🖼️ Prévia da foto com o nome do contato escrito (o disparo gera uma assim para cada pessoa)

@@ -603,6 +603,12 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     );
   }
   dinamico.push('', 'Lembrete final: siga as instruções da empresa com naturalidade e não invente nenhuma informação (na dúvida, diga que vai confirmar).');
+  // 🎯 conversa que veio de um disparo com roteiro: o roteiro da campanha decide o JEITO de conduzir
+  if (contexto.disparo && contexto.disparo.includes('<roteiro_do_disparo>')) {
+    dinamico.push(
+      'ESTA CONVERSA VEIO DE UM DISPARO EM MASSA COM ROTEIRO: o <roteiro_do_disparo> decide o JEITO de conduzir — ordem dos passos, tamanho das mensagens, quando mandar mídia, quando falar de preço e quando pedir dados. Se as instruções gerais da empresa mandarem fechar, pedir dados ou ir mais rápido do que o roteiro, siga o ROTEIRO. Fatos (preço, prazo, o que a empresa faz) valem os das instruções da empresa e do roteiro; nunca invente.'
+    );
+  }
   const textoDinamico = dinamico.join('\n');
 
   const aprendido = empresa?.aprendizado;
