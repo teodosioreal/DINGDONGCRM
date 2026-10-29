@@ -190,6 +190,37 @@ function sorteioIntervalo(d) {
   return (min + Math.random() * (max - min)) * 1000;
 }
 
+// 🛡️ NUNCA manda a mesma mensagem duas vezes. Antes de cada envio o CRM grava a tentativa
+// (item.tentativa). Se a Evolution não respondeu (demorou, caiu no meio, o CRM reiniciou), na volta
+// ele confere se a mensagem saiu (eco do WhatsApp, a conversa e a própria Evolution):
+//   saiu → marca enviado · a Evolution diz que não → manda · não deu para saber → não reenvia.
+const CONFIRMAR_MS = 8 * 60 * 1000; // o eco/registro pode demorar: espera até 8 min antes de decidir
+async function conferirTentativa(empresa, lead, t) {
+  const desde = Date.parse(t.em) || Date.now();
+  const saiu = await whatsapp.confirmarSaida(empresa, lead, t.texto || '', desde, { midia: Boolean(t.midia) });
+  if (saiu) return 'saiu';
+  if (Date.now() - desde < CONFIRMAR_MS) return 'esperar';
+  return saiu === false ? 'nao-saiu' : 'incerto';
+}
+// a Evolution não respondeu (sem resposta = pode ter saído) ou caiu: tenta de novo sozinho, mais
+// devagar a cada vez; só pausa (com aviso) se continuar assim por cerca de 1 h
+const FALHAS_ATE_PAUSAR = 8;
+const ehFalhaDeConexao = (err) => Boolean(err.semResposta) || !err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message);
+function esperarConexao(d, empresa, err) {
+  d.falhasSeguidas = (d.falhasSeguidas || 0) + 1;
+  if (d.falhasSeguidas >= FALHAS_ATE_PAUSAR) {
+    d.falhasSeguidas = 0;
+    d.motivoEspera = '';
+    require('./alertas').registrar(empresa, `disparo:${d.id}`, `Disparo "${d.nome}" pausado: o WhatsApp não respondeu por cerca de 1 hora (${String(err.message).slice(0, 120)}). Confira a conexão e clique em Continuar.`, { nivel: 'erro' });
+    return pausarPorErro(d, `Pausado: o WhatsApp não respondeu por cerca de 1 hora (${String(err.message).slice(0, 160)}). Confira a conexão do WhatsApp e clique em Continuar — ninguém recebe duas vezes.`);
+  }
+  const espera = Math.min(10, 2 * d.falhasSeguidas) * 60 * 1000;
+  d.proximoEnvioEm = new Date(Date.now() + espera).toISOString();
+  d.motivoEspera = `O WhatsApp não respondeu (${String(err.message).slice(0, 120)}). O CRM tenta de novo sozinho às ${new Date(Date.now() + espera).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}.`;
+  salvar();
+  return agendar(d, espera);
+}
+
 function pausarPorErro(d, motivo) {
   d.status = 'pausado';
   d.motivoPausa = motivo;
@@ -254,6 +285,31 @@ async function processarUm(id) {
     return agendar(d, 500);
   }
 
+  // 🛡️ a tentativa anterior com este contato ficou sem resposta do WhatsApp: saiu ou não?
+  if (item.tentativa) {
+    const r = await conferirTentativa(empresa, lead, item.tentativa);
+    if (r === 'saiu') {
+      registrarEnvio(empresa, lead, d, item, item.tentativa.texto, item.tentativa.anexos || [], null);
+      console.log(`[disparo ${d.id}] a mensagem tinha saído (confirmado no WhatsApp): não reenviada`);
+      return proximoDaFila(d);
+    }
+    if (r === 'esperar') {
+      d.motivoEspera = 'Conferindo no WhatsApp se a última mensagem saiu (para não mandar duas vezes)…';
+      d.proximoEnvioEm = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+      salvar();
+      return agendar(d, 2 * 60 * 1000);
+    }
+    if (r === 'incerto') {
+      item.status = 'erro';
+      item.erro = 'Não deu para confirmar se saiu — não reenviado para não duplicar';
+      item.em = agora();
+      delete item.tentativa;
+      salvar();
+      return agendar(d, 1500);
+    }
+    delete item.tentativa; // a Evolution confirmou que não saiu: pode mandar
+  }
+
   // 🛡️ não repete: a pessoa (ou a mesma empresa com outro número) recebeu outro disparo
   // depois que este foi criado — ex.: duas listas com o mesmo contato disparando juntas
   if (d.filtro?.pularJaDisparados && require('./prospeccao').jaRecebeuDisparo(lead, d.id)) {
@@ -315,6 +371,10 @@ async function processarUm(id) {
         });
     }
   }
+  // grava ANTES de mandar: se a resposta se perder (ou o CRM reiniciar), a volta confere em vez de reenviar
+  item.tentativa = { em: agora(), texto: mensagem, midia: anexos.length > 0, anexos: anexos.map((m) => m.nome).slice(0, 5) };
+  salvar();
+  let saiuAMensagem = false; // a 1ª parte saiu: o que der errado depois não pode fazer reenviar tudo
   try {
     let r;
     if (personalizada) {
@@ -324,8 +384,10 @@ async function processarUm(id) {
       r = await whatsapp.enviarMidia(empresa, item.destino, primeira, mensagem);
     } else {
       r = await whatsapp.enviarTexto(empresa, item.destino, mensagem);
-      if (primeira) await whatsapp.enviarMidia(empresa, item.destino, primeira);
+      saiuAMensagem = true;
+      if (primeira) await whatsapp.enviarMidia(empresa, item.destino, primeira).catch((err) => { item.erro = `Não foi: ${primeira.nome} (${String(err.message).slice(0, 80)})`; });
     }
+    saiuAMensagem = true;
     // as outras mídias vão em seguida (a mensagem já saiu: falha aqui não pausa o disparo)
     const falharam = [];
     for (const m of resto) {
@@ -336,23 +398,20 @@ async function processarUm(id) {
     // o WhatsApp devolve o JID de verdade (ex.: sem o 9 extra em números antigos)
     const jidReal = r?.key?.remoteJid;
     if (!lead.whatsappJid && /@s\.whatsapp\.net$/.test(jidReal || '')) lead.whatsappJid = jidReal;
-    item.status = 'enviado';
-    item.em = agora();
-    leads.adicionarMensagem(lead, {
-      papel: 'equipe',
-      canal: 'whatsapp',
-      texto: anexos.length ? `${mensagem}\n[mídia: ${anexos.map((m, i) => (i === 0 && personalizada ? `${m.nome} (com o nome do contato)` : m.nome)).join(', ')}]` : mensagem,
-      disparoId: d.id,
-      ...(versao ? { disparoVersao: item.versao } : {})
-    });
-    lead.ultimoDisparoEm = agora();
-    aoEnviar(empresa, lead, d);
-    if (pros) { pros.contarEnvio(d); d.errosSeguidos = 0; }
+    registrarEnvio(empresa, lead, d, item, mensagem, anexos.map((m, i) => (i === 0 && personalizada ? `${m.nome} (com o nome do contato)` : m.nome)), versao);
   } catch (err) {
-    // queda de conexão / servidor fora: pausa sem gastar a fila
-    if (!err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message)) {
-      return pausarPorErro(d, `Pausado: ${err.message}`);
+    if (saiuAMensagem) {
+      // a mensagem já tinha saído: marca enviado (nunca reenvia)
+      registrarEnvio(empresa, lead, d, item, mensagem, anexos.map((m) => m.nome), versao);
+      return proximoDaFila(d);
     }
+    // sem resposta do WhatsApp (pode ter saído): a tentativa fica gravada e a volta confere.
+    // A Evolution respondeu com erro (ex.: conexão fechada): não saiu — tenta de novo depois.
+    if (ehFalhaDeConexao(err)) {
+      if (!err.semResposta) delete item.tentativa;
+      return esperarConexao(d, empresa, err);
+    }
+    delete item.tentativa; // a Evolution recusou este número: não saiu
     item.status = 'erro';
     item.erro = /exists|not.*whatsapp|jid/i.test(err.message) ? 'Número sem WhatsApp' : err.message.slice(0, 200);
     item.em = agora();
@@ -366,10 +425,34 @@ async function processarUm(id) {
       }
     }
   }
+  return proximoDaFila(d);
+}
+
+function proximoDaFila(d) {
   const espera = sorteioIntervalo(d);
   d.proximoEnvioEm = new Date(Date.now() + espera).toISOString();
   salvar();
   agendar(d, espera);
+}
+
+// saiu: marca o contato, guarda a mensagem na conversa e conta no limite do dia
+function registrarEnvio(empresa, lead, d, item, mensagem, nomesAnexos, versao) {
+  const pros = d.prospeccao ? require('./prospeccao') : null;
+  item.status = 'enviado';
+  item.em = agora();
+  delete item.tentativa;
+  d.falhasSeguidas = 0;
+  d.motivoEspera = '';
+  leads.adicionarMensagem(lead, {
+    papel: 'equipe',
+    canal: 'whatsapp',
+    texto: nomesAnexos.length ? `${mensagem}\n[mídia: ${nomesAnexos.join(', ')}]` : mensagem,
+    disparoId: d.id,
+    ...(versao ? { disparoVersao: item.versao } : {})
+  });
+  lead.ultimoDisparoEm = agora();
+  aoEnviar(empresa, lead, d);
+  if (pros) { pros.contarEnvio(d); d.errosSeguidos = 0; }
 }
 
 // Mídias que vão em cada mensagem (álbum vira as fotos dele), na ordem escolhida
@@ -1081,19 +1164,42 @@ async function lembreteDaVez(d) {
   }
   const { x, lead } = vez;
   const k = feitosLembrete(x);
-  const mensagem = montarMensagem(passosLembrete(d)[k].mensagem, lead, empresa);
-  try {
-    await whatsapp.enviarTexto(empresa, x.destino, mensagem);
+  const marcarLembrete = (mensagem) => {
     x.lembrete = 'enviado';
     x.lembretesEnviados = k + 1;
     x.lembreteEm = agora();
+    delete x.lembreteTentativa;
     leads.adicionarMensagem(lead, { papel: 'equipe', canal: 'whatsapp', texto: mensagem, disparoId: d.id, lembreteDisparo: k + 1 });
     if (pros) pros.contarEnvio(d);
     d.proximoLembreteEm = new Date(Date.now() + sorteioIntervalo(d)).toISOString();
+  };
+  // 🛡️ o lembrete anterior ficou sem resposta do WhatsApp: confere se saiu antes de mandar de novo
+  if (x.lembreteTentativa) {
+    const r = await conferirTentativa(empresa, lead, x.lembreteTentativa);
+    if (r === 'saiu') { marcarLembrete(x.lembreteTentativa.texto); salvar(); return; }
+    if (r === 'esperar') { d.proximoLembreteEm = new Date(Date.now() + 2 * 60 * 1000).toISOString(); salvar(); return; }
+    if (r === 'incerto') {
+      if (k) x.lembreteFim = 'erro';
+      else x.lembrete = 'erro';
+      x.lembreteErro = 'Não deu para confirmar se saiu — não reenviado para não duplicar';
+      delete x.lembreteTentativa;
+      salvar();
+      return;
+    }
+    delete x.lembreteTentativa;
+  }
+  const mensagem = montarMensagem(passosLembrete(d)[k].mensagem, lead, empresa);
+  x.lembreteTentativa = { em: agora(), texto: mensagem };
+  salvar();
+  try {
+    await whatsapp.enviarTexto(empresa, x.destino, mensagem);
+    marcarLembrete(mensagem);
   } catch (err) {
-    if (!err.status || err.status >= 500 || /connection closed|not connected|disconnected/i.test(err.message)) {
-      d.proximoLembreteEm = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // conexão caiu: tenta depois
+    if (ehFalhaDeConexao(err)) {
+      if (!err.semResposta) delete x.lembreteTentativa; // a Evolution respondeu: não saiu
+      d.proximoLembreteEm = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // conexão caiu: confere/tenta depois
     } else {
+      delete x.lembreteTentativa;
       if (k) x.lembreteFim = 'erro';
       else x.lembrete = 'erro';
       x.lembreteErro = err.message.slice(0, 200);

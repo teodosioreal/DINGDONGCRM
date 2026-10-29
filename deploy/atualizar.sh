@@ -111,6 +111,9 @@ diagnostico() {
       | sed -E 's/[0-9]{6,}/[núm]/g; s/^([0-9T:-]{16})[^ ]* .*(Instance "[^"]+" - [A-Z_]+|connection[^,]{0,60}|statusReason[^,]{0,30}).*/\1 \2/' | cut -c1-120 | tail -25 | sed 's/^/       /' || true
     echo "    Nível de log da Evolution: $(docker inspect "$EVO_C" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^LOG_(LEVEL|BAILEYS)=' | tr '\n' ' ')"
   fi
+  echo "    Disparos: cópias e pausas (3 dias, anônimo):"
+  CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-duplicados.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
+  echo "    Disparos no log do app (24 h): $(pm2 logs dingdong-crm --nostream --lines 4000 2>/dev/null | grep -ciE 'reenviada pelo outro endereço') reenvio(s) pelo outro endereço · $(pm2 logs dingdong-crm --nostream --lines 4000 2>/dev/null | grep -ciE 'demorou mais de') demora(s) do WhatsApp · $(pm2 logs dingdong-crm --nostream --lines 4000 2>/dev/null | grep -ciE 'CRM rodando em') reinício(s) do CRM"
   echo "    Alertas das últimas 24 h (anônimo; os de nível erro vão pro WhatsApp de avisos):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-alertas.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 70 || true
   echo "    Erros de entrega do WhatsApp (48 h, sem texto):"

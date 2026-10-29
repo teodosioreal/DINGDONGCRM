@@ -4441,6 +4441,7 @@ async function paginaDisparos(id, params = new URLSearchParams()) {
   const situacao = (d) => {
     if (d.status === 'agendado') return `🕐 Começa ${quandoEnvio(d.agendadoPara)}`;
     if (d.status === 'pausado') return `⏸️ ${esc(d.motivoPausa || 'Pausado')}`;
+    if (d.status === 'enviando' && d.motivoEspera) return `⏳ ${esc(d.motivoEspera)}`;
     if (d.status === 'enviando') return d.aguardandoAmanha ? '🌙 Bateu o limite de hoje — continua amanhã' : d.aguardandoHorario ? '🌙 Fora do horário — continua às 8h' : d.proximos?.[0]?.em ? `⏭️ Próximo envio: ${quandoEnvio(d.proximos[0].em)}` : '▶️ Enviando…';
     if (d.status === 'cancelado') return `Cancelado ${d.concluidoEm ? `em ${esc(dataCurta(d.concluidoEm))}` : ''}`;
     return `Terminou ${d.concluidoEm ? `em ${esc(dataCurta(d.concluidoEm))}` : ''}`;
@@ -5946,6 +5947,7 @@ async function paginaDisparo(id, disparoId) {
     <div class="cabecalho"><div><h1>${esc(d.nome)}</h1><p class="sub">${statusDisparo(d)} ${d.agendadoPara && d.status === 'agendado' ? `começa em ${data(d.agendadoPara)}` : ''}</p></div><a class="botao" href="${rotaEmpresa(id, 'disparos')}">← Disparos</a></div>
     ${d.status === 'pausado' && d.motivoPausa ? balao('Disparo pausado', esc(d.motivoPausa), 'aviso') : ''}
     ${d.status === 'agendado' && d.agendadoPara ? balao(`🕐 Agendado para ${esc(new Date(d.agendadoPara).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}`, 'Está tudo certo: começa sozinho nessa hora. Você pode pausar ou cancelar antes, aqui embaixo.', 'ok') : ''}
+    ${d.status === 'enviando' && d.motivoEspera ? balao('⏳ Esperando o WhatsApp', `${esc(d.motivoEspera)}<br>Não precisa fazer nada: o disparo continua sozinho e <b>ninguém recebe duas vezes</b> (antes de mandar de novo o CRM confere se a mensagem já saiu).`, 'aviso') : ''}
     ${d.status === 'enviando' && d.aguardandoHorario ? balao('Esperando o horário comercial', 'Os envios continuam sozinhos a partir das 8h.', 'dica') : ''}
     ${d.prospeccao ? balao(`🛡️ Prospecção · hoje ${d.hoje} de ${d.limiteHoje}`, `${d.status === 'enviando' && d.aguardandoAmanha ? '<b>Bateu o limite de hoje</b> — continua sozinho amanhã, com um pouco mais. ' : ''}Limite: ${d.prospeccaoCfg?.limiteInicial} no 1º dia, +${d.prospeccaoCfg?.aumentoDia} por dia, até ${d.prospeccaoCfg?.tetoDia}/dia. Sem WhatsApp (ficaram de fora): <b>${d.semWhatsapp}</b>. Freio: pausa se ${d.prospeccaoCfg?.freioErros} envios seguidos falharem.`, d.aguardandoAmanha ? 'dica' : 'ok') : ''}
     <div class="grade-resumo">

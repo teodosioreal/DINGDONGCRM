@@ -556,6 +556,49 @@ function esperarEco(destino, { texto = '', midia = false } = {}) {
   ecosEsperados.set(k, lista.slice(-20));
   if (ecosEsperados.size > 3000) ecosEsperados.delete(ecosEsperados.keys().next().value);
 }
+// ✅ Saídas confirmadas pelo próprio WhatsApp (eco fromMe): destino + texto, por 6 h. O disparo usa
+// para saber se uma mensagem saiu mesmo quando a Evolution não respondeu a tempo (não duplica).
+const saidasVistas = new Map(); // dígitos do destino → [{ texto, midia, em, wid }]
+function registrarSaida(msg, texto) {
+  const m = msg?.message || {};
+  const midia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage);
+  const corte = Date.now() - 6 * 3600 * 1000;
+  for (const k of new Set([msg?.key?.remoteJid, msg?.key?.remoteJidAlt].map(digitosDe).filter(Boolean))) {
+    const lista = (saidasVistas.get(k) || []).filter((x) => x.em > corte);
+    lista.push({ texto: normalizarEco(String(texto || '').replace(/^\[o cliente enviou (um|uma) [^\]]+\]\s*/, '')), midia, em: Date.now(), wid: msg?.key?.id || '' });
+    saidasVistas.set(k, lista.slice(-30));
+  }
+  if (saidasVistas.size > 5000) saidasVistas.delete(saidasVistas.keys().next().value);
+}
+// a mensagem `texto` saiu para este contato desde `desdeMs`? true = saiu · false = a Evolution diz
+// que não · null = não deu para saber (Evolution fora). Confere o eco, a conversa e a Evolution.
+async function confirmarSaida(empresa, lead, texto, desdeMs, { midia = false } = {}) {
+  const alvo = normalizarEco(texto).slice(0, 300);
+  const bate = (t) => { const x = normalizarEco(t).slice(0, 300); return Boolean(alvo) && Boolean(x) && (x === alvo || x.startsWith(alvo.slice(0, 120)) || alvo.startsWith(x.slice(0, 120))); };
+  const enderecos = [lead?.whatsappJid, lead?.lidJid, lead?.destinoPreferido, lead?.telefone].map(digitosDe).filter(Boolean);
+  for (const k of enderecos) {
+    if ((saidasVistas.get(k) || []).some((x) => x.em >= desdeMs - 5000 && (bate(x.texto) || (midia && x.midia)))) return true;
+  }
+  if ((lead?.mensagens || []).some((m) => m.papel !== 'visitante' && Date.parse(m.em) >= desdeMs - 5000 && bate(String(m.texto || '').split('\n[mídia:')[0]))) return true;
+  // pergunta à Evolution o que saiu para os endereços do contato depois da tentativa
+  const jids = [...new Set([lead?.whatsappJid, lead?.lidJid, lead?.destinoPreferido, lead?.telefone ? `${numeroWhatsapp(lead.telefone)}@s.whatsapp.net` : ''].filter((j) => j && String(j).includes('@')))];
+  if (!jids.length) return null;
+  let respondeu = false;
+  for (const jid of jids) {
+    try {
+      const r = await evolution(empresa, 'POST', '/chat/findMessages/{instancia}', { where: { key: { remoteJid: jid, fromMe: true }, messageTimestamp: { gte: new Date(desdeMs - 60000).toISOString(), lte: new Date(Date.now() + 60000).toISOString() } }, page: 1, offset: 20 }, { tempo: 15000 });
+      respondeu = true;
+      const regs = (r?.messages?.records || (Array.isArray(r) ? r : [])).filter((x) => x?.key?.fromMe !== false);
+      const textoDe = (x) => x?.message?.conversation || x?.message?.extendedTextMessage?.text || x?.message?.imageMessage?.caption || x?.message?.videoMessage?.caption || x?.message?.documentMessage?.caption || '';
+      const seg = (x) => { const t = Number(x?.messageTimestamp); return t > 1e12 ? t : t * 1000; };
+      if (regs.some((x) => seg(x) >= desdeMs - 60000 && (bate(textoDe(x)) || (midia && (x?.message?.imageMessage || x?.message?.videoMessage || x?.message?.documentMessage))))) return true;
+    } catch {
+      /* esse endereço não respondeu: tenta o próximo */
+    }
+  }
+  return respondeu ? false : null;
+}
+
 // esta mensagem "da empresa" é o eco de algo que o CRM acabou de mandar?
 function ehEcoDoCrm(msg, lead, texto) {
   const chaves = new Set([msg?.key?.remoteJid, msg?.key?.remoteJidAlt, lead?.whatsappJid, lead?.lidJid, lead?.telefone].map(digitosDe).filter(Boolean));
@@ -964,6 +1007,7 @@ async function receberWebhook(empresa, corpo) {
     await require('./identidade').aprenderFoneDoLid(empresa, msg).catch(() => null);
 
     if (msg.key.fromMe) {
+      registrarSaida(msg, texto); // prova de que saiu (o disparo confere antes de mandar de novo)
       // enviada pelo próprio CRM (eco) → ignora; enviada pela equipe no celular → IA para
       if (enviadosPeloCrm.has(msg.key.id)) {
         ehEcoDoCrm(msg, require('./identidade').acharCliente(empresa, msg), texto); // já reconhecido pelo id: tira da lista de ecos esperados
@@ -1615,7 +1659,15 @@ function receberStatusEntrega(empresa, dados) {
     }
     if (!leads.subirEntrega(m, entrega)) continue;
     mudou = true;
-    if (entrega === 'erro') reenviarPeloOutroEndereco(empresa, lead, m).catch((err) => console.error(`[whatsapp ${lead.id}] reenvio pelo outro endereço:`, err.message));
+    if (entrega === 'erro') {
+      // o WhatsApp às vezes devolve erro e aceita a mesma mensagem segundos depois: reenviar na
+      // hora fazia o cliente receber duas vezes. Só reenvia se continuar com erro depois de 2 min.
+      const r = setTimeout(() => {
+        if (m.entrega !== 'erro') return;
+        reenviarPeloOutroEndereco(empresa, lead, m).catch((err) => console.error(`[whatsapp ${lead.id}] reenvio pelo outro endereço:`, err.message));
+      }, ERRO_ENTREGA_ESPERA_MS);
+      r.unref?.();
+    }
     if (entrega === 'erro') {
       // o WhatsApp às vezes devolve erro e aceita a mesma mensagem segundos depois (comum com
       // contato de id escondido @lid): só avisa se continuar com erro depois de 2 minutos
@@ -1637,6 +1689,7 @@ async function reenviarPeloOutroEndereco(empresa, lead, m) {
   if (!lead || m.reenvio || m.papel === 'visitante' || m.anexo || m.midiaId || m.midiaCodigo || !m.texto || /\n\[mídia: /.test(m.texto)) return false;
   if ([m.wid, ...(m.wids || [])].filter(Boolean).length > 1) return false; // resposta em várias partes: reenviar tudo duplicaria
   if (Date.now() - new Date(m.em).getTime() > 15 * 60 * 1000) return false;
+  if (m.entrega && m.entrega !== 'erro') return false; // chegou nesse meio-tempo
   const usado = lead.destinoPreferido || lead.whatsappJid || '';
   const outro = [lead.lidJid, lead.whatsappJid, numeroWhatsapp(lead.telefone)].map((x) => String(x || '')).find((x) => x && destinoDe(x) !== destinoDe(usado) && (x.includes('@') || x.length >= 10));
   if (!outro) return false;
@@ -2339,6 +2392,7 @@ async function diagnostico(empresa) {
 }
 
 module.exports = {
+  confirmarSaida,
   jaRespondida,
   conferirEntregasPendentes,
   iniciarConferenciaEntregas,
