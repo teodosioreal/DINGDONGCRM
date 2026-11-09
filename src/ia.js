@@ -566,6 +566,7 @@ function montarPromptSistema(bot, empresa, canal = 'site', contexto = {}) {
     dinamico.push(`- Nesta conversa NÃO mande o áudio "${t.nome}". Na mesma situação em que ele seria enviado (${t.quando || 'quando ajudar o cliente'}), escreva por TEXTO, com as suas palavras, em mensagens curtas e naturais, este conteúdo: "${String(t.fala).replace(/\s+/g, ' ').trim()}". Não diga que é um texto no lugar de áudio.`);
   }
   if (contexto.localizacao) dinamico.push(contexto.localizacao);
+  if (contexto.precosCidade) dinamico.push(contexto.precosCidade);
   if (contexto.horariosIa) dinamico.push(contexto.horariosIa);
   if (contexto.endereco !== undefined && require('./endereco').exige(empresa)) dinamico.push(contexto.endereco ? `- Endereço do cliente (já informado): ${contexto.endereco}` : (require('./agenda-modo').modoDa(empresa) === 'ambos' ? '- Endereço do cliente: ainda NÃO informado — se for PRESENCIAL, peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]]; online não precisa.' : '- Endereço do cliente: ainda NÃO informado — peça (rua, número e bairro) antes de marcar [[AGENDAMENTO]].'));
   if (contexto.tickets) dinamico.push(`- Já registrado nesta conversa:\n${contexto.tickets}`);

@@ -28,6 +28,30 @@ function lerPreco(v) {
 
 const brl = (n) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// 📍 Preço por cidade: [{ cidades: "Petrópolis, Itaipava", preco, precoAte, obs }]. Fora dessas
+// cidades vale o preço normal do item.
+const MAX_CIDADES = 30;
+function lerPrecosCidade(lista) {
+  return lista
+    .slice(0, MAX_CIDADES)
+    .map((x) => {
+      const preco = lerPreco(x?.preco);
+      const precoAte = lerPreco(x?.precoAte);
+      const linha = { cidades: limpar(x?.cidades, 160), preco, precoAte: precoAte !== null && preco !== null && precoAte > preco ? precoAte : null, obs: limpar(x?.obs, 80) };
+      return linha;
+    })
+    .filter((x) => x.cidades && (x.preco !== null || x.obs));
+}
+const cidadesDe = (linha) => String(linha.cidades || '').split(/[,;/]|\s+e\s+/).map((c) => c.trim()).filter(Boolean);
+const chaveCidade = (t) => semAcento(t).replace(/[^a-z0-9]+/g, ' ').trim();
+// a linha da tabela que vale para esta cidade (a cidade aparece no que o cliente disse: "Centro de Petrópolis")
+function linhaDaCidade(x, cidadeTexto) {
+  const alvo = ` ${chaveCidade(cidadeTexto)} `;
+  if (!alvo.trim()) return null;
+  return (x.precosCidade || []).find((l) => cidadesDe(l).some((c) => { const k = chaveCidade(c); return k && alvo.includes(` ${k} `); })) || null;
+}
+const textoLinha = (l) => (l.preco === null ? l.obs : `${l.precoAte !== null ? `${brl(l.preco)} a ${brl(l.precoAte)}` : brl(l.preco)}${l.obs ? ` (${l.obs})` : ''}`);
+
 function normalizar(b, antigo = {}) {
   const item = {
     id: antigo.id || novoId('cat'),
@@ -41,6 +65,7 @@ function normalizar(b, antigo = {}) {
     custo: b.custo !== undefined ? lerPreco(b.custo) : antigo.custo ?? null,
     descricao: String(b.descricao ?? antigo.descricao ?? '').trim().slice(0, 1500),
     duracao: limpar(b.duracao ?? antigo.duracao ?? '', 80),
+    precosCidade: Array.isArray(b.precosCidade) ? lerPrecosCidade(b.precosCidade) : antigo.precosCidade || [],
     midias: Array.isArray(b.midias) ? [...new Set(b.midias.map((c) => limpar(c, 40)).filter(Boolean))].slice(0, 20) : antigo.midias || [],
     ativo: b.ativo !== undefined ? b.ativo !== false : antigo.ativo !== false,
     criadoEm: antigo.criadoEm || agora(),
@@ -146,7 +171,9 @@ function paraIa(empresa) {
   const disponiveis = new Set(require('./midias').paraIa(empresa, { followup: true }).map((m) => m.codigo));
   return ativos
     .map((x) => {
-      const linhas = [`- ${x.tipo === 'produto' ? 'PRODUTO' : 'SERVIÇO'}: ${x.nome}${x.categoria ? ` [${x.categoria}]` : ''}`, `  Preço: ${textoPreco(x)}`];
+      const porCidade = (x.precosCidade || []).length;
+      const linhas = [`- ${x.tipo === 'produto' ? 'PRODUTO' : 'SERVIÇO'}: ${x.nome}${x.categoria ? ` [${x.categoria}]` : ''}`, `  Preço${porCidade ? ' (nas outras cidades)' : ''}: ${textoPreco(x)}`];
+      if (porCidade) linhas.push(`  Preço por cidade — o mesmo serviço com valor diferente conforme a cidade do CLIENTE: ${x.precosCidade.map((l) => `${cidadesDe(l).join(', ')}: ${textoLinha(l)}`).join(' · ')}`);
       if (x.duracao) linhas.push(`  ${x.tipo === 'produto' ? 'Prazo/entrega' : 'Duração/prazo'}: ${x.duracao}`);
       if (x.descricao) linhas.push(`  Detalhes: ${x.descricao.replace(/\s*\n\s*/g, ' / ')}`);
       const cods = x.midias.filter((c) => disponiveis.has(c));
@@ -154,6 +181,24 @@ function paraIa(empresa) {
       return linhas.join('\n');
     })
     .join('\n');
+}
+
+// Cidade do cliente: o que ele disse na conversa (ou a cidade da lista de prospecção)
+const cidadeDoCliente = (lead) => String(lead?.localizacao?.texto || lead?.prospeccao?.cidade || '').trim();
+
+// Linha para o contexto da IA na conversa: o preço certo da cidade deste cliente
+function precosParaCliente(empresa, lead) {
+  const itens = itensDa(empresa).filter((x) => x.ativo && (x.precosCidade || []).length);
+  if (!itens.length) return '';
+  const cidade = cidadeDoCliente(lead);
+  if (!cidade) {
+    return `- PREÇO POR CIDADE: ${itens.map((x) => `"${x.nome}"`).join(', ')} ${itens.length === 1 ? 'tem' : 'têm'} valor diferente conforme a cidade do cliente, e você ainda NÃO sabe de qual cidade ele é. Antes de dizer o valor ${itens.length === 1 ? 'desse serviço' : 'desses serviços'}, pergunte de forma natural de qual cidade (ou bairro) ele é; depois use o preço daquela cidade que está em <catalogo>. Não passe dois preços para ele escolher.`;
+  }
+  const linhas = itens.map((x) => {
+    const l = linhaDaCidade(x, cidade);
+    return `  · ${x.nome}: ${l ? textoLinha(l) : `${textoPreco(x)} (preço das outras cidades)`}`;
+  });
+  return `- PREÇO PELA CIDADE DO CLIENTE (${cidade}) — para ESTE cliente use exatamente estes valores (não fale dos preços de outras cidades):\n${linhas.join('\n')}`;
 }
 
 function resumo(empresa) {
@@ -183,4 +228,4 @@ async function sugerirDoTexto(empresa, bot) {
     .slice(0, 50);
 }
 
-module.exports = { itensDa, criar, atualizar, apagar, esquecerMidia, paraIa, midiasLigadas, resumo, sugerirDoTexto, lerPreco, textoPreco, margem, custoDaVenda, somarCustos };
+module.exports = { precosParaCliente, linhaDaCidade, cidadeDoCliente, itensDa, criar, atualizar, apagar, esquecerMidia, paraIa, midiasLigadas, resumo, sugerirDoTexto, lerPreco, textoPreco, margem, custoDaVenda, somarCustos };

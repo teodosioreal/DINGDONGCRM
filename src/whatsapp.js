@@ -1892,6 +1892,7 @@ async function responderLeadUmaVez(empresaId, leadId, vez, tentativa, opcoes = {
       midiasEnviadas: [...new Set([...Object.keys(lead.midiasEnviadas || {}), ...lead.mensagens.filter((m) => m.midiaCodigo && !m.apagada).map((m) => m.midiaCodigo)])].map((c) => midias.numeroDoCodigo(empresa, c)),
       tickets: require('./tickets').paraIa(lead),
       localizacao: require('./localizacao').paraIa(lead),
+      precosCidade: require('./catalogo').precosParaCliente(empresa, lead), // 📍 preço da cidade do cliente
       endereco: require('./endereco').enderecoDo(lead),
       clone: require('./disparos').contextoDeCampanha(lead).roteiroCampanha ? null : require('./clone').paraIa(empresa, lead), // modo clone (não em conversa de campanha)
       etapas: leads.etapasDa(empresa),

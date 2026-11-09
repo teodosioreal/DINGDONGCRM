@@ -162,6 +162,7 @@ router.post('/chat', async (req, res) => {
       origem: await origem.contextoParaIa(conversa, bot, 'site', empresa),
       tickets: tickets.paraIa(conversa),
       localizacao: require('./localizacao').paraIa(conversa),
+      precosCidade: require('./catalogo').precosParaCliente(empresa, conversa), // 📍 preço da cidade do cliente
       etapas: leads.etapasDa(empresa),
       etapaAtual: conversa.etapa,
       etiquetas: leads.etiquetasDa(empresa)

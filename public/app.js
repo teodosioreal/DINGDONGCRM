@@ -1765,6 +1765,7 @@ async function paginaCatalogo(id) {
               <strong class="cat-nome">${esc(x.nome)}</strong>
               <div class="cat-preco">${esc(precoBonito(x))}${x.precoObs && (x.preco != null || x.precoAte != null) ? ` <span class="rotulo">${esc(x.precoObs)}</span>` : ''}</div>
               ${x.custo != null ? `<div class="cat-margem">${textoMargem(x)}</div>` : ''}
+              ${(x.precosCidade || []).length ? `<div class="cat-cidades">${x.precosCidade.map((l) => `<span>📍 ${esc(l.cidades)}: <b>${esc(l.preco == null ? l.obs : precoBonito({ preco: l.preco, precoAte: l.precoAte }))}</b>${l.preco != null && l.obs ? ` <span class="rotulo">${esc(l.obs)}</span>` : ""}</span>`).join('')}<span class="rotulo">nas outras cidades: ${esc(precoBonito(x))}</span></div>` : ''}
               ${x.duracao ? `<div class="rotulo">⏱ ${esc(x.duracao)}</div>` : ''}
               ${x.descricao ? `<p class="cat-desc">${esc(x.descricao)}</p>` : ''}
             </div>
@@ -1812,6 +1813,11 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
         <div class="campo"><label>Custo para você (R$) ${ajuda('Quanto você gasta para entregar 1 unidade (material, capa, linha…). Só aparece aqui no painel: a IA e o cliente nunca veem. Entra no lucro do Faturamento.')}</label><input name="custo" inputmode="decimal" value="${esc(num(x.custo))}" placeholder="Ex.: 45,00"><span class="rotulo" id="cat-margem-viva"></span></div>
         <div class="campo"><label>${x.tipo === 'produto' ? 'Prazo de entrega' : 'Duração / prazo'}</label><input name="duracao" maxlength="80" value="${esc(x.duracao)}" placeholder="Ex.: 2 horas · fica pronto no mesmo dia"></div>
         <div class="campo"><label>Categoria <span class="rotulo">— opcional</span></label><input name="categoria" maxlength="60" value="${esc(x.categoria)}" list="cat-categorias" placeholder="Ex.: Serviços, Produtos, Pacotes"><datalist id="cat-categorias">${categorias.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="campo largo cat-cidades-editor">
+          <label>📍 Preço por cidade <span class="rotulo">— opcional</span> ${ajuda('O mesmo serviço com valor diferente conforme a cidade do cliente. Ex.: Petrópolis R$ 280. Fora das cidades da lista vale o preço de cima. A IA usa a cidade que o cliente disser na conversa; se ainda não souber, pergunta de onde ele é antes de passar o valor.')}</label>
+          <div id="cat-cidades-linhas"></div>
+          <button type="button" class="pequeno" id="cat-cidade-add">+ Adicionar cidade com outro preço</button>
+        </div>
         <div class="campo largo"><label>Detalhes para a IA usar ${ajuda('O que está incluso, materiais, cores, garantia, condições. Só o que for verdade: a IA usa isto para responder.')}</label><textarea name="descricao" maxlength="1500" style="min-height:90px" placeholder="Ex.: Couro legítimo, costura à mão, cores preto e caramelo, garantia de 1 ano.">${esc(x.descricao)}</textarea></div>
       </div>
       <div class="campo">
@@ -1825,6 +1831,18 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
     </form>`, (m, fechar) => {
     const qtd = () => { const q = $('#cat-qtd', m); if (q) q.textContent = escolhidas.size ? `· ${escolhidas.size} escolhida(s)` : ''; };
     qtd();
+    // 📍 linhas de preço por cidade
+    const linhasCidade = $('#cat-cidades-linhas', m);
+    const addCidade = (l = {}) => {
+      const div = document.createElement('div');
+      div.className = 'cat-cidade-linha';
+      div.innerHTML = `<input data-cid="cidades" maxlength="160" placeholder="Cidade(s) — ex.: Petrópolis, Itaipava" value="${esc(l.cidades || '')}"><input data-cid="preco" inputmode="decimal" placeholder="R$ 280,00" value="${esc(num(l.preco))}"><input data-cid="obs" maxlength="80" placeholder="obs. (opcional)" value="${esc(l.obs || '')}"><button type="button" class="pequeno perigo" title="Tirar esta cidade">✕</button>`;
+      div.querySelector('button').onclick = () => div.remove();
+      linhasCidade.append(div);
+      return div;
+    };
+    (x.precosCidade || []).forEach((l) => addCidade(l));
+    $('#cat-cidade-add', m).onclick = () => addCidade().querySelector('input').focus();
     // margem na hora, enquanto digita o preço e o custo
     const f = $('#f-cat', m);
     const margemViva = () => {
@@ -1840,7 +1858,12 @@ function editorCatalogo(id, emp, opcoes, item, depois) {
     $('#cat-busca-midia', m)?.addEventListener('input', (e) => { const t = e.target.value.toLowerCase(); $$('.opcao-midia', m).forEach((b) => { b.hidden = t && !b.dataset.busca.includes(t); }); });
     $('#f-cat', m).onsubmit = async (e) => {
       e.preventDefault();
-      const corpo = { ...formParaObjeto(e.target), midias: [...escolhidas] };
+      const precosCidade = $$('.cat-cidade-linha', m).map((d) => ({ cidades: d.querySelector('[data-cid=cidades]').value.trim(), preco: d.querySelector('[data-cid=preco]').value.trim(), obs: d.querySelector('[data-cid=obs]').value.trim() })).filter((l) => l.cidades || l.preco);
+      const semValor = precosCidade.find((l) => l.cidades && !l.preco && !l.obs);
+      if (semValor) return aviso(`Coloque o preço de ${semValor.cidades}.`, true);
+      const semCidade = precosCidade.find((l) => !l.cidades);
+      if (semCidade) return aviso('Escreva a cidade de cada preço por cidade.', true);
+      const corpo = { ...formParaObjeto(e.target), midias: [...escolhidas], precosCidade };
       try {
         await comEspera(e.submitter, () => api(item ? `empresas/${id}/catalogo/${item.id}` : `empresas/${id}/catalogo`, { method: item ? 'PUT' : 'POST', body: corpo }), 'Salvando…');
         fechar();
