@@ -1320,7 +1320,166 @@ async function paginaAgenda(id, params) {
       </footer>
     </article>`;
   };
+  // ações do cartão (na lista e no detalhe aberto do calendário)
+  const todosItens = () => [...d.proximos, ...d.passados, ...d.cancelados];
+  const recarregar = () => paginaAgenda(id, new URLSearchParams({ aba })).then(() => montarMenu(rotaEmpresa(id, 'agenda')));
+  const ligarAcoes = (raiz, aoTerminar = () => {}) => {
+    $$('[data-ag-fotos]', raiz).forEach((b) => {
+      b.onclick = () => {
+        const x = todosItens().find((y) => y.id === b.dataset.agFotos);
+        if (x?.fotos?.length) galeriaFotos(x.fotos, x.nome || telefoneBonito(x.telefone) || 'Cliente');
+      };
+    });
+    $$('[data-ag-excluir]', raiz).forEach((b) => {
+      b.onclick = async () => {
+        if (!(await excluirAgendamento(b.dataset.lead, b.dataset.agExcluir))) return;
+        aoTerminar();
+        recarregar();
+      };
+    });
+    $$('[data-ag-cancelar]', raiz).forEach((b) => {
+      b.onclick = async () => {
+        if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'Ele sai da agenda e o lead sai de "Agendou". Se o aviso de agendamento estiver ligado, o número cadastrado recebe o cancelamento. O cliente não recebe nada automático.', botao: 'Cancelar agendamento', perigo: true }))) return;
+        try { await api(`leads/${b.dataset.lead}/agendamentos/${b.dataset.agCancelar}`, { method: 'DELETE', body: {} }); aviso('Agendamento cancelado.'); aoTerminar(); recarregar(); } catch (err) { aviso(err.message, true); }
+      };
+    });
+    $$('[data-ag-valor]', raiz).forEach((b) => { b.onclick = () => { aoTerminar(); abrirValor(b.dataset.agValor); }; });
+  };
+
+  // 📅 Visualização: lista (como sempre foi) ou calendário de mês, semana e dia
+  const VISOES = [['lista', '📋 Lista'], ['mes', '📅 Mês'], ['semana', '🗓️ Semana'], ['dia', '☀️ Dia']];
+  let visao = 'lista';
+  try { visao = localStorage.getItem('ag-visao') || 'lista'; } catch { /* sem armazenamento */ }
+  if (!VISOES.some(([k]) => k === visao)) visao = 'lista';
+  let refDia = diaSp(new Date().toISOString());
+  let mostrarCancelados = false;
+  const somarDiasStr = (dia, n) => new Date(Date.parse(`${dia}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+  const diaDaSemana = (dia) => (new Date(`${dia}T12:00:00Z`).getUTCDay() + 6) % 7; // 0 = segunda
+  const dataTxt = (dia, o) => new Date(`${dia}T12:00:00Z`).toLocaleDateString('pt-BR', { timeZone: 'UTC', ...o });
+  const primeiroNome = (x) => String(x.nome || telefoneBonito(x.telefone) || 'Cliente').split(/\s+/)[0];
+  const horaTxt = (x) => (x.semHora ? 'a combinar' : sp(x.quando, { hour: '2-digit', minute: '2-digit' }));
+  const clsEvento = (x) => `cal-ev st-${STATUS(x)[0]}${x.modo === 'online' ? ' ev-online' : ''}`;
+  const doCalendario = () => [...d.proximos, ...d.passados, ...(mostrarCancelados ? d.cancelados : [])].filter((x) => x.quando && (tipo === 'todos' || x.modo === tipo));
+  const porDia = () => {
+    const m = new Map();
+    for (const x of doCalendario()) {
+      const k = diaSp(x.quando);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(x);
+    }
+    for (const l of m.values()) l.sort((a, b) => (Number(Boolean(a.semHora)) - Number(Boolean(b.semHora))) || (a.quando < b.quando ? -1 : 1));
+    return m;
+  };
+  const hojeK = () => diaSp(new Date().toISOString());
+  const tituloCal = () => {
+    if (visao === 'mes') return maiuscula(dataTxt(refDia, { month: 'long', year: 'numeric' }));
+    if (visao === 'semana') {
+      const ini = somarDiasStr(refDia, -diaDaSemana(refDia));
+      const fim = somarDiasStr(ini, 6);
+      return `${Number(ini.slice(8))}${ini.slice(5, 7) !== fim.slice(5, 7) ? ` de ${dataTxt(ini, { month: 'short' }).replace('.', '')}` : ''} – ${Number(fim.slice(8))} de ${dataTxt(fim, { month: 'short', year: 'numeric' }).replace('.', '')}`;
+    }
+    return maiuscula(dataTxt(refDia, { weekday: 'long', day: 'numeric', month: 'long' }));
+  };
+  const vistaMes = () => {
+    const mes = refDia.slice(0, 7);
+    const primeiro = `${mes}-01`;
+    const inicio = somarDiasStr(primeiro, -diaDaSemana(primeiro));
+    const mapa = porDia();
+    const celulas = [];
+    for (let i = 0; i < 42; i++) {
+      const dia = somarDiasStr(inicio, i);
+      if (i === 35 && dia.slice(0, 7) !== mes) break;
+      const evs = mapa.get(dia) || [];
+      celulas.push(`<div class="cal-dia ${dia.slice(0, 7) === mes ? '' : 'fora'} ${dia === hojeK() ? 'hoje' : ''}" data-cal-dia="${dia}" role="button" tabindex="0" aria-label="${esc(dataTxt(dia, { day: 'numeric', month: 'long' }))}: ${evs.length} agendamento(s)">
+        <span class="cal-num">${Number(dia.slice(8))}</span>
+        <div class="cal-dia-evs">${evs.slice(0, 3).map((x) => `<span class="${clsEvento(x)}" data-cal-ev="${esc(x.id)}" title="${esc(`${horaTxt(x)} · ${x.nome || ''} · ${x.descricao || ''}`)}"><b>${esc(horaTxt(x))}</b> ${esc(primeiroNome(x))}</span>`).join('')}${evs.length > 3 ? `<span class="cal-mais">+${evs.length - 3} mais</span>` : ''}</div>
+        ${evs.length ? `<span class="cal-pontos">${evs.slice(0, 4).map((x) => `<i class="${clsEvento(x)}"></i>`).join('')}${evs.length > 4 ? `<small>+${evs.length - 4}</small>` : ''}</span>` : ''}
+      </div>`);
+    }
+    return `<div class="cal-mes"><div class="cal-nomes">${['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((n) => `<span>${n}</span>`).join('')}</div><div class="cal-grade">${celulas.join('')}</div></div>`;
+  };
+  const PX_HORA = 56;
+  const vistaHoras = (dias) => {
+    const mapa = porDia();
+    const horaDe = (x) => { const [h, m] = sp(x.quando, { hour: '2-digit', minute: '2-digit', hour12: false }).split(':').map(Number); return { h: h % 24, m }; };
+    let h0 = 7;
+    let h1 = 21;
+    for (const dia of dias) for (const x of mapa.get(dia) || []) if (!x.semHora) { const { h } = horaDe(x); h0 = Math.min(h0, h); h1 = Math.max(h1, h + 1); }
+    const agora = new Date();
+    const { h: hAgora, m: mAgora } = horaDe({ quando: agora.toISOString() });
+    const cab = dias.map((dia) => `<button type="button" class="cal-col-titulo ${dia === hojeK() ? 'hoje' : ''}" data-cal-dia="${dia}"><span>${esc(dataTxt(dia, { weekday: 'short' }).replace('.', ''))}</span><b>${Number(dia.slice(8))}</b></button>`).join('');
+    const combinar = dias.map((dia) => `<div class="cal-dia-todo">${(mapa.get(dia) || []).filter((x) => x.semHora).map((x) => `<span class="${clsEvento(x)}" data-cal-ev="${esc(x.id)}">${esc(primeiroNome(x))}</span>`).join('')}</div>`).join('');
+    const temCombinar = dias.some((dia) => (mapa.get(dia) || []).some((x) => x.semHora));
+    const horas = Array.from({ length: h1 - h0 }, (_, i) => `<div class="cal-hora" style="height:${PX_HORA}px">${String(h0 + i).padStart(2, '0')}:00</div>`).join('');
+    const colunas = dias.map((dia) => {
+      const pos = (mapa.get(dia) || []).filter((x) => !x.semHora).map((x) => { const { h, m } = horaDe(x); return { x, ini: (h - h0) * 60 + m }; });
+      const blocos = pos.map((p) => {
+        const juntos = pos.filter((q) => Math.abs(q.ini - p.ini) < 60); // mesma hora: lado a lado
+        const i = juntos.indexOf(p);
+        const w = 100 / juntos.length;
+        return `<div class="${clsEvento(p.x)} cal-bloco" data-cal-ev="${esc(p.x.id)}" style="top:${(p.ini / 60) * PX_HORA}px;height:${PX_HORA - 4}px;left:calc(${i * w}% + 2px);width:calc(${w}% - 4px)"><b>${esc(horaTxt(p.x))}</b> <span>${esc(p.x.nome || telefoneBonito(p.x.telefone) || 'Cliente')}</span><small>${p.x.modo === 'online' ? '💻 ' : ''}${esc(p.x.descricao || '')}</small></div>`;
+      }).join('');
+      const linhaAgora = dia === hojeK() && hAgora >= h0 && hAgora < h1 ? `<div class="cal-agora" style="top:${((hAgora - h0) * 60 + mAgora) / 60 * PX_HORA}px"></div>` : '';
+      return `<div class="cal-col ${dia === hojeK() ? 'hoje' : ''}" style="height:${(h1 - h0) * PX_HORA}px;--px-hora:${PX_HORA}px">${blocos}${linhaAgora}</div>`;
+    }).join('');
+    return `<div class="cal-horas-rolagem"><div class="cal-horas ${dias.length === 1 ? 'um-dia' : ''}" style="--cols:${dias.length}">
+      <div class="cal-canto"></div>${cab}
+      ${temCombinar ? `<div class="cal-hora-rotulo">a combinar</div>${combinar}` : ''}
+      <div class="cal-horas-col">${horas}</div>${colunas}
+    </div></div>`;
+  };
+  // um agendamento do calendário: abre o cartão completo (com as ações de sempre)
+  const abrirEvento = (agId) => {
+    const x = todosItens().find((y) => y.id === agId);
+    if (!x) return;
+    abrirModal(`<div class="ag-modal-evento">${cartao(x)}</div><div class="acoes"><button type="button" data-fechar>Fechar</button></div>`, (m, fechar) => ligarAcoes(m, fechar));
+  };
+
   const desenhar = () => {
+    $$('.ag-abas').forEach((el) => { el.hidden = visao !== 'lista'; });
+    $('#cal-barra').innerHTML = `
+      <div class="chips cal-visoes">${VISOES.map(([k, r]) => `<button type="button" class="chip-filtro ${k === visao ? 'ativo' : ''}" data-ag-visao="${k}">${r}</button>`).join('')}</div>
+      ${visao === 'lista' ? '' : `<div class="cal-nav"><button type="button" class="pequeno" data-cal-nav="-1" aria-label="Anterior">‹</button><button type="button" class="pequeno" data-cal-hoje>Hoje</button><button type="button" class="pequeno" data-cal-nav="1" aria-label="Próximo">›</button><b>${esc(tituloCal())}</b></div>
+      <label class="linha-check cal-cancelados"><input type="checkbox" id="cal-cancelados" ${mostrarCancelados ? 'checked' : ''}> Mostrar cancelados</label>`}`;
+    $$('[data-ag-visao]').forEach((b) => { b.onclick = () => { visao = b.dataset.agVisao; try { localStorage.setItem('ag-visao', visao); } catch { /* sem armazenamento */ } desenhar(); }; });
+    $$('[data-cal-nav]').forEach((b) => {
+      b.onclick = () => {
+        const n = Number(b.dataset.calNav);
+        if (visao === 'mes') { const [a, m] = refDia.split('-').map(Number); const t = new Date(Date.UTC(a, m - 1 + n, 1)); refDia = t.toISOString().slice(0, 10); }
+        else refDia = somarDiasStr(refDia, visao === 'semana' ? 7 * n : n);
+        desenhar();
+      };
+    });
+    $('[data-cal-hoje]')?.addEventListener('click', () => { refDia = hojeK(); desenhar(); });
+    $('#cal-cancelados')?.addEventListener('change', (e) => { mostrarCancelados = e.target.checked; desenhar(); });
+
+    if (visao !== 'lista') {
+      const semData = [...d.proximos].filter((x) => !x.quando && (tipo === 'todos' || x.modo === tipo)).length;
+      let html = visao === 'mes' ? vistaMes() : visao === 'semana' ? vistaHoras(Array.from({ length: 7 }, (_, i) => somarDiasStr(refDia, i - diaDaSemana(refDia)))) : vistaHoras([refDia]);
+      if (visao === 'dia') {
+        const doDia = porDia().get(refDia) || [];
+        html += doDia.length ? `<section class="ag-grupo"><h3 class="ag-grupo-titulo ${refDia === hojeK() ? 'hoje' : ''}">${esc(tituloCal())} <span>${doDia.length}</span></h3><div class="ag-grade">${doDia.map(cartao).join('')}</div></section>` : '<p class="rotulo" style="margin:12px 0 0">Nenhum agendamento neste dia.</p>';
+      }
+      html += `<p class="rotulo cal-legenda"><i class="cal-ev st-agendado"></i> agendado <i class="cal-ev st-hoje"></i> hoje <i class="cal-ev st-neutro"></i> realizado <i class="cal-ev st-ok"></i> venda concluída <i class="cal-ev st-off"></i> cancelado/trocado${semData ? ` · ${semData} com "data a combinar" estão na <a href="#" data-ag-ir-lista>📋 Lista</a>` : ''}</p>`;
+      $('#ag-conteudo').innerHTML = html;
+      const area = $('#ag-conteudo');
+      area.onclick = (ev) => {
+        const e1 = ev.target.closest('[data-cal-ev]');
+        if (e1) { ev.stopPropagation(); return abrirEvento(e1.dataset.calEv); }
+        const lista = ev.target.closest('[data-ag-ir-lista]');
+        if (lista) { ev.preventDefault(); visao = 'lista'; aba = 'proximos'; desenhar(); return; }
+        const diaEl = ev.target.closest('[data-cal-dia]');
+        if (diaEl && visao !== 'dia') { refDia = diaEl.dataset.calDia; visao = 'dia'; desenhar(); }
+      };
+      area.onkeydown = (ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('[data-cal-dia]')) { ev.preventDefault(); ev.target.click(); } };
+      // só a grade rola até agora (ou o 1º agendamento): a página não pula
+      const rolagem = $('.cal-horas-rolagem');
+      const alvo = rolagem && ($('.cal-agora', rolagem) || $('.cal-bloco', rolagem));
+      if (alvo) rolagem.scrollTop = Math.max(0, alvo.offsetTop + alvo.offsetParent.offsetTop - rolagem.clientHeight / 3);
+      if (visao === 'dia') ligarAcoes($('#ag-conteudo'));
+      return;
+    }
+
     const itens = (d[aba] || []).filter((x) => tipo === 'todos' || x.modo === tipo);
     let html = '';
     if (!itens.length) html = `<div class="card vazio-grande"><div class="vazio-icone">📅</div><h2>${aba === 'proximos' ? 'Nenhum agendamento pela frente' : aba === 'passados' ? 'Nenhum agendamento passado' : 'Nenhum cancelado'}${tipo !== 'todos' ? ` (${tipo === 'online' ? 'online' : 'presencial'})` : ''}</h2><p class="rotulo">${aba === 'proximos' ? 'Quando você, a equipe ou a IA combinarem um horário com o cliente no WhatsApp, ele aparece aqui sozinho.' : ''}</p></div>`;
@@ -1333,25 +1492,9 @@ async function paginaAgenda(id, params) {
       }
       html = grupos.map((g) => `<section class="ag-grupo"><h3 class="ag-grupo-titulo ${g.k === hoje ? 'hoje' : ''}">${esc(g.titulo)} <span>${g.itens.length}</span></h3><div class="ag-grade">${g.itens.map(cartao).join('')}</div></section>`).join('');
     }
+    $('#ag-conteudo').onclick = null;
     $('#ag-conteudo').innerHTML = html;
-    $$('[data-ag-fotos]').forEach((b) => {
-      b.onclick = () => {
-        const x = itens.find((y) => y.id === b.dataset.agFotos);
-        if (x?.fotos?.length) galeriaFotos(x.fotos, x.nome || telefoneBonito(x.telefone) || 'Cliente');
-      };
-    });
-    $$('[data-ag-excluir]').forEach((b) => {
-      b.onclick = async () => {
-        if (!(await excluirAgendamento(b.dataset.lead, b.dataset.agExcluir))) return;
-        paginaAgenda(id, new URLSearchParams({ aba })).then(() => montarMenu(rotaEmpresa(id, 'agenda')));
-      };
-    });
-    $$('[data-ag-cancelar]').forEach((b) => {
-      b.onclick = async () => {
-        if (!(await confirmar({ titulo: 'Cancelar este agendamento?', texto: 'Ele sai da agenda e o lead sai de "Agendou". Se o aviso de agendamento estiver ligado, o número cadastrado recebe o cancelamento. O cliente não recebe nada automático.', botao: 'Cancelar agendamento', perigo: true }))) return;
-        try { await api(`leads/${b.dataset.lead}/agendamentos/${b.dataset.agCancelar}`, { method: 'DELETE', body: {} }); aviso('Agendamento cancelado.'); paginaAgenda(id, new URLSearchParams({ aba })).then(() => montarMenu(rotaEmpresa(id, 'agenda'))); } catch (err) { aviso(err.message, true); }
-      };
-    });
+    ligarAcoes($('#ag-conteudo'));
   };
   conteudo.innerHTML = `
     <div class="cabecalho"><div><h1>Agendamentos</h1><p class="sub">O que está marcado com os clientes — presencial ou online. Entra sozinho quando um horário é combinado no WhatsApp.</p></div><a class="botao" href="${rotaEmpresa(id, 'whatsapp')}">Aviso no WhatsApp</a></div>
@@ -1361,6 +1504,12 @@ async function paginaAgenda(id, params) {
       <div><span class="rotulo">Todos à frente</span><b>${d.resumo.proximos}</b></div>
     </div>
     <div class="card ag-previsao" id="ag-previsao"></div>
+    <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
+    ${modoEmp !== 'presencial' || temOnline ? `<div class="chips ag-tipos">${[['todos', 'Todos'], ['presencial', '📍 Presencial'], ['online', '💻 Online']].map(([k, r]) => `<button type="button" class="chip-filtro ${k === tipo ? 'ativo' : ''}" data-ag-tipo="${k}">${r}</button>`).join('')}</div>` : ''}
+    <div class="cal-barra" id="cal-barra"></div>
+    <div id="ag-conteudo"></div>
+    <details class="ag-config" id="ag-config">
+      <summary><b>⚙️ Configurações da agenda</b> <span class="rotulo">como você atende, agendamento automático e horários da IA</span></summary>
     <div class="card ag-tipo">
       <h2 style="margin:0 0 4px">🧭 Como você atende</h2>
       <p class="rotulo" style="margin:0 0 10px">Muda o que a IA pede antes de marcar. Online = videochamada, ligação, reunião ou serviço digital (site, design, consultoria, aula…): <b>nunca pede endereço</b>.</p>
@@ -1372,9 +1521,9 @@ async function paginaAgenda(id, params) {
       <p class="rotulo" style="margin:0">O CRM só marca sozinho quando ficar combinado <b>dia e horário</b> (pergunta como "atende hoje?" não marca) — pela IA, pelo cliente aceitando uma proposta, ou quando <b>você</b> confirma por mensagem ("agendado sábado às 9h").${d.regras?.exigeEndereco !== false ? ' Com esta opção ligada, também precisa do <b>endereço</b> do cliente na conversa (rua e número, CEP ou localização do WhatsApp); sem ele, a IA pede o endereço e você recebe um aviso. Agendar à mão ou pela etiqueta Agendado continua livre.' : ''}</p>
     </div>
     ${horas ? `<div class="card" id="card-horarios-ia"></div>` : ''}
-    <div class="chips ag-abas">${[['proximos', `Próximos (${d.proximos.length})`], ['passados', `Passados (${d.passados.length})`], ['cancelados', `Cancelados (${d.cancelados.length})`]].map(([k, r]) => `<button type="button" class="chip-filtro ${k === aba ? 'ativo' : ''}" data-ag-aba="${k}">${r}</button>`).join('')}</div>
-    ${modoEmp !== 'presencial' || temOnline ? `<div class="chips ag-tipos">${[['todos', 'Todos'], ['presencial', '📍 Presencial'], ['online', '💻 Online']].map(([k, r]) => `<button type="button" class="chip-filtro ${k === tipo ? 'ativo' : ''}" data-ag-tipo="${k}">${r}</button>`).join('')}</div>` : ''}
-    <div id="ag-conteudo"></div>`;
+    </details>`;
+  try { if (localStorage.getItem('ag-config-aberta') === '1') $('#ag-config').open = true; } catch { /* sem armazenamento */ }
+  $('#ag-config').addEventListener('toggle', (e) => { try { localStorage.setItem('ag-config-aberta', e.target.open ? '1' : '0'); } catch { /* sem armazenamento */ } });
   $$('[data-ag-tipo]').forEach((b) => { b.onclick = () => { tipo = b.dataset.agTipo; try { localStorage.setItem('ag-tipo', tipo); } catch { /* sem armazenamento */ } $$('[data-ag-tipo]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); }; });
   $$('[data-ag-modo]').forEach((b) => {
     b.onclick = async () => {
@@ -1426,10 +1575,8 @@ async function paginaAgenda(id, params) {
   };
   desenharPrevisao();
   // 💰 do card: colocar ou corrigir o valor (vazio = volta a ler da conversa)
-  $('#ag-conteudo').addEventListener('click', (ev) => {
-    const b = ev.target.closest('[data-ag-valor]');
-    if (!b) return;
-    const x = [...d.proximos, ...d.passados].find((y) => y.id === b.dataset.agValor);
+  function abrirValor(agId) {
+    const x = [...d.proximos, ...d.passados].find((y) => y.id === agId);
     if (!x) return;
     abrirModal(`
       <h2>💰 Valor do agendamento</h2>
@@ -1447,7 +1594,7 @@ async function paginaAgenda(id, params) {
       $('#f-valor-ag', m).onsubmit = (e) => { e.preventDefault(); const v = e.target.valor.value.trim(); if (!v) return aviso('Digite o valor.', true); enviar(v); };
       $('#valor-auto', m)?.addEventListener('click', () => enviar(null));
     });
-  });
+  }
   desenhar();
   if (horas) desenharHorariosIa(id, horas);
 }
