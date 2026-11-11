@@ -126,6 +126,8 @@ diagnostico() {
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-gasto-30d.js 2>&1 | head -n 40 || true
   echo "    Instâncias na Evolution (estado, desconexão, qual empresa usa; sem chaves nem números):"
   CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" EVOLUTION_API_KEY="$(ler_env EVOLUTION_API_KEY .env)" timeout 40 node deploy/diagnostico-evolution.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 40 || true
+  echo "    Recebimento: o que chegou no WhatsApp × o que entrou no CRM (sem texto nem número):"
+  CRM_DB_PATH="$DB_CRM" EVOLUTION_API_URL="$(ler_env EVOLUTION_API_URL .env)" PUBLIC_URL="$(ler_env PUBLIC_URL .env)" timeout 90 node deploy/diagnostico-recebimento.js 2>&1 | sed -E 's/[0-9]{10,}/[núm]/g' | head -n 60 || true
   echo "    Últimas mensagens que saíram por empresa (3 h, sem texto):"
   CRM_DB_PATH="$DB_CRM" timeout 30 node deploy/diagnostico-saidas.js 2>&1 | head -n 40 || true
   echo "    Testes de disparo e respostas recentes da LEADS (anônimo):"
