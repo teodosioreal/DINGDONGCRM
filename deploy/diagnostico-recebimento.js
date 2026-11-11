@@ -27,6 +27,13 @@ async function chamar(base, chave, metodo, caminho, corpo) {
       const wh = w.j?.webhook || w.j || {};
       const ev = (wh.events || []).map((x) => String(x).toUpperCase());
       const nosso = wh.url ? (urlPublica && wh.url.startsWith(`${urlPublica}/api/public/whatsapp/${e.id}/`) ? 'deste CRM' : 'OUTRO endereço') : 'NENHUM';
+      if (wh.url && nosso !== 'deste CRM') {
+        // por que não bate (sem mostrar o endereço nem o segredo): protocolo, host, caminho
+        let a = null, b = null;
+        try { a = new URL(wh.url); b = new URL(urlPublica || 'http://x'); } catch {}
+        const forma = (u) => (u ? u.pathname.split('/').map((p) => (p.length > 14 ? '<código>' : p)).join('/') : '?');
+        console.log(`        webhook × CRM: protocolo ${a?.protocol || '?'} × ${b?.protocol || '?'} · mesmo host ${a && b && a.host === b.host ? 'sim' : 'NÃO'} · caminho do webhook ${forma(a)} · caminho do CRM ${forma(b)} · tem o id desta empresa ${wh.url.includes(e.id) ? 'sim' : 'NÃO'} · tem o segredo desta empresa ${c.segredo && wh.url.includes(c.segredo) ? 'sim' : 'NÃO'}`);
+      }
       console.log(`      Empresa ${n + 1}: webhook HTTP ${w.status} · ${nosso} · ligado ${wh.enabled !== false ? 'sim' : 'NÃO'} · MESSAGES_UPSERT ${ev.includes('MESSAGES_UPSERT') ? 'sim' : 'NÃO'} · eventos ${ev.length}`);
       const cs = await chamar(base, c.apiKey, 'GET', `/instance/connectionState/${inst}`);
       console.log(`        conexão: HTTP ${cs.status} · ${cs.j?.instance?.state || cs.j?.state || '?'}`);

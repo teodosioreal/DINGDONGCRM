@@ -715,8 +715,26 @@ async function enviarMidia(empresa, destino, midia, legenda = '') {
 
 // ---------------------------------------------------------------- mensagens recebidas
 
+// Mensagens "embrulhadas" (temporária, visualização única, editada…): o conteúdo de verdade
+// fica dentro. Desembrulha no próprio msg, assim o download do anexo também acha a foto/áudio.
+const EMBRULHOS = ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'documentWithCaptionMessage', 'editedMessage', 'deviceSentMessage', 'botInvokeMessage', 'groupMentionedMessage'];
+function desembrulhar(msg) {
+  for (let i = 0; i < 4 && msg?.message; i++) {
+    const k = EMBRULHOS.find((x) => msg.message[x]?.message);
+    if (!k) break;
+    if (k === 'documentWithCaptionMessage') break; // já tratado abaixo (formato conhecido)
+    msg.message = { ...msg.message[k].message, messageContextInfo: msg.message.messageContextInfo };
+  }
+  return msg;
+}
+
 function textoDa(msg) {
+  desembrulhar(msg);
   const m = msg.message || {};
+  // o que não é conversa: reação, aviso interno do WhatsApp, "álbum" (só o envelope; as fotos chegam uma a uma)
+  if (m.reactionMessage || m.protocolMessage || m.albumMessage || m.senderKeyDistributionMessage && Object.keys(m).every((k) => /senderKeyDistributionMessage|messageContextInfo/.test(k))) return '';
+  const produto = m.productMessage?.product;
+  const pedido = m.orderMessage;
   const texto =
     m.conversation ||
     m.extendedTextMessage?.text ||
@@ -727,6 +745,16 @@ function textoDa(msg) {
     m.buttonsResponseMessage?.selectedDisplayText ||
     m.listResponseMessage?.title ||
     m.templateButtonReplyMessage?.selectedDisplayText ||
+    m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    m.interactiveResponseMessage?.body?.text ||
+    m.templateMessage?.hydratedTemplate?.hydratedContentText ||
+    m.templateMessage?.hydratedFourRowTemplate?.hydratedContentText ||
+    m.buttonsMessage?.contentText ||
+    m.interactiveMessage?.body?.text ||
+    m.pollCreationMessage?.name ||
+    m.pollCreationMessageV3?.name ||
+    m.eventMessage?.name ||
+    m.ptvMessage?.caption ||
     '';
   const anexo = m.imageMessage
     ? '[o cliente enviou uma imagem]'
@@ -740,9 +768,19 @@ function textoDa(msg) {
             ? '[o cliente enviou uma figurinha]'
             : m.locationMessage
               ? '[o cliente enviou uma localização]'
-              : m.contactMessage
+              : m.contactMessage || m.contactsArrayMessage
                 ? '[o cliente enviou um contato]'
-                : '';
+                : m.liveLocationMessage
+                  ? '[o cliente enviou a localização em tempo real]'
+                  : m.ptvMessage
+                    ? '[o cliente enviou um vídeo]'
+                    : produto
+                      ? `[o cliente enviou um produto do catálogo: ${[produto.title, produto.priceAmount1000 ? `R$ ${(Number(produto.priceAmount1000) / 1000).toFixed(2).replace('.', ',')}` : ''].filter(Boolean).join(' · ') || 'produto'}]${produto.description ? ` ${String(produto.description).slice(0, 300)}` : ''}`
+                      : pedido
+                        ? `[o cliente enviou um pedido do catálogo${pedido.itemCount ? ` com ${pedido.itemCount} item(ns)` : ''}${pedido.orderTitle ? `: ${pedido.orderTitle}` : ''}]${pedido.message ? ` ${pedido.message}` : ''}`
+                        : m.pollCreationMessage || m.pollCreationMessageV3
+                          ? '[o cliente criou uma enquete]'
+                          : '';
   return [anexo, texto].filter(Boolean).join(' ').trim();
 }
 
@@ -2415,6 +2453,7 @@ module.exports = {
   numerosDeTeste,
   evolucao: evolution,
   textoDa,
+  desembrulhar,
   acharOuCriarLead,
   enviarRespostaRapida,
   respostaPorAtalho,
