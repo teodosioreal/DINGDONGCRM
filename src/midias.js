@@ -713,6 +713,9 @@ function codigosCitados(empresa, texto) {
 // um código que não existe. O painel mostra cada trecho e ajuda a CONECTAR a mídia certa:
 // o CRM coloca o código #MIDIA_ certo no prompt.
 const FALA_DE_MIDIA = /\b(fotos?|imagens?|v[ií]deos?|[áa]udios?|pdfs?|cat[áa]logos?|tabelas?( de pre[cç]os?)?|portf[óo]lios?|card[áa]pios?|apresenta[cç](?:[ãa]o|[õo]es)|antes e depois|prints?|[áa]lbu(?:m|ns)|folders?|panfletos?|or[cç]amento em pdf)\b/i;
+// Frase que PROÍBE ou só fala de mídia já enviada ("nunca envie foto do aro", "não mande vídeo",
+// "se o vídeo já foi enviado…"): não é pedido de envio — nunca ganha código de mídia
+const NAO_ENVIAR = /\b(nunca|jamais|proibid\w*|evite|n[ãa]o\s+(?:\w+\s+){0,2}(?:envi|mand|mostr|us|pass)\w*|j[áa]\s+(?:foi|foram)\s+(?:envi|mand|mostr)\w*|nem\s+(?:foto|v[ií]deo|imagem|m[ií]dia))/i;
 const VERBO_ENVIAR = /\b(mand\w*|envi\w*|mostr\w*|pass\w*|compartilh\w*|segue|seguem|apresent\w*|exib\w*|disponibiliz\w*)\b/i;
 const PALAVRAS_VAZIAS = new Set('para quando cliente clientes pedir perguntar pergunta sobre como mande manda mandar envie enviar envia mostre mostrar depois antes sempre voce você ele ela isso esse essa este esta que com sem uma umas uns dos das nos nas pelo pela tambem também entao então foto fotos video videos vídeo vídeos audio audios áudio áudios imagem imagens midia mídia midias mídias'.split(' '));
 const tokens = (t) => new Set(limpar(t).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3 && !PALAVRAS_VAZIAS.has(w)));
@@ -766,7 +769,7 @@ function pendenciasDoPrompt(empresa) {
           }
           continue;
         }
-        if (!FALA_DE_MIDIA.test(trecho) || !VERBO_ENVIAR.test(trecho)) continue;
+        if (!FALA_DE_MIDIA.test(trecho) || !VERBO_ENVIAR.test(trecho) || NAO_ENVIAR.test(trecho)) continue;
         const id = idPendencia(bot.id, campo, trecho);
         if (ignoradas.has(id)) continue;
         if (campo === 'promptWhatsapp' && conexaoCerta(empresa, trecho)) continue; // a IA já recebe com o código certo
@@ -856,7 +859,7 @@ function instrucoesComMidias(empresa, texto, botId = '') {
           conectadas.push({ trecho, codigo: certa.codigoVisivel, nome: certa.nome, trocou: c.escrito });
         }
       }
-    } else if (FALA_DE_MIDIA.test(trecho) && VERBO_ENVIAR.test(trecho) && !ignoradas.has(idPendencia(botId, 'promptWhatsapp', trecho))) {
+    } else if (FALA_DE_MIDIA.test(trecho) && VERBO_ENVIAR.test(trecho) && !NAO_ENVIAR.test(trecho) && !ignoradas.has(idPendencia(botId, 'promptWhatsapp', trecho))) {
       const certa = conexaoCerta(empresa, trecho);
       if (certa) {
         novo = trecho.replace(/\s*([.!?;:]*)$/, (_, pont) => ` (mídia ${certa.codigoVisivel})${pont}`);
