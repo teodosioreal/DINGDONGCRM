@@ -5,7 +5,7 @@
 // (deploy), o webhook ficou com endereço antigo… A Evolution guarda as mensagens
 // no banco dela, então o CRM busca o que falta e completa as conversas:
 //   - quando o WhatsApp conecta de novo (e ao conectar pelo painel): últimos 7 dias;
-//   - ao ligar o CRM e a cada 20 minutos: desde a última busca (até 2 dias);
+//   - ao ligar o CRM e a cada 5 minutos: desde a última busca (até 2 dias);
 //   - no botão "Buscar mensagens do WhatsApp": 1, 7 ou 30 dias;
 //   - o histórico que o WhatsApp manda ao reconectar (MESSAGES_SET) também entra.
 // Mensagens importadas NÃO fazem a IA responder nem disparam automações: só
@@ -17,7 +17,8 @@ const { estado, salvar, agora } = require('./db');
 
 const MAX_CONVERSAS = 400;
 const MAX_PAGINAS = 10; // 10 × 50 mensagens por conversa
-const A_CADA_MS = Number(process.env.SINCRONIA_MS) || 20 * 60 * 1000;
+// 5 min: mensagem que o webhook perdeu aparece no painel em poucos minutos (antes eram 20)
+const A_CADA_MS = Number(process.env.SINCRONIA_MS) || 5 * 60 * 1000;
 const rodando = new Set(); // empresaId
 const RECENTE_MS = Number(process.env.SINCRONIA_RECENTE_MS) || 15 * 60 * 1000;
 
