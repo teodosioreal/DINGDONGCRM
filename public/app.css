@@ -2103,3 +2103,17 @@ html.dark .cal-ev { --ev-fundo: color-mix(in srgb, var(--ev) 22%, transparent); 
 .ag-config { margin-top: 20px; }
 .ag-config > summary { cursor: pointer; padding: 12px 16px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .ag-config[open] > summary { margin-bottom: 12px; }
+
+/* ---------------------------------------------------------------- 📅 Puxar agendamento */
+.chat-ferramentas .puxar-agenda { background: var(--acento-suave); color: var(--acento-texto); border-color: transparent; font-weight: 600; }
+.chat-ferramentas .puxar-agenda:hover { filter: brightness(.97); }
+.puxar-agenda-modal { width: min(560px, 100%); }
+.pa-lista { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; max-height: min(60vh, 520px); overflow-y: auto; padding-right: 2px; }
+.pa-item { border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px; background: var(--superficie-2); }
+.pa-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.pa-titulo { font-size: 14px; }
+.pa-texto { font-size: 13px; line-height: 1.45; color: var(--texto); background: var(--superficie); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; white-space: normal; overflow-wrap: anywhere; }
+.pa-acoes { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.pa-editando textarea { width: 100%; min-height: 70px; margin: 6px 0; box-sizing: border-box; }
+.pa-editando select { width: 100%; box-sizing: border-box; }
+.pa-editando .linha-editavel input { flex: 1; min-width: 0; }

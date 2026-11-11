@@ -496,6 +496,7 @@ function empresaComExtras(e, req) {
     links: midias.linksDa(e),
     drivePastas: midias.pastasDa(e),
     respostasRapidas: e.respostasRapidas || [],
+    mensagensAgendamento: require('./mensagens-agendamento').daEmpresa(e), // 📅 Puxar agendamento
     atalhosNoCelular: e.atalhosNoCelular !== false,
     naoLidas: estado.conversas.reduce((n, c) => n + (c.empresaId === e.id ? c.naoLidas || 0 : 0), 0),
     followupAtivo: e.followup?.ativo === true,
@@ -3107,6 +3108,40 @@ router.post('/leads/:id/resposta-rapida', async (req, res) => {
   if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
   try {
     await whatsapp.enviarRespostaRapida(empresa, c, { ...resposta, texto: req.body?.texto !== undefined ? texto(req.body.texto, 4000) : resposta.texto });
+    whatsapp.pausarPorMensagemManual(empresa, c, 'A equipe respondeu pelo painel');
+    manterIa(c, caixinha(req.body?.manterIa));
+    res.json(resumoLead(c));
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? 400 : 502).json({ erro: err.message });
+  }
+});
+
+// 📅 Puxar agendamento: as mensagens prontas da empresa
+router.put('/empresas/:id/mensagens-agendamento', (req, res) => {
+  const empresa = acharEmpresa(req, res);
+  if (!empresa) return;
+  const resolver = (pedido) => {
+    const achado = midias.resolverPedido(empresa, pedido);
+    return achado?.itens.length ? achado.alvo.codigo || pedido : '';
+  };
+  empresa.mensagensAgendamento = require('./mensagens-agendamento').normalizar(req.body?.mensagens, resolver, novoId);
+  salvar();
+  res.json(empresa.mensagensAgendamento);
+});
+
+// 📅 Manda uma mensagem pronta de agendamento (o painel já trocou {nome}/{saudacao})
+router.post('/leads/:id/mensagem-agendamento', async (req, res) => {
+  const c = acharLead(req, res);
+  if (!c) return;
+  const empresa = estado.empresas.find((e) => e.id === c.empresaId);
+  const msg = require('./mensagens-agendamento').daEmpresa(empresa).find((x) => x.id === req.body?.id);
+  if (!msg) return res.status(404).json({ erro: 'Mensagem não encontrada. Recarregue a página.' });
+  if (c.listaNegra) return res.status(400).json({ erro: 'Este cliente está na lista negra.' });
+  if (!whatsapp.destinoDoLead(c)) return res.status(400).json({ erro: 'Este lead não tem WhatsApp.' });
+  const textoFinal = req.body?.texto !== undefined ? texto(req.body.texto, 4000) : msg.texto;
+  if (!textoFinal.trim() && !msg.midia) return res.status(400).json({ erro: 'A mensagem está vazia.' });
+  try {
+    await whatsapp.enviarRespostaRapida(empresa, c, { atalho: `agendamento: ${msg.titulo}`, texto: textoFinal, midia: msg.midia });
     whatsapp.pausarPorMensagemManual(empresa, c, 'A equipe respondeu pelo painel');
     manterIa(c, caixinha(req.body?.manterIa));
     res.json(resumoLead(c));

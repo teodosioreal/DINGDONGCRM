@@ -7006,11 +7006,12 @@ async function paginaConversas(id, params) {
         <div class="chat-ferramentas">
           <label class="botao pequeno" title="Enviar foto, vídeo, áudio ou PDF do computador — ou arraste os arquivos para a conversa, ou cole com Ctrl+V">📎 Arquivo<input type="file" id="chat-arquivo" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"></label>
           <button type="button" class="pequeno" id="chat-biblioteca" title="Mídias e álbuns cadastrados">🖼️ Mídias</button>
+          <button type="button" class="pequeno puxar-agenda" id="chat-puxar-agenda" title="Mensagens prontas para levar o cliente a agendar — um clique e vai">📅 Puxar agendamento</button>
           <button type="button" class="pequeno" id="chat-rapidas" title="Respostas prontas (ou digite /)">⚡ Respostas</button>
           <button type="button" class="pequeno" id="chat-reiniciar-ia" title="A IA esquece o que leu desta conversa e começa do zero a partir da próxima mensagem">🔄 Reiniciar aprendizado da conversa</button>
           <button type="button" class="pequeno" id="chat-agendar" title="Mandar uma mensagem mais tarde">🕒 Mandar depois</button>
           ${l.vendaConcluida ? '<button type="button" class="pequeno" id="chat-venda" title="Lançar outra venda deste cliente (compra repetida)">➕ Outra venda</button>' : ''}
-          <button type="button" class="pequeno" id="chat-agendamento" title="Marcar agendamento com o cliente">📅 Agendamento</button>
+          <button type="button" class="pequeno" id="chat-agendamento" title="Marcar o agendamento na agenda do CRM">🗓️ Marcar na agenda</button>
         </div>
         <div class="rapida-pendente" id="rapida-pendente" hidden></div>
         <div class="chat-linha">
@@ -7198,7 +7199,7 @@ async function paginaConversas(id, params) {
     const mostrarPendente = () => {
       const el = $('#rapida-pendente');
       el.hidden = !pendente;
-      el.innerHTML = pendente ? `⚡ <b>/${esc(pendente.atalho)}</b> vai com 📎 <b>${esc(pendente.midia)}</b> <button type="button" class="link-botao" id="tirar-pendente">tirar</button>` : '';
+      el.innerHTML = pendente ? `${pendente.agendamento ? `📅 <b>${esc(pendente.titulo)}</b>` : `⚡ <b>/${esc(pendente.atalho)}</b>`} vai com 📎 <b>${esc(pendente.midia)}</b> <button type="button" class="link-botao" id="tirar-pendente">tirar</button>` : '';
       $('#tirar-pendente')?.addEventListener('click', () => { pendente = null; mostrarPendente(); });
     };
     const escolherRapida = (r) => {
@@ -7233,7 +7234,7 @@ async function paginaConversas(id, params) {
       if (pendente) {
         const r = pendente;
         try {
-          await comEspera($('#chat-enviar'), () => api(`leads/${abertoId}/resposta-rapida`, { method: 'POST', body: { id: r.id, texto: t, manterIa: $('#chat-manter-ia')?.checked } }), 'Enviando…');
+          await comEspera($('#chat-enviar'), () => api(`leads/${abertoId}/${r.agendamento ? 'mensagem-agendamento' : 'resposta-rapida'}`, { method: 'POST', body: { id: r.id, texto: t, manterIa: $('#chat-manter-ia')?.checked } }), 'Enviando…');
           campo.value = '';
           pendente = null;
           mostrarPendente();
@@ -7363,6 +7364,24 @@ async function paginaConversas(id, params) {
       });
     };
     $('#chat-rapidas').onclick = () => modalRespostasRapidas(emp, escolherRapida);
+    $('#chat-puxar-agenda').onclick = () =>
+      modalPuxarAgendamento(emp, leadAberto, {
+        // "Editar antes": vai para a caixa de texto (com a mídia junto, se tiver)
+        editar: (msg, textoPronto) => {
+          campo.value = textoPronto;
+          pendente = msg.midia ? { ...msg, agendamento: true } : null;
+          mostrarPendente();
+          ajustarAltura();
+          campo.focus();
+        },
+        // "Enviar agora": manda direto
+        enviar: async (msg, textoPronto) => {
+          await api(`leads/${abertoId}/mensagem-agendamento`, { method: 'POST', body: { id: msg.id, texto: textoPronto, manterIa: $('#chat-manter-ia')?.checked } });
+          aviso('Mensagem enviada.');
+          await recarregarAberto();
+          carregarLista();
+        }
+      });
     const recarregarJa = () => { assinaturaAberta = ''; recarregarAberto(); carregarLista(); };
     $('#chat-venda')?.addEventListener('click', () => modalVenda({ id }, null, abertoId, recarregarJa, { cliente: leadAberto.nome }));
     $('#chat-agendamento').onclick = () => modalAgendamento(abertoId, recarregarJa);
@@ -7446,6 +7465,96 @@ async function paginaConversas(id, params) {
     carregarLista().catch(() => {});
     recarregarAberto().catch(() => {});
   }, 4000);
+}
+
+// ---------------------------------------------------------------- 📅 Puxar agendamento
+// Mensagens prontas para levar o cliente a agendar. {nome}, {saudacao} e {empresa} viram o
+// nome do cliente, "Bom dia/Boa tarde/Boa noite" e o nome da empresa.
+function preencherAgendamento(texto, lead, emp) {
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  const nomeLead = String(lead?.nome || '').trim();
+  const primeiro = nomeLead && !/\d{4,}/.test(nomeLead) ? nomeLead.split(/\s+/)[0] : '';
+  let t = String(texto || '');
+  t = primeiro ? t.replace(/\{nome\}/gi, primeiro) : t.replace(/[,\s]*\{nome\}/gi, ''); // sem nome: "Agendado, {nome}!" → "Agendado!"
+  return t.replace(/\{sauda[cç][aã]o\}/gi, saudacao).replace(/\{empresa\}/gi, emp?.nome || '').trim();
+}
+
+async function modalPuxarAgendamento(emp, lead, { editar, enviar }) {
+  let configurando = false;
+  let lista = (emp.mensagensAgendamento || []).map((x) => ({ ...x }));
+  let opcoesMidia = null;
+  const carregarMidias = async () => {
+    if (opcoesMidia) return;
+    const [todas, albuns] = await Promise.all([api(`empresas/${emp.id}/midias`).catch(() => []), api(`empresas/${emp.id}/albuns`).catch(() => [])]);
+    opcoesMidia = [
+      ...albuns.filter((a) => a.quantidade).map((a) => ({ nome: a.codigo, rotulo: `🗂️ ${a.nome} (álbum) · ${codNum(a)}` })),
+      ...todas.filter((m) => !m.pastaId).map((m) => ({ nome: m.codigo, rotulo: `${ICONE_TIPO[m.tipo] || '📎'} ${m.nome} · ${codNum(m)}` }))
+    ];
+  };
+  const nomeMidia = (cod) => (opcoesMidia || []).find((o) => o.nome === cod)?.rotulo || cod;
+  abrirModal(`<div id="puxar-agenda" class="puxar-agenda-modal"></div>`, (m, fechar) => {
+    const caixa = $('#puxar-agenda', m);
+    const desenharLista = () => {
+      caixa.innerHTML = `
+        <h2>📅 Puxar agendamento</h2>
+        <p class="rotulo" style="margin-top:-6px">Para <b>${esc(nomeDoLead(lead))}</b> · clique em <b>Enviar</b> e a mensagem vai na hora, ou em <b>Editar</b> para mudar antes.</p>
+        <div class="pa-lista">${lista.map((x, i) => `
+          <div class="pa-item">
+            <div class="pa-topo"><b class="pa-titulo">${i + 1}. ${esc(x.titulo)}</b>${x.midia ? `<span class="codigo-chip" title="Vai junto">📎 ${esc(codMidia(x.midia))}</span>` : ''}</div>
+            <div class="pa-texto">${esc(preencherAgendamento(x.texto, lead, emp)).replace(/\n/g, '<br>') || '<span class="rotulo">(só a mídia)</span>'}</div>
+            <div class="pa-acoes"><button type="button" class="primario pequeno" data-pa-enviar="${i}">Enviar</button><button type="button" class="pequeno" data-pa-editar="${i}">✏️ Editar antes</button></div>
+          </div>`).join('') || '<p class="rotulo">Nenhuma mensagem ainda. Clique em ⚙️ Configurar mensagens.</p>'}</div>
+        <div class="acoes"><button type="button" id="pa-config">⚙️ Configurar mensagens</button><button type="button" data-fechar>Fechar</button></div>`;
+      $$('[data-fechar]', caixa).forEach((b) => (b.onclick = fechar));
+      $('#pa-config', caixa).onclick = async () => { configurando = true; await carregarMidias(); desenharConfig(); };
+      $$('[data-pa-editar]', caixa).forEach((b) => {
+        b.onclick = () => { const x = lista[Number(b.dataset.paEditar)]; editar(x, preencherAgendamento(x.texto, lead, emp)); fechar(); };
+      });
+      $$('[data-pa-enviar]', caixa).forEach((b) => {
+        b.onclick = async () => {
+          const x = lista[Number(b.dataset.paEnviar)];
+          try {
+            await comEspera(b, () => enviar(x, preencherAgendamento(x.texto, lead, emp)), 'Enviando…');
+            fechar();
+          } catch (err) { aviso(err.message, true); }
+        };
+      });
+    };
+    const desenharConfig = () => {
+      caixa.innerHTML = `
+        <h2>⚙️ Mensagens para puxar agendamento</h2>
+        ${balao('Escreva uma vez, use em todos os clientes', 'Coloque na ordem em que você costuma mandar. No texto, use <b>{nome}</b> (primeiro nome do cliente), <b>{saudacao}</b> (bom dia / boa tarde / boa noite, pela hora) e <b>{empresa}</b>. Se o cliente não tiver nome, o {nome} some sozinho. Vale para toda a empresa.')}
+        <div class="pa-lista">${lista.map((x, i) => `
+          <div class="pa-item pa-editando">
+            <div class="linha-editavel"><b class="rotulo">${i + 1}.</b><input data-pa-titulo="${i}" value="${esc(x.titulo)}" placeholder="Nome do botão (ex.: Perguntar o dia)" maxlength="60">
+              <button type="button" class="pequeno" data-pa-subir="${i}" title="Subir" ${i ? '' : 'disabled'}>↑</button><button type="button" class="pequeno" data-pa-descer="${i}" title="Descer" ${i < lista.length - 1 ? '' : 'disabled'}>↓</button><button type="button" class="pequeno perigo" data-pa-tirar="${i}" title="Tirar">✕</button></div>
+            <textarea data-pa-texto="${i}" placeholder="Mensagem (ex.: {saudacao}, {nome}! Qual o melhor dia pra você?)" maxlength="2000">${esc(x.texto)}</textarea>
+            <select data-pa-midia="${i}"><option value="">Sem mídia</option>${(opcoesMidia || []).map((o) => `<option value="${esc(o.nome)}" ${o.nome === x.midia ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}${x.midia && !(opcoesMidia || []).some((o) => o.nome === x.midia) ? `<option value="${esc(x.midia)}" selected>${esc(nomeMidia(x.midia))}</option>` : ''}</select>
+          </div>`).join('') || '<p class="rotulo">Nenhuma mensagem. Clique em + Nova mensagem.</p>'}</div>
+        <div class="acoes"><button type="button" id="pa-add">+ Nova mensagem</button><button type="button" class="primario" id="pa-salvar">Salvar</button><button type="button" id="pa-voltar">Voltar sem salvar</button></div>`;
+      const ligar = (attr, fn) => $$(`[data-${attr}]`, caixa).forEach((el) => fn(el, Number(el.getAttribute(`data-${attr}`))));
+      ligar('pa-titulo', (el, i) => (el.oninput = () => { lista[i].titulo = el.value; }));
+      ligar('pa-texto', (el, i) => (el.oninput = () => { lista[i].texto = el.value; }));
+      ligar('pa-midia', (el, i) => (el.onchange = () => { lista[i].midia = el.value; }));
+      ligar('pa-tirar', (el, i) => (el.onclick = () => { lista.splice(i, 1); desenharConfig(); }));
+      ligar('pa-subir', (el, i) => (el.onclick = () => { [lista[i - 1], lista[i]] = [lista[i], lista[i - 1]]; desenharConfig(); }));
+      ligar('pa-descer', (el, i) => (el.onclick = () => { [lista[i + 1], lista[i]] = [lista[i], lista[i + 1]]; desenharConfig(); }));
+      $('#pa-add', caixa).onclick = () => { lista.push({ titulo: '', texto: '', midia: '' }); desenharConfig(); $$('[data-pa-titulo]', caixa).pop()?.focus(); };
+      $('#pa-voltar', caixa).onclick = () => { lista = (emp.mensagensAgendamento || []).map((x) => ({ ...x })); configurando = false; desenharLista(); };
+      $('#pa-salvar', caixa).onclick = async (ev) => {
+        if (lista.some((x) => !String(x.texto || '').trim() && !x.midia)) return aviso('Tem mensagem vazia: escreva o texto (ou escolha uma mídia) ou tire ela com ✕.', true);
+        try {
+          emp.mensagensAgendamento = await comEspera(ev.target, () => api(`empresas/${emp.id}/mensagens-agendamento`, { method: 'PUT', body: { mensagens: lista } }), 'Salvando…');
+          lista = emp.mensagensAgendamento.map((x) => ({ ...x }));
+          aviso('Mensagens salvas.');
+          configurando = false;
+          desenharLista();
+        } catch (err) { aviso(err.message, true); }
+      };
+    };
+    desenharLista();
+  });
 }
 
 async function modalRespostasRapidas(emp, aoEscolher) {
